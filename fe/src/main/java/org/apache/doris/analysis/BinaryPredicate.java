@@ -132,19 +132,26 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-
+    // It is for null's operator "<=>"
+    private boolean isSafeForNull = false;
+    
     // for restoring
     public BinaryPredicate() {
         super();
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
+        this(op, e1, e2, false);
+    }
+
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, boolean isSafeForNull) {
         super();
         this.op = op;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+        this.isSafeForNull = isSafeForNull;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -368,6 +375,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false; 
             return getChild(0);
@@ -507,9 +515,16 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (first instanceof NullLiteral || second instanceof NullLiteral) {
+        final boolean isFirstNull = (first instanceof NullLiteral);
+        final boolean isSecondNull = (second instanceof NullLiteral);
+        if (isFirstNull && isSecondNull && isSafeForNull) {
+            return new BoolLiteral(true);
+        } else if ((isFirstNull || isSecondNull) && isSafeForNull) {
+            return new BoolLiteral(false);
+        } else if ((isFirstNull || isSecondNull) && !isSafeForNull) {
             return new NullLiteral();
         }
+            
 
         final int compareResult = first.compareLiteral(second);
         switch(op) {
