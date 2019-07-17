@@ -258,6 +258,12 @@ public class OlapTable extends Table {
         return null;
     }
 
+    // this is only for schema change.
+    public void renameIndexForSchemaChange(String name, String newName) {
+        long idxId = indexNameToId.remove(name);
+        indexNameToId.put(newName, idxId);
+    }
+
     public Status resetIdsForRestore(Catalog catalog, Database db, int restoreReplicationNum) {
         // table id
         id = catalog.getNextId();

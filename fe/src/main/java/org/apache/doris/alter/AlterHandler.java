@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentTask;
@@ -313,7 +314,7 @@ public abstract class AlterHandler extends Daemon {
      * entry function. handle alter ops 
      */
     public abstract void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
-            throws DdlException;
+            throws UserException;
 
     /*
      * cancel alter ops

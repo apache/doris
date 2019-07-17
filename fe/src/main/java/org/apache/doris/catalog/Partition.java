@@ -181,6 +181,11 @@ public class Partition extends MetaObject implements Writable {
         return baseIndex;
     }
 
+    // this is now only for schema change job
+    public void setBaseIndex(MaterializedIndex baseIndex) {
+        this.baseIndex = baseIndex;
+    }
+
     public long getNextVersion() {
         return nextVersion;
     }

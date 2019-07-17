@@ -134,7 +134,7 @@ public class RollupJobV2 extends AlterJobV2 {
     /*
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.
-     * 2. After creating done, set the rollup index state as SHADOW, add it to catalog, user can not see this
+     * 2. After creating done, add this shadow rollup index to catalog, user can not see this
      *    rollup, but internal load process will generate data for this rollup index.
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
@@ -228,7 +228,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
 
         // create all rollup replicas success.
-        // set rollup index’s state to SHADOW and add it to catalog
+        // add rollup index to catalog
         db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -298,10 +298,9 @@ public class RollupJobV2 extends AlterJobV2 {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
 
-                // the rollup task will transform the data before committed version.
-                // DO NOT use visible version because we need to handle the committed but not published version on BE.
-                long committedVersion = partition.getCommittedVersion();
-                long committedVersionHash = partition.getCommittedVersionHash();
+                // the rollup task will transform the data before visible version(included).
+                long visibleVersion = partition.getVisibleVersion();
+                long visibleVersionHash = partition.getVisibleVersionHash();
 
                 MaterializedIndex rollupIndex = entry.getValue();
                 Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
@@ -316,7 +315,7 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                committedVersion, committedVersionHash, jobId);
+                                visibleVersion, visibleVersionHash, jobId);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
