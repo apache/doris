@@ -55,10 +55,10 @@ public:
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
     Status cancel(const TUniqueId& fragment_id) {
-        return cancel(fragment_id, PCancelReason::INTERNAL_ERROR);
+        return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
 
-    Status cancel(const TUniqueId& fragment_id, const PCancelReason& reason);
+    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason);
 
     void cancel_worker();
 

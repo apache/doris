@@ -44,7 +44,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.proto.PCancelReason;
+import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -467,7 +467,7 @@ public class Coordinator {
                         LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
                                  errMsg, fragment.getFragmentId(),
                                  pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal(PCancelReason.INTERNAL_ERROR);
+                        cancelInternal(PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
                                 throw new UserException("query timeout. backend id: " + pair.first.backendId);
@@ -573,7 +573,7 @@ public class Coordinator {
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
-            cancelInternal(PCancelReason.INTERNAL_ERROR);
+            cancelInternal(PPlanFragmentCancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
         }
@@ -628,7 +628,7 @@ public class Coordinator {
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
-                cancelInternal(PCancelReason.LIMIT_REACH);
+                cancelInternal(PPlanFragmentCancelReason.LIMIT_REACH);
             }
         } else {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -650,13 +650,13 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(PCancelReason.USER_CANCEL);
+            cancelInternal(PPlanFragmentCancelReason.USER_CANCEL);
         } finally {
             unlock();
         }
     }
 
-    private void cancelInternal(PCancelReason cancelReason) {
+    private void cancelInternal(PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
         }
@@ -668,7 +668,7 @@ public class Coordinator {
         }
     }
 
-    private void cancelRemoteFragmentsAsync(PCancelReason cancelReason) {
+    private void cancelRemoteFragmentsAsync(PPlanFragmentCancelReason cancelReason) {
         for (BackendExecState backendExecState : backendExecStates) {
             TNetworkAddress address = backendExecState.getBackendAddress();
             LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}, reason: {}",
