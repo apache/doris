@@ -80,7 +80,7 @@ public:
 
     Status execute();
 
-    Status cancel(const PCancelPlanFragmentRequest::CancelReason& reason);
+    Status cancel(const PCancelReason& reason);
 
     TUniqueId fragment_instance_id() const {
         return _fragment_instance_id;
@@ -209,10 +209,10 @@ Status FragmentExecState::execute() {
     return Status::OK();
 }
 
-Status FragmentExecState::cancel(const PCancelPlanFragmentRequest::CancelReason& reason) {
+Status FragmentExecState::cancel(const PCancelReason& reason) {
     std::lock_guard<std::mutex> l(_status_lock);
     RETURN_IF_ERROR(_exec_status);
-    if (reason != PCancelPlanFragmentRequest::INTERNAL_ERROR) {
+    if (reason == PCancelReason::LIMIT_REACH) {
         _executor.set_is_report_on_cancel(false);
     }
     _executor.cancel();
@@ -465,7 +465,7 @@ Status FragmentMgr::exec_plan_fragment(
     return Status::OK();
 }
 
-Status FragmentMgr::cancel(const TUniqueId& id, const PCancelPlanFragmentRequest::CancelReason& reason) {
+Status FragmentMgr::cancel(const TUniqueId& id, const PCancelReason& reason) {
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
