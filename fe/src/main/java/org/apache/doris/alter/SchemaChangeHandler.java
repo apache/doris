@@ -52,15 +52,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -77,6 +78,9 @@ import java.util.Set;
 
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
+
+    // all shadow indexes should have this prefix in name
+    public static final String SHADOW_INDEX_NAME_PRFIX = "__doris_shadow_";
 
     public SchemaChangeHandler() {
         super("schema change");
@@ -682,8 +686,24 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private void checkIndexExists(OlapTable olapTable, String targetIndexName) throws DdlException {
+        if (targetIndexName != null && !olapTable.hasMaterializedIndex(targetIndexName)) {
+            throw new DdlException("Index[" + targetIndexName + "] does not exist in table[" + olapTable.getName()
+                    + "]");
+        }
+    }
+
+    private void checkAssignedTargetIndexName(String baseIndexName, String targetIndexName) throws DdlException {
+        // user cannot assign base index to do schema change
+        if (targetIndexName != null) {
+            if (targetIndexName.equals(baseIndexName)) {
+                throw new DdlException("Do not need to assign base index[" + baseIndexName + "] to do schema change");
+            }
+        }
+    }
+
     private void createJob(long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap) throws DdlException {
+            Map<String, String> propertyMap) throws UserException {
         if (olapTable.getState() == OlapTableState.ROLLUP) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
@@ -784,20 +804,20 @@ public class SchemaChangeHandler extends AlterHandler {
         if (bfColumns == null) {
             bfFpp = 0;
         }
+        
+        // property 3: timeout
+        long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
 
-        // property 3: storage type
-        // from now on, we only support COLUMN storage type
-        TStorageType newStorageType = TStorageType.COLUMN;
-
-        long transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
         // create job
-        SchemaChangeJob schemaChangeJob = new SchemaChangeJob(dbId, olapTable.getId(), null,
-                                                              olapTable.getName(), transactionId);
-        schemaChangeJob.setTableBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
+        Catalog catalog = Catalog.getCurrentCatalog();
+        long jobId = catalog.getNextId();
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
+        schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop 
         long tableId = olapTable.getId();
-        Map<Long, Short> indexIdToShortKeyColumnCount = new HashMap<Long, Short>();
+        Map<Long, Short> indexIdToShortKeyColumnCount = Maps.newHashMap();
+        Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
         for (Long alterIndexId : indexSchemaMap.keySet()) {
             List<Column> originSchema = olapTable.getSchemaByIndexId(alterIndexId);
             List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
@@ -952,17 +972,14 @@ public class SchemaChangeHandler extends AlterHandler {
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
             // 6. store the changed columns for edit log
-            schemaChangeJob.putToChangedIndexSchemaMap(alterIndexId, alterSchema);
+            changedIndexIdToSchema.put(alterIndexId, alterSchema);
 
             LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
         } // end for indices
 
-        if (schemaChangeJob.getChangedIndexToSchema().isEmpty()) {
+        if (changedIndexIdToSchema.isEmpty()) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
-
-        // from now on, storage type can only be column
-        schemaChangeJob.setNewStorageType(TStorageType.COLUMN);
 
         // the following operations are done outside the 'for indices' loop
         // to avoid partial check success
@@ -973,8 +990,7 @@ public class SchemaChangeHandler extends AlterHandler {
          * 2. Create all tablets and replicas of all SHADOW index, add them to tablet inverted index.
          * 3. Change table's state as SCHEMA_CHANGE
          */
-        Catalog catalog = Catalog.getCurrentCatalog();
-        for (Map.Entry<Long, List<Column>> entry : schemaChangeJob.getChangedIndexToSchema().entrySet()) {
+        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
             long originIndexId = entry.getKey();
             // 1. get new schema version/schema version hash, short key column count
             int currentSchemaVersion = olapTable.getSchemaVersionByIndexId(originIndexId);
@@ -985,6 +1001,7 @@ public class SchemaChangeHandler extends AlterHandler {
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
             }
+            String newIndexName = SHADOW_INDEX_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
             short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(originIndexId);
             long shadowIndexId = catalog.getNextId();
 
@@ -1014,63 +1031,21 @@ public class SchemaChangeHandler extends AlterHandler {
                         shadowTablet.addReplica(rollupReplica);
                     }
                 }
-<<<<<<< HEAD
-                short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
-                schemaChangeJob.setNewSchemaInfo(indexId, newSchemaVersion, newSchemaHash, newShortKeyColumnCount);
-
-                // set replica state
-                for (Tablet tablet : alterIndex.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE 
-                                || replica.getState() == ReplicaState.DECOMMISSION
-                                || replica.getLastFailedVersion() > 0) {
-                            // this should not happen, cause we only allow schema change when table is stable.
-                            LOG.error("replica {} of tablet {} on backend {} is not NORMAL: {}",
-                                    replica.getId(), tablet.getId(), replica.getBackendId(), replica);
-                            continue;
-                        }
-                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL, replica.getState());
-                        replica.setState(ReplicaState.SCHEMA_CHANGE);
-                    } // end for replicas
-                } // end for tablets
-
-                Catalog.getCurrentInvertedIndex().setNewSchemaHash(onePartition.getId(), indexId, newSchemaHash);
-=======
->>>>>>> schema change first commit
-
-                schemaChangeJob.addShadowIndex(partitionId, originIndexId, shadowIndex);
+                
+                schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
+            schemaChangeJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion, newSchemaHash, newShortKeyColumnCount, entry.getValue());
         } // end for index
+        
+        // set table state
+        olapTable.setState(OlapTableState.SCHEMA_CHANGE);
 
         // 2. add schemaChangeJob
         addAlterJobV2(schemaChangeJob);
 
-        // 3. log schema change start operation
-        Catalog.getInstance().getEditLog().logStartSchemaChange(schemaChangeJob);
-        LOG.info("schema change job created. table[{}]", olapTable.getName());
-    }
-
-    private void checkIndexExists(OlapTable olapTable, String targetIndexName) throws DdlException {
-        if (targetIndexName != null && !olapTable.hasMaterializedIndex(targetIndexName)) {
-            throw new DdlException("Index[" + targetIndexName + "] does not exist in table[" + olapTable.getName()
-                    + "]");
-        }
-    }
-
-    private void checkAssignedTargetIndexName(String baseIndexName, String targetIndexName) throws DdlException {
-        // user cannot assign base index to do schema change
-        if (targetIndexName != null) {
-            if (targetIndexName.equals(baseIndexName)) {
-                throw new DdlException("Do not need to assign base index[" + baseIndexName + "] to do schema change");
-            }
-        }
-    }
-
-    public void removeReplicaRelatedTask(long tableId, long tabletId, long replicaId, long backendId) {
-        AlterJob job = getAlterJob(tableId);
-        if (job != null) {
-            job.removeReplicaRelatedTask(-1L, tabletId, replicaId, backendId);
-        }
+        // 3. write edit log
+        Catalog.getInstance().getEditLog().logAlterJob(schemaChangeJob);
+        LOG.info("finished to create schema change job: {}", schemaChangeJob.getJobId());
     }
 
     @Override
@@ -1244,7 +1219,8 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable) throws DdlException {
+    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
+            throws UserException {
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<Long, LinkedList<Column>>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
