@@ -60,7 +60,6 @@ public:
 
     inline void set_to_max(char* buf) { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) { return _type_info->set_to_min(buf); }
-    inline bool is_min(char* buf) { return _type_info->is_min(buf); }
 
     inline bool is_null(char* buf) const {
         return *reinterpret_cast<bool*>(buf + _offset);

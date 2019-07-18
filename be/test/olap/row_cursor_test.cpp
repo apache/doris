@@ -322,27 +322,6 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23)); 
 }
 
-TEST_F(TestRowCursor, SetMinAndMaxKey) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_init(&tablet_schema);
-
-    RowCursor min_row;
-    OLAPStatus res = min_row.init(tablet_schema);
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(min_row.get_fixed_len(), 126);
-
-    res = min_row.build_min_key();
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    for (size_t i = 0; i < tablet_schema.num_columns(); ++i) {
-        ASSERT_TRUE(min_row.is_min(i));
-    }
-
-    RowCursor max_row;
-    res = max_row.init(tablet_schema);
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(max_row.get_fixed_len(), 126);
-}
-
 TEST_F(TestRowCursor, EqualAndCompare) {
     TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
