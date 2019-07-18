@@ -29,7 +29,6 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),
         _set_to_min(TypeTraitsClass::set_to_min),
-        _is_min(TypeTraitsClass::is_min),
         _hash_code(TypeTraitsClass::hash_code),
         _size(TypeTraitsClass::size),
         _field_type(TypeTraitsClass::type) {

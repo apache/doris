@@ -146,12 +146,6 @@ public:
         return _field_array[index];
     }
 
-    bool is_min(size_t index) {
-        Field* field = _field_array[index];
-        char* src = field->get_ptr(_fixed_buf);
-        return field->is_min(src);
-    }
-
     const size_t get_index_size(size_t index) const {
         return _field_array[index]->index_size();
     }
