@@ -591,7 +591,7 @@ public class TabletScheduler extends Daemon {
      * So we need to find a destination backend to clone a new replica as possible as we can.
      * 1. find an available path in a backend as destination:
      *      1. backend need to be alive.
-     *      2. backend of existing replicas should be excluded.
+     *      2. backend of existing replicas should be excluded. (should not be on same host either)
      *      3. backend has available slot for clone.
      *      4. replica can fit in the path (consider the threshold of disk capacity and usage percent).
      *      5. try to find a path with lowest load score.
@@ -670,6 +670,7 @@ public class TabletScheduler extends Daemon {
                 || deleteCloneReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
+                || deleteReplicaOnSameHost(tabletCtx, force)
                 || deleteReplicaNotInCluster(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
@@ -745,12 +746,47 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
+    private boolean deleteReplicaOnSameHost(TabletSchedCtx tabletCtx, boolean force) {
+        ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster());
+        if (statistic == null) {
+            return false;
+        }
+
+        // collect replicas of this tablet.
+        // host -> (replicas on same host)
+        Map<String, List<Replica>> hostBeIds = Maps.newHashMap();
+        for (Replica replica : tabletCtx.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (be == null) {
+                // this case should be handled in deleteBackendDropped()
+                return false;
+            }
+            List<Replica> replicas = hostBeIds.get(be.getHost());
+            if (replicas == null) {
+                replicas = Lists.newArrayList();
+                hostBeIds.put(be.getHost(), replicas);
+            }
+            replicas.add(replica);
+        }
+
+        // find if there are replicas on same host, if yes, delete one.
+        for (List<Replica> replicas : hostBeIds.values()) {
+            if (replicas.size() > 1) {
+                // delete one replica from replicas on same host.
+                // better to choose high load backend
+                return deleteFromHighLoadBackend(tabletCtx, replicas, force, statistic);
+            }
+        }
+
+        return false;
+    }
+
     private boolean deleteReplicaNotInCluster(TabletSchedCtx tabletCtx, boolean force) {
         for (Replica replica : tabletCtx.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
                 // this case should be handled in deleteBackendDropped()
-                continue;
+                return false;
             }
             if (!be.getOwnerClusterName().equals(tabletCtx.getCluster())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in cluster", force);
@@ -766,9 +802,14 @@ public class TabletScheduler extends Daemon {
             return false;
         }
         
+        return deleteFromHighLoadBackend(tabletCtx, tabletCtx.getReplicas(), force, statistic);
+    }
+
+    private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
+            boolean force, ClusterLoadStatistic statistic) {
         Replica chosenReplica = null;
         double maxScore = 0;
-        for (Replica replica : tabletCtx.getReplicas()) {
+        for (Replica replica : replicas) {
             BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
             if (beStatistic == null) {
                 continue;
@@ -944,7 +985,7 @@ public class TabletScheduler extends Daemon {
             if (!bes.isAvailable()) {
                 continue;
             }
-            // exclude BE which already has replica of this tablet
+            // exclude host which already has replica of this tablet
             if (tabletCtx.containsBE(bes.getBeId())) {
                 continue;
             }

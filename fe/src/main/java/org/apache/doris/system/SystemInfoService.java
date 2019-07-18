@@ -766,6 +766,7 @@ public class SystemInfoService {
 
         // put backend with same host in same list
         final List<Backend> srcBackends = getClusterBackends(clusterName);
+        // host -> BE list
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : srcBackends) {
             if (backendMaps.containsKey(backend.getHost())){
