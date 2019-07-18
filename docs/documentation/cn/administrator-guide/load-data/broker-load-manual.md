@@ -127,8 +127,6 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 
 	Broker load 导入可以开启 strict mode模式。开启方式为 ```properties ("strict_mode" = "true")``` 。默认的 strict mode为开启。
 
-	*注意：strict mode 功能仅在新版本的broker load中有效，如果导入明确指定 ```"version" = "v1"``` 则没有此功能。*
-
 	strict mode模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
 
 	1. 对于列类型转换来说，如果 strict\_mode 为true，则错误的数据将被 filter。这里的错误数据是指：原始数据并不为空值，在参与列类型转换后结果为空值的这一类数据。
