@@ -106,10 +106,6 @@ public:
         _rep->set_to_min(_buf);
     }
 
-    bool is_min() {
-        return _rep->is_min(_buf);
-    }
-
     int cmp(const WrapperField* field) const {
         return _rep->cmp(_field_buf, field->field_ptr());
     }
