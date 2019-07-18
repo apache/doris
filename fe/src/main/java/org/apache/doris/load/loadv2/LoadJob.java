@@ -283,17 +283,21 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         writeLock();
         try {
-            // check if job state is pending
-            if (state != JobState.PENDING) {
-                return;
-            }
-            // the limit of job will be restrict when begin txn
-            beginTxn();
-            executeJob();
-            unprotectedUpdateState(JobState.LOADING);
+            unprotectedExecute();
         } finally {
             writeUnlock();
         }
+    }
+
+    public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+        // check if job state is pending
+        if (state != JobState.PENDING) {
+            return;
+        }
+        // the limit of job will be restrict when begin txn
+        beginTxn();
+        unprotectedExecuteJob();
+        unprotectedUpdateState(JobState.LOADING);
     }
 
     public void processTimeout() {
@@ -309,7 +313,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    protected void executeJob() {
+    protected void unprotectedExecuteJob() {
     }
 
     /**
