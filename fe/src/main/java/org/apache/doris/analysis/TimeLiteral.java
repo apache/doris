@@ -46,6 +46,7 @@ public class TimeLiteral extends LiteralExpr {
     public TimeLiteral(int time) {
         super();
         this.time = time;
+        this.type = Type.TIME;
         analysisDone();
     }
 

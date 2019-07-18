@@ -349,8 +349,9 @@ public class Config extends ConfigBase {
     public static int pull_load_task_default_timeout_second = 14400; // 4 hour
 
     /*
-     * Default mini load timeout
+     * Default non-streaming mini load timeout
      */
+    @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int mini_load_default_timeout_second = 3600; // 1 hour
     
@@ -361,10 +362,10 @@ public class Config extends ConfigBase {
     public static int insert_load_default_timeout_second = 3600; // 1 hour
     
     /*
-     * Default stream load timeout
+     * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 300; // 300s
+    public static int stream_load_default_timeout_second = 600; // 300s
 
     /*
      * Max stream load timeout

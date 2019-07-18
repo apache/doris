@@ -22,7 +22,7 @@
 #include <utility>
 
 #include "common/object_pool.h"
-#include "exec/olap_table_info.h"
+#include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
@@ -104,6 +104,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
         // Normal case, already open by other sender
         return Status::OK();
     }
+    LOG(INFO) << "open tablets channel: " << _key;
     _txn_id = params.txn_id();
     _index_id = params.index_id();
     _schema = new OlapTableSchemaParam();
@@ -170,6 +171,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
+    LOG(INFO) << "close tablets channel: " << _key;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -219,7 +221,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.tablet_id = tablet.tablet_id();
         request.schema_hash = schema_hash;
         request.write_type = LOAD;
-        request.transaction_id = _txn_id;
+        request.txn_id = _txn_id;
         request.partition_id = tablet.partition_id();
         request.load_id = params.id();
         request.need_gen_rollup = params.need_gen_rollup();
@@ -229,7 +231,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "open delta writer failed, tablet_id=" << tablet.tablet_id()
-                << ", transaction_id=" << _txn_id
+                << ", txn_id=" << _txn_id
                 << ", partition_id=" << tablet.partition_id()
                 << ", status=" << st;
             return Status::InternalError("open tablet writer failed");

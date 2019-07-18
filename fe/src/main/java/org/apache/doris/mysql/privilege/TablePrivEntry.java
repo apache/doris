@@ -56,7 +56,7 @@ public class TablePrivEntry extends DbPrivEntry {
         PatternMatcher tblPattern = PatternMatcher.createMysqlPattern(tbl.equals(ANY_TBL) ? "%" : tbl,
                                                                       CaseSensibility.TABLE.getCaseSensibility());
 
-        if (privs.containsNodeOrGrantPriv()) {
+        if (privs.containsNodePriv()) {
             throw new AnalysisException("Table privilege can not contains global privileges: " + privs);
         }
 

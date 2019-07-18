@@ -36,6 +36,7 @@ struct TTabletInfo {
     10: optional i64 path_hash
     11: optional bool version_miss
     12: optional bool used
+    13: optional Types.TPartitionId partition_id
 }
 
 struct TFinishTaskRequest {

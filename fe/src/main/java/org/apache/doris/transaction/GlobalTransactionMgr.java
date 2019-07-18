@@ -359,6 +359,9 @@ public class GlobalTransactionMgr {
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
                         Set<Long> commitBackends = tabletToBackends.get(tabletId);
+                        // save the error replica ids for current tablet
+                        // this param is used for log
+                        Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
@@ -386,6 +389,7 @@ public class GlobalTransactionMgr {
                                     }
                                 }
                             } else {
+                                errorBackendIdsForTablet.add(tabletBackend);
                                 errorReplicaIds.add(replica.getId());
                                 // not remove rollup task here, because the commit maybe failed
                                 // remove rollup task when commit successfully
@@ -393,8 +397,10 @@ public class GlobalTransactionMgr {
                         }
                         if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
                             // not throw exception here, wait the upper application retry
-                            LOG.info("Index [{}] success replica num is {} < quorum replica num {}",
-                                     index, successReplicaNum, quorumReplicaNum);
+                            LOG.info("Tablet [{}] success replica num is {} < quorum replica num {} "
+                                             + "while error backends {}",
+                                     tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                     Joiner.on(",").join(errorBackendIdsForTablet));
                             return;
                         }
                     }
@@ -757,8 +763,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.info("txn is still running: {}, checking end txn id: {}",
-                            entry.getValue(), endTransactionId);
+                    LOG.info("find a running txn with txn_id={}, less than schema change txn_id {}", 
+                            entry.getKey(), endTransactionId);
                     return false;
                 }
             }

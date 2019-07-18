@@ -23,15 +23,14 @@
 #include <algorithm>
 #include <vector>
 
-#include "olap/column_data.h"
 #include "olap/merger.h"
-#include "olap/column_data.h"
-#include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
 #include "olap/wrapper_field.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -45,23 +44,15 @@ using std::vector;
 
 namespace doris {
 
-bool version_entity_sorter(const VersionEntity& a, const VersionEntity& b) {
-    if (a.version.first != b.version.first) {
-        return a.version.first < b.version.first;
-    } else {
-        return a.version.second < b.version.second;
-    }
+RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
+                                 const TabletSharedPtr &base_tablet) {
+    _schema_mapping.resize(tablet_schema.num_columns());
 }
 
-RowBlockChanger::RowBlockChanger(const std::vector<FieldInfo> &tablet_schema,
-                                 const OLAPTablePtr &ref_olap_table) {
-    _schema_mapping.resize(tablet_schema.size());
-}
-
-RowBlockChanger::RowBlockChanger(const vector<FieldInfo>& tablet_schema,
-                                 const OLAPTablePtr& ref_olap_table,
+RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
+                                 const TabletSharedPtr& base_tablet,
                                  const DeleteHandler& delete_handler) {
-    _schema_mapping.resize(tablet_schema.size());
+    _schema_mapping.resize(tablet_schema.num_columns());
     _delete_handler = delete_handler;
 }
 
@@ -77,7 +68,7 @@ RowBlockChanger::~RowBlockChanger() {
 
 ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) {
     if (column_index >= _schema_mapping.size()) {
-        return NULL;
+        return nullptr;
     }
 
     return &(_schema_mapping[column_index]);
@@ -85,10 +76,10 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 #define TYPE_REINTERPRET_CAST(FromType, ToType) \
 { \
-    size_t row_num = ref_block.row_block_info().row_num; \
+    size_t row_num = ref_block->row_block_info().row_num; \
     for (size_t row = 0, mutable_row = 0; row < row_num; ++row) { \
         if (is_data_left_vec[row] != 0) { \
-            char* ref_ptr = ref_block.field_ptr(row, ref_column); \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column); \
             char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
             *new_ptr = *ref_ptr; \
             *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1); \
@@ -99,10 +90,10 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 #define LARGEINT_REINTERPRET_CAST(FromType, ToType) \
 { \
-    size_t row_num = ref_block.row_block_info().row_num; \
+    size_t row_num = ref_block->row_block_info().row_num; \
     for (size_t row = 0, mutable_row = 0; row < row_num; ++row) { \
         if (is_data_left_vec[row] != 0) { \
-            char* ref_ptr = ref_block.field_ptr(row, ref_column); \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column); \
             char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
             *new_ptr = *ref_ptr; \
             ToType new_value = *(FromType*)(ref_ptr + 1); \
@@ -114,7 +105,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 #define CONVERT_FROM_TYPE(from_type) \
 { \
-    switch (mutable_block->_tablet_schema[i].type) {\
+    switch (mutable_block->tablet_schema().column(i).type()) {\
     case OLAP_FIELD_TYPE_TINYINT: \
         TYPE_REINTERPRET_CAST(from_type, int8_t); \
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: \
@@ -136,10 +127,9 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     case OLAP_FIELD_TYPE_DOUBLE: \
         TYPE_REINTERPRET_CAST(from_type, double); \
     default: \
-        OLAP_LOG_WARNING("the column type which was altered to was" \
-                         " unsupported. [origin_type=%d alter_type=%d]", \
-                         ref_block._tablet_schema[ref_column].type, \
-                         mutable_block->_tablet_schema[i].type); \
+        LOG(WARNING) << "the column type which was altered to was unsupported." \
+                     << " origin_type=" << ref_block->tablet_schema().column(ref_column).type() \
+                     << ", alter_type=" << mutable_block->tablet_schema().column(i).type(); \
         return false; \
     } \
     break; \
@@ -155,53 +145,50 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     }
 
 bool RowBlockChanger::change_row_block(
-        const DataFileType df_type,
-        const RowBlock& ref_block,
+        const RowBlock* ref_block,
         int32_t data_version,
         RowBlock* mutable_block,
-        uint64_t* filted_rows) const {
-    if (mutable_block == NULL) {
+        uint64_t* filtered_rows) const {
+    if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return false;
-    } else if (mutable_block->_tablet_schema.size() != _schema_mapping.size()) {
-        OLAP_LOG_WARNING("mutable block does not match with schema mapping rules. "
-                         "[block_schema_size=%ld, mapping_schema_size=%ld]",
-                         mutable_block->_tablet_schema.size(),
-                         _schema_mapping.size());
+    } else if (mutable_block->tablet_schema().num_columns() != _schema_mapping.size()) {
+        LOG(WARNING) << "mutable block does not match with schema mapping rules. "
+                     << "block_schema_size=" << mutable_block->tablet_schema().num_columns()
+                     << ", mapping_schema_size=" << _schema_mapping.size();
         return false;
     }
 
-    if (mutable_block->capacity() < ref_block.row_block_info().row_num) {
-        OLAP_LOG_WARNING("mutable block is not large enough for storing the changed block. "
-                         "[mutable_block_size=%ld, ref_block_size=%u]",
-                         mutable_block->capacity(),
-                         ref_block.row_block_info().row_num);
+    if (mutable_block->capacity() < ref_block->row_block_info().row_num) {
+        LOG(WARNING) << "mutable block is not large enough for storing the changed block. "
+                     << "mutable_block_size=" << mutable_block->capacity()
+                     << ", ref_block_row_num=" << ref_block->row_block_info().row_num;
         return false;
     }
 
     mutable_block->clear();
 
     RowCursor write_helper;
-    if (write_helper.init(mutable_block->_tablet_schema) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init rowcursor.");
+    if (write_helper.init(mutable_block->tablet_schema()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init rowcursor.";
         return false;
     }
 
     RowCursor read_helper;
-    if (read_helper.init(ref_block._tablet_schema) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init rowcursor.");
+    if (read_helper.init(ref_block->tablet_schema()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init rowcursor.";
         return false;
     }
 
     // a.1 先判断数据是否需要过滤，最终只有标记为1的才是留下需要的
     //   对于没有filter的来说，相当于全部设置为1后留下
-    const uint32_t row_num = ref_block.row_block_info().row_num;
+    const uint32_t row_num = ref_block->row_block_info().row_num;
     // (0表示过滤掉不要，1表示要,过程中2表示此row要切后续不需要再比较其他列)
     vector<int8_t> is_data_left_vec(row_num, 1);
 
     // 一行一行地进行比较
     for (size_t row_index = 0; row_index < row_num; ++row_index) {
-        ref_block.get_row(row_index, &read_helper);
+        ref_block->get_row(row_index, &read_helper);
 
         // filter data according to delete conditions specified in DeleteData command
         if (is_data_left_vec[row_index] == 1) {
@@ -218,24 +205,24 @@ bool RowBlockChanger::change_row_block(
             ++new_row_num;
         }
     }
-    *filted_rows = row_num - new_row_num;
+    *filtered_rows = row_num - new_row_num;
 
     const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
     MemPool* mem_pool = mutable_block->mem_pool();
     // b. 根据前面的过滤信息，只对还标记为1的处理
-    for (size_t i = 0, len = mutable_block->tablet_schema().size(); !filter_all && i < len; ++i) {
+    for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len; ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
 
         if (_schema_mapping[i].ref_column >= 0) {
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
-            if (mutable_block->tablet_schema()[i].type 
-                    == ref_block.tablet_schema()[ref_column].type) {
+            if (mutable_block->tablet_schema().column(i).type()
+                    == ref_block->tablet_schema().column(ref_column).type()) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
-                for (size_t row_index = 0, new_row_index = 0; 
-                        row_index < ref_block.row_block_info().row_num; ++row_index) {
+                for (size_t row_index = 0, new_row_index = 0;
+                        row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // 不需要的row，每次处理到这个row时就跳过
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
@@ -243,23 +230,23 @@ bool RowBlockChanger::change_row_block(
 
                     // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
-                    ref_block.get_row(row_index, &read_helper);
+                    ref_block->get_row(row_index, &read_helper);
 
                     if (true == read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
                     } else {
                         const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (NULL == field_to_read) {
-                            OLAP_LOG_WARNING("faile to get ref field.[index=%d]", ref_column);
+                        if (nullptr == field_to_read) {
+                            LOG(WARNING) << "failed to get ref field. index=" << ref_column;
                             return false;
                         }
-                        
+
                         write_helper.set_not_null(i);
-                        if (mutable_block->tablet_schema()[i].type == OLAP_FIELD_TYPE_CHAR) {
+                        if (mutable_block->tablet_schema().column(i).type() == OLAP_FIELD_TYPE_CHAR) {
                             // if modify length of CHAR type, the size of slice should be equal
                             // to new length.
                             Slice* src = (Slice*)(field_to_read->get_ptr(read_helper.get_buf()));
-                            size_t size = mutable_block->tablet_schema()[i].length;
+                            size_t size = mutable_block->tablet_schema().column(i).length();
                             char* buf = reinterpret_cast<char*>(mem_pool->allocate(size));
                             memset(buf, 0, size);
                             size_t copy_size = (size < src->size) ? size : src->size;
@@ -274,11 +261,11 @@ bool RowBlockChanger::change_row_block(
                 }
 
                 // 从ref_column 写入 i列。
-            } else if (mutable_block->tablet_schema()[i].type == OLAP_FIELD_TYPE_VARCHAR
-                       && ref_block.tablet_schema()[ref_column].type == OLAP_FIELD_TYPE_CHAR) {
+            } else if (mutable_block->tablet_schema().column(i).type() == OLAP_FIELD_TYPE_VARCHAR
+                       && ref_block->tablet_schema().column(ref_column).type() == OLAP_FIELD_TYPE_CHAR) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;
-                        row_index < ref_block.row_block_info().row_num; ++row_index) {
+                        row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // 不需要的row，每次处理到这个row时就跳过
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
@@ -287,20 +274,20 @@ bool RowBlockChanger::change_row_block(
                     // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
 
-                    ref_block.get_row(row_index, &read_helper);
+                    ref_block->get_row(row_index, &read_helper);
 
                     if (true == read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
                     } else {
                         // 要写入的
                         const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (NULL == field_to_read) {
-                            OLAP_LOG_WARNING("faile to get ref field.[index=%d]", ref_column);
+                        if (nullptr == field_to_read) {
+                            LOG(WARNING) << "failed to get ref field. index=" << ref_column;
                             return false;
                         }
 
                         write_helper.set_not_null(i);
-                        int p = ref_block.tablet_schema()[ref_column].length - 1;
+                        int p = ref_block->tablet_schema().column(ref_column).length() - 1;
                         Slice* slice = reinterpret_cast<Slice*>(field_to_read->get_ptr(read_helper.get_buf()));
                         char* buf = slice->data;
                         while (p >= 0 && buf[p] == '\0') {
@@ -315,7 +302,7 @@ bool RowBlockChanger::change_row_block(
             } else {
                 // copy and alter the field
                 // 此处可以暂时不动，新类型暂时不涉及类型转换
-                switch (ref_block._tablet_schema[ref_column].type) {
+                switch (ref_block->tablet_schema().column(ref_column).type()) {
                 case OLAP_FIELD_TYPE_TINYINT:
                     CONVERT_FROM_TYPE(int8_t);
                 case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
@@ -333,24 +320,23 @@ bool RowBlockChanger::change_row_block(
                 case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
                     CONVERT_FROM_TYPE(uint64_t);
                 default:
-                    OLAP_LOG_WARNING("the column type which was altered from was"
-                                     " unsupported. [from_type=%d]",
-                                     ref_block._tablet_schema[ref_column].type);
+                    LOG(WARNING) << "the column type which was altered from was unsupported."
+                                 << " from_type=" << ref_block->tablet_schema().column(ref_column).type();
                     return false;
                 }
 
-                if (mutable_block->tablet_schema()[i].type <
-                        ref_block.tablet_schema()[ref_column].type) {
+                if (mutable_block->tablet_schema().column(i).type() <
+                        ref_block->tablet_schema().column(ref_column).type()) {
                     VLOG(3) << "type degraded while altering column. "
-                            << "column=" << mutable_block->tablet_schema()[i].name
-                            << ", origin_type=" << ref_block._tablet_schema[ref_column].type
-                            << ", alter_type=" << mutable_block->_tablet_schema[i].type;
+                            << "column=" << mutable_block->tablet_schema().column(i).name()
+                            << ", origin_type=" << ref_block->tablet_schema().column(ref_column).type()
+                            << ", alter_type=" << mutable_block->tablet_schema().column(i).type();
                 }
             }
         } else {
             // 新增列，写入默认值
             for (size_t row_index = 0, new_row_index = 0;
-                    row_index < ref_block.row_block_info().row_num; ++row_index) {
+                    row_index < ref_block->row_block_info().row_num; ++row_index) {
                 // 不需要的row，每次处理到这个row时就跳过
                 if (need_filter_data && is_data_left_vec[row_index] == 0) {
                     continue;
@@ -382,30 +368,28 @@ bool RowBlockChanger::change_row_block(
 
 RowBlockSorter::RowBlockSorter(RowBlockAllocator* row_block_allocator) :
         _row_block_allocator(row_block_allocator),
-        _swap_row_block(NULL) {}
+        _swap_row_block(nullptr) {}
 
 RowBlockSorter::~RowBlockSorter() {
     if (_swap_row_block) {
         _row_block_allocator->release(_swap_row_block);
-        _swap_row_block = NULL;
+        _swap_row_block = nullptr;
     }
 }
 
 bool RowBlockSorter::sort(RowBlock** row_block) {
     uint32_t row_num = (*row_block)->row_block_info().row_num;
-    DataFileType data_file_type = (*row_block)->row_block_info().data_file_type;
     bool null_supported = (*row_block)->row_block_info().null_supported;
 
-    if (_swap_row_block == NULL || _swap_row_block->capacity() < row_num) {
-        if (_swap_row_block != NULL) {
+    if (_swap_row_block == nullptr || _swap_row_block->capacity() < row_num) {
+        if (_swap_row_block != nullptr) {
             _row_block_allocator->release(_swap_row_block);
-            _swap_row_block = NULL;
+            _swap_row_block = nullptr;
         }
 
-        if (_row_block_allocator->allocate(&_swap_row_block, row_num, 
-                                    data_file_type, null_supported) != OLAP_SUCCESS
-                || _swap_row_block == NULL) {
-            OLAP_LOG_WARNING("fail to allocate memory.");
+        if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported) != OLAP_SUCCESS
+                || _swap_row_block == nullptr) {
+            LOG(WARNING) << "fail to allocate memory.";
             return false;
         }
     }
@@ -417,13 +401,13 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
         return false;
     }
 
-    RowBlock* temp = NULL;
-    vector<RowCursor*> row_cursor_list((*row_block)->row_block_info().row_num, NULL);
+    RowBlock* temp = nullptr;
+    vector<RowCursor*> row_cursor_list((*row_block)->row_block_info().row_num, nullptr);
 
     // create an list of row cursor as long as the number of rows in data block.
     for (size_t i = 0; i < (*row_block)->row_block_info().row_num; ++i) {
-        if ((row_cursor_list[i] = new(nothrow) RowCursor()) == NULL) {
-            OLAP_LOG_WARNING("failed to malloc RowCursor. [size=%ld]", sizeof(RowCursor));
+        if ((row_cursor_list[i] = new(nothrow) RowCursor()) == nullptr) {
+            LOG(WARNING) << "failed to malloc RowCursor. size=" << sizeof(RowCursor);
             goto SORT_ERR_EXIT;
         }
 
@@ -442,7 +426,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     for (size_t i = 0; i < row_cursor_list.size(); ++i) {
         _swap_row_block->get_row(i, &helper_row);
         if (helper_row.copy(*row_cursor_list[i], _swap_row_block->mem_pool()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to set row for row block. [row=%ld]", i);
+            LOG(WARNING) << "failed to set row for row block. row=" << i;
             goto SORT_ERR_EXIT;
         }
     }
@@ -468,30 +452,25 @@ SORT_ERR_EXIT:
     return false;
 }
 
-RowBlockAllocator::RowBlockAllocator(const vector<FieldInfo>& tablet_schema,
+RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema,
                                      size_t memory_limitation) :
         _tablet_schema(tablet_schema),
         _memory_allocated(0),
         _memory_limitation(memory_limitation) {
     _row_len = 0;
-    _row_len += tablet_schema.size();
-    for (vector<FieldInfo>::const_iterator it = tablet_schema.begin();
-            it != tablet_schema.end(); ++it) {
-        _row_len += (*it).length;
-    }
+    _row_len = tablet_schema.row_size();
 
     VLOG(3) << "RowBlockAllocator(). row_len=" << _row_len;
 }
 
 RowBlockAllocator::~RowBlockAllocator() {
     if (_memory_allocated != 0) {
-        OLAP_LOG_WARNING("memory lost in RowBlockAllocator. [memory_size=%ld]", _memory_allocated);
+        LOG(WARNING) << "memory lost in RowBlockAllocator. memory_size=" << _memory_allocated;
     }
 }
 
 OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
                                        size_t num_rows,
-                                       DataFileType data_file_type,
                                        bool null_supported) {
     size_t row_block_size = _row_len * num_rows;
 
@@ -499,25 +478,24 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
             && _memory_allocated + row_block_size > _memory_limitation) {
         VLOG(3) << "RowBlockAllocator::alocate() memory exceeded. "
                 << "m_memory_allocated=" << _memory_allocated;
-        *row_block = NULL;
+        *row_block = nullptr;
         return OLAP_SUCCESS;
     }
 
     // TODO(lijiao) : 为什么舍弃原有的m_row_block_buffer
-    *row_block = new(nothrow) RowBlock(_tablet_schema);
+    *row_block = new(nothrow) RowBlock(&_tablet_schema);
 
-    if (*row_block == NULL) {
-        OLAP_LOG_WARNING("failed to malloc RowBlock. [size=%ld]", sizeof(RowBlock));
+    if (*row_block == nullptr) {
+        LOG(WARNING) << "failed to malloc RowBlock. size=" << sizeof(RowBlock);
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     RowBlockInfo row_block_info(0U, num_rows);
-    row_block_info.data_file_type = data_file_type;
     row_block_info.null_supported = null_supported;
     OLAPStatus res = OLAP_SUCCESS;
 
     if ((res = (*row_block)->init(row_block_info)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to init row block.");
+        LOG(WARNING) << "failed to init row block.";
         SAFE_DELETE(*row_block);
         return res;
     }
@@ -531,8 +509,8 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
 }
 
 void RowBlockAllocator::release(RowBlock* row_block) {
-    if (row_block == NULL) {
-        OLAP_LOG_WARNING("null row block released.");
+    if (row_block == nullptr) {
+        LOG(INFO) << "null row block released.";
         return;
     }
 
@@ -545,18 +523,18 @@ void RowBlockAllocator::release(RowBlock* row_block) {
     delete row_block;
 }
 
-RowBlockMerger::RowBlockMerger(OLAPTablePtr olap_table) : _olap_table(olap_table) {}
+RowBlockMerger::RowBlockMerger(TabletSharedPtr tablet) : _tablet(tablet) {}
 
 RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(
         const vector<RowBlock*>& row_block_arr,
-        ColumnDataWriter* writer,
+        RowsetWriterSharedPtr rowset_writer,
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
-    if (row_cursor.init(_olap_table->tablet_schema()) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init row cursor.");
+    if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init row cursor.";
         goto MERGE_ERR;
     }
 
@@ -568,11 +546,7 @@ bool RowBlockMerger::merge(
     // That's not very memory-efficient!
 
     while (_heap.size() > 0) {
-        if (writer->attached_by(&row_cursor) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("writer error.");
-            goto MERGE_ERR;
-        }
-        row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema(), writer->mem_pool());
+        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), rowset_writer->mem_pool());
 
         row_cursor.agg_init(*(_heap.top().row_cursor));
 
@@ -580,8 +554,8 @@ bool RowBlockMerger::merge(
             goto MERGE_ERR;
         }
 
-        if (KeysType::DUP_KEYS == _olap_table->keys_type()) {
-            writer->next(row_cursor);
+        if (KeysType::DUP_KEYS == _tablet->keys_type()) {
+            rowset_writer->add_row(&row_cursor);
             continue;
         }
 
@@ -593,10 +567,10 @@ bool RowBlockMerger::merge(
             }
         }
         row_cursor.finalize_one_merge();
-        writer->next(row_cursor);
+        rowset_writer->add_row(&row_cursor);
     }
-    if (writer->finalize() != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to finalizing writer.");
+    if (rowset_writer->flush() != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to finalizing writer.";
         goto MERGE_ERR;
     }
 
@@ -621,13 +595,13 @@ bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
         element.row_block_index = 0;
         element.row_cursor = new(nothrow) RowCursor();
 
-        if (element.row_cursor == NULL) {
+        if (element.row_cursor == nullptr) {
             LOG(FATAL) << "failed to malloc RowCursor. size=" << sizeof(RowCursor);
             return false;
         }
 
         if (element.row_cursor->init(element.row_block->tablet_schema()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to init row cursor.");
+            LOG(WARNING) << "failed to init row cursor.";
             SAFE_DELETE(element.row_cursor);
             return false;
         }
@@ -655,21 +629,31 @@ bool RowBlockMerger::_pop_heap() {
     return true;
 }
 
-LinkedSchemaChange::LinkedSchemaChange(
-        OLAPTablePtr base_olap_table, OLAPTablePtr new_olap_table,
-        const RowBlockChanger& row_block_changer) :
-        _base_olap_table(base_olap_table),
-        _new_olap_table(new_olap_table),
-        _row_block_changer(row_block_changer) {}
+bool LinkedSchemaChange::process(
+        RowsetReaderSharedPtr rowset_reader,
+        RowsetWriterSharedPtr new_rowset_writer,
+        TabletSharedPtr new_tablet,
+        TabletSharedPtr base_tablet) {
+    OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
+                            rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to convert rowset."
+                     << ", new_tablet=" << new_tablet->full_name()
+                     << ", base_tablet=" << base_tablet->full_name() 
+                     << ", version=" << new_rowset_writer->version().first
+                     << "-" << new_rowset_writer->version().second;
+        return false;
+    }
+
+    return true;
+}
 
 SchemaChangeDirectly::SchemaChangeDirectly(
-        OLAPTablePtr olap_table,
         const RowBlockChanger& row_block_changer) :
-        _olap_table(olap_table),
         _row_block_changer(row_block_changer),
-        _row_block_allocator(NULL),
-        _src_cursor(NULL),
-        _dst_cursor(NULL) {}
+        _row_block_allocator(nullptr),
+        _src_cursor(nullptr),
+        _dst_cursor(nullptr) { }
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
@@ -678,163 +662,103 @@ SchemaChangeDirectly::~SchemaChangeDirectly() {
     SAFE_DELETE(_dst_cursor);
 }
 
-bool SchemaChangeDirectly::_write_row_block(ColumnDataWriter* writer, RowBlock* row_block) {
+bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        if (OLAP_SUCCESS != writer->attached_by(_dst_cursor)) {
-            OLAP_LOG_WARNING("fail to attach writer");
-            return false;
-        }
-
         row_block->get_row(i, _src_cursor);
-
-        _dst_cursor->copy(*_src_cursor, writer->mem_pool());
-        writer->next(*_dst_cursor);
+        _dst_cursor->copy(*_src_cursor, rowset_writer->mem_pool());
+        if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
+            LOG(WARNING) << "fail to attach writer";
+            return false;
+        }
     }
 
     return true;
 }
 
-bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
-    for (size_t i = 0; i < olap_data->segment_group()->num_segments(); ++i) {
-        string index_path = new_segment_group->construct_index_file_path(new_segment_group->segment_group_id(), i);
-        string base_table_index_path = olap_data->segment_group()->construct_index_file_path(olap_data->segment_group()->segment_group_id(), i);
-        if (link(base_table_index_path.c_str(), index_path.c_str()) == 0) {
-            VLOG(3) << "success to create hard link. from_path=" << base_table_index_path
-                    << ", to_path=" << index_path;
-        } else {
-            LOG(WARNING) << "fail to create hard link. [from_path=" << base_table_index_path.c_str()
-                         << " to_path=" << index_path.c_str()
-                         << " errno=" << Errno::no() << " errno_str=" << Errno::str() << "]";
-            return false;
-        }
-
-        string data_path = new_segment_group->construct_data_file_path(new_segment_group->segment_group_id(), i);
-        string base_table_data_path = olap_data->segment_group()->construct_data_file_path(olap_data->segment_group()->segment_group_id(), i);
-        if (link(base_table_data_path.c_str(), data_path.c_str()) == 0) {
-            VLOG(3) << "success to create hard link. from_path=" << base_table_data_path
-                    << ", to_path=" << data_path;
-        } else {
-            LOG(WARNING) << "fail to create hard link. [from_path=" << base_table_data_path.c_str()
-                         << " to_path=" << data_path.c_str()
-                         << " errno=" << Errno::no() << " errno_str=" << Errno::str() << "]";
-            return false;
-        }
-    }
-
-    new_segment_group->set_empty(olap_data->empty());
-    new_segment_group->set_num_segments(olap_data->segment_group()->num_segments());
-    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics(),
-                                                                      _row_block_changer.get__schema_mapping() );
-
-    if (OLAP_SUCCESS != new_segment_group->load()) {
-        OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
-                         _new_olap_table->full_name().c_str(),
-                         new_segment_group->version().first,
-                         new_segment_group->version().second);
-        return false;
-    }
-
-    return true;
-}
-
-bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
-    DataFileType data_file_type = new_segment_group->table()->data_file_type();
-    bool null_supported = true;
-
-    if (NULL == _row_block_allocator) {
-        if (NULL == (_row_block_allocator =
-                         new(nothrow) RowBlockAllocator(_olap_table->tablet_schema(), 0))) {
+bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriterSharedPtr rowset_writer,
+        TabletSharedPtr new_tablet,
+        TabletSharedPtr base_tablet) {
+    if (_row_block_allocator == nullptr) {
+        _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
+        if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
         }
     }
 
-    if (NULL == _src_cursor) {
+    if (nullptr == _src_cursor) {
         _src_cursor = new(nothrow) RowCursor();
-        if (NULL == _src_cursor) {
-            OLAP_LOG_WARNING("fail to allocate row cursor.");
+        if (nullptr == _src_cursor) {
+            LOG(WARNING) << "fail to allocate row cursor.";
             return false;
         }
 
-        if (OLAP_SUCCESS != _src_cursor->init(_olap_table->tablet_schema())) {
-            OLAP_LOG_WARNING("fail to init row cursor.");
+        if (OLAP_SUCCESS != _src_cursor->init(new_tablet->tablet_schema())) {
+            LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
     }
 
-    if (NULL == _dst_cursor) {
+    if (nullptr == _dst_cursor) {
         _dst_cursor = new(nothrow) RowCursor();
-        if (NULL == _dst_cursor) {
-            OLAP_LOG_WARNING("fail to allocate row cursor.");
+        if (nullptr == _dst_cursor) {
+            LOG(WARNING) << "fail to allocate row cursor.";
             return false;
         }
 
-        if (OLAP_SUCCESS != _dst_cursor->init(_olap_table->tablet_schema())) {
-            OLAP_LOG_WARNING("fail to init row cursor.");
+        if (OLAP_SUCCESS != _dst_cursor->init(new_tablet->tablet_schema())) {
+            LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
     }
 
-    RowBlock* ref_row_block = NULL;
     bool need_create_empty_version = false;
     OLAPStatus res = OLAP_SUCCESS;
-    if (!olap_data->empty()) {
-        res = olap_data->get_first_row_block(&ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            if (olap_data->eof()) {
-                need_create_empty_version = true;
-            } else {
-                LOG(WARNING) << "failed to get first row block.";
-                return false;
-            }
+    if (!rowset_reader->rowset()->empty()) {
+        int num_rows = rowset_reader->rowset()->num_rows();
+        if (num_rows == 0) {
+            // actually, the rowset is empty
+            need_create_empty_version = true;
         }
     } else {
         need_create_empty_version = true;
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_segment_group->table()->tablet_id(),
-                                  new_segment_group->table()->schema_hash(),
-                                  new_segment_group->version(),
-                                  new_segment_group->version_hash(),
-                                  new_segment_group);
+        res = rowset_writer->flush();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "create empty version for schema change failed."
-                << "version=" << new_segment_group->version().first << "-" << new_segment_group->version().second; 
+                << "version=" << rowset_writer->version().first << "-" << rowset_writer->version().second;
             return false;
         }
         return true;
     }
 
-    VLOG(3) << "init writer. table=" << _olap_table->full_name()
-        << "block_row_size=" << _olap_table->num_rows_per_row_block();
+    VLOG(3) << "init writer. new_tablet=" << new_tablet->full_name()
+            << "block_row_number=" << new_tablet->num_rows_per_row_block();
     bool result = true;
-    RowBlock* new_row_block = NULL;
-    ColumnDataWriter* writer = ColumnDataWriter::create(_olap_table, new_segment_group, false);
-    if (NULL == writer) {
-        OLAP_LOG_WARNING("failed to create writer.");
-        result = false;
-        goto DIRECTLY_PROCESS_ERR;
-    }
+    RowBlock* new_row_block = nullptr;
 
-    // Reset filted_rows and merged_rows statistic
+    // Reset filtered_rows and merged_rows statistic
     reset_merged_rows();
-    reset_filted_rows();
+    reset_filtered_rows();
 
-    while (NULL != ref_row_block) {
+    RowBlock* ref_row_block = nullptr;
+    rowset_reader->next_block(&ref_row_block);
+    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
         // 注意这里强制分配和旧块等大的块(小了可能会存不下)
-        if (NULL == new_row_block
+        if (new_row_block == nullptr
                 || new_row_block->capacity() < ref_row_block->row_block_info().row_num) {
-            if (NULL != new_row_block) {
+            if (new_row_block != nullptr) {
                 _row_block_allocator->release(new_row_block);
-                new_row_block = NULL;
+                new_row_block = nullptr;
             }
 
             if (OLAP_SUCCESS != _row_block_allocator->allocate(
                                         &new_row_block,
                                         ref_row_block->row_block_info().row_num,
-                                        data_file_type, null_supported)) {
-                OLAP_LOG_WARNING("failed to allocate RowBlock.");
+                                        true)) {
+                LOG(WARNING) << "failed to allocate RowBlock.";
                 result = false;
                 goto DIRECTLY_PROCESS_ERR;
             }
@@ -843,75 +767,69 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
         }
 
         // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
-        uint64_t filted_rows = 0;
-        if (!_row_block_changer.change_row_block(olap_data->data_file_type(),
-                                                 *ref_row_block,
-                                                 olap_data->version().second,
+        uint64_t filtered_rows = 0;
+        if (!_row_block_changer.change_row_block(ref_row_block,
+                                                 rowset_reader->version().second,
                                                  new_row_block,
-                                                 &filted_rows)) {
-            OLAP_LOG_WARNING("failed to change data in row block.");
+                                                 &filtered_rows)) {
+            LOG(WARNING) << "failed to change data in row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
         }
-        add_filted_rows(filted_rows);
+        add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(writer, new_row_block)) {
-            OLAP_LOG_WARNING("failed to write row block.");
+        if (!_write_row_block(rowset_writer, new_row_block)) {
+            LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
         }
 
-        olap_data->get_next_row_block(&ref_row_block);
-
+        ref_row_block->clear();
+        rowset_reader->next_block(&ref_row_block);
     }
 
-    if (OLAP_SUCCESS != writer->finalize()) {
+    if (OLAP_SUCCESS != rowset_writer->flush()) {
         result = false;
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    if (OLAP_SUCCESS != new_segment_group->load()) {
-        OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
-                         _olap_table->full_name().c_str(),
-                         new_segment_group->version().first,
-                         new_segment_group->version().second);
-        result = false;
-        goto DIRECTLY_PROCESS_ERR;
-    }
-
-    add_filted_rows(olap_data->get_filted_rows());
+    add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (olap_data->segment_group()->num_rows()
-            != new_segment_group->num_rows() + merged_rows() + filted_rows()) {
-            LOG(FATAL) << "fail to check row num! "
-                       << "source_rows=" << olap_data->segment_group()->num_rows()
+        if (rowset_reader->rowset()->num_rows()
+            != rowset_writer->num_rows() + merged_rows() + filtered_rows()) {
+            LOG(WARNING) << "fail to check row num! "
+                       << "source_rows=" << rowset_reader->rowset()->num_rows()
                        << ", merged_rows=" << merged_rows()
-                       << ", filted_rows=" << filted_rows()
-                       << ", new_index_rows=" << new_segment_group->num_rows();
+                       << ", filtered_rows=" << filtered_rows()
+                       << ", new_index_rows=" << rowset_writer->num_rows();
             result = false;
         }
-    } else {
-        LOG(INFO) << "all row nums. source_rows=" << olap_data->segment_group()->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
-                  << ", filted_rows=" << filted_rows()
-                  << ", new_index_rows=" << new_segment_group->num_rows();
+                  << ", filtered_rows=" << filtered_rows()
+                  << ", new_index_rows=" << rowset_writer->num_rows();
+    } else {
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
+                  << ", merged_rows=" << merged_rows()
+                  << ", filtered_rows=" << filtered_rows()
+                  << ", new_index_rows=" << rowset_writer->num_rows();
     }
 
 DIRECTLY_PROCESS_ERR:
-    SAFE_DELETE(writer);
-    _row_block_allocator->release(new_row_block);
+    if (new_row_block) {
+        _row_block_allocator->release(new_row_block);
+        new_row_block = nullptr;
+    }
     return result;
 }
 
-SchemaChangeWithSorting::SchemaChangeWithSorting(OLAPTablePtr olap_table,
-                                                 const RowBlockChanger& row_block_changer,
+SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
                                                  size_t memory_limitation) :
-        _olap_table(olap_table),
         _row_block_changer(row_block_changer),
         _memory_limitation(memory_limitation),
-        _row_block_allocator(NULL) {
+        _row_block_allocator(nullptr) {
     // 每次SchemaChange做外排的时候，会写一些临时版本（比如999,1000,1001），为避免Cache冲突，临时
     // 版本进行2个处理：
     // 1. 随机值作为VersionHash
@@ -926,44 +844,37 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
     SAFE_DELETE(_row_block_allocator);
 }
 
-bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
-    if (NULL == _row_block_allocator) {
-        if (NULL == (_row_block_allocator = new(nothrow) RowBlockAllocator(
-                        _olap_table->tablet_schema(), _memory_limitation))) {
+bool SchemaChangeWithSorting::process(
+            RowsetReaderSharedPtr rowset_reader,
+            RowsetWriterSharedPtr new_rowset_writer,
+        TabletSharedPtr new_tablet,
+        TabletSharedPtr base_tablet) {
+    if (_row_block_allocator == nullptr) {
+        _row_block_allocator = new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
+        if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
         }
     }
 
-    DataFileType data_file_type = new_segment_group->table()->data_file_type();
-    bool null_supported = true;
-
-    RowBlock* ref_row_block = NULL;
     bool need_create_empty_version = false;
     OLAPStatus res = OLAP_SUCCESS;
-    if (!olap_data->empty()) {
-        res = olap_data->get_first_row_block(&ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            if (olap_data->eof()) {
-                need_create_empty_version = true;
-            } else {
-                LOG(WARNING) << "failed to get first row block.";
-                return false;
-            }
+    RowsetSharedPtr rowset = rowset_reader->rowset();
+    if (!rowset->empty()) {
+        int num_rows = rowset_reader->rowset()->num_rows();
+        if (num_rows == 0) {
+            need_create_empty_version = true;
         }
     } else {
         need_create_empty_version = true;
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_segment_group->table()->tablet_id(),
-                                  new_segment_group->table()->schema_hash(),
-                                  new_segment_group->version(),
-                                  new_segment_group->version_hash(),
-                                  new_segment_group);
+        res = new_rowset_writer->flush();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "create empty version for schema change failed."
-                << "version=" << new_segment_group->version().first << "-" << new_segment_group->version().second;
+                         << " version=" << new_rowset_writer->version().first
+                         << "-" << new_rowset_writer->version().second;
             return false;
         }
         return true;
@@ -974,48 +885,50 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     RowBlockSorter row_block_sorter(_row_block_allocator);
 
     // for internal sorting
-    RowBlock* new_row_block = NULL;
+    RowBlock* new_row_block = nullptr;
     vector<RowBlock*> row_block_arr;
 
     // for external sorting
-    vector<SegmentGroup*> olap_segment_groups;
+    // src_rowsets to store the rowset generated by internal sorting
+    vector<RowsetSharedPtr> src_rowsets;
 
     _temp_delta_versions.first = _temp_delta_versions.second;
 
-    // Reset filted_rows and merged_rows statistic
+    // Reset filtered_rows and merged_rows statistic
     reset_merged_rows();
-    reset_filted_rows();
+    reset_filtered_rows();
 
-    while (NULL != ref_row_block) {
+    RowBlock* ref_row_block = nullptr;
+    rowset_reader->next_block(&ref_row_block);
+    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
         if (OLAP_SUCCESS != _row_block_allocator->allocate(
-                    &new_row_block, ref_row_block->row_block_info().row_num, 
-                    data_file_type, null_supported)) {
-            OLAP_LOG_WARNING("failed to allocate RowBlock.");
+                    &new_row_block, ref_row_block->row_block_info().row_num, true)) {
+            LOG(WARNING) << "failed to allocate RowBlock.";
             result = false;
             goto SORTING_PROCESS_ERR;
         }
 
-        if (NULL == new_row_block) {
+        if (new_row_block == nullptr) {
             if (row_block_arr.size() < 1) {
-                OLAP_LOG_WARNING("Memory limitation is too small for Schema Change. "
-                                 "[memory_limitation=%ld]",
-                                 _memory_limitation);
+                LOG(WARNING) << "Memory limitation is too small for Schema Change."
+                             << "memory_limitation=" << _memory_limitation;
                 return false;
             }
 
             // enter here while memory limitation is reached.
-            SegmentGroup* segment_group = NULL;
-
+            RowsetSharedPtr rowset;
             if (!_internal_sorting(row_block_arr,
                                    Version(_temp_delta_versions.second,
                                            _temp_delta_versions.second),
-                                   &segment_group)) {
-                OLAP_LOG_WARNING("failed to sorting internally.");
+                                   rowset_reader->version_hash(),
+                                   new_tablet,
+                                   &rowset)) {
+                LOG(WARNING) << "failed to sorting internally.";
                 result = false;
                 goto SORTING_PROCESS_ERR;
             }
 
-            olap_segment_groups.push_back(segment_group);
+            src_rowsets.push_back(rowset);
 
             for (vector<RowBlock*>::iterator it = row_block_arr.begin();
                     it != row_block_arr.end(); ++it) {
@@ -1029,22 +942,19 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
             continue;
         }
 
-        uint64_t filted_rows = 0;
-        if (!_row_block_changer.change_row_block(
-                olap_data->data_file_type(),
-                *ref_row_block,
-                olap_data->version().second,
-                new_row_block,
-                &filted_rows)) {
-            OLAP_LOG_WARNING("failed to change data in row block.");
+        uint64_t filtered_rows = 0;
+        if (!_row_block_changer.change_row_block(ref_row_block,
+                                                 rowset_reader->version().second,
+                                                 new_row_block, &filtered_rows)) {
+            LOG(WARNING) << "failed to change data in row block.";
             result = false;
             goto SORTING_PROCESS_ERR;
         }
-        add_filted_rows(filted_rows);
+        add_filtered_rows(filtered_rows);
 
         if (new_row_block->row_block_info().row_num > 0) {
             if (!row_block_sorter.sort(&new_row_block)) {
-                OLAP_LOG_WARNING("failed to sort row block.");
+                LOG(WARNING) << "failed to sort row block.";
                 result = false;
                 OLAP_GOTO(SORTING_PROCESS_ERR);
             }
@@ -1052,25 +962,28 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
             row_block_arr.push_back(new_row_block);
         } else {
             _row_block_allocator->release(new_row_block);
-            new_row_block = NULL;
+            new_row_block = nullptr;
         }
 
-        olap_data->get_next_row_block(&ref_row_block);
+        ref_row_block->clear();
+        rowset_reader->next_block(&ref_row_block);
     }
 
     if (!row_block_arr.empty()) {
         // enter here while memory limitation is reached.
-        SegmentGroup* segment_group = NULL;
+        RowsetSharedPtr rowset = nullptr;
 
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               &segment_group)) {
-            OLAP_LOG_WARNING("failed to sorting internally.");
+                               rowset_reader->version_hash(),
+                               new_tablet,
+                               &rowset)) {
+            LOG(WARNING) << "failed to sorting internally.";
             result = false;
             goto SORTING_PROCESS_ERR;
         }
 
-        olap_segment_groups.push_back(segment_group);
+        src_rowsets.push_back(rowset);
 
         for (vector<RowBlock*>::iterator it = row_block_arr.begin();
                 it != row_block_arr.end(); ++it) {
@@ -1084,36 +997,42 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     }
 
     // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(olap_segment_groups, new_segment_group)) {
-        OLAP_LOG_WARNING("failed to sorting externally.");
+    if (!_external_sorting(src_rowsets, new_rowset_writer, new_tablet)) {
+        LOG(WARNING) << "failed to sorting externally.";
         result = false;
         goto SORTING_PROCESS_ERR;
     }
 
-    add_filted_rows(olap_data->get_filted_rows());
+    add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (olap_data->segment_group()->num_rows()
-            != new_segment_group->num_rows() + merged_rows() + filted_rows()) {
-            OLAP_LOG_WARNING("fail to check row num! "
-                             "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                             olap_data->segment_group()->num_rows(),
-                             merged_rows(), filted_rows(), new_segment_group->num_rows());
+        if (rowset_reader->rowset()->num_rows()
+            != new_rowset_writer->num_rows() + merged_rows() + filtered_rows()) {
+            LOG(WARNING) << "fail to check row num!"
+                         << " source_rows=" << rowset_reader->rowset()->num_rows()
+                         << ", merged_rows=" << merged_rows()
+                         << ", filtered_rows=" << filtered_rows()
+                         << ", new_index_rows=" << new_rowset_writer->num_rows();
             result = false;
         }
-    } else {
-        LOG(INFO) << "all row nums. source_rows=" << olap_data->segment_group()->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
-                  << ", filted_rows=" << filted_rows()
-                  << ", new_index_rows=" << new_segment_group->num_rows();
+                  << ", filtered_rows=" << filtered_rows()
+                  << ", new_index_rows=" << new_rowset_writer->num_rows();
+    } else {
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
+                  << ", merged_rows=" << merged_rows()
+                  << ", filtered_rows=" << filtered_rows()
+                  << ", new_index_rows=" << new_rowset_writer->num_rows();
     }
 
 SORTING_PROCESS_ERR:
-    for (vector<SegmentGroup*>::iterator it = olap_segment_groups.begin();
-            it != olap_segment_groups.end(); ++it) {
-        (*it)->delete_all_files();
-        SAFE_DELETE(*it);
+
+    // remove the intermediate rowsets generated by internal sorting
+    for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
+            it != src_rowsets.end(); ++it) {
+        (*it)->remove();
     }
 
     for (vector<RowBlock*>::iterator it = row_block_arr.begin();
@@ -1126,1141 +1045,759 @@ SORTING_PROCESS_ERR:
 }
 
 bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_block_arr,
-                                                const Version& temp_delta_versions,
-                                                SegmentGroup** temp_segment_group) {
-    ColumnDataWriter* writer = NULL;
+                                                const Version& version,
+                                                VersionHash version_hash,
+                                                TabletSharedPtr new_tablet,
+                                                RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
-    RowBlockMerger merger(_olap_table);
+    RowBlockMerger merger(new_tablet);
 
-    (*temp_segment_group) = new(nothrow) SegmentGroup(_olap_table.get(),
-                                                temp_delta_versions,
-                                                rand(),
-                                                false,
-                                                0, 0);
-    if (NULL == (*temp_segment_group)) {
-        OLAP_LOG_WARNING("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
-        goto INTERNAL_SORTING_ERR;
+    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
+    if (rowset_writer == nullptr) {
+        LOG(WARNING) << "new rowset builder failed";
+        return false;
     }
-
-    VLOG(3) << "init writer. tablet=" << _olap_table->full_name()
-            << ", block_row_size=" << _olap_table->num_rows_per_row_block();
-    writer = ColumnDataWriter::create(_olap_table, *temp_segment_group, false);
-    if (NULL == writer) {
-        OLAP_LOG_WARNING("failed to create writer.");
-        goto INTERNAL_SORTING_ERR;
+    RowsetId rowset_id = 0;
+    OLAPStatus status = new_tablet->next_rowset_id(&rowset_id);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "get next rowset id failed";
+        return false;
     }
-
-    if (!merger.merge(row_block_arr, writer, &merged_rows)) {
-        OLAP_LOG_WARNING("failed to merge row blocks.");
-        goto INTERNAL_SORTING_ERR;
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_uid = new_tablet->tablet_uid();
+    context.tablet_id = new_tablet->tablet_id();
+    context.partition_id = new_tablet->partition_id();
+    context.tablet_schema_hash = new_tablet->schema_hash();
+    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_path_prefix = new_tablet->tablet_path();
+    context.tablet_schema = &(new_tablet->tablet_schema());
+    context.rowset_state = VISIBLE;
+    context.data_dir = new_tablet->data_dir();
+    context.version = version;
+    context.version_hash = version_hash;
+    VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()
+            << ", block_row_size=" << new_tablet->num_rows_per_row_block();
+    rowset_writer->init(context);
+    if (!merger.merge(row_block_arr, rowset_writer, &merged_rows)) {
+        LOG(WARNING) << "failed to merge row blocks.";
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        return false;
     }
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
     add_merged_rows(merged_rows);
-
-    if (OLAP_SUCCESS != (*temp_segment_group)->load()) {
-        OLAP_LOG_WARNING("failed to reload olap index.");
-        goto INTERNAL_SORTING_ERR;
-    }
-
-    SAFE_DELETE(writer);
+    *rowset = rowset_writer->build();
     return true;
-
-INTERNAL_SORTING_ERR:
-    SAFE_DELETE(writer);
-
-    (*temp_segment_group)->delete_all_files();
-    SAFE_DELETE(*temp_segment_group);
-    return false;
 }
 
 bool SchemaChangeWithSorting::_external_sorting(
-        vector<SegmentGroup*>& src_segment_groups,
-        SegmentGroup* dest_segment_group) {
-    Merger merger(_olap_table, dest_segment_group, READER_ALTER_TABLE);
+        vector<RowsetSharedPtr>& src_rowsets,
+        RowsetWriterSharedPtr rowset_writer,
+        TabletSharedPtr new_tablet) {
+    Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
 
     uint64_t merged_rows = 0;
-    uint64_t filted_rows = 0;
-    vector<ColumnData*> olap_data_arr;
-
-    for (vector<SegmentGroup*>::iterator it = src_segment_groups.begin();
-            it != src_segment_groups.end(); ++it) {
-        ColumnData* olap_data = ColumnData::create(*it);
-        if (NULL == olap_data) {
-            OLAP_LOG_WARNING("fail to create ColumnData.");
-            goto EXTERNAL_SORTING_ERR;
+    uint64_t filtered_rows = 0;
+    vector<RowsetReaderSharedPtr> rs_readers;
+    for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
+            it != src_rowsets.end(); ++it) {
+        RowsetReaderSharedPtr rs_reader = (*it)->create_reader();
+        if (rs_reader == nullptr) {
+            LOG(WARNING) << "fail to create rowset reader.";
+            return false;
         }
-
-        olap_data_arr.push_back(olap_data);
-
-        if (OLAP_SUCCESS != olap_data->init()) {
-            OLAP_LOG_WARNING("fail to initial olap data. [version='%d-%d' table='%s']",
-                             (*it)->version().first,
-                             (*it)->version().second,
-                             (*it)->table()->full_name().c_str());
-            goto EXTERNAL_SORTING_ERR;
-        }
+        rs_readers.push_back(rs_reader);
     }
 
-    if (OLAP_SUCCESS != merger.merge(olap_data_arr, &merged_rows, &filted_rows)) {
-        OLAP_LOG_WARNING("fail to merge deltas. [table='%s' version='%d-%d']",
-                         _olap_table->full_name().c_str(),
-                         dest_segment_group->version().first,
-                         dest_segment_group->version().second);
-        goto EXTERNAL_SORTING_ERR;
+    if (OLAP_SUCCESS != merger.merge(rs_readers, &merged_rows, &filtered_rows)) {
+        LOG(WARNING) << "fail to merge rowsets. tablet=" << new_tablet->full_name()
+                     << ", version=" << rowset_writer->version().first
+                     << "-" << rowset_writer->version().second;
+        return false;
     }
     add_merged_rows(merged_rows);
-    add_filted_rows(filted_rows);
-
-    if (OLAP_SUCCESS != dest_segment_group->load()) {
-        OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
-                         _olap_table->full_name().c_str(),
-                         dest_segment_group->version().first,
-                         dest_segment_group->version().second);
-        goto EXTERNAL_SORTING_ERR;
-    }
-
-    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
-            it != olap_data_arr.end(); ++it) {
-        SAFE_DELETE(*it);
-    }
+    add_filtered_rows(filtered_rows);
 
     return true;
-
-EXTERNAL_SORTING_ERR:
-    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
-            it != olap_data_arr.end(); ++it) {
-        SAFE_DELETE(*it);
-    }
-
-    dest_segment_group->delete_all_files();
-    return false;
 }
 
-OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
-        TTabletId tablet_id,
-        SchemaHash schema_hash,
-        AlterTabletType* alter_table_type,
-        bool only_one,
-        bool check_only) {
-    OLAPTablePtr olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-    return clear_schema_change_single_info(olap_table, alter_table_type, only_one, check_only);
-}
-
-OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
-        OLAPTablePtr olap_table,
-        AlterTabletType* type,
-        bool only_one,
-        bool check_only) {
+OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
+                                                     const TAlterTabletReq& request) {
+    LOG(INFO) << "begin to validate alter tablet request. base_tablet_id=" << request.base_tablet_id
+              << ", base_schema_hash" << request.base_schema_hash
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+              << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (NULL == olap_table.get()) {
-        return res;
-    }
-
-    vector<Version> versions_to_be_changed;
-    if (olap_table->get_schema_change_request(NULL,
-                                              NULL,
-                                              &versions_to_be_changed,
-                                              NULL)) {
-        if (versions_to_be_changed.size() != 0) {
-            OLAP_LOG_WARNING("schema change is not allowed now, "
-                             "until previous schema change is done. [table='%s']",
-                             olap_table->full_name().c_str());
-            return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
-        }
-    }
-
-    if (!check_only) {
-        VLOG(3) << "broke old schema change chain";
-        olap_table->clear_schema_change_request();
-    }
-
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
-        OLAPTablePtr olap_table,
-        const TAlterTabletReq& request) {
-    // check for schema change chain ( A->B)
-    // broken old relation if a chain was found and there is no version to be changed
-    // so, there is no relation between A & B any more
-    // including: alter_table, split_table, rollup_table
-    OLAPStatus res = OLAP_SUCCESS;
-    TTabletId tablet_id;
-    TSchemaHash schema_hash;
-    vector<Version> versions_to_be_changed;
-    AlterTabletType type;
-
-    // checkes schema change & rollup
-    olap_table->obtain_header_rdlock();
-    bool ret = olap_table->get_schema_change_request(
-            &tablet_id, &schema_hash, &versions_to_be_changed, &type);
-    olap_table->release_header_lock();
-    if (!ret) {
-        return res;
-    }
-
-    if (versions_to_be_changed.size() != 0) {
-        OLAP_LOG_WARNING("schema change is not allowed now, "
-                         "until previous schema change is done");
-        return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
-    }
-
-    if (tablet_id == request.new_tablet_req.tablet_id
-            && schema_hash == request.new_tablet_req.tablet_schema.schema_hash) {
-        LOG(INFO) << "schema change task for specified tablet has already finished. "
-                  << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-        return res;
-    }
-
-    // clear schema change info of current tablet
-    {
-        WriteLock wrlock(olap_table->get_header_lock_ptr());
-        res = clear_schema_change_single_info(
-                olap_table->tablet_id(), olap_table->schema_hash(), &type, true, false);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to clear schema change info. [res=%d full_name='%s']",
-                             res, olap_table->full_name().c_str());
-            return res;
-        }
-
-        res = olap_table->save_header();
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save tablet header. [res=%d, full_name='%s']",
-                             res, olap_table->full_name().c_str());
-            return res;
-        }
-    }
-
-    // clear schema change info of related tablet
-    OLAPTablePtr tablet = OLAPEngine::get_instance()->get_table(
-            tablet_id, schema_hash);
-    if (tablet.get() == NULL) {
-        OLAP_LOG_WARNING("get null tablet! [tablet_id=%ld schema_hash=%d]",
-                         tablet_id, schema_hash);
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-
-    {
-        WriteLock wrlock(tablet->get_header_lock_ptr());
-        res = clear_schema_change_single_info(
-                tablet_id, schema_hash, &type, true, false);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to clear schema change info. [res=%d full_name='%s']",
-                             res, tablet->full_name().c_str());
-            return res;
-        }
-
-        res = tablet->save_header();
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save tablet header. [res=%d, full_name='%s']",
-                             res, tablet->full_name().c_str());
-            return res;
-        }
-    }
-
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::process_alter_table(
-        AlterTabletType type,
-        const TAlterTabletReq& request) {
-    OLAPStatus res = OLAP_SUCCESS;
-    LOG(INFO) << "begin to validate alter tablet request.";
-
-    // 1. Lock schema_change_lock util schema change info is stored in table header
-    if (!OLAPEngine::get_instance()->try_schema_change_lock(request.base_tablet_id)) {
-        OLAP_LOG_WARNING("failed to obtain schema change lock. [res=%d table=%ld]",
-                         res, request.base_tablet_id);
+    // Lock schema_change_lock util schema change info is stored in tablet header
+    if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(request.base_tablet_id)) {
+        LOG(WARNING) << "failed to obtain schema change lock. "
+                     << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
 
-    // 2. Get base table
-    OLAPTablePtr ref_olap_table = OLAPEngine::get_instance()->get_table(
+    // Get base tablet
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
-    if (ref_olap_table.get() == NULL) {
-        OLAP_LOG_WARNING("fail to find base table. [base_table=%ld base_schema_hash=%d]",
-                         request.base_tablet_id, request.base_schema_hash);
-        OLAPEngine::get_instance()->release_schema_change_lock(request.base_tablet_id);
+    if (base_tablet == nullptr) {
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
+                     << ", base_schema_hash=" << request.base_schema_hash;
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    // 3. Check if history schema change information exist,
-    //    if exist, it will be cleaned only when all delta versions converted
-    res = _check_and_clear_schema_change_info(ref_olap_table, request);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to check and clear schema change info. [table='%s']",
-                         ref_olap_table->full_name().c_str());
-        OLAPEngine::get_instance()->release_schema_change_lock(request.base_tablet_id);
-        return res;
-    }
-
-    // 4. return failed if new table already exist in OLAPEngine.
-    OLAPTablePtr new_tablet = OLAPEngine::get_instance()->get_table(
+    // 4. Returning success if new tablet already exist in StorageEngine.
+    //    It means that the current request was already handled.
+    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
-    if (new_tablet.get() != NULL) {
-        res = OLAP_SUCCESS;
-    } else {
-        OLAPStatus lock_status = ref_olap_table->try_migration_rdlock();
-        if (lock_status != OLAP_SUCCESS) {
-            res = lock_status;
+    if (new_tablet != nullptr) {
+        LOG(INFO) << "find alter new tablet exists " << new_tablet->full_name() 
+                  << ",  check if it is valid";
+        // check if new tablet's alter task is finished
+        AlterTabletTaskSharedPtr new_tablet_alter_task = new_tablet->alter_task();
+        AlterTabletTaskSharedPtr base_alter_task = base_tablet->alter_task();
+        if ((new_tablet_alter_task != nullptr && new_tablet_alter_task->alter_state() != ALTER_FINISHED) 
+            || (base_alter_task != nullptr && base_alter_task->alter_state() != ALTER_FINISHED) ) {
+            LOG(INFO) << "find invalid new tablet "
+                      << ", base_tablet=" << base_tablet->full_name()
+                      << ", new_tablet=" << new_tablet->full_name()
+                      << ", base alter task state is " << (base_alter_task == nullptr ? -1 : base_alter_task->alter_state())
+                      << ", new alter task state is " << (new_tablet_alter_task == nullptr ? -1 : new_tablet_alter_task->alter_state())
+                      << " should drop new tablet generated by previous task";
+            res = StorageEngine::instance()->tablet_manager()->drop_tablet(request.new_tablet_req.tablet_id, 
+                                                                        request.new_tablet_req.tablet_schema.schema_hash);
+            if (res != OLAP_SUCCESS) {
+                StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+                LOG(WARNING) << "Alter task has been failed. Should drop invalid tablet. but failed. res=" << res
+                             << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+                             << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
+                return res;
+            }
         } else {
-            res = _do_alter_table(type, ref_olap_table, request);
-            ref_olap_table->release_migration_lock();
+            StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+            LOG(INFO) << "find valid new tablet "
+                      << ", base_tablet=" << base_tablet->full_name()
+                      << ", new_tablet=" << new_tablet->full_name()
+                      << ", base alter task state is " << (base_alter_task == nullptr ? -1 : base_alter_task->alter_state())
+                      << ", new alter task state is " << (new_tablet_alter_task == nullptr ? -1 : new_tablet_alter_task->alter_state())
+                      << " return success";
+            return OLAP_SUCCESS;
         }
     }
 
-    OLAPEngine::get_instance()->release_schema_change_lock(request.base_tablet_id);
+    LOG(INFO) << "finish to validate alter tablet request. base_tablet=" << base_tablet->full_name();
 
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::_do_alter_table(
-        AlterTabletType type,
-        OLAPTablePtr ref_olap_table,
-        const TAlterTabletReq& request) {
-    OLAPStatus res = OLAP_SUCCESS;
-    OLAPTablePtr new_olap_table;
-    string base_root_path = ref_olap_table->storage_root_path_name();
-
-    LOG(INFO) << "begin to do alter tablet job. new_table_id=" << request.new_tablet_req.tablet_id;
-    // 1. Create new table and register into OLAPEngine
-    res = _create_new_olap_table(ref_olap_table,
-                                 request.new_tablet_req,
-                                 &base_root_path,
-                                 &new_olap_table);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to create new olap table. [table=%ld]",
-                         request.new_tablet_req.tablet_id);
-        return res;
+    // 4. Create new tablet and register into StorageEngine
+    new_tablet = StorageEngine::instance()->create_tablet(type, request.new_tablet_req, true, base_tablet);
+    if (new_tablet == nullptr) {
+        LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.new_tablet_req.tablet_id
+                     << ", new_tablet_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        return OLAP_ERR_TABLE_CREATE_META_ERROR;
     }
 
-    // set schema change status temporarily,
-    // after waiting transactions to finish, will calculate versions again
-    vector<Version> tmp_versions_to_be_changed;
-    tmp_versions_to_be_changed.push_back(Version(-1, -1));
-    ref_olap_table->obtain_push_lock();
-    ref_olap_table->obtain_header_wrlock();
-    new_olap_table->obtain_header_wrlock();
-    res = _save_schema_change_info(type, ref_olap_table, new_olap_table, tmp_versions_to_be_changed);
-    new_olap_table->release_header_lock();
-    ref_olap_table->release_header_lock();
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to save schema change info before waiting transactions. "
-                         "[base=%s new=%s res=%d]", ref_olap_table->full_name().c_str(),
-                         new_olap_table->full_name().c_str(), res);
-        ref_olap_table->release_push_lock();
-        OLAPEngine::get_instance()->drop_table(
-                new_olap_table->tablet_id(), new_olap_table->schema_hash());
-        return res;
+    ReadLock base_migration_rlock(base_tablet->get_migration_lock_ptr(), TRY_LOCK);
+    if (!base_migration_rlock.own_lock()) {
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        return OLAP_ERR_RWLOCK_ERROR;
     }
+    ReadLock new_migration_rlock(new_tablet->get_migration_lock_ptr(), TRY_LOCK);
+    if (!new_migration_rlock.own_lock()) {
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        return OLAP_ERR_RWLOCK_ERROR;
+    }
+
+    base_tablet->obtain_push_lock();
+    base_tablet->obtain_header_wrlock();
+    new_tablet->obtain_header_wrlock();
+    // store schema change information into tablet header
+    vector<Version> empty_version_list;
+    res = _add_alter_task(type, base_tablet, new_tablet, empty_version_list);
+    new_tablet->release_header_lock();
+    base_tablet->release_header_lock();
 
     // get current transactions
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    OLAPEngine::get_instance()->
-        get_transactions_by_tablet(ref_olap_table, &partition_id, &transaction_ids);
-    ref_olap_table->release_push_lock();
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet->tablet_id(), 
+        base_tablet->schema_hash(), base_tablet->tablet_uid(), &partition_id, &transaction_ids);
+    base_tablet->release_push_lock();
 
     // wait transactions to publish version
     int num = 0;
     while (!transaction_ids.empty()) {
-        VLOG(3) << "wait transactions when schema change. tablet=" << ref_olap_table->full_name()
+        VLOG(3) << "wait transactions when schema change. tablet=" << base_tablet->full_name()
                 << ", transaction_size=" << transaction_ids.size();
         num++;
         if (num % 100 == 0) {
             for (int64_t transaction_id : transaction_ids) {
-                LOG(INFO) << "transaction_id is waiting by schema_change: " << transaction_id;
+                LOG(INFO) << "transaction_id is waiting by schema_change."
+                          << " base_tablet=" << base_tablet->full_name()
+                          << " new_tablet=" << new_tablet->full_name()
+                          << " transactionid=" << transaction_id;
             }
         }
         sleep(1);
         // erase finished transaction
         vector<int64_t> finished_transactions;
         for (int64_t transaction_id : transaction_ids) {
-            if (!OLAPEngine::get_instance()->has_transaction(
+            if (!StorageEngine::instance()->txn_manager()->has_txn(
                 partition_id, transaction_id,
-                ref_olap_table->tablet_id(), ref_olap_table->schema_hash())) {
+                base_tablet->tablet_id(), base_tablet->schema_hash(), base_tablet->tablet_uid())) {
                 finished_transactions.push_back(transaction_id);
             }
         }
         for (int64_t transaction_id : finished_transactions) {
             transaction_ids.erase(transaction_id);
             VLOG(3) << "transaction finished when schema change is waiting. "
-                    << "tablet=" << ref_olap_table->full_name()
+                    << "tablet=" << base_tablet->full_name()
                     << ", transaction_id=" << transaction_id
                     << ", transaction_size=" << transaction_ids.size();
         }
     }
 
-    // 2. Get version_to_be_changed and store into table header
-    ref_olap_table->obtain_push_lock();
-    ref_olap_table->obtain_header_wrlock();
-    new_olap_table->obtain_header_wrlock();
-
-    // before calculating version_to_be_changed,
-    // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-    VLOG(3) << "begin to remove all data from new tablet to prevent rewrite. "
-            << "new_tablet=" << new_olap_table->full_name();
-    // only remove the version <= base_tablet's latest version
-    const PDelta* lastest_file_version = ref_olap_table->lastest_version();
-    if (lastest_file_version != NULL) {
-        VLOG(3) << "find the latest version of base tablet when remove all data from new. "
-                << "base_tablet=" << ref_olap_table->full_name()
-                << ", version=" << lastest_file_version->start_version()
-                << "-" << lastest_file_version->end_version();
-        vector<Version> new_tablet_versions;
-        new_olap_table->list_versions(&new_tablet_versions);
-        for (vector<Version>::const_iterator it = new_tablet_versions.begin();
-             it != new_tablet_versions.end(); ++it) {
-            if (it->second <= lastest_file_version->end_version()) {
-                std::vector<SegmentGroup*> segment_groups;
-                res = new_olap_table->unregister_data_source(*it, &segment_groups);
-                if (res != OLAP_SUCCESS) {
-                    break;
-                }
-                for (SegmentGroup* segment_group : segment_groups) {
-                    segment_group->delete_all_files();
-                    delete segment_group;
-                }
-                VLOG(3) << "unregister data source from new tablet when schema change. "
-                        << "new_tablet=" << new_olap_table->full_name()
-                        << ", version=" << it->first << "-" << it->second
-                        << ", res=" << res;
-            }
-        }
-        // save header
-        if (res == OLAP_SUCCESS) {
-            res = new_olap_table->save_header();
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to save header after unregister data source "
-                                 "when schema change. [new_tablet=%s res=%d]",
-                                 new_olap_table->full_name().c_str(), res);
-            }
-        }
-        // if failed, return
-        if (res != OLAP_SUCCESS) {
-            new_olap_table->release_header_lock();
-            ref_olap_table->release_header_lock();
-            ref_olap_table->release_push_lock();
-            OLAPEngine::get_instance()->drop_table(
-                    new_olap_table->tablet_id(), new_olap_table->schema_hash());
-            OLAP_LOG_WARNING("fail to remove data from new tablet when schema_change. "
-                             "[new_tablet=%s]", new_olap_table->full_name().c_str());
-            return res;
-        }
-    }
+    // 2. Get version_to_be_changed and store into tablet header
+    base_tablet->obtain_push_lock();
+    base_tablet->obtain_header_wrlock();
+    new_tablet->obtain_header_wrlock();
 
     vector<Version> versions_to_be_changed;
-    vector<ColumnData*> olap_data_arr;
-    // delete handlers for new olap table
+    vector<RowsetReaderSharedPtr> rs_readers;
+    // delete handlers for new tablet
     DeleteHandler delete_handler;
     do {
-        // inherit cumulative_layer_point from ref_olap_table
-        new_olap_table->set_cumulative_layer_point(ref_olap_table->cumulative_layer_point());
+        // before calculating version_to_be_changed,
+        // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
+        LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
+                  << " new_tablet=" << new_tablet->full_name();
+        // only remove the version <= base_tablet's max version
+        RowsetSharedPtr max_rowset = base_tablet->rowset_with_max_version();
+        if (max_rowset != nullptr) {
+            vector<Version> new_tablet_versions;
+            new_tablet->list_versions(&new_tablet_versions);
+            std::vector<RowsetSharedPtr> rowsets;
+            for (auto& version : new_tablet_versions) {
+                if (version.second <= max_rowset->end_version()) {
+                    RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
+                    rowsets.push_back(rowset);
+                }
+            }
+            new_tablet->modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets);
+            // save tablet meta
+            res = new_tablet->save_meta();
+            if (res != OLAP_SUCCESS) {
+                LOG(FATAL) << "fail to save tablet meta after remove rowset from new tablet"
+                    << new_tablet->full_name();
+            }
+            for (auto& rowset : rowsets) {
+                rowset->remove();
+            }
+        } else {
+            res = OLAP_ERR_VERSION_NOT_EXIST;
+            break;
+        }
+
+        // inherit cumulative_layer_point from base_tablet
+        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
 
         // get history versions to be changed
-        res = _get_versions_to_be_changed(ref_olap_table, versions_to_be_changed);
+        res = _get_versions_to_be_changed(base_tablet, versions_to_be_changed);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get version to be changed. [res=%d]", res);
-            break;
-        }
-
-        // store schema change information into table header
-        res = _save_schema_change_info(type,
-                                       ref_olap_table,
-                                       new_olap_table,
-                                       versions_to_be_changed);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save schema change info. [res=%d]", res);
-            break;
-        }
-
-        // acquire data sources correspond to history versions
-        ref_olap_table->acquire_data_sources_by_versions(
-                versions_to_be_changed, &olap_data_arr);
-        if (olap_data_arr.size() < 1) {
-            OLAP_LOG_WARNING("fail to acquire all data sources."
-                             "[version_num=%d data_source_num=%d]",
-                             versions_to_be_changed.size(),
-                             olap_data_arr.size());
-            res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
+            LOG(WARNING) << "fail to get version to be changed. res=" << res;
             break;
         }
 
         // init one delete handler
         int32_t end_version = -1;
-        for (size_t i = 0; i < olap_data_arr.size(); ++i) {
-            if (olap_data_arr[i]->version().second > end_version) {
-                end_version = olap_data_arr[i]->version().second;
+        for (auto& version : versions_to_be_changed) {
+            if (version.second > end_version) {
+                end_version = version.second;
             }
         }
 
-        res = delete_handler.init(ref_olap_table, end_version);
+        res = delete_handler.init(base_tablet->tablet_schema(), base_tablet->delete_predicates(), end_version);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("init delete handler failed. [table=%s; end_version=%d]",
-                             ref_olap_table->full_name().c_str(), end_version);
+            LOG(WARNING) << "init delete handler failed. base_tablet=" << base_tablet->full_name()
+                         << ", end_version=" << end_version;
 
             // release delete handlers which have been inited successfully.
             delete_handler.finalize();
             break;
         }
+
+        // acquire data sources correspond to history versions
+        base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
+        if (rs_readers.size() < 1) {
+            LOG(WARNING) << "fail to acquire all data sources. "
+                         << "version_num=" << versions_to_be_changed.size()
+                         << ", data_source_num=" << rs_readers.size();
+            res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
+            break;
+        }
+
+        _reader_context.reader_type = READER_ALTER_TABLE;
+        _reader_context.tablet_schema= &base_tablet->tablet_schema();
+        _reader_context.preaggregation = true;
+        _reader_context.delete_handler = &delete_handler;
+        _reader_context.is_using_cache = false;
+        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+
+        for (auto& rs_reader : rs_readers) {
+            rs_reader->init(&_reader_context);
+        }
+
     } while (0);
 
-    new_olap_table->release_header_lock();
-    ref_olap_table->release_header_lock();
-    ref_olap_table->release_push_lock();
-
-    if (res == OLAP_SUCCESS) {
-        // 3. Generate alter job
-        SchemaChangeParams sc_params;
-        sc_params.alter_table_type = type;
-        sc_params.ref_olap_table = ref_olap_table;
-        sc_params.new_olap_table = new_olap_table;
-        sc_params.ref_olap_data_arr = olap_data_arr;
-        sc_params.delete_handler = delete_handler;
-
-
-        // 4. Update schema change status of ref_olap_table and new_olap_tables
-        new_olap_table->set_schema_change_status(ALTER_TABLE_RUNNING,
-                                                 ref_olap_table->schema_hash(),
-                                                 versions_to_be_changed.back().second);
-        ref_olap_table->set_schema_change_status(ALTER_TABLE_RUNNING,
-                                                 new_olap_table->schema_hash(),
-                                                 versions_to_be_changed.back().second);
-
-        // add tid to cgroup
-        CgroupsMgr::apply_system_cgroup();
-
-        // process the job : special for query table split key
-        VLOG(10) << "starts to alter table. "
-                 << "old_tablet=" << sc_params.ref_olap_table->full_name()
-                 << ", new_tablet=" << sc_params.new_olap_table->full_name();
-
-        if ((res = _alter_table(&sc_params)) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to alter table. [request='%s']",
-                             sc_params.debug_message.c_str());
-        }
-
-        VLOG(10) << "schema change thread completed the job. "
-                 << "request=" << sc_params.debug_message;
-    } else {
-        // Delete olap table when submit alter table failed.
-        OLAPEngine::get_instance()->drop_table(
-                new_olap_table->tablet_id(), new_olap_table->schema_hash());
-    }
-
-    OLAP_LOG_WARNING("finish to generate alter tablet job. [res=%d]", res);
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::_create_new_olap_table(
-        const OLAPTablePtr ref_olap_table,
-        const TCreateTabletReq& request,
-        const string* ref_root_path,
-        OLAPTablePtr* out_new_olap_table) {
-    OLAPStatus res = OLAP_SUCCESS;
-    OLAPTable* new_olap_table = NULL;
-    bool is_table_added = false;
-
-    // 1. Lock to ensure that all _create_new_olap_table operation execute in serial
-    static Mutex create_table_lock;
-    create_table_lock.lock();
-
-    do {
-        // 2. Create table with only header, no deltas
-        OLAPTablePtr new_olap_table = OLAPEngine::get_instance()->create_table(
-                request, ref_root_path, true, ref_olap_table);
-        if (new_olap_table == NULL) {
-            OLAP_LOG_WARNING("failed to create table. [table=%ld xml_path=%d]",
-                             request.tablet_id,
-                             request.tablet_schema.schema_hash);
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            break;
-        }
-
-        // 有可能出现以下2种特殊情况：
-        // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
-        // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
-        //    然后立即alter该表)之间的时间间隔小于1s，则alter得到的新表和旧表的creation_time会相同
-        //
-        // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
-        // 旧表的creation_time加1
-        if (new_olap_table->creation_time() <= ref_olap_table->creation_time()) {
-            OLAP_LOG_WARNING("new table's creation time is less than or equal to old table"
-                             "[new_table_creation_time=%ld; old_table_creation_time=%ld]",
-                             new_olap_table->creation_time(),
-                             ref_olap_table->creation_time());
-            int64_t new_creation_time = ref_olap_table->creation_time() + 1;
-            new_olap_table->set_creation_time(new_creation_time);
-        }
-
-        // 3. Add table to OlapEngine will make it visiable to user
-        res = OLAPEngine::get_instance()->add_table(
-                request.tablet_id,
-                request.tablet_schema.schema_hash,
-                new_olap_table);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to add table to OLAPEngine. [res=%d table='%s']",
-                             res, new_olap_table->full_name().c_str());
-            break;
-        }
-        is_table_added = true;
-
-        // 4. Register table into OLAPRootPath, so that we can manage table from
-        // the perspective of root path.
-        // Example: unregister all tables when a bad disk found.
-        res = OLAPEngine::get_instance()->register_table_into_root_path(
-                new_olap_table.get());
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register table into root path. "
-                             "[root_path='%s' table='%s']",
-                             new_olap_table->storage_root_path_name().c_str(),
-                             new_olap_table->full_name().c_str());
-            break;
-        }
-
-        OLAPTablePtr olap_table;
-        olap_table = OLAPEngine::get_instance()->get_table(
-                request.tablet_id, request.tablet_schema.schema_hash);
-        if (olap_table.get() == NULL) {
-            OLAP_LOG_WARNING("failed to get table from OLAPEngine. [table=%ld schema_hash=%d]",
-                             request.tablet_id,
-                             request.tablet_schema.schema_hash);
-            res = OLAP_ERR_OTHER_ERROR;
-            break;
-        }
-
-        if (out_new_olap_table != NULL) {
-            *out_new_olap_table = olap_table;
-        }
-    } while (0);
+    new_tablet->release_header_lock();
+    base_tablet->release_header_lock();
+    base_tablet->release_push_lock();
 
     if (res != OLAP_SUCCESS) {
-        if (is_table_added) {
-            res = OLAPEngine::get_instance()->drop_table(
-                    request.tablet_id, request.tablet_schema.schema_hash);
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to drop table when create table failed. res=" << res
-                    << ", tablet=" << request.tablet_id
-                    << ":" << request.tablet_schema.schema_hash;
-            }
-        } else if (NULL != new_olap_table) {
-            new_olap_table->delete_all_files();
-        }
+        _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        // Delete tablet when submit alter tablet failed.
+        StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        return res;
     }
 
-    create_table_lock.unlock();
+    // 3. Generate alter job
+    SchemaChangeParams sc_params;
+    sc_params.alter_tablet_type = type;
+    sc_params.base_tablet = base_tablet;
+    sc_params.new_tablet = new_tablet;
+    sc_params.ref_rowset_readers = rs_readers;
+    sc_params.delete_handler = delete_handler;
+
+    res = _convert_historical_rowsets(sc_params);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
+                     << ", new_tablet=" << new_tablet->full_name();
+        _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        return res;
+    }
+
+    OLAPStatus save_st = _save_alter_state(ALTER_FINISHED, base_tablet, new_tablet);
+    if (save_st != OLAP_SUCCESS) {
+        res = save_st;
+    }
+    StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+
     return res;
 }
 
 OLAPStatus SchemaChangeHandler::schema_version_convert(
-        OLAPTablePtr src_olap_table,
-        OLAPTablePtr dest_olap_table,
-        vector<SegmentGroup*>* ref_segment_groups,
-        vector<SegmentGroup*>* new_segment_groups) {
-    if (NULL == new_segment_groups) {
-        OLAP_LOG_WARNING("new_olap_index is NULL.");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
+        TabletSharedPtr base_tablet,
+        TabletSharedPtr new_tablet,
+        RowsetSharedPtr* base_rowset,
+        RowsetSharedPtr* new_rowset) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to convert delta version for schema changing. "
-              << "old_tablet=" << src_olap_table->full_name()
-              << ", dest_tablet=" << dest_olap_table->full_name();
+              << "base_tablet=" << base_tablet->full_name()
+              << ", new_tablet=" << new_tablet->full_name();
 
     // a. 解析Alter请求，转换成内部的表示形式
     // 不使用DELETE_DATA命令指定的删除条件
-    RowBlockChanger rb_changer(dest_olap_table->tablet_schema(), src_olap_table);
+    RowBlockChanger rb_changer(new_tablet->tablet_schema(), base_tablet);
     bool sc_sorting = false;
     bool sc_directly = false;
 
-    if (OLAP_SUCCESS != (res = _parse_request(src_olap_table,
-                                              dest_olap_table,
+    if (OLAP_SUCCESS != (res = _parse_request(base_tablet,
+                                              new_tablet,
                                               &rb_changer,
                                               &sc_sorting,
                                               &sc_directly))) {
-        OLAP_LOG_WARNING("failed to parse the request. [res=%d]", res);
+        LOG(WARNING) << "failed to parse the request. res=" << res;
         return res;
     }
 
     // NOTE split_table如果使用row_block，会导致原block变小
     // 但由于历史数据在后续base/cumulative后还是会变成正常，故用directly也可以
     // b. 生成历史数据转换器
-    SchemaChange* sc_procedure = NULL;
-    if (true == sc_sorting) {
+    SchemaChange* sc_procedure = nullptr;
+    if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
-                                dest_olap_table,
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly) {
+    } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly.";
-        sc_procedure = new(nothrow) SchemaChangeDirectly(
-                                dest_olap_table, rb_changer);
+        sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change.";
-        sc_procedure = new(nothrow) LinkedSchemaChange(
-                                src_olap_table,
-                                dest_olap_table,
-                                rb_changer);
+        sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
-    if (NULL == sc_procedure) {
+    if (sc_procedure == nullptr) {
         LOG(FATAL) << "failed to malloc SchemaChange. size=" << sizeof(SchemaChangeWithSorting);
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     // c. 转换数据
-    ColumnData* olap_data = NULL;
-    for (vector<SegmentGroup*>::iterator it = ref_segment_groups->begin();
-            it != ref_segment_groups->end(); ++it) {
-        ColumnData* olap_data = ColumnData::create(*it);
-        if (NULL == olap_data) {
-            OLAP_LOG_WARNING("fail to create ColumnData.");
-            res = OLAP_ERR_MALLOC_ERROR;
-            goto SCHEMA_VERSION_CONVERT_ERR;
-        }
+    DeleteHandler delete_handler;
+    _reader_context.reader_type = READER_ALTER_TABLE;
+    _reader_context.tablet_schema = &base_tablet->tablet_schema();
+    _reader_context.preaggregation = true;
+    _reader_context.delete_handler = &delete_handler;
+    _reader_context.is_using_cache = false;
+    _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
-        olap_data->init();
+    RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
+    rowset_reader->init(&_reader_context);
 
-        SegmentGroup* new_segment_group = nullptr;
-        if ((*it)->transaction_id() == 0) {
-            new_segment_group = new SegmentGroup(dest_olap_table.get(),
-                                           olap_data->version(),
-                                           olap_data->version_hash(),
-                                           olap_data->delete_flag(),
-                                           (*it)->segment_group_id(), 0);
+    RowsetId rowset_id = 0;
+    RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id = rowset_id;
+    writer_context.tablet_uid = new_tablet->tablet_uid();
+    writer_context.tablet_id = new_tablet->tablet_id();
+    writer_context.partition_id = (*base_rowset)->partition_id();
+    writer_context.tablet_schema_hash = new_tablet->schema_hash();
+    writer_context.rowset_type = ALPHA_ROWSET;
+    writer_context.rowset_path_prefix = new_tablet->tablet_path();
+    writer_context.tablet_schema = &(new_tablet->tablet_schema());
+    writer_context.rowset_state = PREPARED;
+    writer_context.txn_id = (*base_rowset)->txn_id();
+    writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
+    writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
+    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
+    rowset_writer->init(writer_context);
+
+    if (!sc_procedure->process(rowset_reader, rowset_writer, new_tablet, base_tablet)) {
+        if ((*base_rowset)->is_pending()) {
+            LOG(WARNING) << "failed to process the transaction when schema change. "
+                         << "tablet=" << new_tablet->full_name() << "'"
+                         << ", transaction="<< (*base_rowset)->txn_id();
         } else {
-            new_segment_group = new SegmentGroup(dest_olap_table.get(),
-                                           olap_data->delete_flag(),
-                                           (*it)->segment_group_id(), 0,
-                                           (*it)->is_pending(),
-                                           (*it)->partition_id(),
-                                           (*it)->transaction_id());
+            LOG(WARNING) << "failed to process the version. "
+                         << "version=" << (*base_rowset)->version().first
+                         << "-" << (*base_rowset)->version().second;
         }
-
-        if (NULL == new_segment_group) {
-            LOG(FATAL) << "failed to malloc SegmentGroup. size=" << sizeof(SegmentGroup);
-            res = OLAP_ERR_MALLOC_ERROR;
-            goto SCHEMA_VERSION_CONVERT_ERR;
-        }
-
-        new_segment_groups->push_back(new_segment_group);
-
-        if (!sc_procedure->process(olap_data, new_segment_group)) {
-            if ((*it)->is_pending()) {
-                OLAP_LOG_WARNING("failed to process the transaction when schema change. "
-                                 "[table='%s' transaction=%ld]",
-                                 (*it)->table()->full_name().c_str(),
-                                 (*it)->transaction_id());
-            } else {
-                OLAP_LOG_WARNING("failed to process the version. [version='%d-%d']",
-                                 (*it)->version().first,
-                                 (*it)->version().second);
-            }
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            goto SCHEMA_VERSION_CONVERT_ERR;
-        }
-
-        SAFE_DELETE(olap_data);
+        res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        goto SCHEMA_VERSION_CONVERT_ERR;
+    }
+    *new_rowset = rowset_writer->build();
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+    if (*new_rowset == nullptr) {
+        LOG(WARNING) << "build rowset failed.";
+        res = OLAP_ERR_MALLOC_ERROR;
+        goto SCHEMA_VERSION_CONVERT_ERR;
     }
 
     SAFE_DELETE(sc_procedure);
-    SAFE_DELETE(olap_data);
-
+    LOG(INFO) << "successfully convert rowsets. "
+              << " base_tablet=" << base_tablet->full_name()
+              << ", new_tablet=" << new_tablet->full_name();
     return res;
 
 SCHEMA_VERSION_CONVERT_ERR:
-    while (!new_segment_groups->empty()) {
-        SegmentGroup* segment_group = new_segment_groups->back();
-        segment_group->delete_all_files();
-        SAFE_DELETE(segment_group);
-        new_segment_groups->pop_back();
+    if (*new_rowset != nullptr) {
+        (*new_rowset)->remove();
     }
 
     SAFE_DELETE(sc_procedure);
-    SAFE_DELETE(olap_data);
+    LOG(WARNING) << "failed to convert rowsets. "
+              << " base_tablet=" << base_tablet->full_name()
+              << ", new_tablet=" << new_tablet->full_name()
+              << " res = " << res;
     return res;
 }
 
 OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
-        OLAPTablePtr ref_olap_table,
+        TabletSharedPtr base_tablet,
         vector<Version>& versions_to_be_changed) {
-    int32_t request_version = 0;
-    const PDelta* lastest_version = ref_olap_table->lastest_version();
-    if (lastest_version != NULL) {
-        request_version = lastest_version->end_version() - 1;
-    } else {
-        OLAP_LOG_WARNING("Table has no version. [path='%s']",
-                         ref_olap_table->full_name().c_str());
+    RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
+    if (rowset == nullptr) {
+        LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
         return OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
     }
 
-    // 最新版本的delta可以被重导覆盖，因此计算获取的路径中，
-    // 必须包含最新版本的delta
-    if (request_version >= 0) {
-        vector<Version> span_versions;
-        ref_olap_table->select_versions_to_span(Version(0, request_version), &span_versions);
-
-        // get all version list
-        vector<VersionEntity> all_versions;
-        ref_olap_table->list_version_entities(&all_versions);
-        if (0 == all_versions.size()) {
-            OLAP_LOG_WARNING("there'is no any version in the table. [table='%s']",
-                             ref_olap_table->full_name().c_str());
-            return OLAP_ERR_VERSION_NOT_EXIST;
-        }
-
-        for (uint32_t i = 0; i < span_versions.size(); i++) {
-            versions_to_be_changed.push_back(span_versions[i]);
-        }
+    vector<Version> span_versions;
+    base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions);
+    for (uint32_t i = 0; i < span_versions.size(); i++) {
+        versions_to_be_changed.push_back(span_versions[i]);
     }
-    versions_to_be_changed.push_back(
-            Version(lastest_version->start_version(), lastest_version->end_version()));
 
     return OLAP_SUCCESS;
 }
 
-// 增加A->(B|C|...) 的schema_change信息
-OLAPStatus SchemaChangeHandler::_save_schema_change_info(
-        AlterTabletType alter_table_type,
-        OLAPTablePtr ref_olap_table,
-        OLAPTablePtr new_olap_table,
+OLAPStatus SchemaChangeHandler::_add_alter_task(
+        AlterTabletType alter_tablet_type,
+        TabletSharedPtr base_tablet,
+        TabletSharedPtr new_tablet,
         const vector<Version>& versions_to_be_changed) {
 
-    // check new table exists,
+    // check new tablet exists,
     // prevent to set base's status after new's dropping (clear base's status)
-    if (OLAPEngine::get_instance()->get_table(
-            new_olap_table->tablet_id(), new_olap_table->schema_hash()).get() == NULL) {
-        OLAP_LOG_WARNING("fail to find table before saving status. [table='%s']",
-                         new_olap_table->full_name().c_str());
+    if (StorageEngine::instance()->tablet_manager()->get_tablet(
+            new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
+        LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    OLAPStatus res = OLAP_SUCCESS;
-
     // 1. 在新表和旧表中添加schema change标志
-    ref_olap_table->clear_schema_change_request();
-    ref_olap_table->set_schema_change_request(new_olap_table->tablet_id(),
-                                              new_olap_table->schema_hash(),
-                                              versions_to_be_changed,
-                                              alter_table_type);
-    new_olap_table->set_schema_change_request(ref_olap_table->tablet_id(),
-                                              ref_olap_table->schema_hash(),
-                                              vector<Version>(),  // empty versions
-                                              alter_table_type);
-
-    // save new olap table header :只有一个父ref table
-    res = new_olap_table->save_header();
+    base_tablet->delete_alter_task();
+    base_tablet->add_alter_task(new_tablet->tablet_id(),
+                                new_tablet->schema_hash(),
+                                versions_to_be_changed,
+                                alter_tablet_type);
+    OLAPStatus res = base_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save new table header. res=" << res
-                   << ", tablet=" << new_olap_table->full_name();
+        LOG(FATAL) << "fail to save base tablet meta. res=" << res
+                   << ", tablet=" << base_tablet->full_name();
         return res;
     }
 
-    res = ref_olap_table->save_header();
+    new_tablet->add_alter_task(base_tablet->tablet_id(),
+                               base_tablet->schema_hash(),
+                               vector<Version>(),  // empty versions
+                               alter_tablet_type);
+    res = new_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save ref table header. res=" << res
-                   << ", tablet=" << ref_olap_table->full_name().c_str();
+        LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                   << ", tablet=" << new_tablet->full_name();
+        return res;
+    }
+    LOG(INFO) << "successfully add alter task to both base and new";
+    return res;
+}
+
+OLAPStatus SchemaChangeHandler::_save_alter_state(
+        AlterTabletState state,
+        TabletSharedPtr base_tablet,
+        TabletSharedPtr new_tablet) {
+    WriteLock base_wlock(base_tablet->get_header_lock_ptr());
+    WriteLock new_wlock(new_tablet->get_header_lock_ptr());
+    AlterTabletTaskSharedPtr base_alter_task = base_tablet->alter_task();
+    if (base_alter_task == nullptr) {
+        LOG(INFO) << "could not find alter task info from base tablet " << base_tablet->full_name();
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    }
+    OLAPStatus res = base_tablet->set_alter_state(state);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to set alter state to " << state 
+                     << " tablet=" <<  base_tablet->full_name()
+                     << " res=" << res;
+        return res;
+    }
+    res = base_tablet->save_meta();
+    if (res != OLAP_SUCCESS) {
+        LOG(FATAL) << "fail to save base tablet meta. res=" << res
+                   << ", base_tablet=" << base_tablet->full_name();
+        return res;
+    }
+
+    AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
+    if (new_alter_task == nullptr) {
+        LOG(INFO) << "could not find alter task info from new tablet " << new_tablet->full_name();
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    }
+    res = new_tablet->set_alter_state(state);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to set alter state to " << state 
+                     << " tablet " <<  new_tablet->full_name()
+                     << " res" << res;
+        return res;
+    }
+    res = new_tablet->save_meta();
+    if (res != OLAP_SUCCESS) {
+        LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                   << ", new_tablet=" << base_tablet->full_name();
         return res;
     }
 
     return res;
 }
 
-// @static
-OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
-    OLAPStatus res = OLAP_SUCCESS;
-    LOG(INFO) << "begin to process alter table job. "
-              << "old_olap_table=" << sc_params->ref_olap_table->full_name()
-              << ", new_olap_table=" << sc_params->new_olap_table->full_name();
+OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
+    LOG(INFO) << "begin to convert rowsets for new_tablet from base_tablet."
+              << " base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     // find end version
     int32_t end_version = -1;
-    for (size_t i = 0; i < sc_params->ref_olap_data_arr.size(); ++i) {
-        if (sc_params->ref_olap_data_arr[i]->version().second > end_version) {
-            end_version = sc_params->ref_olap_data_arr[i]->version().second;
+    for (size_t i = 0; i < sc_params.ref_rowset_readers.size(); ++i) {
+        if (sc_params.ref_rowset_readers[i]->version().second > end_version) {
+            end_version = sc_params.ref_rowset_readers[i]->version().second;
         }
     }
 
     // change中增加了filter信息，在_parse_request中会设置filter的column信息
     // 并在每次row block的change时，过滤一些数据
-    RowBlockChanger rb_changer(sc_params->new_olap_table->tablet_schema(),
-                               sc_params->ref_olap_table,
-                               sc_params->delete_handler);
+    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(),
+                               sc_params.base_tablet, sc_params.delete_handler);
 
     bool sc_sorting = false;
     bool sc_directly = false;
-    SchemaChange* sc_procedure = NULL;
+    SchemaChange* sc_procedure = nullptr;
 
     // a. 解析Alter请求，转换成内部的表示形式
-    res = _parse_request(sc_params->ref_olap_table,
-                         sc_params->new_olap_table,
-                         &rb_changer,
-                         &sc_sorting,
-                         &sc_directly);
+    OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
+                                    &rb_changer, &sc_sorting, &sc_directly);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to parse the request. [res=%d]", res);
+        LOG(WARNING) << "failed to parse the request. res=" << res;
         goto PROCESS_ALTER_EXIT;
     }
 
     // b. 生成历史数据转换器
-    if (true == sc_sorting) {
+    if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
-        sc_procedure = new(nothrow) SchemaChangeWithSorting(
-                               sc_params->new_olap_table,
-                               rb_changer,
-                               memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly) {
+        sc_procedure = new(nothrow) SchemaChangeWithSorting(rb_changer,
+                                                            memory_limitation * 1024 * 1024 * 1024);
+    } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly.";
-        sc_procedure = new(nothrow) SchemaChangeDirectly(
-                sc_params->new_olap_table, rb_changer);
+        sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change.";
-        sc_procedure = new(nothrow) LinkedSchemaChange(
-                                sc_params->ref_olap_table,
-                                sc_params->new_olap_table,
-                                rb_changer);
+        sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
-    if (NULL == sc_procedure) {
-        OLAP_LOG_WARNING("failed to malloc SchemaChange. [size=%ld]",
-                         sizeof(SchemaChangeWithSorting));
+    if (sc_procedure == nullptr) {
+        LOG(WARNING) << "failed to malloc SchemaChange. "
+                     << "malloc_size=" << sizeof(SchemaChangeWithSorting);
         res = OLAP_ERR_MALLOC_ERROR;
         goto PROCESS_ALTER_EXIT;
     }
 
     // c. 转换历史数据
-    for (vector<ColumnData*>::iterator it = sc_params->ref_olap_data_arr.end() - 1;
-            it >= sc_params->ref_olap_data_arr.begin(); --it) {
-        VLOG(10) << "begin to convert a history delta. "
-                 << "version=" << (*it)->version().first << "-" << (*it)->version().second;
+    for (auto& rs_reader : sc_params.ref_rowset_readers) {
+        VLOG(10) << "begin to convert a history rowset. version="
+                 << rs_reader->version().first << "-" << rs_reader->version().second;
 
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        sc_params->ref_olap_table->set_schema_change_status(
-                ALTER_TABLE_RUNNING,
-                sc_params->new_olap_table->schema_hash(),
-                -1);
-        sc_params->new_olap_table->set_schema_change_status(
-                ALTER_TABLE_RUNNING,
-                sc_params->ref_olap_table->schema_hash(),
-                (*it)->version().second);
 
-        // we create a new delta with the same version as the ColumnData processing currently.
-        SegmentGroup* new_segment_group = new(nothrow) SegmentGroup(
-                                            sc_params->new_olap_table.get(),
-                                            (*it)->version(),
-                                            (*it)->version_hash(),
-                                            (*it)->delete_flag(),
-                                            (*it)->segment_group()->segment_group_id(), 0);
-
-        if (new_segment_group == NULL) {
-            OLAP_LOG_WARNING("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
-            res = OLAP_ERR_MALLOC_ERROR;
+        RowsetId rowset_id = 0;
+        TabletSharedPtr new_tablet = sc_params.new_tablet;
+        res = sc_params.new_tablet->next_rowset_id(&rowset_id);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "generate next id failed";
             goto PROCESS_ALTER_EXIT;
         }
 
-        (*it)->set_delete_handler(sc_params->delete_handler);
-        int del_ret = (*it)->delete_pruning_filter();
-        if (DEL_SATISFIED == del_ret) {
-            VLOG(3) << "filter delta in schema change:"
-                    << (*it)->version().first << "-" << (*it)->version().second;
-            res = sc_procedure->create_init_version(new_segment_group->table()->tablet_id(),
-                                                    new_segment_group->table()->schema_hash(),
-                                                    new_segment_group->version(),
-                                                    new_segment_group->version_hash(),
-                                                    new_segment_group);
-            sc_procedure->add_filted_rows((*it)->num_rows());
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to create init version. [res=%d]", res);
-                res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-                OLAP_GOTO(PROCESS_ALTER_EXIT);
-            }
-        } else if (DEL_PARTIAL_SATISFIED == del_ret) {
-            VLOG(3) << "filter delta partially in schema change:"
-                    << (*it)->version().first << "-" << (*it)->version().second;
-            (*it)->set_delete_status(DEL_PARTIAL_SATISFIED);
-        } else {
-            VLOG(3) << "not filter delta in schema change:"
-                    << (*it)->version().first << "-" << (*it)->version().second;
-            (*it)->set_delete_status(DEL_NOT_SATISFIED);
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id = rowset_id;
+        writer_context.tablet_uid = new_tablet->tablet_uid();
+        writer_context.tablet_id = new_tablet->tablet_id();
+        writer_context.partition_id = new_tablet->partition_id();
+        writer_context.tablet_schema_hash = new_tablet->schema_hash();
+        writer_context.rowset_type = ALPHA_ROWSET;
+        writer_context.rowset_path_prefix = new_tablet->tablet_path();
+        writer_context.tablet_schema = &(new_tablet->tablet_schema());
+        writer_context.rowset_state = VISIBLE;
+        writer_context.version = rs_reader->version();
+        writer_context.version_hash = rs_reader->version_hash();
+        RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
+        OLAPStatus status = rowset_writer->init(writer_context);
+        if (status != OLAP_SUCCESS) {
+            res = OLAP_ERR_ROWSET_BUILDER_INIT;
+            goto PROCESS_ALTER_EXIT;
         }
 
-        if (DEL_SATISFIED != del_ret && !sc_procedure->process(*it, new_segment_group)) {
-            //if del_ret is DEL_SATISFIED, the new delta version has already been created in new_olap_table
-            OLAP_LOG_WARNING("failed to process the version. [version='%d-%d']",
-                             (*it)->version().first, (*it)->version().second);
-            new_segment_group->delete_all_files();
-            SAFE_DELETE(new_segment_group);
-
+        if (!sc_procedure->process(rs_reader, rowset_writer, sc_params.new_tablet, sc_params.base_tablet)) {
+            LOG(WARNING) << "failed to process the version."
+                         << " version=" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
             goto PROCESS_ALTER_EXIT;
         }
-
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
-        sc_params->new_olap_table->obtain_push_lock();
-        sc_params->ref_olap_table->obtain_header_wrlock();
-        sc_params->new_olap_table->obtain_header_wrlock();
-
-        if (!sc_params->new_olap_table->has_segment_group((*it)->version(), new_segment_group)) {
-            // register version
-            std::vector<SegmentGroup*> segment_group_vec;
-            segment_group_vec.push_back(new_segment_group);
-            res = sc_params->new_olap_table->register_data_source(segment_group_vec);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("failed to register new version. [table='%s' version='%d-%d']",
-                                 sc_params->new_olap_table->full_name().c_str(),
-                                 (*it)->version().first,
-                                 (*it)->version().second);
-                new_segment_group->delete_all_files();
-                SAFE_DELETE(new_segment_group);
-
-                sc_params->new_olap_table->release_header_lock();
-                sc_params->ref_olap_table->release_header_lock();
-                sc_params->new_olap_table->release_push_lock();
-
-                goto PROCESS_ALTER_EXIT;
-            }
-
-            VLOG(3) << "register new version. tablet=" << sc_params->new_olap_table->full_name()
-                    << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
-        } else {
-            OLAP_LOG_WARNING("version already exist, version revert occured. "
-                             "[table='%s' version='%d-%d']",
-                             sc_params->new_olap_table->full_name().c_str(),
-                             (*it)->version().first, (*it)->version().second);
-            new_segment_group->delete_all_files();
-            SAFE_DELETE(new_segment_group);
-        }
-
-        // 保存header
-        if (OLAP_SUCCESS != sc_params->new_olap_table->save_header()) {
-            LOG(FATAL) << "fail to save header. res=" << res
-                       << ", tablet=" << sc_params->new_olap_table->full_name();
-        }
-
-        // XXX: 此处需要验证ref_olap_data_arr中最后一个版本是否与new_olap_table的header中记录的最
-        //      后一个版本相同。然后还要注意一致性问题。
-        if (!sc_params->ref_olap_table->remove_last_schema_change_version(
-                    sc_params->new_olap_table)) {
-            OLAP_LOG_WARNING("failed to remove the last version did schema change.");
-
-            sc_params->new_olap_table->release_header_lock();
-            sc_params->ref_olap_table->release_header_lock();
-            sc_params->new_olap_table->release_push_lock();
-
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+        sc_params.new_tablet->obtain_push_lock();
+        RowsetSharedPtr new_rowset = rowset_writer->build();
+        if (new_rowset == nullptr) {
+            LOG(WARNING) << "failed to build rowset, exit alter process";
+            sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         }
-
-        // 保存header
-        if (OLAP_SUCCESS != sc_params->ref_olap_table->save_header()) {
-            LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_olap_table->full_name();
+        res = sc_params.new_tablet->add_rowset(new_rowset);
+        if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+            LOG(WARNING) << "version already exist, version revert occured. "
+                         << "tablet=" << sc_params.new_tablet->full_name()
+                         << ", version='" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            res = OLAP_SUCCESS;
+        } else if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to register new version. "
+                         << " tablet=" << sc_params.new_tablet->full_name()
+                         << ", version=" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            sc_params.new_tablet->release_push_lock();
+            goto PROCESS_ALTER_EXIT;
+        } else {
+            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
+                    << ", version=" << rs_reader->version().first
+                    << "-" << rs_reader->version().second;
         }
-
-        sc_params->new_olap_table->release_header_lock();
-        sc_params->ref_olap_table->release_header_lock();
-        sc_params->new_olap_table->release_push_lock();
+        sc_params.new_tablet->release_push_lock();
 
         VLOG(10) << "succeed to convert a history version."
-            << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
+                 << " version=" << rs_reader->version().first
+                 << "-" << rs_reader->version().second;
 
-        // 释放ColumnData
-        vector<ColumnData*> olap_data_to_be_released(it, it + 1);
-        sc_params->ref_olap_table->release_data_sources(&olap_data_to_be_released);
-
-        it = sc_params->ref_olap_data_arr.erase(it); // after erasing, it will point to end()
+        // 释放RowsetReader
+        rs_reader->close();
     }
-
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
-
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
-        res = sc_params->new_olap_table->test_version(test_version);
+        res = sc_params.new_tablet->check_version_integrity(test_version);
     }
 
-    if (res == OLAP_SUCCESS) {
-        // ref的状态只有2个new table都完成后，才能设置为done
-        sc_params->ref_olap_table->obtain_header_rdlock();
-        res = clear_schema_change_single_info(sc_params->ref_olap_table, NULL, false, true);
-        sc_params->ref_olap_table->release_header_lock();
-
-        if (OLAP_SUCCESS == res) {
-            sc_params->ref_olap_table->set_schema_change_status(
-                    ALTER_TABLE_FINISHED,
-                    sc_params->new_olap_table->schema_hash(),
-                    -1);
-        } else {
-            res = OLAP_SUCCESS;
-        }
-
-        sc_params->new_olap_table->set_schema_change_status(
-                ALTER_TABLE_FINISHED,
-                sc_params->ref_olap_table->schema_hash(),
-                -1);
-        VLOG(3) << "set alter table job status. "
-                << "status=" << sc_params->ref_olap_table->schema_change_status().status;
-    } else {
-        sc_params->ref_olap_table->set_schema_change_status(
-                ALTER_TABLE_FAILED,
-                sc_params->new_olap_table->schema_hash(),
-                -1);
-
-        sc_params->new_olap_table->set_schema_change_status(
-                ALTER_TABLE_FAILED,
-                sc_params->ref_olap_table->schema_hash(),
-                -1);
-        VLOG(3) << "set alter table job status. "
-                << "status=" << sc_params->ref_olap_table->schema_change_status().status;
+    for (auto& rs_reader : sc_params.ref_rowset_readers) {
+        rs_reader->close();
     }
-
-    sc_params->ref_olap_table->release_data_sources(&(sc_params->ref_olap_data_arr));
     SAFE_DELETE(sc_procedure);
 
-    LOG(INFO) << "finish to process alter table job. res=" << res;
+    LOG(INFO) << "finish converting rowsets for new_tablet from base_tablet. "
+              << "base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
     return res;
 }
 
 // @static
 // 分析column的mapping以及filter key的mapping
-OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
-                                               OLAPTablePtr new_olap_table,
+OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
+                                               TabletSharedPtr new_tablet,
                                                RowBlockChanger* rb_changer,
                                                bool* sc_sorting,
                                                bool* sc_directly) {
     OLAPStatus res = OLAP_SUCCESS;
 
     // set column mapping
-    for (int i = 0, new_schema_size = new_olap_table->tablet_schema().size();
+    for (int i = 0, new_schema_size = new_tablet->tablet_schema().num_columns();
             i < new_schema_size; ++i) {
-        const FieldInfo& new_column_schema = new_olap_table->tablet_schema()[i];
-        const string& column_name = new_column_schema.name;
+        const TabletColumn& new_column = new_tablet->tablet_schema().column(i);
+        const string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
 
-        if (new_column_schema.has_referenced_column) {
-            int32_t column_index = ref_olap_table->get_field_index(
-                                       new_column_schema.referenced_column);
+        if (new_column.has_reference_column()) {
+            int32_t column_index = base_tablet->field_index(new_column.referenced_column());
 
             if (column_index < 0) {
-                OLAP_LOG_WARNING("referenced column was missing. "
-                                 "[column='%s' referenced_column='%s']",
-                                 column_name.c_str(),
-                                 new_column_schema.referenced_column.c_str());
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name
+                             << " referenced_column=" << column_index << "]";
                 return OLAP_ERR_CE_CMD_PARAMS_ERROR;
             }
 
             column_mapping->ref_column = column_index;
             VLOG(3) << "A column refered to existed column will be added after schema changing."
-                    << "column=" << column_name << ", ref_column=" << new_column_schema.referenced_column;
+                    << "column=" << column_name << ", ref_column=" << column_index;
             continue;
         }
 
-        int32_t column_index = ref_olap_table->get_field_index(column_name);
+        int32_t column_index = base_tablet->field_index(column_name);
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
@@ -2271,20 +1808,20 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
         {
             column_mapping->ref_column = -1;
 
-            if (i < ref_olap_table->num_short_key_fields()) {
+            if (i < base_tablet->num_short_key_columns()) {
                 *sc_directly = true;
             }
 
             if (OLAP_SUCCESS != (res = _init_column_mapping(
                                          column_mapping,
-                                         new_column_schema,
-                                         new_column_schema.default_value))) {
+                                         new_column,
+                                         new_column.default_value()))) {
                 return res;
             }
 
             VLOG(10) << "A column with default value will be added after schema chaning. "
                      << "column=" << column_name
-                     << ", default_value=" << new_column_schema.default_value;
+                     << ", default_value=" << new_column.default_value();
             continue;
         }
 
@@ -2294,7 +1831,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
 
         if (OLAP_SUCCESS != (res = _init_column_mapping(
                                        column_mapping,
-                                       new_column_schema,
+                                       new_column,
                                        ""))) {
             return res;
         }
@@ -2309,7 +1846,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
     // 若Key列的引用序列出现乱序，则需要重排序
     int num_default_value = 0;
 
-    for (int i = 0, new_schema_size = new_olap_table->num_key_fields();
+    for (int i = 0, new_schema_size = new_tablet->num_key_columns();
             i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
 
@@ -2324,43 +1861,39 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
         }
     }
 
-    if (ref_olap_table->num_short_key_fields() != new_olap_table->num_short_key_fields()) {
+    if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;
     }
 
-    const RowFields& ref_table_schema = ref_olap_table->tablet_schema();
-    const RowFields& new_table_schema = new_olap_table->tablet_schema();
-    for (size_t i = 0; i < new_olap_table->num_fields(); ++i) {
+    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
+    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
             continue;
         } else {
-            if (new_table_schema[i].type != ref_table_schema[column_mapping->ref_column].type) {
+            if (new_tablet_schema.column(i).type() != ref_tablet_schema.column(column_mapping->ref_column).type()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
             } else if (
-                (new_table_schema[i].type == ref_table_schema[column_mapping->ref_column].type)
-                    && (new_table_schema[i].length 
-                        != ref_table_schema[column_mapping->ref_column].length)) {
+                (new_tablet_schema.column(i).type() == ref_tablet_schema.column(column_mapping->ref_column).type())
+                    && (new_tablet_schema.column(i).length()
+                        != ref_tablet_schema.column(column_mapping->ref_column).length())) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
 
-            } else if (new_table_schema[i].is_bf_column != ref_table_schema[i].is_bf_column) {
+            } else if (new_tablet_schema.column(i).is_bf_column()
+                       != ref_tablet_schema.column(column_mapping->ref_column).is_bf_column()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
             }
         }
     }
 
-    if (ref_olap_table->delete_data_conditions_size() != 0){
+    if (base_tablet->delete_predicates().size() != 0){
         //there exists delete condtion in header, can't do linked schema change
-        *sc_directly = true;
-    }
-
-    if (ref_olap_table->data_file_type() != new_olap_table->data_file_type()) {
-        //if change the table from row-oriented to column-oriented, or versus 
         *sc_directly = true;
     }
 
@@ -2368,15 +1901,15 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
 }
 
 OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
-                                                     const FieldInfo& column_schema,
+                                                     const TabletColumn& column_schema,
                                                      const std::string& value) {
     column_mapping->default_value = WrapperField::create(column_schema);
 
-    if (column_mapping->default_value == NULL) {
+    if (column_mapping->default_value == nullptr) {
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (column_schema.is_allow_null && !column_schema.has_default_value) {
+    if (true == column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);
@@ -2385,61 +1918,4 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SchemaChange::create_init_version(
-        TTabletId tablet_id,
-        SchemaHash schema_hash,
-        Version version,
-        VersionHash version_hash,
-        SegmentGroup* segment_group) {
-    VLOG(3) << "begin to create init version. "
-            << "begin=" << version.first << ", end=" << version.second;
-
-    OLAPTablePtr table;
-    ColumnDataWriter* writer = NULL;
-    OLAPStatus res = OLAP_SUCCESS;
-
-    do {
-        if (version.first > version.second) {
-            OLAP_LOG_WARNING("begin should not larger than end. [begin=%d end=%d]",
-                             version.first, version.second);
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            break;
-        }
-
-        // Get olap table and generate new index
-        table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-        if (table.get() == NULL) {
-            OLAP_LOG_WARNING("fail to find table. [table=%ld]", tablet_id);
-            res = OLAP_ERR_TABLE_NOT_FOUND;
-            break;
-        }
-
-        // Create writer, which write nothing to table, to generate empty data file
-        writer = ColumnDataWriter::create(table, segment_group, false);
-        if (writer == NULL) {
-            LOG(WARNING) << "fail to create writer. [table=" << table->full_name() << "]";
-            res = OLAP_ERR_MALLOC_ERROR;
-            break;
-        }
-
-        res = writer->finalize();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to finalize writer. [table=" << table->full_name() << "]";
-            break;
-        }
-
-        // Load new index and add to table
-        res = segment_group->load();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load new index. [table=" << table->full_name() << "]";
-            break;
-        }
-    } while (0);
-
-    VLOG(3) << "create init version end. res=" << res;
-    SAFE_DELETE(writer);
-    return res;
-}
-
 }  // namespace doris
-

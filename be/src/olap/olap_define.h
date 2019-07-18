@@ -51,6 +51,8 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 // the max length supported for string type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
 
+static const int32_t PREFERRED_SNAPSHOT_VERSION = 2;
+
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
 using StringLengthType = uint16_t;
@@ -159,7 +161,10 @@ enum OLAPStatus {
     OLAP_ERR_INVALID_CLUSTER_INFO = -225,
     OLAP_ERR_TRANSACTION_NOT_EXIST = -226,
     OLAP_ERR_DISK_FAILURE = -227,
-    OLAP_ERR_LZO_DISABLED = -228,
+    OLAP_ERR_TRANSACTION_ALREADY_COMMITTED = -228,
+    OLAP_ERR_TRANSACTION_ALREADY_VISIBLE = -229,
+    OLAP_ERR_VERSION_ALREADY_MERGED = -230,
+    OLAP_ERR_LZO_DISABLED = -231,
 
     // CommandExecutor
     // [-300, -400)
@@ -171,21 +176,24 @@ enum OLAPStatus {
     OLAP_ERR_CE_TABLET_ID_EXIST = -305,
     OLAP_ERR_CE_TRY_CE_LOCK_ERROR = -306,
 
-    // OLAPTable
+    // Tablet
     // [-400, -500)
     OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR = -400,
     OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR = -401,
     OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR = -402,
     OLAP_ERR_TABLE_INDEX_FIND_ERROR = -403,
     OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR = -404,
+    OLAP_ERR_TABLE_CREATE_META_ERROR = -405,
+    OLAP_ERR_TABLE_ALREADY_DELETED_ERROR = -406,
 
-    // OLAPEngine
+    // StorageEngine
     // [-500, -600)
     OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE = -500,
     OLAP_ERR_ENGINE_DROP_NOEXISTS_TABLE = -501,
     OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR = -502,
     OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR = -503,
     OLAP_ERR_DELETE_VERSION_ERROR = -504,
+    OLAP_ERR_GC_SCAN_PATH_ERROR = -505,
 
     // FetchHandler
     // [-600, -700)
@@ -203,7 +211,7 @@ enum OLAPStatus {
     // [-700, -800)
     OLAP_ERR_READER_IS_UNINITIALIZED = -700,
     OLAP_ERR_READER_GET_ITERATOR_ERROR = -701,
-    OLAP_ERR_READER_ACQUIRE_DATA_ERROR = -702,
+    OLAP_ERR_CAPTURE_ROWSET_READER_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
 
     // BaseCompaction
@@ -212,7 +220,7 @@ enum OLAPStatus {
     OLAP_ERR_BE_REPLACE_VERSIONS_ERROR = -801,
     OLAP_ERR_BE_MERGE_ERROR = -802,
     OLAP_ERR_BE_COMPUTE_VERSION_HASH_ERROR = -803,
-    OLAP_ERR_BE_ACQUIRE_DATA_SOURCES_ERROR = -804,
+    OLAP_ERR_CAPTURE_ROWSET_ERROR = -804,
     OLAP_ERR_BE_SAVE_HEADER_ERROR = -805,
     OLAP_ERR_BE_INIT_OLAP_DATA = -806,
     OLAP_ERR_BE_TRY_OBTAIN_VERSION_LOCKS = -807,
@@ -235,6 +243,10 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_TABLE_NOT_EXIST = -909,
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
+    // only support realtime push api, batch process is deprecated and is removed
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
+    OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
+    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914, 
 
     // SegmentGroup
     // [-1000, -1100)
@@ -262,7 +274,7 @@ enum OLAPStatus {
     OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION = -1301,
     OLAP_ERR_ROWBLOCK_READ_INFO_ERROR = -1302,
 
-    // OLAPHeader
+    // TabletMeta
     // [-1400, -1500)
     OLAP_ERR_HEADER_ADD_VERSION = -1400,
     OLAP_ERR_HEADER_DELETE_VERSION = -1401,
@@ -279,7 +291,7 @@ enum OLAPStatus {
     OLAP_ERR_HEADER_PB_PARSE_FAILED = -1412,
     OLAP_ERR_HEADER_HAS_PENDING_DATA = -1413,
 
-    // OLAPTableSchema
+    // TabletSchema
     // [-1500, -1600)
     OLAP_ERR_SCHEMA_SCHEMA_INVALID = -1500,
     OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID = -1501,
@@ -333,6 +345,18 @@ enum OLAPStatus {
     OLAP_ERR_META_ITERATOR = -3005,
     OLAP_ERR_META_DELETE = -3006,
     OLAP_ERR_META_ALREADY_EXIST  = -3007,
+
+    // Rowset
+    // [-3100, -3200)
+    OLAP_ERR_ROWSET_WRITER_INIT = -3100,
+    OLAP_ERR_ROWSET_SAVE_FAILED = -3101,
+    OLAP_ERR_ROWSET_GENERATE_ID_FAILED = -3102,
+    OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED = -3103,
+    OLAP_ERR_ROWSET_BUILDER_INIT = -3104,
+    OLAP_ERR_ROWSET_TYPE_NOT_FOUND = -3105,
+    OLAP_ERR_ROWSET_ALREADY_EXIST = -3106,
+    OLAP_ERR_ROWSET_CREATE_READER = -3107,
+    OLAP_ERR_ROWSET_INVALID = -3108
 };
 
 enum ColumnFamilyIndex {
@@ -348,17 +372,22 @@ static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";
 static const std::string DEFAULT_COLUMN_FAMILY = "default";
 static const std::string DORIS_COLUMN_FAMILY = "doris";
 static const std::string META_COLUMN_FAMILY = "meta";
-static const std::string IS_HEADER_CONVERTED = "is_header_converted";
+static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
+static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
+const std::string TABLET_ID_PREFIX = "t_";
+const std::string ROWSET_ID_PREFIX = "s_";
 
+#ifndef RETURN_NOT_OK
 #define RETURN_NOT_OK(s) do { \
     OLAPStatus _s = (s);      \
     if (_s != OLAP_SUCCESS) { \
         return _s; \
     } \
 } while (0);
+#endif
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
@@ -373,7 +402,7 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 // thread-safe(gcc only) method for obtaining singleton
 #define DECLARE_SINGLETON(classname) \
     public: \
-        static classname *get_instance() { \
+        static classname *instance() { \
             classname *p_instance = NULL; \
             try { \
                 static classname s_instance; \

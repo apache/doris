@@ -57,7 +57,7 @@ public class FEFunctions {
      */
     @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
     public static TimeLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long timediff = getTime(first) - getTime(second);
+        long timediff = (getTime(first) - getTime(second)) / 1000;
         if(timediff < TimeUtils.MIN_TIME) {
             timediff = TimeUtils.MIN_TIME;
         } else if(timediff > TimeUtils.MAX_TIME) {

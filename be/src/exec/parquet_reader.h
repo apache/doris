@@ -37,7 +37,6 @@
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-
 namespace doris {
 
 class ExecEnv;

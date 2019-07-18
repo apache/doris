@@ -314,6 +314,7 @@ public enum PrimitiveType {
         supportedTypes.add(CHAR);
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
+        supportedTypes.add(TIME);
         supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
     }

@@ -22,6 +22,7 @@
 #include <utility>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
@@ -51,7 +52,7 @@ using doris::ColumnStatistics;
 //  1. 对行的过滤在DeleteHandler。
 //     这部分直接调用delete_condition_eval实现,内部调用eval函数，因为对row的过滤不涉及部分过滤这种状态。
 //  2. 过滤block是在SegmentReader里面,直接调用del_eval
-//  3. 过滤version实在Reader里面,调用delta_pruning_filter
+//  3. 过滤version实在Reader里面,调用rowset_pruning_filter
 
 namespace doris {
 
@@ -123,7 +124,7 @@ Cond::~Cond() {
     }
 }
 
-OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
+OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && tcond.condition_values.size() != 1)) {
@@ -134,7 +135,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
     if (op == OP_IS) {
         // 'is null' or 'is not null'
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand->length()));
+        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -148,7 +149,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
         operand_field = f.release();
     } else if (op != OP_IN) {
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand->length()));
+        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -163,7 +164,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
         operand_field = f.release();
     } else {
         for (auto& operand : tcond.condition_values) {
-            std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand.length()));
+            std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == NULL) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
@@ -472,9 +473,9 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-OLAPStatus CondColumn::add_cond(const TCondition& tcond, const FieldInfo& fi) {
+OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
     std::unique_ptr<Cond> cond(new Cond());
-    auto res = cond->init(tcond, fi);
+    auto res = cond->init(tcond, column);
     if (res != OLAP_SUCCESS) {
         return res;
     }
@@ -555,30 +556,30 @@ bool CondColumn::eval(const BloomFilter& bf) const {
 }
 
 OLAPStatus Conditions::append_condition(const TCondition& tcond) {
-    int32_t index = _table->get_field_index(tcond.column_name);
+    int32_t index = _get_field_index(tcond.column_name);
     if (index < 0) {
-        OLAP_LOG_WARNING("fail to get field index, name is invalid. [index=%d; field_name=%s]",
-                         index,
-                         tcond.column_name.c_str());
+        LOG(WARNING) << "fail to get field index, name is invalid. index=" << index
+                     << ", field_name=" << tcond.column_name;
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     // Skip column which is non-key, or whose type is string or float
-    const FieldInfo& fi = _table->tablet_schema()[index];
-    if (fi.type == OLAP_FIELD_TYPE_DOUBLE || fi.type == OLAP_FIELD_TYPE_FLOAT) {
+    const TabletColumn& column = _schema->column(index);
+    if (column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         return OLAP_SUCCESS;
     }
 
     CondColumn* cond_col = nullptr;
     auto it = _columns.find(index);
     if (it == _columns.end()) {
-        cond_col = new CondColumn(_table, index);
+        cond_col = new CondColumn(*_schema, index);
         _columns[index] = cond_col;
     } else {
         cond_col = it->second;
     }
 
-    return cond_col->add_cond(tcond, fi);
+    return cond_col->add_cond(tcond, column);
 }
 
 bool Conditions::delete_conditions_eval(const RowCursor& row) const {
@@ -594,32 +595,31 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
 
     VLOG(3) << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size() 
+            << "condition_count=" << _columns.size()
             << ", row=" << row.to_string();
     return true;
 }
 
-bool Conditions::delta_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const {
+bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
     //通过所有列上的删除条件对version进行过滤
     for (auto& cond_it : _columns) {
-        if (cond_it.second->is_key() && cond_it.first > column_statistics.size()) {
-            OLAP_LOG_WARNING("where condition not equal column statistics size."
-                    "[cond_id=%d, column_statistics_size=%lu]", 
-                    cond_it.first,
-                    column_statistics.size());
+        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+            LOG(WARNING) << "where condition not equal zone maps size. "
+                         << "cond_id=" << cond_it.first
+                         << ", zone_map_size=" << zone_maps.size();
             return false;
         }
-        if (cond_it.second->is_key() && !cond_it.second->eval(column_statistics[cond_it.first])) {
+        if (cond_it.second->is_key() && !cond_it.second->eval(zone_maps[cond_it.first])) {
             return true;
         }
     }
     return false;
 }
 
-int Conditions::delete_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& col_stat) const {
-
+int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
+    if (_columns.empty()) {
+        return DEL_NOT_SATISFIED;
+    }
     //通过所有列上的删除条件对version进行过滤
     /*
      * the relationship between condcolumn A and B is A & B.
@@ -635,16 +635,15 @@ int Conditions::delete_pruning_filter(
          * this is base on the assumption that the delete condition
          * is only about key field, not about value field.
         */
-        if (cond_it.second->is_key() && cond_it.first > col_stat.size()) {
-            OLAP_LOG_WARNING("where condition not equal column statistics size."
-                    "[cond_id=%d, column_statistics_size=%lu]", 
-                    cond_it.first,
-                    col_stat.size());
+        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+            LOG(WARNING) << "where condition not equal column statistics size. "
+                         << "cond_id=" << cond_it.first
+                         << ", zone_map_size=" << zone_maps.size();
             del_partial_satisfied = true;
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(col_stat[cond_it.first]);
+        int del_ret = cond_it.second->del_eval(zone_maps[cond_it.first]);
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -655,8 +654,8 @@ int Conditions::delete_pruning_filter(
         }
     }
 
-    if (true == del_not_satisfied || 0 == _columns.size()) {
-        // if the size of condcolumn vector is zero, 
+    if (del_not_satisfied) {
+        // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
     } else if (true == del_partial_satisfied) {

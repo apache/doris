@@ -31,11 +31,11 @@
 #include "http/http_status.h"
 #include "util/file_utils.h"
 #include "olap/utils.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "util/json_util.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
-#include "olap/store.h"
+#include "olap/storage_engine.h"
+#include "olap/data_dir.h"
 #include "runtime/exec_env.h"
 
 using boost::filesystem::path;
@@ -84,8 +84,8 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
-    OLAPTablePtr tablet =
-            OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status::InternalError("tablet already exists, can not restore.");
@@ -115,7 +115,7 @@ Status RestoreTabletAction::_reload_tablet(
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = _exec_env->olap_engine()->load_header(shard_path, clone_req);
+    res = _exec_env->storage_engine()->load_header(shard_path, clone_req);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "load header failed. status: " << res
                      << ", signature: " << tablet_id;
@@ -163,8 +163,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     }
     LOG(INFO) << "tablet path in trash:" << latest_tablet_path;
     std::string original_header_path = latest_tablet_path + "/" + std::to_string(tablet_id) +".hdr";
-    OLAPHeader header(original_header_path);
-    OLAPStatus load_status = header.load_and_init();
+    TabletMeta tablet_meta;
+    OLAPStatus load_status = tablet_meta.create_from_file(original_header_path);
     if (load_status != OLAP_SUCCESS) {
         LOG(WARNING) << "header load and init error, header path:" << original_header_path;
         return Status::InternalError("load header failed");
@@ -176,9 +176,9 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         _tablet_path_map[key] = latest_tablet_path;
     }
 
-    std::string root_path = OlapStore::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
-    OlapStore* store = OLAPEngine::get_instance()->get_store(root_path);
-    std::string restore_schema_hash_path = store->get_tablet_schema_hash_path_from_header(&header);
+    std::string root_path = DataDir::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
+    DataDir* store = StorageEngine::instance()->get_store(root_path);
+    std::string restore_schema_hash_path = store->get_absolute_tablet_path(&tablet_meta, true);
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {
         LOG(WARNING) << "create tablet path failed:" << restore_schema_hash_path;
@@ -198,7 +198,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         if (link_ret != 0) {
             LOG(WARNING) << "link from:" << from
                     << " to:" << to  << " failed, link ret:" << link_ret;
-            std::string restore_tablet_path = store->get_tablet_path_from_header(&header);
+            std::string restore_tablet_path = store->get_absolute_tablet_path(&tablet_meta, false);
             LOG(WARNING) << "remove tablet_path:" << restore_tablet_path;
             Status s = FileUtils::remove_all(restore_tablet_path);
             if (!s.ok()) {
@@ -207,7 +207,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
             return Status::InternalError("create link path failed");
         }
     }
-    std::string restore_shard_path = store->get_shard_path_from_header(std::to_string(header.shard()));
+    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(tablet_meta.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
 }
@@ -215,7 +215,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 bool RestoreTabletAction::_get_latest_tablet_path_from_trash(
         int64_t tablet_id, int32_t schema_hash, std::string* path) {
     std::vector<std::string> tablet_paths;
-    std::vector<OlapStore*> stores = OLAPEngine::get_instance()->get_stores();
+    std::vector<DataDir*> stores = StorageEngine::instance()->get_stores();
     for (auto& store : stores) {
         store->find_tablet_in_trash(tablet_id, &tablet_paths);
     }

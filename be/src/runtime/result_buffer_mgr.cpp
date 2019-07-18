@@ -25,11 +25,11 @@
 
 namespace doris {
 
-std::size_t hash_value(const TUniqueId& fragment_id) {
-    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
-    value = RawValue::get_hash_value(&fragment_id.hi, TypeDescriptor(TYPE_BIGINT), value);
-    return value;
-}
+//std::size_t hash_value(const TUniqueId& fragment_id) {
+//    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
+//    value = RawValue::get_hash_value(&fragment_id.hi, TypeDescriptor(TYPE_BIGINT), value);
+//    return value;
+//}
 
 ResultBufferMgr::ResultBufferMgr()
     : _is_stop(false) {

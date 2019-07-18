@@ -24,23 +24,24 @@
 #include <vector>
 
 #include "olap/merger.h"
-#include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 
 namespace doris {
 
-class SegmentGroup;
+class Rowset;
 
 class CumulativeCompaction {
 public:
     CumulativeCompaction() :
             _is_init(false),
-            _header_locked(false),
             _old_cumulative_layer_point(0),
             _new_cumulative_layer_point(0),
             _max_delta_file_size(0),
-            _new_segment_group(NULL) {}
+            _rowset(nullptr),
+            _rs_writer(nullptr) {}
 
     ~CumulativeCompaction() {}
     
@@ -49,12 +50,12 @@ public:
     // - 计算可合并的delta文件
     //
     // 输入参数：
-    // - table 待执行cumulative compaction的olap table
+    // - tablet 待执行cumulative compaction的tablet
     //
     // 返回值：
     // - 如果触发cumulative compaction，返回OLAP_SUCCESS
     // - 否则，返回对应错误码
-    OLAPStatus init(OLAPTablePtr table);
+    OLAPStatus init(TabletSharedPtr tablet);
 
     // 执行cumulative compaction
     //
@@ -102,21 +103,21 @@ private:
     // - 如果不成功，返回相应错误码
     OLAPStatus _do_cumulative_compaction();
 
-    // 将合并得到的新cumulative文件载入table
+    // 将合并得到的新cumulative文件载入tablet
     //
     // 输出参数：
-    // - unused_indices: 返回不再使用的delta文件对应的olap index
+    // - unused_rowsets: 返回不再使用的delta文件对应的olap index
     //
     // 返回值：
     // - 如果成功，返回OLAP_SUCCESS
     // - 如果不成功，返回相应错误码
-    OLAPStatus _update_header(std::vector<SegmentGroup*>* unused_indices);
+    OLAPStatus _update_header(const std::vector<RowsetSharedPtr>& unused_rowsets);
 
     // 删除不再使用的delta文件
     //
     // 输入输出参数
-    // - unused_indices: 待删除的不再使用的delta文件对应的olap index
-    void _delete_unused_delta_files(std::vector<SegmentGroup*>* unused_indices);
+    // - unused_rowsets: 待删除的不再使用的delta文件对应的olap index
+    void _delete_unused_rowsets(std::vector<RowsetSharedPtr>* unused_rowsets);
 
     // 验证得到的m_need_merged_versions是否正确
     //
@@ -133,46 +134,29 @@ private:
     OLAPStatus _validate_delete_file_action();
 
     // 恢复header头文件的文件版本和table的data source
-    OLAPStatus _roll_back(const std::vector<SegmentGroup*>& old_olap_indices);
-
-    void _obtain_header_rdlock() {
-        _table->obtain_header_rdlock();
-        _header_locked = true;
-    }
-
-    void _obtain_header_wrlock() {
-        _table->obtain_header_wrlock();
-        _header_locked = true;
-    }
-
-    void _release_header_lock() {
-        if (_header_locked) {
-            _table->release_header_lock();
-            _header_locked = false;
-        }
-    }
+    OLAPStatus _roll_back(std::vector<RowsetSharedPtr>& old_olap_indices);
 
     // CumulativeCompaction对象是否初始化
     bool _is_init;
-    // header文件是否加锁
-    bool _header_locked;
     // table现有的cumulative层的标识点
-    int32_t _old_cumulative_layer_point;
+    int64_t _old_cumulative_layer_point;
     // 待cumulative compaction完成之后，新的cumulative层的标识点
-    int32_t _new_cumulative_layer_point;
+    int64_t _new_cumulative_layer_point;
     // 一个cumulative文件大小的最大值
     // 当delta文件的大小超过该值时，我们认为该delta文件是cumulative文件
     size_t _max_delta_file_size;
-    // 待执行cumulative compaction的olap table
-    OLAPTablePtr _table;
+    // 待执行cumulative compaction的tablet
+    TabletSharedPtr _tablet;
     // 新cumulative文件的版本
     Version _cumulative_version;
     // 新cumulative文件的version hash
     VersionHash _cumulative_version_hash;
     // 新cumulative文件对应的olap index
-    SegmentGroup* _new_segment_group;
+    RowsetSharedPtr _rowset;
+    RowsetWriterSharedPtr _rs_writer;
     // 可合并的delta文件的data文件
-    std::vector<ColumnData*> _data_source;
+    std::vector<RowsetSharedPtr> _rowsets;
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
     // 可合并的delta文件的版本
     std::vector<Version> _need_merged_versions;
 

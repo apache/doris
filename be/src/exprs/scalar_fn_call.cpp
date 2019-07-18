@@ -853,8 +853,6 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
 }
 
 TimeVal ScalarFnCall::get_time_val(ExprContext* context, TupleRow* row) {
-    std::cout << "get_time_val[scalar]" << std::endl;
-
     DCHECK(context != NULL);
     if (_scalar_fn_wrapper == NULL) {
         return interpret_eval<TimeVal>(context, row);

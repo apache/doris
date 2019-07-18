@@ -268,6 +268,7 @@ struct TypeDescriptor {
 
         case TYPE_DATE:
         case TYPE_DATETIME:
+        case TYPE_TIME:
             // This is the size of the slot, the actual size of the data is 12.
             return sizeof(DateTimeValue);
 

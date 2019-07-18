@@ -19,38 +19,38 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-import mockit.internal.startup.Startup;
+import mockit.Expectations;
+import mockit.Injectable;
 
 public class CreateUserStmtTest {
-    private Analyzer analyzer;
-
-    @Mocked
-    private PaloAuth auth;
-    @Mocked
-    private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setQualifiedUser("root");
+        ctx.setRemoteIP("192.168.1.1");
+        UserIdentity currentUserIdentity = new UserIdentity("root", "192.168.1.1");
+        currentUserIdentity.setIsAnalyzed();
+        ctx.setCurrentUserIdentitfy(currentUserIdentity);
+        ctx.setThreadLocalInfo();
     }
 
     @Test
-    public void testToString() throws UserException, AnalysisException {
+    public void testToString(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "testCluster";
+            }
+        };
+
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "passwd", true));
         stmt.analyze(analyzer);
 
@@ -74,14 +74,26 @@ public class CreateUserStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyUser() throws UserException, AnalysisException {
+    public void testEmptyUser(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "testCluster";
+            }
+        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", true));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBadPass() throws UserException, AnalysisException {
+    public void testBadPass(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "testCluster";
+            }
+        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", false));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
