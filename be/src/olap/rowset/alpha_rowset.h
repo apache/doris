@@ -126,7 +126,7 @@ public:
 
     std::string unique_id() override;
 
-    std::string rowset_path() const {
+    const std::string& rowset_path() const {
         return _rowset_path;
     }
 
