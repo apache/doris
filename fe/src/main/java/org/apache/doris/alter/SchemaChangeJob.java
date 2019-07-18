@@ -847,8 +847,8 @@ public class SchemaChangeJob extends AlterJob {
                 }
 
                 // 3. update base schema if changed
-                if (this.changedIndexIdToSchema.containsKey(tableId)) {
-                    table.setNewBaseSchema(this.changedIndexIdToSchema.get(tableId));
+                if (this.changedIndexIdToSchema.containsKey(olapTable.getBaseIndexId())) {
+                    table.setNewBaseSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
                 }
 
                 // 4. update table bloom filter columns

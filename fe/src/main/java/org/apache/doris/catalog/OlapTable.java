@@ -273,7 +273,7 @@ public class OlapTable extends Table {
             long newIdxId = catalog.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
-                baseIndexId = id;
+                baseIndexId = newIdxId;
             }
             indexIdToSchema.put(newIdxId, indexIdToSchema.remove(entry.getKey()));
             indexIdToSchemaHash.put(newIdxId, indexIdToSchemaHash.remove(entry.getKey()));

@@ -732,7 +732,7 @@ public class SchemaChangeHandler extends AlterHandler {
         Set<String> bfColumns = null;
         double bfFpp = 0;
         try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap, indexSchemaMap.get(olapTable.getId()));
+            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap, indexSchemaMap.get(olapTable.getBaseIndexId()));
             bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(propertyMap);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -927,7 +927,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
-                    if (!found && alterIndexId == tableId) {
+                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.1 partition column cannot be deleted.
                         throw new DdlException("Partition column[" + partitionCol.getName()
                                 + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -955,7 +955,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
-                    if (!found && alterIndexId == tableId) {
+                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.2 distribution column cannot be deleted.
                         throw new DdlException("Distribution column[" + distributionCol.getName()
                                 + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
