@@ -41,8 +41,6 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options) 
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size = _options.dict_page_size;
     _dict_builder.reset(new BinaryPlainPageBuilder(dict_builder_options));
-    _mem_tracker.reset(new MemTracker(-1));
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
     reset();
 }
 
@@ -77,12 +75,12 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (_dict_builder->is_page_full()) {
                     break;
                 }
-                void* item_mem = _mem_pool->allocate(src->size);
+                char* item_mem = _arena.Allocate(src->size);
                 if (item_mem == nullptr) {
                     return Status::Corruption(Substitute("memory allocate failed, size:$0", src->size));
                 }
                 Slice dict_item(src->data, src->size);
-                dict_item.relocate((char*)item_mem);
+                dict_item.relocate(item_mem);
                 uint32_t value_code = _dictionary.size();
                 _dictionary.insert({dict_item, value_code});
                 _dict_items.push_back(dict_item);
@@ -191,7 +189,7 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
 
-Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnVectorView* dst) {
+Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
         return _data_page_decoder->next_batch(n, dst);
     } else {
@@ -201,7 +199,6 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnVectorView* dst) {
             *n = 0;
             return Status::OK();
         }
-        MemPool* mem_pool = dst->mem_pool();
         Slice* out = reinterpret_cast<Slice*>(dst->data());
         _code_buf.resize((*n) * sizeof(int32_t));
         
@@ -209,22 +206,21 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnVectorView* dst) {
         // And then copy the strings corresponding to the codewords to the destination buffer
         BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* data_ptr =
                 down_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
-        ColumnVector column_vector;
-        column_vector.set_col_data(_code_buf.data());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_INT);
-        ColumnVectorView tmp_column_vector(&column_vector, mem_pool, type_info);
-        RETURN_IF_ERROR(data_ptr->next_batch(n, &tmp_column_vector));
+        // the data in page is not null
+        ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena()); 
+        ColumnBlockView tmp_block_view(&column_block);
+        RETURN_IF_ERROR(data_ptr->next_batch(n, &tmp_block_view));
         for (int i = 0; i < *n; ++i) {
             int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
             // get the string from the dict decoder
             Slice element = _dict_decoder->string_at_index(codeword);
-            MemPool* mem_pool = dst->mem_pool();
-            void* destination = mem_pool->allocate(element.size);
+            char* destination = dst->column_block()->arena()->Allocate(element.size);
             if (destination == nullptr) {
                 return Status::Corruption(Substitute("memory allocate failed, size:$0", element.size));
             }
-            memcpy(destination, element.data, element.size);
-            *out = Slice(reinterpret_cast<uint8_t *>(destination), element.size);
+            element.relocate(destination);
+            *out = element;
             ++out;
         }
         return Status::OK();

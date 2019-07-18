@@ -68,17 +68,14 @@ public:
         ASSERT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
+        Arena arena;
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
+        Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
+        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+        ColumnBlockView block_view(&column_block);
 
-        Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), type_info);
-
-        status = page_decoder.next_batch(&size, &column_vector_view);
+        status = page_decoder.next_batch(&size, &block_view);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(slices.size(), size);
         ASSERT_EQ("Individual", values[0].to_string());
@@ -91,7 +88,7 @@ public:
         ASSERT_EQ("Xmas", values[7].to_string());
 
         status = page_decoder.seek_to_position_in_page(5);
-        status = page_decoder.next_batch(&size, &column_vector_view);
+        status = page_decoder.next_batch(&size, &block_view);
         ASSERT_TRUE(status.ok());
         // read 3 items
         ASSERT_EQ(3, size);
@@ -100,7 +97,7 @@ public:
         ASSERT_EQ("Xmas", values[2].to_string());
     }
     
-    void test_with_large_data_size(const vector<Slice>& contents) {
+    void test_with_large_data_size(const std::vector<Slice>& contents) {
         // encode
         PageBuilderOptions options;
         // page size: 16M
@@ -161,20 +158,17 @@ public:
             ASSERT_TRUE(status.ok());
 
             //check values
-            std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-            std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
-            std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
+            Arena arena;
             TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            Slice* values = reinterpret_cast<Slice*>(arena.Allocate(sizeof(Slice)));
+            ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+            ColumnBlockView block_view(&column_block);
 
-
-            Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(sizeof(Slice)));
-            dst_vector->set_col_data(values);
-            ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), type_info);
             size_t num = 1;
             size_t pos = random() % (page_start_ids[slice_index + 1] - page_start_ids[slice_index]);
             //size_t pos = 613631;
             status = page_decoder.seek_to_position_in_page(pos);
-            status = page_decoder.next_batch(&num, &column_vector_view);
+            status = page_decoder.next_batch(&num, &block_view);
             ASSERT_TRUE(status.ok());
             std::string expect = contents[page_start_ids[slice_index] + pos].to_string();
             std::string actual = values[0].to_string();
@@ -188,7 +182,7 @@ public:
 };
 
 TEST_F(BinaryDictPageTest, TestBySmallDataSize) {
-    vector<Slice> slices;
+    std::vector<Slice> slices;
     slices.emplace_back("Individual");
     slices.emplace_back("Lifetime");
     slices.emplace_back("Objective");
