@@ -191,7 +191,7 @@ public class BrokerLoadJobTest {
     @Test
     public void testExecuteJob(@Mocked MasterTaskExecutor masterTaskExecutor) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
-        brokerLoadJob.executeJob();
+        brokerLoadJob.unprotectedExecuteJob();
 
         Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
         Assert.assertEquals(1, idToTasks.size());

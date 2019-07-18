@@ -19,7 +19,14 @@ package org.apache.doris.common;
 
 public class DuplicatedRequestException extends DdlException {
 
-    public DuplicatedRequestException(String msg) {
+    private String duplicatedRequestId;
+
+    public DuplicatedRequestException(String duplicatedRequestId, String msg) {
         super(msg);
+        this.duplicatedRequestId = duplicatedRequestId;
+    }
+
+    public String getDuplicatedRequestId() {
+        return duplicatedRequestId;
     }
 }
