@@ -844,7 +844,7 @@ public class OlapTable extends Table {
 
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
         if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = PartitionInfo.read(in);
+            partitionInfo = SinglePartitionInfo.read(in);
         } else if (partType == PartitionType.RANGE) {
             partitionInfo = RangePartitionInfo.read(in);
         } else {
