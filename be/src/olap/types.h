@@ -323,11 +323,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT> {
     static OLAPStatus from_string(char* buf, const std::string& scan_key) {
-        float value = 0.0f;
+        CppType value = 0.0f;
         if (scan_key.length() > 0) {
-            value = static_cast<float>(atof(scan_key.c_str()));
+            value = static_cast<CppType>(atof(scan_key.c_str()));
         }
-        *reinterpret_cast<float*>(buf) = value;
+        *reinterpret_cast<CppType*>(buf) = value;
         return OLAP_SUCCESS;
     }
 };
@@ -335,16 +335,16 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE> {
     static OLAPStatus from_string(char* buf, const std::string& scan_key) {
-        double value = 0.0;
+        CppType value = 0.0;
         if (scan_key.length() > 0) {
             value = atof(scan_key.c_str());
         }
-        *reinterpret_cast<double*>(buf) = value;
+        *reinterpret_cast<CppType*>(buf) = value;
         return OLAP_SUCCESS;
     }
     static std::string to_string(char* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<double*>(src));
+        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<CppType*>(src));
         return std::string(buf);
     }
 };
@@ -352,20 +352,20 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
     static OLAPStatus from_string(char* buf, const std::string& scan_key) {
-        decimal12_t* data_ptr = reinterpret_cast<decimal12_t*>(buf);
+        CppType* data_ptr = reinterpret_cast<CppType*>(buf);
         return data_ptr->from_string(scan_key);
     }
     static std::string to_string(char* src) {
-        decimal12_t* data_ptr = reinterpret_cast<decimal12_t*>(src);
+        CppType* data_ptr = reinterpret_cast<CppType*>(src);
         return data_ptr->to_string();
     }
     static void set_to_max(char* buf) {
-        decimal12_t* data = reinterpret_cast<decimal12_t*>(buf);
+        CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = 999999999999999999L;
         data->fraction = 999999999;
     }
     static void set_to_min(char* buf) {
-        decimal12_t* data = reinterpret_cast<decimal12_t*>(buf);
+        CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = -999999999999999999;
         data->fraction = -999999999;
     }
@@ -381,17 +381,17 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             int value = (time_tm.tm_year + 1900) * 16 * 32
                 + (time_tm.tm_mon + 1) * 32
                 + time_tm.tm_mday;
-            *reinterpret_cast<uint24_t*>(buf) = value;
+            *reinterpret_cast<CppType*>(buf) = value;
         } else {
             // 1400 - 01 - 01
-            *reinterpret_cast<uint24_t*>(buf) = 716833;
+            *reinterpret_cast<CppType*>(buf) = 716833;
         }
 
         return OLAP_SUCCESS;
     }
     static std::string to_string(char* src) {
         tm time_tm;
-        int value = *reinterpret_cast<uint24_t*>(src);
+        int value = *reinterpret_cast<CppType*>(src);
         memset(&time_tm, 0, sizeof(time_tm));
         time_tm.tm_mday = static_cast<int>(value & 31);
         time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
@@ -402,11 +402,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
     }
     static void set_to_max(char* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<uint24_t*>(buf) = 5119903;
+        *reinterpret_cast<CppType*>(buf) = 5119903;
     }
     static void set_to_min(char* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<uint24_t*>(buf) = 33;
+        *reinterpret_cast<CppType*>(buf) = 33;
     }
 };
 
@@ -417,25 +417,25 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
         if (NULL != res) {
-            int64_t value = ((time_tm.tm_year + 1900) * 10000L
+            CppType value = ((time_tm.tm_year + 1900) * 10000L
                             + (time_tm.tm_mon + 1) * 100L
                             + time_tm.tm_mday) * 1000000L
                             + time_tm.tm_hour * 10000L
                             + time_tm.tm_min * 100L
                             + time_tm.tm_sec;
-            *reinterpret_cast<int64_t*>(buf) = value;
+            *reinterpret_cast<CppType*>(buf) = value;
         } else {
             // 1400 - 01 - 01
-            *reinterpret_cast<int64_t*>(buf) = 14000101000000L;
+            *reinterpret_cast<CppType*>(buf) = 14000101000000L;
         }
 
         return OLAP_SUCCESS;
     }
     static std::string to_string(char* src) {
         tm time_tm;
-        int64_t tmp = *reinterpret_cast<int64_t*>(src);
-        int64_t part1 = (tmp / 1000000L);
-        int64_t part2 = (tmp - part1 * 1000000L);
+        CppType tmp = *reinterpret_cast<CppType*>(src);
+        CppType part1 = (tmp / 1000000L);
+        CppType part2 = (tmp - part1 * 1000000L);
 
         time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
         time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
@@ -451,10 +451,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
     }
     static void set_to_max(char* buf) {
         // 设置为最大时间，其含义为：9999-12-31 23:59:59
-        *reinterpret_cast<int64_t*>(buf) = 99991231235959L;
+        *reinterpret_cast<CppType*>(buf) = 99991231235959L;
     }
     static void set_to_min(char* buf) {
-        *reinterpret_cast<int64_t*>(buf) = 101000000;
+        *reinterpret_cast<CppType*>(buf) = 101000000;
     }
 };
 
@@ -561,7 +561,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_HLL> : public FieldTypeTraits<OLAP_FIELD_
 // Instantiate this template to get static access to the type traits.
 template<FieldType field_type>
 struct TypeTraits : public FieldTypeTraits<field_type> {
-    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using CppType = typename FieldTypeTraits<field_type>::CppType;
 
     static const FieldType type = field_type;
     static const int32_t size = sizeof(CppType);
