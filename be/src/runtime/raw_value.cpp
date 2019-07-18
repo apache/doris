@@ -267,6 +267,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         break;
     }
 
+    case TYPE_TIME:
     case TYPE_DATE:
     case TYPE_DATETIME:
         *reinterpret_cast<DateTimeValue*>(dst) =

@@ -87,6 +87,9 @@ Literal::Literal(const TExprNode& node) :
         _value.datetime_val.from_date_str(
             node.date_literal.value.c_str(), node.date_literal.value.size());
         break;
+    case TYPE_TIME:
+        _value.datetime_val.from_time_int64(node.time_literal.value);
+        break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
@@ -172,6 +175,12 @@ DateTimeVal Literal::get_datetime_val(ExprContext* context, TupleRow* row) {
     DateTimeVal dt_val;
     _value.datetime_val.to_datetime_val(&dt_val);
     return dt_val;
+}
+
+TimeVal Literal::get_time_val(ExprContext* context, TupleRow* row) {
+    TimeVal tm_val;
+    _value.datetime_val.to_time_val(&tm_val);
+    return tm_val;
 }
 
 StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {

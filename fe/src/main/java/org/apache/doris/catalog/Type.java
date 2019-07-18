@@ -62,6 +62,7 @@ public abstract class Type {
     public static final ScalarType DOUBLE = new ScalarType(PrimitiveType.DOUBLE);
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
+    public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
     public static final ScalarType DEFAULT_DECIMAL = (ScalarType)
             ScalarType.createDecimalType(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);
@@ -116,6 +117,7 @@ public abstract class Type {
         supportedTypes.add(DATETIME);
         supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
+        supportedTypes.add(TIME);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -460,6 +462,8 @@ public abstract class Type {
                 return Type.DATE;
             case DATETIME:
                 return Type.DATETIME;
+            case TIME:
+                return Type.TIME;
             case DECIMAL:
                 return Type.DECIMAL;
             case DECIMALV2:
@@ -857,6 +861,7 @@ public abstract class Type {
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
                 if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
+                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
@@ -878,6 +883,7 @@ public abstract class Type {
                 return DOUBLE;
             case DATE:
             case DATETIME:
+            case TIME:
             case CHAR:
             case VARCHAR:
             case HLL:

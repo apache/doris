@@ -71,6 +71,9 @@ StringVal Expr::get_string_val(Expr* expr, ExprContext* context, TupleRow* row) 
 DateTimeVal Expr::get_datetime_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_datetime_val(context, row);
 }
+TimeVal Expr::get_time_val(Expr* expr, ExprContext* context, TupleRow* row) {
+    return expr->get_time_val(context, row);
+}
 DecimalVal Expr::get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_decimal_val(context, row);
 }

@@ -463,18 +463,16 @@ IntVal TimestampFunctions::to_days(
 }
 
 // TODO(dhc): implement this funciton really
-DateTimeVal TimestampFunctions::time_diff(
+TimeVal TimestampFunctions::time_diff(
         FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
     if (ts_val1.is_null || ts_val2.is_null) {
-        return DateTimeVal::null();
+        return TimeVal::null();
     }
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    DateTimeValue ts = ts_value1 - ts_value2;
-    ts.cast_to_time();
-    DateTimeVal result;
-    ts.to_datetime_val(&result);
-    return result;
+    int timediff = ts_value1.unix_timestamp() - ts_value2.unix_timestamp();
+
+    return TimeVal(timediff);
 }
 
 IntVal TimestampFunctions::date_diff(

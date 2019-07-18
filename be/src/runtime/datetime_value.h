@@ -400,6 +400,10 @@ public:
         tv->type = _type;
     }
 
+    void to_time_val(doris_udf::TimeVal* tv) const {
+        tv->time = to_time_int64();
+    }
+
     static DateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
         DateTimeValue value;
         value.from_packed_time(tv.packed_time);

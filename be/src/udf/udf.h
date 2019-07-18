@@ -554,6 +554,34 @@ struct DoubleVal : public AnyVal {
     }
 };
 
+struct TimeVal : public AnyVal {
+    int64_t time;
+
+    TimeVal() : time(0) { }
+    TimeVal(int time) : time(time) { }
+
+    static TimeVal null() {
+        TimeVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const TimeVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return time == other.time;
+    }
+    bool operator!=(const TimeVal& other) const {
+        return !(*this == other);
+    }
+};
+
 // This object has a compatible storage format with boost::ptime.
 struct DateTimeVal : public AnyVal {
     // MySQL packet time
@@ -791,6 +819,7 @@ using doris_udf::StringVal;
 using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
+using doris_udf::TimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 

@@ -746,6 +746,7 @@ typedef FloatVal (*FloatWrapper)(ExprContext*, TupleRow*);
 typedef DoubleVal (*DoubleWrapper)(ExprContext*, TupleRow*);
 typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
+typedef TimeVal (*TimeWrapper)(ExprContext*, TupleRow*);
 typedef DecimalVal (*DecimalWrapper)(ExprContext*, TupleRow*);
 typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
 
@@ -851,6 +852,17 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
     return fn(context, row);
 }
 
+TimeVal ScalarFnCall::get_time_val(ExprContext* context, TupleRow* row) {
+    std::cout << "get_time_val[scalar]" << std::endl;
+
+    DCHECK(context != NULL);
+    if (_scalar_fn_wrapper == NULL) {
+        return interpret_eval<TimeVal>(context, row);
+    }
+    TimeWrapper fn = reinterpret_cast<TimeWrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
 DecimalVal ScalarFnCall::get_decimal_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMAL);
     DCHECK(context != NULL);
@@ -870,7 +882,6 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
     DecimalV2Wrapper fn = reinterpret_cast<DecimalV2Wrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
-
 
 std::string ScalarFnCall::debug_string() const {
     std::stringstream out;

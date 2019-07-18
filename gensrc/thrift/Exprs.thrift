@@ -47,6 +47,7 @@ enum TExprNodeType {
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,
   LARGE_INT_LITERAL,
+  TIME_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -81,6 +82,10 @@ struct TCaseExpr {
 
 struct TDateLiteral {
   1: required string value
+}
+
+struct TTimeLiteral {
+  1: required i32 value
 }
 
 struct TFloatLiteral {
@@ -178,6 +183,8 @@ struct TExprNode {
   // If set, child[vararg_start_idx] is the first vararg child.
   27: optional i32 vararg_start_idx
   28: optional Types.TPrimitiveType child_type
+
+  29: optional TTimeLiteral time_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

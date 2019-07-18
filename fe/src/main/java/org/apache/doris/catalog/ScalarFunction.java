@@ -171,6 +171,9 @@ public class ScalarFunction extends Function {
                 case DATETIME:
                     beFn += "_datetime_val";
                     break;
+                case TIME:
+                    beFn += "_time_val";
+                    break;
                 case DECIMAL:
                     beFn += "_decimal_val";
                     usesDecimal = true;

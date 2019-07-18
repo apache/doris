@@ -520,6 +520,7 @@ native_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'Date',
   'DATETIME': 'DateTime',
+  'TIME': 'Time',
   'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
@@ -537,6 +538,7 @@ implemented_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
+  'TIME': 'TimeValue',
   'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
@@ -552,6 +554,7 @@ result_fields = {
   'VARCHAR': 'string_val',
   'DATE': 'datetime_val',
   'DATETIME': 'datetime_val',
+  'TIME': 'datetime_val',
   'DECIMAL': 'decimal_val',
   'DECIMALV2': 'decimalv2_val',
 }

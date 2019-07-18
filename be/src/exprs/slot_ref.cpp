@@ -510,6 +510,17 @@ DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
     return result;
 }
 
+TimeVal SlotRef::get_time_val(ExprContext* context, TupleRow* row) {
+    Tuple *t = row->get_tuple(_tuple_idx);
+    if (t == NULL || t->is_null(_null_indicator_offset)) {
+        return TimeVal::null();
+    }
+    DateTimeValue *tv = reinterpret_cast<DateTimeValue *>(t->get_slot(_slot_offset));
+    TimeVal tm_val;
+    tv->to_time_val(&tm_val);
+    return tm_val;
+}
+
 DecimalVal SlotRef::get_decimal_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMAL);
     Tuple* t = row->get_tuple(_tuple_idx);

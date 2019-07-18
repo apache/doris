@@ -43,6 +43,7 @@ public enum PrimitiveType {
     DOUBLE("DOUBLE", 8, TPrimitiveType.DOUBLE),
     DATE("DATE", 16, TPrimitiveType.DATE),
     DATETIME("DATETIME", 16, TPrimitiveType.DATETIME),
+    TIME("TIME", 16, TPrimitiveType.TIME),
     // Fixed length char array.
     CHAR("CHAR", 16, TPrimitiveType.CHAR),
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
@@ -75,6 +76,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DOUBLE);
         builder.put(NULL_TYPE, DATE);
         builder.put(NULL_TYPE, DATETIME);
+        builder.put(NULL_TYPE, TIME);
         builder.put(NULL_TYPE, DECIMAL);
         builder.put(NULL_TYPE, DECIMALV2);
         builder.put(NULL_TYPE, CHAR);
@@ -237,6 +239,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMALV2);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, HLL);
+        builder.put(VARCHAR, TIME);
         // Decimal
         builder.put(DECIMAL, BOOLEAN);
         builder.put(DECIMAL, TINYINT);
@@ -265,6 +268,10 @@ public enum PrimitiveType {
         // HLL
         builder.put(HLL, HLL);
         builder.put(HLL, VARCHAR);
+
+        //TIME
+        builder.put(TIME, TIME);
+        builder.put(TIME, VARCHAR);
 
         implicitCastMap = builder.build();
     }
@@ -480,6 +487,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL.ordinal()] = DECIMALV2;
         
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
+        compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
     }
 
     private static PrimitiveType[][] schemaChangeCompatibilityMatrix;
@@ -659,6 +667,7 @@ public enum PrimitiveType {
             case DATETIME:
             case CHAR:
             case VARCHAR:
+            case TIME:
                 return VARCHAR;
             case DECIMAL:
                 return DECIMAL;
