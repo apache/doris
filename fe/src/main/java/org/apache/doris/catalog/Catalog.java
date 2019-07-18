@@ -3348,6 +3348,10 @@ public class Catalog {
         long tableId = Catalog.getInstance().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo, distributionInfo);
 
+        // set base index id
+        long baseIndexId = getNextId();
+        olapTable.setBaseIndexId(baseIndexId);
+
         // set base index info to table
         // this should be done before create partition.
         // get base index storage type. default is COLUMN
@@ -3358,9 +3362,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-
         Preconditions.checkNotNull(baseIndexStorageType);
-        long baseIndexId = olapTable.getId();
         olapTable.setStorageTypeToIndex(baseIndexId, baseIndexStorageType);
 
         // analyze bloom filter columns
@@ -3452,9 +3454,6 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
         Preconditions.checkNotNull(versionInfo);
-
-        // set base index id
-        olapTable.setBaseIndexId(getNextId());
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
