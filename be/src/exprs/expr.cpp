@@ -137,6 +137,7 @@ Expr::Expr(const TypeDescriptor& type) :
 
     case TYPE_FLOAT:
     case TYPE_DOUBLE:
+    case TYPE_TIME:
         _node_type = (TExprNodeType::FLOAT_LITERAL);
         break;
 
@@ -148,10 +149,6 @@ Expr::Expr(const TypeDescriptor& type) :
     case TYPE_DATE:
     case TYPE_DATETIME:
         _node_type = (TExprNodeType::DATE_LITERAL);
-        break;
-
-    case TYPE_TIME:
-        _node_type = (TExprNodeType::TIME_LITERAL);
         break;
 
     case TYPE_CHAR:
@@ -199,6 +196,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
 
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
+        case TYPE_TIME:
             _node_type = (TExprNodeType::FLOAT_LITERAL);
             break;
 
@@ -210,10 +208,6 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
         case TYPE_DATETIME:
             _node_type = (TExprNodeType::DATE_LITERAL);
             break;
-
-        case TYPE_TIME:
-             _node_type = (TExprNodeType::TIME_LITERAL);
-             break;
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -339,7 +333,6 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
-    case TExprNodeType::TIME_LITERAL:
         *expr = pool->add(new Literal(texpr_node));
         return Status::OK();
     case TExprNodeType::COMPOUND_PRED:
@@ -752,7 +745,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new FloatVal(get_float_val(context, NULL)));
         break;
     }
-    case TYPE_DOUBLE: {
+    case TYPE_DOUBLE:
+    case TYPE_TIME: {
         _constant_val.reset(new DoubleVal(get_double_val(context, NULL)));
         break;
     }
@@ -765,10 +759,6 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     case TYPE_DATE:
     case TYPE_DATETIME: {
         _constant_val.reset(new DateTimeVal(get_datetime_val(context, NULL)));
-        break;
-    }
-    case TYPE_TIME: {
-        _constant_val.reset(new TimeVal(get_time_val(context, NULL)));
         break;
     }
     case TYPE_DECIMAL: {
@@ -845,11 +835,6 @@ DoubleVal Expr::get_double_val(ExprContext* context, TupleRow* row) {
 StringVal Expr::get_string_val(ExprContext* context, TupleRow* row) {
     StringVal val;
     // ((StringValue*)get_value(row))->to_string_val(&val);
-    return val;
-}
-
-TimeVal Expr::get_time_val(ExprContext* context, TupleRow* row) {
-    TimeVal val;
     return val;
 }
 

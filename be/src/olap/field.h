@@ -21,9 +21,9 @@
 #include <string>
 
 #include "olap/aggregate_func.h"
-#include "olap/field_info.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/mem_pool.h"
@@ -40,10 +40,10 @@ public:
     // 使用FieldInfo创建一个Field对象的实例
     // 根据类型的不同，使用不同的类模板参数或者子类
     // 对于没有预料到的类型，会返回NULL
-    static Field* create(const FieldInfo& field_info);
+    static Field* create(const TabletColumn& column);
     static Field* create_by_type(const FieldType& type);
 
-    Field(const FieldInfo& field_info);
+    Field(const TabletColumn& column);
 
     inline void set_offset(size_t offset) { _offset = offset; }
     inline size_t get_offset() const { return _offset; }

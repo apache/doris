@@ -51,6 +51,8 @@ struct TCreateTabletReq {
     // this new tablet should be colocate with base tablet
     7: optional Types.TTabletId base_tablet_id
     8: optional Types.TSchemaHash base_schema_hash
+    9: optional i64 table_id
+    10: optional i64 partition_id
 }
 
 struct TDropTabletReq {
@@ -120,6 +122,7 @@ struct TStorageMediumMigrateReq {
 }
 
 struct TCancelDeleteDataReq {
+    // deprecated
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: required Types.TVersion version
@@ -157,6 +160,7 @@ struct TSnapshotRequest {
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
     8: optional bool allow_incremental_clone
+    9: optional i32 preferred_snapshot_version = 1  // request preferred snapshot version, default value is 1 for old version be
 }
 
 struct TReleaseSnapshotRequest {
@@ -208,6 +212,16 @@ struct TRecoverTabletReq {
     4: optional Types.TVersionHash version_hash
 }
 
+struct TTabletMetaInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional Types.TPartitionId partition_id
+}
+
+struct TUpdateTabletMetaInfoReq {
+    1: optional list<TTabletMetaInfo> tabletMetaInfos
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -233,12 +247,17 @@ struct TAgentTaskRequest {
     22: optional TMoveDirReq move_dir_req
     23: optional TRecoverTabletReq recover_tablet_req
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
+    25: optional i64 recv_time // time the task is inserted to queue
+    26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
 }
 
 struct TAgentResult {
     1: required Status.TStatus status
     2: optional string snapshot_path
     3: optional bool allow_incremental_clone
+    // the snapshot that be has done according 
+    // to the preferred snapshot version that client requests
+    4: optional i32 snapshot_version  = 1
 }
 
 struct TTopicItem {

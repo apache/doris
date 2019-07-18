@@ -79,6 +79,7 @@ public class SnapshotTask extends AgentTask {
         request.setVersion(version);
         request.setVersion_hash(versionHash);
         request.setList_files(true);
+        request.setPreferred_snapshot_version(2);
         return request;
     }
 }

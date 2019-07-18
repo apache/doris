@@ -59,16 +59,6 @@ protected:
     // Objects declared here can be used by all tests in the test case for Foo.
 };
 
-static double cdf(const double x, const std::vector<double>& data) {
-    int n1 = 0;
-    int n2 = 0;
-    for (auto v : data) {
-        n1 += (v < x) ? 1 : 0;
-        n2 += (v <= x) ? 1 : 0;
-    }
-    return (n1 + n2) / 2.0 / data.size();
-}
-
 static double quantile(const double q, const std::vector<double>& values) {
     double q1;
     if (values.size() == 0) {

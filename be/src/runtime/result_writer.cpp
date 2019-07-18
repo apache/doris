@@ -25,6 +25,7 @@
 #include "runtime/buffer_control_block.h"
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
+#include "util/date_func.h"
 
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -104,9 +105,15 @@ Status ResultWriter::add_one_row(TupleRow* row) {
             buf_ret = _row_buffer->push_double(*static_cast<double*>(item));
             break;
 
-        case TYPE_DATE:
-        case TYPE_DATETIME:
         case TYPE_TIME: {
+            double time = *static_cast<double *>(item);
+            std::string time_str = time_str_from_int((int) time);
+            buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+            break;
+        }
+
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
             char buf[64];
             const DateTimeValue* time_val = (const DateTimeValue*)(item);
             // TODO(zhaochun), this function has core risk

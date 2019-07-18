@@ -22,7 +22,6 @@
 #include <map>
 #include <functional>
 
-#include "olap/olap_header.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
 
@@ -36,7 +35,7 @@ public:
 
     OLAPStatus init();
 
-    OLAPStatus get(const int column_family_index, const std::string& key, std::string& value);
+    OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
 
     OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
 
@@ -46,6 +45,10 @@ public:
             std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path();
+
+    OLAPStatus get_tablet_convert_finished(bool& flag);
+
+    OLAPStatus set_tablet_convert_finished();
 
 private:
     std::string _root_path;

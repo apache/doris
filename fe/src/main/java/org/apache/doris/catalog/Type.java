@@ -238,6 +238,10 @@ public abstract class Type {
     public boolean isDatetime() {
         return isScalarType(PrimitiveType.DATETIME);
     }
+    
+    public boolean isTime() {
+        return isScalarType(PrimitiveType.TIME);
+    }
 
     public boolean isComplexType() {
         return isStructType() || isCollectionType();
@@ -949,6 +953,7 @@ public abstract class Type {
             case DOUBLE:
             case DATE:
             case DATETIME:
+            case TIME:
             case CHAR:
             case VARCHAR:
             case HLL:

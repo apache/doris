@@ -746,7 +746,6 @@ typedef FloatVal (*FloatWrapper)(ExprContext*, TupleRow*);
 typedef DoubleVal (*DoubleWrapper)(ExprContext*, TupleRow*);
 typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
-typedef TimeVal (*TimeWrapper)(ExprContext*, TupleRow*);
 typedef DecimalVal (*DecimalWrapper)(ExprContext*, TupleRow*);
 typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
 
@@ -822,7 +821,7 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DOUBLE);
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
     DCHECK(context != NULL);
     if (_scalar_fn_wrapper == NULL) {      
         return interpret_eval<DoubleVal>(context, row);
@@ -849,17 +848,6 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
         return interpret_eval<DateTimeVal>(context, row);
     }
     DatetimeWrapper fn = reinterpret_cast<DatetimeWrapper>(_scalar_fn_wrapper);
-    return fn(context, row);
-}
-
-TimeVal ScalarFnCall::get_time_val(ExprContext* context, TupleRow* row) {
-    std::cout << "get_time_val[scalar]" << std::endl;
-
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
-        return interpret_eval<TimeVal>(context, row);
-    }
-    TimeWrapper fn = reinterpret_cast<TimeWrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
 

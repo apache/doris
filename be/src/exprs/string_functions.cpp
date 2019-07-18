@@ -796,7 +796,6 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
         return StringVal::null();
     }
     std::vector<int> find(field.val, -1); //store substring position
-    for (int i = 0; i <= field.val; i++) find[i] = -1; // init
     int from = 0;
     for (int i = 1; i <= field.val; i++) { // find
         int last_index = i - 1;

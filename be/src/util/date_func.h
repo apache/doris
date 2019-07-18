@@ -63,6 +63,22 @@ static uint24_t timestamp_from_date(const std::string& date_str) {
     return uint24_t(value);
 }
 
+static std::string time_str_from_int(int time) {
+    std::stringstream time_ss;
+    if (time < 0) {
+        time_ss << "-";
+        time = -time;
+    }
+    int hour = time / 60 / 60;
+    int minute = time / 60 % 60;
+    int second = time % 60;
+    
+    time_ss << std::setw(2) << std::setfill('0') << hour 
+        << ":" << std::setw(2) << std::setfill('0') << minute 
+        << ":" << std::setw(2) << std::setfill('0') << second;
+    return time_ss.str();
+}
+
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_DATE_FUNC_H

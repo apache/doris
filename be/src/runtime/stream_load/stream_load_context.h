@@ -101,6 +101,9 @@ public:
     }
 
     std::string to_json() const;
+    // the old mini load result format is not same as stream load.
+    // add this function for compatible with old mini load result format.
+    std::string to_json_for_mini_load() const;
 
     // return the brief info of this context.
     // also print the load source info if detail is set to true
@@ -129,7 +132,7 @@ public:
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
-    int64_t timeout_second = -1;
+    int32_t timeout_second = -1;
     AuthInfo auth;
 
     // the following members control the max progress of a consuming

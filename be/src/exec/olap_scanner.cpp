@@ -414,8 +414,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             }
             break;
         }
-        case TYPE_DATETIME:
-        case TYPE_TIME: {
+        case TYPE_DATETIME: {
             DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = *reinterpret_cast<uint64_t*>(ptr);
             if (!slot->from_olap_datetime(value)) {

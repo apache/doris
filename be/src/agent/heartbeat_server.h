@@ -31,7 +31,7 @@
 namespace doris {
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
-class OLAPEngine;
+class StorageEngine;
 class Status;
 class ThriftServer;
 
@@ -55,7 +55,7 @@ private:
     Status _heartbeat(
         const TMasterInfo& master_info);
 
-    OLAPEngine* _olap_engine;
+    StorageEngine* _olap_engine;
 
     // mutex to protect master_info and _epoch
     std::mutex _hb_mtx;

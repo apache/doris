@@ -725,6 +725,7 @@ public class ScalarType extends Type {
             case INT:
                 return 4;
             case BIGINT:
+            case TIME:
                 return 8;
             case LARGEINT:
                 return 16;
@@ -736,8 +737,6 @@ public class ScalarType extends Type {
                 return 3;
             case DATETIME:
                 return 8;
-            case TIME:
-                return 3;
             case DECIMAL:
                 return 40;
             case DECIMALV2:

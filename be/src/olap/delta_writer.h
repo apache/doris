@@ -19,13 +19,13 @@
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
 #include "olap/memtable.h"
-#include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "olap/schema_change.h"
-#include "olap/data_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
@@ -41,7 +41,7 @@ struct WriteRequest {
     int64_t tablet_id;
     int32_t schema_hash;
     WriteType write_type;
-    int64_t transaction_id;
+    int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
     bool need_gen_rollup;
@@ -60,24 +60,22 @@ public:
     OLAPStatus cancel();
 
     int64_t partition_id() const { return _req.partition_id; }
+
 private:
     void _garbage_collection();
-    OLAPStatus _init();
-    
+
+private:
     bool _is_init = false;
     WriteRequest _req;
-    OLAPTablePtr _table;
-    SegmentGroup* _cur_segment_group;
-    std::vector<SegmentGroup*> _segment_group_vec;
-    std::vector<SegmentGroup*> _new_segment_group_vec;
-    OLAPTablePtr _new_table;
-    ColumnDataWriter* _writer;
+    TabletSharedPtr _tablet;
+    RowsetSharedPtr _cur_rowset;
+    RowsetSharedPtr _new_rowset;
+    TabletSharedPtr _new_tablet;
+    RowsetWriterSharedPtr _rowset_writer;
     MemTable* _mem_table;
     Schema* _schema;
-    std::vector<FieldInfo>* _field_infos;
+    const TabletSchema* _tablet_schema;
     std::vector<uint32_t> _col_ids;
-
-    int32_t _segment_group_id;
     bool _delta_written_success;
 };
 

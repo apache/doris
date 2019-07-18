@@ -24,7 +24,6 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterTabletReq;
-import org.apache.doris.thrift.TCancelDeleteDataReq;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
@@ -42,6 +41,7 @@ import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
 
 import org.apache.logging.log4j.LogManager;
@@ -209,15 +209,6 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setResource_info(schemaChangeTask.getResourceInfo());
                 return tAgentTaskRequest;
             }
-            case CANCEL_DELETE: {
-                CancelDeleteTask cancelDeleteTask = (CancelDeleteTask) task;
-                TCancelDeleteDataReq request = cancelDeleteTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setCancel_delete_data_req(request);
-                return tAgentTaskRequest;
-            }
             case STORAGE_MEDIUM_MIGRATE: {
                 StorageMediaMigrationTask migrationTask = (StorageMediaMigrationTask) task;
                 TStorageMediumMigrateReq request = migrationTask.toThrift();
@@ -315,6 +306,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setRecover_tablet_req(request);
+                return tAgentTaskRequest;
+            }
+            case UPDATE_TABLET_META_INFO: {
+                UpdateTabletMetaInfoTask updateTabletMetaInfoTask = (UpdateTabletMetaInfoTask) task;
+                TUpdateTabletMetaInfoReq request = updateTabletMetaInfoTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
                 return tAgentTaskRequest;
             }
             default:

@@ -36,6 +36,8 @@ public class MockedAuth {
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 result = true;
+
+                // auth.checkHasPriv((ConnectContext) any,, priv, levels)
             }
         };
     }

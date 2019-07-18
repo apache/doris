@@ -224,7 +224,7 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     MutexLock l(&_mutex);
     ++_lookup_count;
-    LRUHandle* e = _table.lookup(key, hash);
+    LRUHandle* e = _tablet.lookup(key, hash);
 
     if (e != NULL) {
         ++_hit_count;
@@ -260,13 +260,13 @@ Cache::Handle* LRUCache::insert(
         e->in_cache = true;
         _lru_append(&_in_use, e);
         _usage += charge;
-        _finish_erase(_table.insert(e));
+        _finish_erase(_tablet.insert(e));
     } // else don't cache.  (Tests use capacity_==0 to turn off caching.)
 
     while (_usage > _capacity && _lru.next != &_lru) {
         LRUHandle* old = _lru.next;
         assert(old->refs == 1);
-        bool erased = _finish_erase(_table.remove(old->key(), old->hash));
+        bool erased = _finish_erase(_tablet.remove(old->key(), old->hash));
         if (!erased) {  // to avoid unused variable when compiled NDEBUG
             assert(erased);
         }
@@ -276,7 +276,7 @@ Cache::Handle* LRUCache::insert(
 }
 
 // If e != NULL, finish removing *e from the cache; it has already been removed
-// from the hash table.  Return whether e != NULL.  Requires mutex_ held.
+// from the hash tablet.  Return whether e != NULL.  Requires mutex_ held.
 bool LRUCache::_finish_erase(LRUHandle* e) {
     if (e != NULL) {
         assert(e->in_cache);
@@ -290,7 +290,7 @@ bool LRUCache::_finish_erase(LRUHandle* e) {
 
 void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     MutexLock l(&_mutex);
-    _finish_erase(_table.remove(key, hash));
+    _finish_erase(_tablet.remove(key, hash));
 }
 
 int LRUCache::prune() {
@@ -299,7 +299,7 @@ int LRUCache::prune() {
     while (_lru.next != &_lru) {
         LRUHandle* e = _lru.next;
         assert(e->refs == 1);
-        bool erased = _finish_erase(_table.remove(e->key(), e->hash));
+        bool erased = _finish_erase(_tablet.remove(e->key(), e->hash));
         if (!erased) {  // to avoid unused variable when compiled NDEBUG
             assert(erased);
         }
