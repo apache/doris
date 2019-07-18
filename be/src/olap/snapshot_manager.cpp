@@ -268,6 +268,10 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
                      << " to rowset " << rowset_id;
         return res;
     }
+    // Add log to trace rowset validation failure problem
+    // This log will be deleted in the future
+    AlphaRowsetSharedPtr org_alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(org_rowset);
+    LOG(INFO) << "original rowset path:" << org_alpha_rowset->rowset_path();
     RowsetSharedPtr new_rowset = rs_writer->build();
     if (new_rowset == nullptr) {
         LOG(WARNING) << "failed to build rowset when rename rowset id";
