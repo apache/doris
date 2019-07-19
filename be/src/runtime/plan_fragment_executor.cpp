@@ -55,6 +55,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _closed(false),
       _has_thread_token(false),
       _is_report_success(true),
+      _is_report_on_cancel(true),
       _collect_query_statistics_with_every_batch(false) {
 }
 
@@ -430,6 +431,10 @@ void PlanFragmentExecutor::send_report(bool done) {
     }
 
     if (!_is_report_success && done && status.ok()) {
+        return;
+    }
+
+    if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }
 

@@ -141,6 +141,10 @@ public:
         _stop_report_thread_cv.notify_one();
     }
 
+    void set_is_report_on_cancel(bool val) {
+        _is_report_on_cancel = val;
+    }
+
 private:
     ExecEnv* _exec_env;  // not owned
     ExecNode* _plan;  // lives in _runtime_state->obj_pool()
@@ -175,6 +179,10 @@ private:
     bool _has_thread_token;
 
     bool _is_report_success;
+
+    // If this is set to false, and '_is_report_success' is false as well,
+    // This executor will not report status to FE on being cancelled.
+    bool _is_report_on_cancel;
 
     // Overall execution status. Either ok() or set to the first error status that
     // was encountered.
