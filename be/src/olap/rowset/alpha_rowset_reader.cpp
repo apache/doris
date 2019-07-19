@@ -99,14 +99,18 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             // Upon rollup/alter table, seek_columns is nullptr.
             // Under this circumstance, init RowCursor with all columns.
             _dst_cursor->init(*(_current_read_context->tablet_schema));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema));
+            }
         } else {
             _dst_cursor->init(*(_current_read_context->tablet_schema),
                               *(_current_read_context->seek_columns));
-        }
-        for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
-            _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
-            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
-                                            *(_current_read_context->seek_columns));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
+                                                *(_current_read_context->seek_columns));
+            }
         }
     }
     return OLAP_SUCCESS;
