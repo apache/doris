@@ -357,12 +357,10 @@ Status BinaryPredicate::codegen_compare_fn(
 #define BINARY_PRED_FN(CLASS, TYPE, FN, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         TYPE v1 = _children[0]->FN(ctx, row); \
-        if (v1.is_null) { \
-            return BooleanVal::null(); \
-        } \
         TYPE v2 = _children[1]->FN(ctx, row); \
-        if (v2.is_null) { \
-            return BooleanVal::null(); \
+        BooleanVal result; \
+        if (get_result_for_null(v1, v2, &result)) { \
+            return result; \
         } \
         return BooleanVal(v1.val OP v2.val); \
     } \
@@ -406,12 +404,10 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
 #define COMPLICATE_BINARY_PRED_FN(CLASS, TYPE, FN, DORIS_TYPE, FROM_FUNC, OP) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         TYPE v1 = _children[0]->FN(ctx, row); \
-        if (v1.is_null) { \
-            return BooleanVal::null(); \
-        } \
         TYPE v2 = _children[1]->FN(ctx, row); \
-        if (v2.is_null) { \
-            return BooleanVal::null(); \
+        BooleanVal result; \
+        if (get_result_for_null(v1, v2, &result)) { \
+            return result; \
         } \
         DORIS_TYPE pv1 = DORIS_TYPE::FROM_FUNC(v1); \
         DORIS_TYPE pv2 = DORIS_TYPE::FROM_FUNC(v2); \
@@ -436,12 +432,10 @@ COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from
 #define DATETIME_BINARY_PRED_FN(CLASS, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         DateTimeVal v1 = _children[0]->get_datetime_val(ctx, row); \
-        if (v1.is_null) { \
-            return BooleanVal::null(); \
-        } \
         DateTimeVal v2 = _children[1]->get_datetime_val(ctx, row); \
-        if (v2.is_null) { \
-            return BooleanVal::null(); \
+        BooleanVal result; \
+        if (get_result_for_null(v1, v2, &result)) { \
+            return result; \
         } \
         return BooleanVal(v1.packed_time OP v2.packed_time); \
     } \
@@ -468,12 +462,10 @@ DATETIME_BINARY_PRED_FNS()
 #define STRING_BINARY_PRED_FN(CLASS, OP) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         StringVal v1 = _children[0]->get_string_val(ctx, row); \
-        if (v1.is_null) { \
-            return BooleanVal::null(); \
-        } \
         StringVal v2 = _children[1]->get_string_val(ctx, row); \
-        if (v2.is_null) { \
-            return BooleanVal::null(); \
+        BooleanVal result; \
+        if (get_result_for_null(v1, v2, &result)) { \
+            return result; \
         } \
         StringValue pv1 = StringValue::from_string_val(v1); \
         StringValue pv2 = StringValue::from_string_val(v2); \
@@ -494,12 +486,10 @@ STRING_BINARY_PRED_FNS()
 
 BooleanVal EqStringValPred::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     StringVal v1 = _children[0]->get_string_val(ctx, row);
-    if (v1.is_null) {
-        return BooleanVal::null();
-    }
     StringVal v2 = _children[1]->get_string_val(ctx, row);
-    if (v2.is_null) {
-        return BooleanVal::null();
+    BooleanVal result; \
+    if (get_result_for_null(v1, v2, &result)) {
+        return result;
     }
     if (v1.len != v2.len) {
         return BooleanVal(false);

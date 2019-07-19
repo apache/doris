@@ -178,6 +178,8 @@ struct TExprNode {
   // If set, child[vararg_start_idx] is the first vararg child.
   27: optional i32 vararg_start_idx
   28: optional Types.TPrimitiveType child_type
+  // It is for null's operator "<=>"
+  29: optional bool is_safe_for_null 
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

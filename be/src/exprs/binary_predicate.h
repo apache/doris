@@ -32,7 +32,7 @@ namespace doris {
 class BinaryPredicate : public Predicate {
 public:
     static Expr* from_thrift(const TExprNode& node);
-    BinaryPredicate(const TExprNode& node) : Predicate(node) { }
+    BinaryPredicate(const TExprNode& node) : Predicate(node), is_safe_for_null(node.is_safe_for_null) { }
     virtual ~BinaryPredicate() { }
 
 protected:
@@ -41,8 +41,28 @@ protected:
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
     virtual std::string debug_string() const;
 
+   
     Status codegen_compare_fn(
         RuntimeState* state, llvm::Function** fn, llvm::CmpInst::Predicate pred);
+
+    bool get_result_for_null(const AnyVal& v1, const AnyVal& v2, BooleanVal* result) {
+        if (is_safe_for_null) { \
+            if (v1.is_null && v2.is_null) {
+                result->val = true;
+                return true;
+            } else if (v1.is_null || v2.is_null) {
+                result->val = false;
+                return true;
+            }
+        } else {
+            if (v1.is_null || v2.is_null) {
+                result->is_null = true;
+                return true;
+            }
+        } 
+        return false;
+    }
+    bool is_safe_for_null;
 };
 
 #define BIN_PRED_CLASS_DEFINE(CLASS) \

@@ -132,19 +132,26 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-
+    // It is for null's operator "<=>"
+    private boolean isSafeForNull = false;
+    
     // for restoring
     public BinaryPredicate() {
         super();
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
+        this(op, e1, e2, false);
+    }
+
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, boolean isSafeForNull) {
         super();
         this.op = op;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+        this.isSafeForNull = isSafeForNull;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -228,6 +235,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
+        msg.setIs_safe_for_null(isSafeForNull);
         msg.setOpcode(opcode);
         msg.setVector_opcode(vectorOpcode);
         msg.setChild_type(getChild(0).getType().getPrimitiveType().toThrift());
@@ -317,6 +325,12 @@ public class BinaryPredicate extends Predicate implements Writable {
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
 
+        if (isSafeForNull) {
+            if (!getChild(0).getType().isNull() && !getChild(1).getType().isNull()) {
+                isSafeForNull = false;
+            }
+        }
+
         this.opcode = op.getOpcode();
         String opName = op.getName();
         fn = getBuiltinFunction(analyzer, opName, collectChildReturnTypes(),
@@ -368,6 +382,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false; 
             return getChild(0);
@@ -507,9 +522,19 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (first instanceof NullLiteral || second instanceof NullLiteral) {
-            return new NullLiteral();
-        }
+        final boolean isFirstNull = (first instanceof NullLiteral);
+        final boolean isSecondNull = (second instanceof NullLiteral);
+        if (isSafeForNull) {
+            if (isFirstNull && isSecondNull) {
+                return new BoolLiteral(true);
+            } else if (isFirstNull || isSecondNull) {
+                return new BoolLiteral(false);
+            } 
+        } else  {
+            if (isFirstNull || isSecondNull){
+                return new NullLiteral();
+            }
+        }  
 
         final int compareResult = first.compareLiteral(second);
         switch(op) {
