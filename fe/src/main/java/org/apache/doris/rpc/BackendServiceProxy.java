@@ -20,6 +20,7 @@ package org.apache.doris.rpc;
 import org.apache.doris.common.Config;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.proto.PFetchDataResult;
 import org.apache.doris.proto.PProxyRequest;
@@ -111,12 +112,13 @@ public class BackendServiceProxy {
     }
 
     public Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(
-            TNetworkAddress address, TUniqueId finstId) throws RpcException {
+            TNetworkAddress address, TUniqueId finstId, PPlanFragmentCancelReason cancelReason) throws RpcException {
         final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest();
         PUniqueId uid = new PUniqueId();
         uid.hi = finstId.hi;
         uid.lo = finstId.lo;
         pRequest.finst_id = uid;
+        pRequest.cancel_reason = cancelReason;
         try {
             final PBackendService service = getProxy(address);
             return service.cancelPlanFragmentAsync(pRequest);
