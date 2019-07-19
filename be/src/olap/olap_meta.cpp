@@ -97,7 +97,6 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, 
     }
     DorisMetrics::meta_read_request_duration_us.increment(duration_ns / 1000);
     if (s.IsNotFound()) {
-        LOG(WARNING) << "rocks db key not found:" << key;
         return OLAP_ERR_META_KEY_NOT_FOUND;
     } else if (!s.ok()) {
         LOG(WARNING) << "rocks db get key:" << key << " failed, reason:" << s.ToString();

@@ -276,7 +276,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_zone_maps(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
-    DCHECK(zone_map_fields.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_fields.size() == _schema->num_key_columns());
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -295,7 +295,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
 OLAPStatus SegmentGroup::add_zone_maps(
         std::vector<std::pair<std::string, std::string> > &zone_map_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(zone_map_strings.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_strings.size() == _schema->num_key_columns());
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
