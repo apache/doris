@@ -30,6 +30,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -6522,6 +6523,48 @@ public class Catalog {
             default:
                 break;
         }
+    }
+
+    // Set specified replica's status. If replica does not exist, just ignore it.
+    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) {
+        List<Long> tabletIds = stmt.getTabletIds();
+        long backendId = stmt.getBackendId();
+        String status = stmt.getStatus();
+
+        BackendTabletsInfo tabletsInfo = new BackendTabletsInfo(backendId);
+        tabletsInfo.setBad(true);
+        for (Long tabletId : tabletIds) {
+            TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
+            if (meta == null) {
+                LOG.info("tablet {} does not exist", tabletId);
+                continue;
+            }
+            long dbId = meta.getDbId();
+            Database db = getDb(dbId);
+            if (db == null) {
+                LOG.info("database {} of tablet {} does not exist", dbId, tabletId);
+                continue;
+            }
+            db.writeLock();
+            try {
+                Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+                if (replica == null) {
+                    LOG.info("replica of tablet {} does not exist", tabletId);
+                    continue;
+                }
+                if (status.equals(AdminSetReplicaStatusStmt.STATUS_BAD)) {
+                    if (replica.setBad(true)) {
+                        tabletsInfo.addTabletWithSchemaHash(tabletId, meta.getOldSchemaHash());
+                        LOG.info("set replica {} of tablet {} on backend {} as bad",
+                                replica.getId(), tabletId, backendId);
+                    }
+                }
+            } finally {
+                db.writeUnlock();
+            }
+        }
+
+        Catalog.getInstance().getEditLog().logBackendTabletsInfo(tabletsInfo);
     }
 }
 

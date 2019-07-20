@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -207,6 +208,8 @@ public class DdlExecutor {
             catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCheckTabletsStmt) {
             catalog.checkTablets((AdminCheckTabletsStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
+            catalog.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }
