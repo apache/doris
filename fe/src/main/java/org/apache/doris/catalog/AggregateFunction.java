@@ -177,7 +177,7 @@ public class AggregateFunction extends Function {
 
     // Used to create UDAF
     public AggregateFunction(FunctionName fnName, Type[] argTypes,
-                             Type retType, Type intermediateType, boolean hasVarArgs, String location,
+                             Type retType, boolean hasVarArgs, Type intermediateType, String location,
                              String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
                              String serializeFnSymbol, String finalizeFnSymbol,
                              String getValueFnSymbol, String removeFnSymbol) {
