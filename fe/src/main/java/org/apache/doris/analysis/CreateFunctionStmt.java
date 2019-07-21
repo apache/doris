@@ -150,8 +150,8 @@ public class CreateFunctionStmt extends DdlStmt {
     private void analyzeUda() throws AnalysisException {
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
-        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
-                .intermediateType(intermediateType.getType()).objectFile(objectFile);
+        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
+                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).objectFile(objectFile);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null) {
             throw new AnalysisException("No 'init_fn' in properties");
