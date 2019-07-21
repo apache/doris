@@ -45,8 +45,10 @@ protected:
     Status codegen_compare_fn(
         RuntimeState* state, llvm::Function** fn, llvm::CmpInst::Predicate pred);
 
+    // Get result when children contain Null.
+    // The return value indicates whether the result is valid.
     bool get_result_for_null(const AnyVal& v1, const AnyVal& v2, BooleanVal* result) {
-        if (is_safe_for_null) { \
+        if (is_safe_for_null) {
             if (v1.is_null && v2.is_null) {
                 result->val = true;
                 return true;
@@ -62,6 +64,9 @@ protected:
         } 
         return false;
     }
+
+private:
+
     bool is_safe_for_null;
 };
 
