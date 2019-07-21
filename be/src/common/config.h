@@ -208,7 +208,7 @@ namespace config {
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
     CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
-    CONF_Int32(pending_data_expire_time_sec, "60");
+    CONF_Int32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
     CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
