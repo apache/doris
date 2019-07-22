@@ -1088,7 +1088,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         final List<TupleId> exprTupleIds = Lists.newArrayList();
         final List<SlotId> exprSlotIds = Lists.newArrayList();
         getIds(exprTupleIds, exprSlotIds);
-        return !intersection.retainAll(slotIds);
+        return !exprSlotIds.retainAll(slotIds);
     }
 
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
