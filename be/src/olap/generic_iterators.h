@@ -30,7 +30,7 @@ RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs);
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
 //
-// Inputs iterators' ownership is taken by created merge iterator. And client
+// Inputs iterators' ownership is taken by created union iterator. And client
 // should delete returned iterator after usage.
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs);
 

@@ -39,7 +39,8 @@ public:
     uint8_t* null_bitmap() const { return _null_bitmap; }
     bool is_nullable() const { return _null_bitmap != nullptr; }
     Arena* arena() const { return _arena; }
-    uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
+    const uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
+    uint8_t* mutable_cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
     bool is_null(size_t idx) const {
         return BitmapTest(_null_bitmap, idx);
     }
@@ -68,7 +69,7 @@ public:
         BitmapChangeBits(_block->null_bitmap(), _row_offset, num_rows, val);
     }
     bool is_nullable() const { return _block->is_nullable(); }
-    uint8_t* data() const { return _block->cell_ptr(_row_offset); }
+    uint8_t* data() const { return _block->mutable_cell_ptr(_row_offset); }
 private:
     ColumnBlock* _block;
     size_t _row_offset;
