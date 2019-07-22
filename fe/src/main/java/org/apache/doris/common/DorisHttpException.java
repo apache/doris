@@ -19,7 +19,7 @@ package org.apache.doris.common;
 
 import io.netty.handler.codec.http.HttpResponseStatus;
 
-public class DorisHttpException extends IllegalAccessException {
+public class DorisHttpException extends RuntimeException {
 
     private HttpResponseStatus code;
 

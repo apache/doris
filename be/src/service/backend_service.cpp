@@ -32,7 +32,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
