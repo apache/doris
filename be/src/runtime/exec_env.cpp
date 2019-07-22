@@ -18,13 +18,20 @@
 #include "runtime/exec_env.h"
 
 #include "gen_cpp/HeartbeatService_types.h"
-
+#include "runtime/result_queue_mgr.h"
+#include "runtime/thread_resource_mgr.h"
 namespace doris {
 
 ExecEnv::ExecEnv() {
+    // all below is just only for test MemoryScratchSink
+    _result_queue_mgr = new ResultQueueMgr();
+    _thread_mgr = new ThreadResourceMgr();
 }
 
 ExecEnv::~ExecEnv() {
+    // this shoud happend only in Unit-Test, all right?
+    delete _result_queue_mgr;
+    delete _thread_mgr;
 }
 
 const std::string& ExecEnv::token() const {

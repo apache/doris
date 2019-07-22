@@ -414,6 +414,14 @@ namespace config {
     // If this configuration is set to true, block will seek position.
     CONF_Bool(block_seek_position, "false");
 
+    // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
+    // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
+    CONF_Int32(max_memory_sink_batch_count, "20");
+    
+    // This configuration is used for the context gc thread schedule period
+    // note: unit is minute, default is 5min
+    CONF_Int32(scan_context_gc_interval, "5");
+
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the
     // same cache size configuration.

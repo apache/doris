@@ -43,6 +43,7 @@ class PriorityThreadPool;
 class PullLoadTaskMgr;
 class ReservationTracker;
 class ResultBufferMgr;
+class ResultQueueMgr;
 class TMasterInfo;
 class TabletWriterMgr;
 class TestExecEnv;
@@ -89,6 +90,7 @@ public:
     MetricRegistry* metrics() const { return _metrics; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
+    ResultQueueMgr* result_queue_mgr() {return _result_queue_mgr;}
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
@@ -138,6 +140,7 @@ private:
     MetricRegistry* _metrics = nullptr;
     DataStreamMgr* _stream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
+    ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
