@@ -115,8 +115,7 @@ private:
     size_t _offset; //offset in row buf
     TypeInfo* _type_info;
 
-    AggregateFunc _aggregate_func;
-    FinalizeFunc _finalize_func;
+    const AggregateInfo* _agg_info;
 };
 
 // 返回-1，0，1，分别代表当前field小于，等于，大于传入参数中的field
@@ -199,13 +198,13 @@ inline bool Field::equal(char* left, char* right) {
 }
 
 inline void Field::aggregate(char* dest, char* src) {
-    _aggregate_func(dest, src, nullptr);
+    _agg_info->update(dest, src, nullptr);
 }
 
 inline void Field::finalize(char* data) {
     if (OLAP_UNLIKELY(_type == OLAP_FIELD_TYPE_HLL)) {
         // hyperloglog type use this function
-        _finalize_func(data);
+        _agg_info->finalize(data, nullptr);
     }
 }
 
