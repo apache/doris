@@ -112,9 +112,8 @@ Slice BinaryDictPageBuilder::finish() {
 
 void BinaryDictPageBuilder::reset() {
     _finished = false;
-    _buffer.clear();
+    _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
-    _buffer.reserve(_options.data_page_size);
 
     if (_encoding_type == DICT_ENCODING
             && _dict_builder->is_page_full()) {
@@ -204,13 +203,11 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         
         // copy the codewords into a temporary buffer first
         // And then copy the strings corresponding to the codewords to the destination buffer
-        BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* data_ptr =
-                down_cast<BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>*>(_data_page_decoder.get());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_INT);
         // the data in page is not null
         ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena()); 
         ColumnBlockView tmp_block_view(&column_block);
-        RETURN_IF_ERROR(data_ptr->next_batch(n, &tmp_block_view));
+        RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
         for (int i = 0; i < *n; ++i) {
             int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
             // get the string from the dict decoder
