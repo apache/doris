@@ -56,7 +56,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         LE("<=", "le", TExprOpcode.LE),
         GE(">=", "ge", TExprOpcode.GE),
         LT("<", "lt", TExprOpcode.LT),
-        GT(">", "gt", TExprOpcode.GT);
+        GT(">", "gt", TExprOpcode.GT),
+        EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
 
         private final String description;
         private final String name;
@@ -97,6 +98,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LE;
+                case EQ_FOR_NULL:
+                    return this;
             }
             return null;
         }
@@ -115,6 +118,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LT;
+                case EQ_FOR_NULL:
+                    return EQ_FOR_NULL;
                 // case DISTINCT_FROM: return DISTINCT_FROM;
                 // case NOT_DISTINCT: return NOT_DISTINCT;
                 // case NULL_MATCHING_EQ:
@@ -124,7 +129,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public boolean isEquivalence() { return this == EQ; };
+        public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
         public boolean isUnequivalence() { return this == NE; }
     }
@@ -132,8 +137,6 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-    // It is for null's operator "<=>"
-    private boolean isSafeForNull = false;
     
     // for restoring
     public BinaryPredicate() {
@@ -141,17 +144,12 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
-        this(op, e1, e2, false);
-    }
-
-    public BinaryPredicate(Operator op, Expr e1, Expr e2, boolean isSafeForNull) {
         super();
         this.op = op;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
-        this.isSafeForNull = isSafeForNull;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -179,6 +177,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                     Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                    Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
         }
     }
 
@@ -235,7 +235,6 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
-        msg.setIs_safe_for_null(isSafeForNull);
         msg.setOpcode(opcode);
         msg.setVector_opcode(vectorOpcode);
         msg.setChild_type(getChild(0).getType().getPrimitiveType().toThrift());
@@ -324,12 +323,6 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
-
-        if (isSafeForNull) {
-            if (!getChild(0).getType().isNull() && !getChild(1).getType().isNull()) {
-                isSafeForNull = false;
-            }
-        }
 
         this.opcode = op.getOpcode();
         String opName = op.getName();
@@ -524,21 +517,22 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         final boolean isFirstNull = (first instanceof NullLiteral);
         final boolean isSecondNull = (second instanceof NullLiteral);
-        if (isSafeForNull) {
+        if (op == Operator.EQ_FOR_NULL) {
             if (isFirstNull && isSecondNull) {
                 return new BoolLiteral(true);
             } else if (isFirstNull || isSecondNull) {
                 return new BoolLiteral(false);
-            } 
+            }
         } else  {
             if (isFirstNull || isSecondNull){
                 return new NullLiteral();
             }
-        }  
+        }
 
         final int compareResult = first.compareLiteral(second);
         switch(op) {
             case EQ:
+            case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
                 return new BoolLiteral(compareResult == 1 || compareResult == 0);
