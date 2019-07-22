@@ -300,6 +300,10 @@ public class RollupHandler extends AlterHandler {
                 rollupSchema, baseSchemaHash, rollupSchemaHash,
                 rollupKeysType, rollupShortKeyColumnCount);
 
+        /*
+         * create all rollup indexes. and set state.
+         * After setting, Tables' state will be RO
+         */
         for (Partition partition : olapTable.getPartitions()) {
             long partitionId = partition.getId();
             TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
@@ -327,7 +331,8 @@ public class RollupHandler extends AlterHandler {
                         continue;
                     }
                     Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL);
-                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, rollupSchemaHash, ReplicaState.NORMAL);
+                    // replica's init state is ALTER, so that tablet report process will ignore its report
+                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, rollupSchemaHash, ReplicaState.ALTER);
                     newTablet.addReplica(rollupReplica);
                 } // end for baseReplica
             } // end for baseTablets
@@ -568,9 +573,7 @@ public class RollupHandler extends AlterHandler {
 
     private void getAlterJobV2Infos(List<List<Comparable>> rollupJobInfos) {
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
-            List<Comparable> info = Lists.newArrayList();
-            alterJob.getInfo(info);
-            rollupJobInfos.add(info);
+            alterJob.getInfo(rollupJobInfos);
         }
     }
 

@@ -45,11 +45,10 @@ public class Partition extends MetaObject implements Writable {
     public static final long PARTITION_INIT_VERSION = 1L;
     public static final long PARTITION_INIT_VERSION_HASH = 0L;
 
+    @Deprecated
     public enum PartitionState {
         NORMAL,
-        @Deprecated
         ROLLUP,
-        @Deprecated
         SCHEMA_CHANGE
     }
 

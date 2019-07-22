@@ -1108,12 +1108,13 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
                 jobInfo.add("N/A"); // index name
                 jobInfo.add("N/A"); // index id
+                jobInfo.add("N/A"); // origin id
                 jobInfo.add("N/A"); // schema version
-                jobInfo.add("N/A"); // index state
                 jobInfo.add(-1); // transaction id
                 jobInfo.add(state.name()); // job state
-                jobInfo.add("N/A"); // progress
                 jobInfo.add(cancelMsg);
+                jobInfo.add("N/A"); // progress
+                jobInfo.add(Config.alter_table_timeout_second); // timeout
                 jobInfos.add(jobInfo);
                 return;
             }
@@ -1173,19 +1174,18 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
             jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
             jobInfo.add(indexId);
+            jobInfo.add(indexId); // origin index id
             // index schema version and schema hash
-            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + "-" + changedIndexIdToSchemaHash.get(indexId));
-            jobInfo.add(indexState.get(indexId)); // index state
+            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + ":" + changedIndexIdToSchemaHash.get(indexId));
             jobInfo.add(transactionId);
             jobInfo.add(state.name()); // job state
-
+            jobInfo.add(cancelMsg);
             if (state == JobState.RUNNING) {
                 jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
             } else {
                 jobInfo.add("N/A");
             }
-
-            jobInfo.add(cancelMsg);
+            jobInfo.add(Config.alter_table_timeout_second);
 
             jobInfos.add(jobInfo);
         } // end for indexIds

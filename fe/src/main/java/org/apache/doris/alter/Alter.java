@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
@@ -73,7 +74,7 @@ public class Alter {
         clusterHandler.start();
     }
 
-    public void processAlterTable(AlterTableStmt stmt) throws DdlException {
+    public void processAlterTable(AlterTableStmt stmt) throws UserException {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
         final String clusterName = stmt.getClusterName();

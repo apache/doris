@@ -396,19 +396,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 } // end for tablets
             } // end for partitions
 
-            // all partitions are good
-            // set table and rollup index state to NORMAL, then finish the job
-            for (Partition partition : tbl.getPartitions()) {
-                // get index from catalog, not from 'partitionIdToRollupIndex'.
-                // because if this alter job is recovered from edit log, rollup index in 'partitionIdToRollupIndex'
-                // is not the same object in catalog. So modification on that index can not reflect to the index
-                // in catalog.
-                MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-                Preconditions.checkNotNull(rollupIndex, rollupIndex);
-                rollupIndex.setState(IndexState.NORMAL);
-            }
-
-            tbl.setState(OlapTableState.NORMAL);
+            onFinished(tbl);
         } finally {
             db.writeUnlock();
         }
@@ -418,6 +406,15 @@ public class RollupJobV2 extends AlterJobV2 {
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("rollup job finished: {}", jobId);
+    }
+
+    private void onFinished(OlapTable tbl) {
+        for (Partition partition : tbl.getPartitions()) {
+            MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
+            Preconditions.checkNotNull(rollupIndex, rollupIndex);
+            rollupIndex.setState(IndexState.NORMAL);
+        }
+        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -478,7 +475,7 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     @Override
-    public synchronized void write(DataOutput out) throws IOException {
+    public void write(DataOutput out) throws IOException {
         super.write(out);
 
         out.writeInt(partitionIdToRollupIndex.size());
@@ -634,12 +631,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 OlapTable tbl = (OlapTable) db.getTable(tableId);
                 if (tbl != null) {
                     Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-                    for (Partition partition : tbl.getPartitions()) {
-                        MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-                        Preconditions.checkNotNull(rollupIndex, rollupIndex);
-                        rollupIndex.setState(IndexState.NORMAL);
-                    }
-                    tbl.setState(OlapTableState.NORMAL);
+                    onFinished(tbl);
                 }
             } finally {
                 db.writeUnlock();
@@ -676,7 +668,8 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     @Override
-    protected void getInfo(List<Comparable> info) {
+    protected void getInfo(List<List<Comparable>> infos) {
+        List<Comparable> info = Lists.newArrayList();
         info.add(jobId);
         info.add(tableName);
         info.add(TimeUtils.longToTimeString(createTimeMs));
@@ -694,6 +687,7 @@ public class RollupJobV2 extends AlterJobV2 {
             info.add("N/A");
         }
         info.add(timeoutMs / 1000);
+        infos.add(info);
     }
 
     public List<List<String>> getUnfinishedTasks(int limit) {

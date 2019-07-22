@@ -991,7 +991,6 @@ public class RollupJob extends AlterJob {
         // transaction id
         jobInfo.add(transactionId);
 
-
         // job state
         jobInfo.add(state.name());
 
