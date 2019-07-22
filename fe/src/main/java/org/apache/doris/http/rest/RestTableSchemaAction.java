@@ -56,7 +56,7 @@ public class RestTableSchemaAction extends RestBaseAction {
 
 
     @Override
-    protected void executeWithoutPassword(AuthorizationInfo authInfo,
+    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo,
                                           BaseRequest request, BaseResponse response) throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);

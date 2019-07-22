@@ -82,7 +82,7 @@ public class RestQueryPlanAction extends RestBaseAction {
     }
 
     @Override
-    protected void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response) throws DdlException {
+    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response) throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
         String clusterName = request.getSingleParameter("cluster");
