@@ -39,13 +39,16 @@ public class Replica implements Writable {
 
     public enum ReplicaState {
         NORMAL,
+        @Deprecated
         ROLLUP,
+        @Deprecated
         SCHEMA_CHANGE,
         CLONE,
+        ALTER, // replica is under rollup or schema change
         DECOMMISSION; // replica is ready to be deleted
 
         public boolean isLoadable() {
-            return this == ReplicaState.NORMAL || this == ReplicaState.SCHEMA_CHANGE;
+            return this == ReplicaState.NORMAL || this == ReplicaState.SCHEMA_CHANGE || this == ReplicaState.ALTER;
         }
     }
     

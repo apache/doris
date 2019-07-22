@@ -1027,7 +1027,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         long shadowReplicaId = catalog.getNextId();
                         long backendId = originReplica.getBackendId();
                         Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL);
-                        Replica rollupReplica = new Replica(shadowReplicaId, backendId, newSchemaHash, ReplicaState.NORMAL);
+                        Replica rollupReplica = new Replica(shadowReplicaId, backendId, newSchemaHash, ReplicaState.ALTER);
                         shadowTablet.addReplica(rollupReplica);
                     }
                 }
@@ -1177,6 +1177,22 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> schemaChangeJobInfos = new LinkedList<List<Comparable>>();
+        getOldAlterJobInfos(db, schemaChangeJobInfos);
+        getAlterJobV2Infos(schemaChangeJobInfos);
+
+        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
+        Collections.sort(schemaChangeJobInfos, comparator);
+        return schemaChangeJobInfos;
+    }
+
+    private void getAlterJobV2Infos(List<List<Comparable>> schemaChangeJobInfos) {
+        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            alterJob.getInfo(schemaChangeJobInfos);
+        }
+    }
+
+    private void getOldAlterJobInfos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
         List<AlterJob> selectedJobs = Lists.newArrayList();
 
         lock();
@@ -1211,11 +1227,6 @@ public class SchemaChangeHandler extends AlterHandler {
         } finally {
             db.readUnlock();
         }
-
-        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-        Collections.sort(schemaChangeJobInfos, comparator);
-        return schemaChangeJobInfos;
     }
 
     @Override

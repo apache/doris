@@ -163,7 +163,7 @@ public class AlterJobV2 implements Writable {
         throw new NotImplementedException();
     }
 
-    protected void getInfo(List<Comparable> info) {
+    protected void getInfo(List<List<Comparable>> infos) {
         throw new NotImplementedException();
     }
 

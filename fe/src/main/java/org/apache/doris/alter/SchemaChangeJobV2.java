@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -48,6 +49,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 
@@ -93,8 +95,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // bloom filter info
     private boolean hasBfChange;
-    private Set<String> bfColumns;
-    private double bfFpp;
+    private Set<String> bfColumns = null;
+    private double bfFpp = 0;
 
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     protected long watershedTxnId = -1;
@@ -430,44 +432,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             } // end for partitions
 
             // all partitions are good
-            // replace the origin index with shadow index, set index state as NORMAL
-            for (Partition partition : tbl.getPartitions()) {
-                // drop the origin index from partitions
-                for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
-                    long shadowIdxId = entry.getKey();
-                    long originIdxId = entry.getValue();
-                    // get index from catalog, not from 'partitionIdToRollupIndex'.
-                    // because if this alter job is recovered from edit log, index in 'partitionIndexMap'
-                    // is not the same object in catalog. So modification on that index can not reflect to the index
-                    // in catalog.
-                    MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
-                    Preconditions.checkNotNull(shadowIdx, shadowIdxId);
-                    // base index need special handling
-                    if (originIdxId == partition.getBaseIndex().getId()) {
-                        partition.setBaseIndex(shadowIdx);
-                    }
-                    partition.deleteRollupIndex(originIdxId);
-                    shadowIdx.setState(IndexState.NORMAL);
-                }
-            }
-            
-            // update index schema info in table
-            for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
-                long shadowIdxId = entry.getKey();
-                long originIdxId = entry.getValue();
-                String shadowIdxName = tbl.getIndexNameById(shadowIdxId);
-                String originIdxName = tbl.getIndexNameById(originIdxId);
-                tbl.deleteIndexInfo(originIdxName);
-                // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'
-                tbl.renameIndexForSchemaChange(shadowIdxName, originIdxName);
-
-                if (originIdxId == tbl.getId()) {
-                    // set base index
-                    tbl.setNewBaseSchema(indexSchemaMap.get(shadowIdxId));
-                }
-            }
-
-            tbl.setState(OlapTableState.NORMAL);
+            onFinished(tbl);
         } finally {
             db.writeUnlock();
         }
@@ -477,6 +442,52 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("rollup job finished: {}", jobId);
+    }
+
+    private void onFinished(OlapTable tbl) {
+        // replace the origin index with shadow index, set index state as NORMAL
+        for (Partition partition : tbl.getPartitions()) {
+            // drop the origin index from partitions
+            for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+                long shadowIdxId = entry.getKey();
+                long originIdxId = entry.getValue();
+                // get index from catalog, not from 'partitionIdToRollupIndex'.
+                // because if this alter job is recovered from edit log, index in 'partitionIndexMap'
+                // is not the same object in catalog. So modification on that index can not reflect to the index
+                // in catalog.
+                MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
+                Preconditions.checkNotNull(shadowIdx, shadowIdxId);
+                // base index need special handling
+                if (originIdxId == partition.getBaseIndex().getId()) {
+                    partition.setBaseIndex(shadowIdx);
+                }
+                partition.deleteRollupIndex(originIdxId);
+                shadowIdx.setState(IndexState.NORMAL);
+            }
+        }
+
+        // update index schema info in table
+        for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            long shadowIdxId = entry.getKey();
+            long originIdxId = entry.getValue();
+            String shadowIdxName = tbl.getIndexNameById(shadowIdxId);
+            String originIdxName = tbl.getIndexNameById(originIdxId);
+            tbl.deleteIndexInfo(originIdxName);
+            // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'
+            tbl.renameIndexForSchemaChange(shadowIdxName, originIdxName);
+
+            if (originIdxId == tbl.getId()) {
+                // set base index
+                tbl.setNewBaseSchema(indexSchemaMap.get(shadowIdxId));
+            }
+        }
+
+        // update bloom filter
+        if (hasBfChange) {
+            tbl.setBloomFilterInfo(bfColumns, bfFpp);
+        }
+
+        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -540,16 +551,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         SchemaChangeJobV2 rollupJob = new SchemaChangeJobV2();
         rollupJob.readFields(in);
         return rollupJob;
-    }
-
-    @Override
-    public synchronized void write(DataOutput out) throws IOException {
-        super.write(out);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
     }
 
     /*
@@ -634,13 +635,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             try {
                 OlapTable tbl = (OlapTable) db.getTable(tableId);
                 if (tbl != null) {
-                    Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-                    for (Partition partition : tbl.getPartitions()) {
-                        MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-                        Preconditions.checkNotNull(rollupIndex, rollupIndex);
-                        rollupIndex.setState(IndexState.NORMAL);
-                    }
-                    tbl.setState(OlapTableState.NORMAL);
+                    onFinished(tbl);
                 }
             } finally {
                 db.writeUnlock();
@@ -677,24 +672,33 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     @Override
-    protected void getInfo(List<Comparable> info) {
-        info.add(jobId);
-        info.add(tableName);
-        info.add(TimeUtils.longToTimeString(createTimeMs));
-        info.add(TimeUtils.longToTimeString(finishedTimeMs));
-        info.add(baseIndexName);
-        info.add(rollupIndexName);
-        info.add(rollupIndexId);
-        info.add(watershedTxnId);
-        info.add(jobState.name());
-        info.add(errMsg);
-        // progress
+    protected void getInfo(List<List<Comparable>> infos) {
+        // calc progress first. all index share the same process
+        String progress = "N/A";
         if (jobState == JobState.RUNNING && schemaChangeBatchTask.getTaskNum() > 0) {
-            info.add(schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum());
-        } else {
-            info.add("N/A");
+            progress = schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum();
         }
-        info.add(timeoutMs / 1000);
+
+        // one line for one shadow index
+        for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            long shadowIndexId = entry.getKey();
+            List<Comparable> info = Lists.newArrayList();
+            info.add(jobId);
+            info.add(tableName);
+            info.add(TimeUtils.longToTimeString(createTimeMs));
+            info.add(TimeUtils.longToTimeString(finishedTimeMs));
+            // only show the origin index name
+            info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_INDEX_NAME_PRFIX.length()));
+            info.add(shadowIndexId);
+            info.add(entry.getValue());
+            info.add(indexSchemaVersionAndHashMap.get(shadowIndexId).toString());
+            info.add(watershedTxnId);
+            info.add(jobState.name());
+            info.add(errMsg);
+            info.add(progress);
+            info.add(timeoutMs / 1000);
+            infos.add(info);
+        }
     }
 
     public List<List<String>> getUnfinishedTasks(int limit) {
@@ -711,5 +715,125 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         return taskInfos;
+    }
+    
+    @Override
+    public synchronized void write(DataOutput out) throws IOException {
+        super.write(out);
+
+        out.writeInt(partitionIndexTabletMap.rowKeySet().size());
+        for (Long partitionId : partitionIndexTabletMap.rowKeySet()) {
+            out.writeLong(partitionId);
+            Map<Long, Map<Long, Long>> indexTabletMap = partitionIndexTabletMap.row(partitionId);
+            out.writeInt(indexTabletMap.size());
+            for (Long shadowIndexId : indexTabletMap.keySet()) {
+                out.writeLong(shadowIndexId);
+                // tablet id map
+                Map<Long, Long> tabletMap = indexTabletMap.get(shadowIndexId);
+                out.writeInt(tabletMap.size());
+                for (Map.Entry<Long, Long> entry : tabletMap.entrySet()) {
+                    out.writeLong(entry.getKey());
+                    out.writeLong(entry.getValue());
+                }
+                // shadow index
+                MaterializedIndex shadowIndex = partitionIndexMap.get(partitionId, shadowIndexId);
+                shadowIndex.write(out);
+            }
+        }
+
+        // shadow index info
+        out.writeInt(indexIdMap.size());
+        for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            long shadowIndexId = entry.getKey();
+            out.writeLong(shadowIndexId);
+            // index id map
+            out.writeLong(entry.getValue());
+            // index name
+            Text.writeString(out, indexIdToName.get(shadowIndexId));
+            // index schema
+            out.writeInt(indexSchemaMap.get(shadowIndexId).size());
+            for (Column column : indexSchemaMap.get(shadowIndexId)) {
+                column.write(out);
+            }
+            // index schema version and hash
+            out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).first);
+            out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).second);
+            // short key count
+            out.writeShort(indexShortKeyMap.get(shadowIndexId));
+        }
+
+        // bloom filter
+        out.writeBoolean(hasBfChange);
+        if (hasBfChange) {
+            out.writeInt(bfColumns.size());
+            for (String bfCol : bfColumns) {
+                Text.writeString(out, bfCol);
+            }
+            out.writeDouble(bfFpp);
+        }
+
+        out.writeLong(watershedTxnId);
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+
+        int partitionNum = in.readInt();
+        for (int i = 0; i < partitionNum; i++) {
+            long partitionId = in.readLong();
+            int indexNum = in.readInt();
+            for (int j = 0; j < indexNum; j++) {
+                long shadowIndexId = in.readLong();
+                int tabletNum = in.readInt();
+                Map<Long, Long> tabletMap = Maps.newHashMapWithExpectedSize(tabletNum);
+                for (int k = 0; k < tabletNum; k++) {
+                    long shadowTabletId = in.readLong();
+                    long originTabletId = in.readLong();
+                    tabletMap.put(shadowTabletId, originTabletId);
+                }
+                partitionIndexTabletMap.put(partitionId, shadowIndexId, tabletMap);
+                // shadow index
+                MaterializedIndex shadowIndex = MaterializedIndex.read(in);
+                partitionIndexMap.put(partitionId, shadowIndexId, shadowIndex);
+            }
+        }
+
+        // shadow index info
+        int indexNum = in.readInt();
+        for (int i = 0; i < indexNum; i++) {
+            long shadowIndexId = in.readLong();
+            long originIndexId = in.readLong();
+            String indexName = Text.readString(in);
+            // index schema
+            int colNum = in.readInt();
+            List<Column> schema = Lists.newArrayListWithCapacity(colNum);
+            for (int j = 0; j < colNum; j++) {
+                schema.add(Column.read(in));
+            }
+            int schemaVersion = in.readInt();
+            int schemaVersionHash = in.readInt();
+            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
+            short shortKeyCount = in.readShort();
+
+            indexIdMap.put(shadowIndexId, originIndexId);
+            indexIdToName.put(shadowIndexId, indexName);
+            indexSchemaMap.put(shadowIndexId, schema);
+            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
+            indexShortKeyMap.put(shadowIndexId, shortKeyCount);
+        }
+
+        // bloom filter
+        hasBfChange = in.readBoolean();
+        if (hasBfChange) {
+            int bfNum = in.readInt();
+            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
+            for (int i = 0; i < bfNum; i++) {
+                bfColumns.add(Text.readString(in));
+            }
+            bfFpp = in.readDouble();
+        }
+
+        watershedTxnId = in.readLong();
     }
 }
