@@ -39,6 +39,7 @@ add_library(Olap STATIC
     field_info.cpp
     file_helper.cpp
     file_stream.cpp
+    generic_iterators.cpp
     hll.cpp
     in_list_predicate.cpp
     in_stream.cpp
@@ -56,8 +57,10 @@ add_library(Olap STATIC
     push_handler.cpp
     reader.cpp
     row_block.cpp
+    row_block2.cpp
     row_cursor.cpp
     rowset_graph.cpp
+    schema2.cpp
     schema_change.cpp
     serialize.cpp
     storage_engine.cpp
