@@ -60,17 +60,12 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         DCHECK_GT(*count, 0);
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
+        uint32_t value_code = -1;
         for (int i = 0; i < *count; ++i, ++src) {
             auto ret = _dictionary.find(*src);
             size_t add_count = 1;
             if (ret != _dictionary.end()) {
-                uint32_t value_code = ret->second;
-                RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code), &add_count));
-                num_added += add_count;
-                if (add_count == 0) {
-                    // current data page is full, stop processing remaining inputs
-                    break;
-                }
+                value_code = ret->second;
             } else {
                 if (_dict_builder->is_page_full()) {
                     break;
@@ -81,17 +76,17 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 }
                 Slice dict_item(src->data, src->size);
                 dict_item.relocate(item_mem);
-                uint32_t value_code = _dictionary.size();
+                value_code = _dictionary.size();
                 _dictionary.insert({dict_item, value_code});
                 _dict_items.push_back(dict_item);
                 _dict_builder->update_prepared_size(dict_item.size);
-                RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code), &add_count));
-                if (add_count == 0) {
-                    // current data page is full, stop processing remaining inputs
-                    break;
-                }
-                num_added += 1;
             }
+            RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code), &add_count));
+            if (add_count == 0) {
+                // current data page is full, stop processing remaining inputs
+                break;
+            }
+            num_added += 1;
         }
         *count = num_added;
         return Status::OK();
