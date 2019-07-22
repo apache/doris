@@ -33,37 +33,42 @@
 #include "util/mem_util.hpp"
 #include "util/slice.h"
 #include "util/types.h"
+#include "util/arena.h"
 
 namespace doris {
 
 class TypeInfo {
 public:
-    inline bool equal(const char* left, const char* right) const {
+    inline bool equal(const void* left, const void* right) const {
         return _equal(left, right);
     }
 
-    inline int cmp(const char* left, const char* right) const {
+    inline int cmp(const void* left, const void* right) const {
         return _cmp(left, right);
     }
 
-    inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+    inline void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) const {
         _copy_with_pool(dest, src, mem_pool);
     }
 
-    inline void copy_without_pool(char* dest, const char* src) {
+    inline void copy_with_arena(void* dest, const void* src, Arena* arena) const {
+        _copy_with_arena(dest, src, arena);
+    }
+
+    inline void copy_without_pool(void* dest, const void* src) const {
         _copy_without_pool(dest, src);
     }
 
-    OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const {
         return _from_string(buf, scan_key);
     }
 
-    std::string to_string(char* src) { return _to_string(src); }
+    std::string to_string(const void* src) const { return _to_string(src); }
 
-    inline void set_to_max(char* buf) { _set_to_max(buf); }
-    inline void set_to_min(char* buf) { _set_to_min(buf); }
+    inline void set_to_max(void* buf) { _set_to_max(buf); }
+    inline void set_to_min(void* buf) { _set_to_min(buf); }
 
-    inline uint32_t hash_code(char* data, uint32_t seed) { return _hash_code(data, seed); }
+    inline uint32_t hash_code(const void* data, uint32_t seed) const { return _hash_code(data, seed); }
     inline const size_t size() const { return _size; }
 
     inline FieldType type() const { return _field_type; }
@@ -71,16 +76,17 @@ private:
     bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_copy_with_pool)(char* dest, const char* src, MemPool* mem_pool);
-    void (*_copy_without_pool)(char* dest, const char* src);
+    void (*_copy_with_pool)(void* dest, const void* src, MemPool* mem_pool);
+    void (*_copy_with_arena)(void* dest, const void* src, Arena* arena);
+    void (*_copy_without_pool)(void* dest, const void* src);
 
-    OLAPStatus (*_from_string)(char* buf, const std::string& scan_key);
-    std::string (*_to_string)(char* src);
+    OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
+    std::string (*_to_string)(const void* src);
 
-    void (*_set_to_max)(char* buf);
-    void (*_set_to_min)(char* buf);
+    void (*_set_to_max)(void* buf);
+    void (*_set_to_min)(void* buf);
 
-    uint32_t (*_hash_code)(char* data, uint32_t seed);
+    uint32_t (*_hash_code)(const void* data, uint32_t seed);
 
     const size_t _size;
     const FieldType _field_type;
@@ -163,33 +169,37 @@ struct BaseFieldtypeTraits {
         }
     }
 
-    static inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+    static inline void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void copy_without_pool(char* dest, const char* src) {
+    static inline void copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void set_to_max(char* buf) {
+    static inline void copy_without_pool(void* dest, const void* src) {
+        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+    }
+
+    static inline void set_to_max(void* buf) {
         *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::max();
     }
 
-    static inline void set_to_min(char* buf) {
+    static inline void set_to_min(void* buf) {
         *reinterpret_cast<CppType*>(buf) = std::numeric_limits<CppType>::min();
     }
 
-    static inline uint32_t hash_code(char* data, uint32_t seed) {
+    static inline uint32_t hash_code(const void* data, uint32_t seed) {
         return HashUtil::hash(data, sizeof(CppType), seed);
     }
 
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         std::stringstream stream;
-        stream << *reinterpret_cast<CppType*>(src);
+        stream << *reinterpret_cast<const CppType*>(src);
         return stream.str();
     }
 
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0;
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(strtol(scan_key.c_str(), NULL, 10));
@@ -204,31 +214,31 @@ struct FieldTypeTraits : public BaseFieldtypeTraits<field_type> { };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_BOOL> {
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<bool*>(src));
+        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const bool*>(src));
         return std::string(buf);
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         (*(bool*)buf) = true;
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         (*(bool*)buf) = false;
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_TINYINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_TINYINT> {
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<int8_t*>(src));
+        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int8_t*>(src));
         return std::string(buf);
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         int128_t value = 0;
 
         const char* value_string = scan_key.c_str();
@@ -268,9 +278,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
 
         return OLAP_SUCCESS;
     }
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         char buf[1024];
-        int128_t value = reinterpret_cast<PackedInt128*>(src)->value;
+        int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
         if (value >= std::numeric_limits<int64_t>::min()
             && value <= std::numeric_limits<int64_t>::max()) {
             snprintf(buf, sizeof(buf), "%ld", (int64_t)value);
@@ -306,23 +316,26 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
     }
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+    static void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
-    static void copy_without_pool(char* dest, const char* src) {
+    static void copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
-    static void set_to_max(char* buf) {
+    static void copy_without_pool(void* dest, const void* src) {
+        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
+    }
+    static void set_to_max(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = (int128_t)(1) << 127;
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0f;
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(atof(scan_key.c_str()));
@@ -334,7 +347,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0;
         if (scan_key.length() > 0) {
             value = atof(scan_key.c_str());
@@ -342,29 +355,29 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
         *reinterpret_cast<CppType*>(buf) = value;
         return OLAP_SUCCESS;
     }
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<CppType*>(src));
+        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
         return std::string(buf);
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType* data_ptr = reinterpret_cast<CppType*>(buf);
         return data_ptr->from_string(scan_key);
     }
-    static std::string to_string(char* src) {
-        CppType* data_ptr = reinterpret_cast<CppType*>(src);
+    static std::string to_string(const void* src) {
+        const CppType* data_ptr = reinterpret_cast<const CppType*>(src);
         return data_ptr->to_string();
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = 999999999999999999L;
         data->fraction = 999999999;
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = -999999999999999999;
         data->fraction = -999999999;
@@ -373,7 +386,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL> : public BaseFieldtypeTraits<OLA
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATE> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
 
@@ -389,9 +402,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
 
         return OLAP_SUCCESS;
     }
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         tm time_tm;
-        int value = *reinterpret_cast<CppType*>(src);
+        int value = *reinterpret_cast<const CppType*>(src);
         memset(&time_tm, 0, sizeof(time_tm));
         time_tm.tm_mday = static_cast<int>(value & 31);
         time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
@@ -400,11 +413,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
         return std::string(buf);
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
         *reinterpret_cast<CppType*>(buf) = 5119903;
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
         *reinterpret_cast<CppType*>(buf) = 33;
     }
@@ -412,7 +425,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATETIME> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
@@ -431,9 +444,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
 
         return OLAP_SUCCESS;
     }
-    static std::string to_string(char* src) {
+    static std::string to_string(const void* src) {
         tm time_tm;
-        CppType tmp = *reinterpret_cast<CppType*>(src);
+        CppType tmp = *reinterpret_cast<const CppType*>(src);
         CppType part1 = (tmp / 1000000L);
         CppType part2 = (tmp - part1 * 1000000L);
 
@@ -449,11 +462,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
         strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
         return std::string(buf);
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         // 设置为最大时间，其含义为：9999-12-31 23:59:59
         *reinterpret_cast<CppType*>(buf) = 99991231235959L;
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         *reinterpret_cast<CppType*>(buf) = 101000000;
     }
 };
@@ -470,7 +483,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         const Slice* r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
             OLAP_LOG_WARNING("the len of value string is too long[len=%lu, max_len=%lu].",
@@ -490,42 +503,49 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         }
         return OLAP_SUCCESS;
     }
-    static std::string to_string(char* src) {
-        Slice* slice = reinterpret_cast<Slice*>(src);
+    static std::string to_string(const void* src) {
+        const Slice* slice = reinterpret_cast<const Slice*>(src);
         return slice->to_string();
     }
-    static void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+    static void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
         Slice* l_slice = reinterpret_cast<Slice*>(dest);
         const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void copy_without_pool(char* dest, const char* src) {
+    static void copy_with_arena(void* dest, const void* src, Arena* arena) {
+        Slice* l_slice = reinterpret_cast<Slice*>(dest);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
+        l_slice->data = reinterpret_cast<char*>(arena->Allocate(r_slice->size));
+        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        l_slice->size = r_slice->size;
+    }
+    static void copy_without_pool(void* dest, const void* src) {
         Slice* l_slice = reinterpret_cast<Slice*>(dest);
         const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         // this function is used by scan key,
         // the size may be greater than length in schema.
         Slice* slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0xff, slice->size);
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         Slice* slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
     }
-    static uint32_t hash_code(char* data, uint32_t seed) {
-        Slice* slice = reinterpret_cast<Slice*>(data);
+    static uint32_t hash_code(const void* data, uint32_t seed) {
+        const Slice* slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
             OLAP_LOG_WARNING("the len of value string is too long[len=%lu, max_len=%lu].",
@@ -538,12 +558,12 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         slice->size = value_len;
         return OLAP_SUCCESS;
     }
-    static void set_to_max(char* buf) {
+    static void set_to_max(void* buf) {
         Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = 1;
         memset(slice->data, 0xFF, 1);
     }
-    static void set_to_min(char* buf) {
+    static void set_to_min(void* buf) {
         Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
     }
