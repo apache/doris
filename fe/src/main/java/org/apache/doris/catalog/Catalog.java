@@ -481,7 +481,7 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor(10);
+        this.loadTaskScheduler = new MasterTaskExecutor(Config.async_load_task_pool_size);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);

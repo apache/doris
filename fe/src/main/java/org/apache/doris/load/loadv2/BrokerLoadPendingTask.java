@@ -53,11 +53,13 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     @Override
     void executeTask() throws UserException {
+        LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
     }
 
     private void getAllFileStatus()
             throws UserException {
+        long start = System.currentTimeMillis();
         for (Map.Entry<Long, List<BrokerFileGroup>> entry : tableToBrokerFileList.entrySet()) {
             long tableId = entry.getKey();
 
@@ -79,6 +81,8 @@ public class BrokerLoadPendingTask extends LoadTask {
             }
 
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
+            LOG.info("get {} files to be loaded. cost: {} ms, job: {}",
+                    fileStatusList.size(), (System.currentTimeMillis() - start), callback.getCallbackId());
         }
     }
 }

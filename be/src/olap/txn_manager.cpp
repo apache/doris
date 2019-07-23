@@ -166,7 +166,7 @@ OLAPStatus TxnManager::commit_txn(
                     && load_info.rowset != nullptr
                     && load_info.rowset->rowset_id() != rowset_ptr->rowset_id()) {
                     // find a rowset with different rowset id, then it should not happen, just return errors
-                    LOG(WARNING) << "find transaction exists when add to engine."
+                    LOG(WARNING) << "find transaction exists when add to engine. but rowset ids are not same."
                                  << "partition_id: " << key.first
                                  << ", transaction_id: " << key.second
                                  << ", tablet: " << tablet_info.to_string()

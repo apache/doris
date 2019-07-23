@@ -27,6 +27,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/bitmap.h"
 #include "util/stopwatch.hpp"
 #include "olap/delta_writer.h"
@@ -152,9 +153,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
         auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
         if (st != OLAP_SUCCESS) {
-            LOG(WARNING) << "tablet writer writer failed, tablet_id=" << it->first
-                << ", transaction_id=" << _txn_id;
-            return Status::InternalError("tablet writer write failed");
+            std::stringstream ss;
+            ss << "tablet writer write failed, tablet_id=" << it->first
+                << ", transaction_id=" << _txn_id << ", status=" <<  st;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str() + ", be: " + BackendOptions::get_localhost());
         }
     }
     _next_seqs[params.sender_id()]++;
