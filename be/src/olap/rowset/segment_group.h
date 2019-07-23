@@ -60,7 +60,7 @@ public:
     virtual ~SegmentGroup();
 
     // Load the index into memory.
-    OLAPStatus load();
+    OLAPStatus load(bool use_cache = true);
     bool index_loaded();
     OLAPStatus load_pb(const char* file, uint32_t seg_id);
 

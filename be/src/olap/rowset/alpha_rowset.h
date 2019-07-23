@@ -46,7 +46,7 @@ public:
 
     // this api is for lazy loading data
     // always means that there are some io
-    OLAPStatus load() override;
+    OLAPStatus load(bool use_cache = true) override;
 
     std::shared_ptr<RowsetReader> create_reader() override;
 

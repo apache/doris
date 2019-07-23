@@ -55,7 +55,7 @@ OLAPStatus AlphaRowset::init() {
     return status;
 }
 
-OLAPStatus AlphaRowset::load() {
+OLAPStatus AlphaRowset::load(bool use_cache) {
     // load is depend on init, so that check if init here and do init if not
     if (!is_inited()) {
         OLAPStatus res = init();
@@ -76,7 +76,7 @@ OLAPStatus AlphaRowset::load() {
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
-        OLAPStatus res = segment_group->load();
+        OLAPStatus res = segment_group->load(use_cache);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
                     << "version=" << start_version() << "-"

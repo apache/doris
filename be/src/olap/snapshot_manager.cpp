@@ -241,7 +241,10 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset(new AlphaRowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta));
     RETURN_NOT_OK(org_rowset->init());
-    RETURN_NOT_OK(org_rowset->load());
+    // do not use cache to load index
+    // because the index file may conflict
+    // and the cached fd may be invalid
+    RETURN_NOT_OK(org_rowset->load(false));
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
@@ -268,10 +271,6 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
                      << " to rowset " << rowset_id;
         return res;
     }
-    // Add log to trace rowset validation failure problem
-    // This log will be deleted in the future
-    AlphaRowsetSharedPtr org_alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(org_rowset);
-    LOG(INFO) << "original rowset path:" << org_alpha_rowset->rowset_path();
     RowsetSharedPtr new_rowset = rs_writer->build();
     if (new_rowset == nullptr) {
         LOG(WARNING) << "failed to build rowset when rename rowset id";

@@ -176,7 +176,7 @@ public:
                     size_t short_key_num, std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
-    OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
+    OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block, bool use_cache = true);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)
     const OLAPIndexOffset begin() const {
