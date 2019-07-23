@@ -65,9 +65,9 @@ public class IndexInfoProcDir implements ProcDirInterface {
 
                 // indices order
                 List<Long> indices = Lists.newArrayList();
-                indices.add(olapTable.getId());
+                indices.add(olapTable.getBaseIndexId());
                 for (Long indexId : olapTable.getIndexIdToSchema().keySet()) {
-                    if (indexId != olapTable.getId()) {
+                    if (indexId != olapTable.getBaseIndexId()) {
                         indices.add(indexId);
                     }
                 }

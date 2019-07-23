@@ -97,7 +97,7 @@ public class SchemaChangeHandler extends AlterHandler {
         String baseIndexName = olapTable.getName();
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
 
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         long targetIndexId = -1L;
         if (targetIndexName != null) {
             targetIndexId = olapTable.getIndexIdByName(targetIndexName);
@@ -125,7 +125,7 @@ public class SchemaChangeHandler extends AlterHandler {
         String baseIndexName = olapTable.getName();
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
 
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         long targetIndexId = -1L;
         if (targetIndexName != null) {
             targetIndexId = olapTable.getIndexIdByName(targetIndexName);
@@ -152,7 +152,7 @@ public class SchemaChangeHandler extends AlterHandler {
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
         
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            long baseIndexId = olapTable.getId();
+            long baseIndexId = olapTable.getBaseIndexId();
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
             boolean isKey = false;
             for (Column column : baseSchema) {
@@ -169,7 +169,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
-                long baseIndexId = olapTable.getId();
+                long baseIndexId = olapTable.getBaseIndexId();
                 List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
                 boolean isKey = false;
                 boolean hasReplaceColumn = false;
@@ -203,7 +203,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         if (targetIndexName == null) {
             // drop base index and all rollup indices's column
             List<Long> indexIds = new ArrayList<Long>();
@@ -732,7 +732,7 @@ public class SchemaChangeHandler extends AlterHandler {
         Set<String> bfColumns = null;
         double bfFpp = 0;
         try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap, indexSchemaMap.get(olapTable.getId()));
+            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap, indexSchemaMap.get(olapTable.getBaseIndexId()));
             bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(propertyMap);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -927,7 +927,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
-                    if (!found && alterIndexId == tableId) {
+                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.1 partition column cannot be deleted.
                         throw new DdlException("Partition column[" + partitionCol.getName()
                                 + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -955,7 +955,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
-                    if (!found && alterIndexId == tableId) {
+                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.2 distribution column cannot be deleted.
                         throw new DdlException("Distribution column[" + distributionCol.getName()
                                 + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");

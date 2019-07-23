@@ -590,9 +590,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     Status status = close_status;
     if (status.ok()) {
-        // SCOPED_TIMER should only be called is status is ok.
-        // if status is not ok, this OlapTableSink may not be prepared,
-        // so the `_profile` may be null. 
+        // only if status is ok can we call this _profile->total_time_counter().
+        // if status is not ok, this sink may not be prepared, so that _profile is null
         SCOPED_TIMER(_profile->total_time_counter());
         {
             SCOPED_TIMER(_close_timer);
