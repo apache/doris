@@ -25,7 +25,9 @@ AggregateInfo::AggregateInfo(const Traits& traits)
         _update_fn(traits.update),
         _merge_fn(traits.merge),
         _finalize_fn(traits.finalize) {
-    _merge_fn = _update_fn;
+    if (_merge_fn == nullptr) {
+        _merge_fn = _update_fn;
+    }
 }
 
 struct AggregateFuncMapHash {
@@ -128,6 +130,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
 }
 
 AggregateFuncResolver::~AggregateFuncResolver() {
+    for (auto& iter : _infos_mapping) {
+        delete iter.second;
+    }
 }
 
 const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,

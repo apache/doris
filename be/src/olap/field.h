@@ -235,6 +235,8 @@ inline void Field::copy_without_pool(char* dest, bool is_null, const char* src) 
 }
 
 inline void Field::agg_init(char* dest, const char* src) {
+    // TODO(zc): This function is also used to initialize key columns.
+    // So, refactor this in later PR
     if (OLAP_LIKELY(_type != OLAP_FIELD_TYPE_HLL)) {
         copy_without_pool(dest, src);
     } else {

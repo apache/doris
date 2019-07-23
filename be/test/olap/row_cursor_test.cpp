@@ -564,6 +564,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+#if 0
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
@@ -571,7 +572,8 @@ int main(int argc, char** argv) {
     }
     doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
+#endif
     testing::InitGoogleTest(&argc, argv);
-    ret = RUN_ALL_TESTS();
+    auto ret = RUN_ALL_TESTS();
     return ret;
 }
