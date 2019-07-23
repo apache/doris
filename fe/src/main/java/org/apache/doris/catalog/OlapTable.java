@@ -115,6 +115,14 @@ public class OlapTable extends Table {
     private double bfFpp;
 
     private String colocateGroup;
+    
+    // In former implementation, base index id is same as table id.
+    // But when refactoring the process of alter table job, we find that
+    // using same id is not suitable for our new framework.
+    // So we add this 'baseIndexId' to explicitly specify the base index id,
+    // which should be different with table id.
+    // The init value is -1, which means there is not partition and index at all.
+    private long baseIndexId = -1;
 
     public OlapTable() {
         // for persist
@@ -163,6 +171,14 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+    }
+
+    public void setBaseIndexId(long baseIndexId) {
+        this.baseIndexId = baseIndexId;
+    }
+
+    public long getBaseIndexId() {
+        return baseIndexId;
     }
 
     public void setState(OlapTableState state) {
@@ -254,12 +270,10 @@ public class OlapTable extends Table {
 
         // reset all 'indexIdToXXX' map
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
-            long newIdxId = 0;
+            long newIdxId = catalog.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
-                newIdxId = id;
-            } else {
-                newIdxId = catalog.getNextId();
+                baseIndexId = newIdxId;
             }
             indexIdToSchema.put(newIdxId, indexIdToSchema.remove(entry.getKey()));
             indexIdToSchemaHash.put(newIdxId, indexIdToSchemaHash.remove(entry.getKey()));
@@ -309,7 +323,7 @@ public class OlapTable extends Table {
                 long newIdxId = indexNameToId.get(entry2.getValue());
                 int schemaHash = indexIdToSchemaHash.get(newIdxId);
                 idx.setIdForRestore(newIdxId);
-                if (newIdxId != id) {
+                if (newIdxId != baseIndexId) {
                     // not base table, reset
                     partition.deleteRollupIndex(entry2.getKey());
                     partition.createRollupIndex(idx);
@@ -797,6 +811,8 @@ public class OlapTable extends Table {
             out.writeBoolean(true);
             Text.writeString(out, colocateGroup);
         }
+
+        out.writeLong(baseIndexId);
     }
 
     @Override
@@ -883,6 +899,13 @@ public class OlapTable extends Table {
             if (in.readBoolean()) {
                 colocateGroup = Text.readString(in);
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_57) {
+            baseIndexId = in.readLong();
+        } else {
+            // the old table use table id as base index id
+            baseIndexId = id;
         }
     }
 

@@ -195,6 +195,10 @@ public class TabletInvertedIndex {
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
                                             PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                            if (partitionCommitInfo == null) {
+                                                LOG.warn("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
+                                                        tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
+                                            }
                                             TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
                                                     partitionCommitInfo.getVersion(),
                                                     partitionCommitInfo.getVersionHash());

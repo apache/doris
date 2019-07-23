@@ -814,7 +814,7 @@ public class RestoreJob extends AbstractJob {
             MaterializedIndex remoteIdx = remotePart.getIndex(remoteIdxId);
             long localIdxId = localIdxNameToId.get(localidxName);
             remoteIdx.setIdForRestore(localIdxId);
-            if (localIdxId != localTbl.getId()) {
+            if (localIdxId != localTbl.getBaseIndexId()) {
                 // not base table, reset
                 remotePart.deleteRollupIndex(remoteIdxId);
                 remotePart.createRollupIndex(remoteIdx);
