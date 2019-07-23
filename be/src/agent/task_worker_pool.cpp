@@ -550,7 +550,7 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             switch (task_type) {
             case TTaskType::SCHEMA_CHANGE:
             case TTaskType::ROLLUP:
-            case TTaskType::ALTER_TASK:
+            case TTaskType::ALTER:
                 worker_pool_this->_alter_tablet(worker_pool_this,
                                             agent_task_req,
                                             signatrue,
@@ -588,8 +588,8 @@ void TaskWorkerPool::_alter_tablet(
     case TTaskType::SCHEMA_CHANGE:
         process_name = "schema change";
         break;
-    case TTaskType::ALTER_TASK:
-        process_name = "alter table";
+    case TTaskType::ALTER:
+        process_name = "alter";
         break;
     default:
         std::string task_name;
@@ -607,7 +607,7 @@ void TaskWorkerPool::_alter_tablet(
     TSchemaHash new_schema_hash = 0;
     if (status == DORIS_SUCCESS) {
         OLAPStatus sc_status = OLAP_SUCCESS;
-        if (task_type == TTaskType::ALTER_TASK) {
+        if (task_type == TTaskType::ALTER) {
             new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
             new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
             EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type, &error_msgs, process_name);

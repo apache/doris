@@ -65,7 +65,7 @@ struct TDropTabletReq {
     2: optional Types.TSchemaHash schema_hash
 }
 
-struct TAlterTabletReq{
+struct TAlterTabletReq {
     1: required Types.TTabletId base_tablet_id
     2: required Types.TSchemaHash base_schema_hash
     3: required TCreateTabletReq new_tablet_req

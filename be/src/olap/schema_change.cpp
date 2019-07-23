@@ -2143,7 +2143,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
     new_tablet->max_continuous_version_from_begining(&max_continuous_version, &max_continuous_version_hash);
-    LOG(INFO) << "find max continuous version "
+    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second
               << ", version_hash=" << max_continuous_version_hash;
