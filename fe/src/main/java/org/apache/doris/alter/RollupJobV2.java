@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -411,7 +412,12 @@ public class RollupJobV2 extends AlterJobV2 {
     private void onFinished(OlapTable tbl) {
         for (Partition partition : tbl.getPartitions()) {
             MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-            Preconditions.checkNotNull(rollupIndex, rollupIndex);
+            Preconditions.checkNotNull(rollupIndex, rollupIndexId);
+            for (Tablet tablet : rollupIndex.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    replica.setState(ReplicaState.NORMAL);
+                }
+            }
             rollupIndex.setState(IndexState.NORMAL);
         }
         tbl.setState(OlapTableState.NORMAL);

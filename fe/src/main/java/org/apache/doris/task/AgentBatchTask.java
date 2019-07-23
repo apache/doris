@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterTabletReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
-import org.apache.doris.thrift.TCancelDeleteDataReq;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
@@ -360,6 +359,7 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
+            }
             case ALTER: {
                 CreateRollupTaskV2 createRollupTask = (CreateRollupTaskV2) task;
                 TAlterTabletReqV2 request = createRollupTask.toThrift();

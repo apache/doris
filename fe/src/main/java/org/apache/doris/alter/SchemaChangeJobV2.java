@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -324,9 +325,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
 
-                // the rollup task will transform the data before visible version(included).
-                long committedVersion = partition.getCommittedVersion();
-                long committedVersionHash = partition.getCommittedVersionHash();
+                // the schema change task will transform the data before visible version(included).
+                long visibleVersion = partition.getVisibleVersion();
+                long visibleVersionHash = partition.getVisibleVersionHash();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -347,7 +348,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowIdxId, originIdxId,
                                     shadowTabletId, originTabletId, shadowReplica.getId(),
                                     shadowSchemaHash, originSchemaHash,
-                                    committedVersion, committedVersionHash, jobId);
+                                    visibleVersion, visibleVersionHash, jobId);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -462,6 +463,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     partition.setBaseIndex(shadowIdx);
                 }
                 partition.deleteRollupIndex(originIdxId);
+                // set replica state
+                for (Tablet tablet : shadowIdx.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.setState(ReplicaState.NORMAL);
+                    }
+                }
+
                 shadowIdx.setState(IndexState.NORMAL);
             }
         }
@@ -476,7 +484,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'
             tbl.renameIndexForSchemaChange(shadowIdxName, originIdxName);
 
-            if (originIdxId == tbl.getId()) {
+            if (originIdxId == tbl.getBaseIndexId()) {
                 // set base index
                 tbl.setNewBaseSchema(indexSchemaMap.get(shadowIdxId));
             }
