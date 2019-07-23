@@ -54,6 +54,39 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 
 # 基本操作
 ## 创建导入
+
+Broker load 创建导入语句
+
+```
+语法
+LOAD LABEL load_label 
+	(data_desc, ...)
+	with broker broker_name broker_properties
+	[PROPERTIES (key1=value1, ... )]
+
+LABEL: db_name.label_name
+
+data_desc:
+	DATA INFILE ('file_path', ...)
+	[NEGATIVE]
+	INTO TABLE tbl_name
+	[PARTITION (p1, p2)]
+	[COLUMNS TERMINATED BY separator ]
+	[(col1, ...)]
+	[SET (k1=f1(xx), k2=f2(xx))]
+
+broker_name: string
+
+broker_properties: (key1=value1, ...)
+
+示例：
+load label test.int_table_01
+	(DATA INFILE("hdfs://abc.com:8888/user/palo/test/ml/id_name") into table id_name_table columns terminated by "," (tmp_c1,tmp_c2) set (id=tmp_c2, name=tmp_c1))  
+	with broker 'broker' ("username"="root", "password"="3trqDWfl") 
+	properties ("timeout" = "10000" );
+
+```
+
 创建导入的详细语法执行 ``` HELP BROKER LOAD；``` 查看语法帮助。这里主要介绍 Broker load 的创建导入语法中参数意义和注意事项。
 
 + label
@@ -74,7 +107,7 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 
 	Broker load 支持一次导入任务涉及多张表，每个 Broker load 导入任务可在多个 ``` data_desc ``` 声明多张表来实现多表导入。每个单独的 ```data_desc``` 还可以指定属于该表的数据源地址。Broker load 保证了单次导入的多张表之间原子性成功或失败。
 
-+  Is negative
++  negative
 
 	```data_desc```中还可以设置数据取反导入。这个功能主要用于，当用户上次导入已经成功，但是想取消上次导入的数据时，就可以使用相同的源文件并设置导入 nagetive 取反功能。上次导入的数据就可以被撤销了。
 
@@ -97,11 +130,19 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 	通常情况下，用户不需要手动设置导入任务的超时时间。当在默认超时时间内无法完成导入时，可以手动设置任务的超时时间。
 	
 	**推荐超时时间**
-	``` 总文件大小（MB） / 用户 Doris 集群最慢导入速度(MB/s)  > timeout > （总文件大小(MB) / 10 * 待导入的表及相关Roll up表的个数） ``` 其中10为目前的导入限速 10MB/s。
+	
+	``` 
+	总文件大小（MB） / 用户 Doris 集群最慢导入速度(MB/s)  > timeout > （（总文件大小(MB) * 待导入的表及相关 Roll up 表的个数） / (10 * 导入并发数） ）
+	
+	导入并发数见文档最后的导入系统配置说明，公式中的 10 为目前的导入限速 10MB/s。
+	
+	``` 
+	
+	例如一个 1G 的待导入数据，待导入表涉及了3个 Roll up 表，当前的导入并发数为 3。则 timeout 的 最小值为 ```(1 * 1024 * 3 ) / (10 * 3) = 102 秒```
 	
 	由于每个 Doris 集群的机器环境不同且集群并发的查询任务也不同，所以用户 Doris 集群的最慢导入速度需要用户自己根据历史的导入任务速度进行推测。
 	
-	*注意：用户设置导入超时时间最好在上述范围内。如果设置的超时时间过长，可能会导致大量导入任务堆积而耗尽 FE 的内存。*
+	*注意：用户设置导入超时时间最好在上述范围内。如果设置的超时时间过长，可能会导致总导入任务的个数超过 Doris 系统限制，导致后续提交的导入被系统取消*
 		
 + max\_filter\_ratio
 
@@ -111,9 +152,7 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 	
 	``` dpp.norm.ALL ``` 指的是导入过程中正确数据的条数。可以通过 ``` SHOW LOAD ``` 命令查询导入任务的正确数据量。
 	
-	``` num_rows_unselected ``` 导入过程中被 where 条件过滤掉的数据量。过滤的数据量不参与容忍率的计算。由于 Broker load 导入任务无法设置 where 条件，所以 Broker load 的这个值一直为0。
-	
-	``` 原始文件的行数 = dpp.abnorm.ALL + dpp.norm.ALL + num_rows_unselected ```
+	``` 原始文件的行数 = dpp.abnorm.ALL + dpp.norm.ALL ```
 	
 + exec\_mem\_limit
 
@@ -259,3 +298,89 @@ Broker load 可以被用户手动取消，取消时需要指定待取消导入�
 	参数名：max_bytes_per_broker_scanner，default 3G，单位bytes
 	
 	```	
+	
+# Broker load 最佳实践
+
+## 应用场景
+使用 Broker load 最适合的场景就是原始数据在文件系统（HDFS，BOS，AFS）中的场景。其次，由于 Broker load 是单次导入中唯一的一种异步导入的方式，所以如果用户在导入大文件中，需要使用异步接入，也可以考虑使用 Broker load。
+
+## 数据量
+
+这里仅讨论单个 BE 的情况，如果用户集群有多个 BE 则下面标题中的数据量应该乘以 BE 个数来计算。比如：如果用户有3个 BE，则 3G 以下（包含）则应该乘以 3，也就是 9G 以下（包含）。
+
++ 3G 以下（包含）
+
+	用户可以直接提交 Broker load 创建导入请求。
+	
++ 3G 以上
+
+	由于单个导入 BE 最大的处理量为 3G，超过 3G 的待导入文件就需要通过调整 Broker load 的导入参数来实现大文件的导入。
+	
+	1. 根据当前 BE 的个数和原始文件的大小修改单个 BE 的最大扫描量和最大并发数。
+
+		```
+		修改 fe.conf 中配置
+		
+		max_broker_concurrency = BE 个数
+		当前导入任务单个 BE 处理的数据量 = 原始文件大小 / max_broker_concurrency
+		max_bytes_per_broker_scanner >= 当前导入任务单个 BE 处理的数据量
+		
+		比如一个 100G 的文件，集群的 BE 个数为 10个
+		max_broker_concurrency = 10
+		max_bytes_per_broker_scanner >= 10G = 100G / 10
+		
+		```
+		
+		修改后，所有的 BE 会并发的处理导入任务，每个 BE 处理原始文件的一部分。
+		
+		*注意：上述两个 FE 中的配置均为系统配置，也就是说其修改是作用于所有的 Broker load的任务的。*
+		
+	2. 在创建导入的时候自定义当前导入任务的 timeout 时间
+
+		```
+		当前导入任务单个 BE 处理的数据量 / 用户 Doris 集群最慢导入速度(MB/s) >= 当前导入任务的 timeout 时间 >= 当前导入任务单个 BE 处理的数据量 / 10M/s
+		
+		比如一个 100G 的文件，集群的 BE 个数为 10个
+		timeout >= 1000s = 10G / 10M/s
+		
+		```
+		
+	3. 当用户发现第二步计算出的 timeout 时间超过系统默认的导入最大超时时间 4小时
+
+		这时候不推荐用户将导入最大超时时间直接改大来解决问题。单个导入时间如果超过默认的导入最大超时时间4小时，最好是通过切分待导入文件并且分多次导入来解决问题。主要原因是：单次导入超过4小时的话，导入失败后重试的时间成本很高。
+		
+		可以通过如下公式计算出 Doris 集群期望最大导入文件数据量：
+		
+		```
+		期望最大导入文件数据量 = 14400s * 10M/s * BE 个数
+		比如：集群的 BE 个数为 10个
+		期望最大导入文件数据量 = 14400 * 10M/s * 10 = 1440000M ≈ 1440G
+		
+		注意：一般用户的环境可能达不到 10M/s 的速度，所以建议超过 500G 的文件都进行文件切分，再导入。
+		
+		```
+		
+## 完整例子
+
+数据情况：用户数据在 HDFS 中，文件地址为 hdfs://abc.com:8888/store_sales, hdfs 的认证用户名为 root, 密码为 password, 数据量大小约为 30G，希望导入到数据库 bj_sales 的表 store_sales 中。
+
+集群情况：集群的 BE 个数约为 3 个，集群中有 3 个 Broker 名称均为 broker。
+
++ step1: 经过上述方法的计算，本次导入的单个 BE 导入量为 10G，则需要先修改 FE 的配置，将单个 BE 导入最大量修改为：
+
+	```
+	max_bytes_per_broker_scanner = 100000000000
+
+	```
+
++ step2: 经计算，本次导入的时间大约为 1000s，并未超过默认超时时间，可不配置导入自定义超时时间。
+
++ step3：创建导入语句
+
+	```
+	load label store_sales_broker_load_01.bj_sales 
+    	(DATA INFILE("hdfs://abc.com:8888/store_sales") into table store_sales
+    	with broker 'broker' ("username"="root", "password"="password") 
+	```
+		
+
