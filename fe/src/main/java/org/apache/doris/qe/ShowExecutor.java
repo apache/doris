@@ -743,7 +743,7 @@ public class ShowExecutor {
         long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
         if (offset >= rows.size()) {
             rows = Lists.newArrayList();
-        } else if(limit != -1L) {
+        } else if (limit != -1L) {
             if ((limit + offset) < rows.size()) {
                 rows = rows.subList((int) offset, (int) (limit + offset));
             } else {
