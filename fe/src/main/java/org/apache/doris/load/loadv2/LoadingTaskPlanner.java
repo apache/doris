@@ -60,6 +60,7 @@ public class LoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(LoadingTaskPlanner.class);
 
     // Input params
+    private final long loadJobId;
     private final long txnId;
     private final long dbId;
     private final OlapTable table;
@@ -77,9 +78,10 @@ public class LoadingTaskPlanner {
 
     private int nextNodeId = 0;
 
-    public LoadingTaskPlanner(long txnId, long dbId, OlapTable table,
+    public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
                               boolean strictMode) {
+        this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
         this.table = table;
@@ -108,7 +110,7 @@ public class LoadingTaskPlanner {
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
                                                      fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(table, brokerDesc, fileGroups, strictMode);
+        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
