@@ -21,6 +21,7 @@ import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -395,7 +396,7 @@ public class LoadChecker extends Daemon {
                     
                     short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
                     // check all indices (base + roll up (not include ROLLUP state index))
-                    List<MaterializedIndex> indices = partition.getMaterializedIndices();
+                    List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
                         long indexId = index.getId();
                         // if index is in rollup, then not load into it, be will automatically convert the data

@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -346,6 +347,6 @@ public class RollupJobTest {
         // rollup hander run one cycle again, the rollup job is finishing
         rollupHandler.runOneCycle();
         Assert.assertEquals(JobState.CANCELLED, rollupJob.getState());
-        assertEquals(1, testPartition.getMaterializedIndices().size());
+        assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
     }
 }

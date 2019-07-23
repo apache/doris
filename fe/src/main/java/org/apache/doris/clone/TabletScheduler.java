@@ -514,7 +514,8 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
             }
 
-            if (statusPair.first != TabletStatus.VERSION_INCOMPLETE && partition.getState() != PartitionState.NORMAL) {
+            if (statusPair.first != TabletStatus.VERSION_INCOMPLETE  
+                    && (partition.getState() != PartitionState.NORMAL || tableState != OlapTableState.NORMAL)) {
                 // If table is under ALTER process(before FINISHING), do not allow to add or delete replica.
                 // VERSION_INCOMPLETE will repair the replica in place, which is allowed.
                 throw new SchedException(Status.UNRECOVERABLE,

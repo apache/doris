@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
@@ -207,7 +208,13 @@ public class TabletChecker extends Daemon {
                         }
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
-                        for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                        /*
+                         * Here we get all ALL indexes, including SHADOW indexes.
+                         * SHADOW index should be treated as a special NORMAL index.
+                         * It can be repaired, but CAN NOT be balanced, added or removed.
+                         * The above restrictions will be checked in tablet scheduler.
+                         */
+                        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.ALL)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
                                 

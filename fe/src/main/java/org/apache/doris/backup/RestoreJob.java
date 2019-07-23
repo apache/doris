@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -613,7 +614,7 @@ public class RestoreJob extends AbstractJob {
 
                 Set<String> bfColumns = localTbl.getCopiedBfColumns();
                 double bfFpp = localTbl.getBfFpp();
-                for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices()) {
+                for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     short shortKeyColumnCount = localTbl.getShortKeyColumnCountByIndexId(restoredIdx.getId());
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoredIdx.getId());
                     KeysType keysType = localTbl.getKeysType();
@@ -646,7 +647,7 @@ public class RestoreJob extends AbstractJob {
                 for (Partition restorePart : restoreTbl.getPartitions()) {
                     Set<String> bfColumns = restoreTbl.getCopiedBfColumns();
                     double bfFpp = restoreTbl.getBfFpp();
-                    for (MaterializedIndex index : restorePart.getMaterializedIndices()) {
+                    for (MaterializedIndex index : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         short shortKeyColumnCount = restoreTbl.getShortKeyColumnCountByIndexId(index.getId());
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(index.getId());
                         KeysType keysType = restoreTbl.getKeysType();
@@ -838,7 +839,7 @@ public class RestoreJob extends AbstractJob {
         long visibleVersionHash = remotePart.getVisibleVersionHash();
 
         // tablets
-        for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices()) {
+        for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
@@ -872,7 +873,7 @@ public class RestoreJob extends AbstractJob {
     // files in repo to files in local
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
             BackupPartitionInfo backupPartInfo, boolean overwrite) {
-        for (MaterializedIndex localIdx : localPartition.getMaterializedIndices()) {
+        for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
                       localTbl.getIndexNameById(localIdx.getId()));
             BackupIndexInfo backupIdxInfo = backupPartInfo.getIdx(localTbl.getIndexNameById(localIdx.getId()));
@@ -935,7 +936,7 @@ public class RestoreJob extends AbstractJob {
                 localTbl.addPartition(restorePart);
 
                 // modify tablet inverted index
-                for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
+                for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                             restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
@@ -953,7 +954,7 @@ public class RestoreJob extends AbstractJob {
                 db.createTable(restoreTbl);
                 // modify tablet inverted index
                 for (Partition restorePart : restoreTbl.getPartitions()) {
-                    for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
+                    for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
                                 restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
@@ -1219,7 +1220,7 @@ public class RestoreJob extends AbstractJob {
                     part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
-                    for (MaterializedIndex idx : part.getMaterializedIndices()) {
+                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
@@ -1369,7 +1370,7 @@ public class RestoreJob extends AbstractJob {
                 for (OlapTable restoreTbl : restoredTbls) {
                     LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                     for (Partition part : restoreTbl.getPartitions()) {
-                        for (MaterializedIndex idx : part.getMaterializedIndices()) {
+                        for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                             }
@@ -1386,7 +1387,7 @@ public class RestoreJob extends AbstractJob {
                     }
                     LOG.info("remove restored partition in table {} when cancelled: {}",
                              restoreTbl.getName(), entry.second.getName());
-                    for (MaterializedIndex idx : entry.second.getMaterializedIndices()) {
+                    for (MaterializedIndex idx : entry.second.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                         }

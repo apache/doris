@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -119,7 +120,7 @@ public class TabletStatMgr extends Daemon {
                     for (Partition partition : olapTable.getPartitions()) {
                         long version = partition.getVisibleVersion();
                         long versionHash = partition.getVisibleVersionHash();
-                        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletRowCount = 0L;
