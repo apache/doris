@@ -273,7 +273,7 @@ private:
                                                    const TAlterTabletReq& request);
 
     OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>& versions_to_be_changed);
+                                           std::vector<Version>* versions_to_be_changed);
 
     struct SchemaChangeParams {
         AlterTabletType alter_tablet_type;

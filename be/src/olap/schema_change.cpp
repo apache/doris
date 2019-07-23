@@ -1122,7 +1122,7 @@ bool SchemaChangeWithSorting::_external_sorting(
 }
 
 OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
-    LOG(INFO) << "begin to validate alter tablet request. base_tablet_id=" << request.base_tablet_id
+    LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", base_schema_hash" << request.base_schema_hash
               << ", new_tablet_id=" << request.new_tablet_id
               << ", new_schema_hash=" << request.new_schema_hash
@@ -1142,6 +1142,11 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
     return res;
 }
 
+// In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
+// It will cost a lot of time to wait and the task is very difficult to understand.
+// In alter task v2, FE will call BE to create tablet and send an alter task to BE to convert historical data.
+// The admin should upgrade all BE and then upgrade FE.
+// Should delete the old code after upgrade finished.
 OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
@@ -1185,8 +1190,10 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
-    // 2. Get version_to_be_changed and store into tablet header
+    // begin to find deltas to convert from base tablet to new tablet so that
+    // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
     base_tablet->obtain_push_lock();
+    new_tablet->obtain_push_lock();
     base_tablet->obtain_header_wrlock();
     new_tablet->obtain_header_wrlock();
 
@@ -1199,7 +1206,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     DeleteHandler delete_handler;
     do {
         // get history data to be converted and it will check if there is hold in base tablet
-        res = _get_versions_to_be_changed(base_tablet, versions_to_be_changed);
+        res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to get version to be changed. res=" << res;
             break;
@@ -1283,6 +1290,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
 
     new_tablet->release_header_lock();
     base_tablet->release_header_lock();
+    new_tablet->release_push_lock();
     base_tablet->release_push_lock();
 
     do {
@@ -1502,7 +1510,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
 
         // get history versions to be changed
-        res = _get_versions_to_be_changed(base_tablet, versions_to_be_changed);
+        res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to get version to be changed. res=" << res;
             break;
@@ -1709,7 +1717,7 @@ SCHEMA_VERSION_CONVERT_ERR:
 
 OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
         TabletSharedPtr base_tablet,
-        vector<Version>& versions_to_be_changed) {
+        vector<Version>* versions_to_be_changed) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
@@ -1719,7 +1727,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     vector<Version> span_versions;
     base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions);
     for (uint32_t i = 0; i < span_versions.size(); i++) {
-        versions_to_be_changed.push_back(span_versions[i]);
+        versions_to_be_changed->push_back(span_versions[i]);
     }
 
     return OLAP_SUCCESS;
