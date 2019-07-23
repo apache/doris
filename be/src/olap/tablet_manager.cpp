@@ -276,7 +276,9 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     // Make sure create_tablet operation is idempotent:
     // return success if tablet with same tablet_id and schema_hash exist,
     //        false if tablet with same tablet_id but different schema_hash exist
-    // why??????
+    // during alter, if the tablet(same tabletid and schema hash) already exist
+    // then just return true, if tablet id with different schema hash exist, wait report
+    // task to delete the tablet
     if (_check_tablet_id_exist_unlock(request.tablet_id)) {
         TabletSharedPtr tablet = _get_tablet_with_no_lock(
                 request.tablet_id, request.tablet_schema.schema_hash);
@@ -363,7 +365,16 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 tablet->set_creation_time(new_creation_time);
             }
         }
-
+        if (request.__isset.base_tablet_id) {
+            if (request.base_tablet_id < 1) {
+                LOG(FATAL) << "base tablet is set but it value=" << request.base_tablet_id;
+                
+            }
+            // if this is a new alter tablet, has to set its state to not ready
+            // because schema change hanlder depends on it to check whether history data
+            // convert finished
+            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+        }
         // Add tablet to StorageEngine will make it visiable to user
         res = _add_tablet_unlock(request.tablet_id, request.tablet_schema.schema_hash, tablet, true, false);
         if (res != OLAP_SUCCESS) {
