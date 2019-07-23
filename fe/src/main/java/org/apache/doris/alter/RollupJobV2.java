@@ -185,7 +185,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     for (Replica rollupReplica : rollupReplicas) {
                         long backendId = rollupReplica.getBackendId();
                         Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
-
+                        countDownLatch.addMark(backendId, rollupTabletId);
                         CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                 backendId, dbId, tableId, partitionId, rollupIndexId, rollupTabletId,
                                 rollupShortKeyColumnCount, rollupSchemaHash,
@@ -461,6 +461,7 @@ public class RollupJobV2 extends AlterJobV2 {
                         Partition partition = tbl.getPartition(partitionId);
                         partition.deleteRollupIndex(rollupIndexId);
                     }
+                    tbl.deleteIndexInfo(rollupIndexName);
                     tbl.setState(OlapTableState.NORMAL);
                 }
             } finally {
