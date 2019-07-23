@@ -85,7 +85,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
     // shadow index id -> origin index id
     private Map<Long, Long> indexIdMap = Maps.newHashMap();
-    // shadow index id -> origin index name
+    // shadow index id -> shadow index name(__doris_shadow_xxx)
     private Map<Long, String> indexIdToName = Maps.newHashMap();
     // shadow index id -> index schema
     private Map<Long, List<Column>> indexSchemaMap = Maps.newHashMap();
@@ -202,7 +202,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
                             long backendId = shadowReplica.getBackendId();
-
+                            countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
@@ -541,7 +541,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             partition.deleteRollupIndex(shadowIdx.getId());
                         }
                     }
-
+                    for (String shadowIndexName : indexIdToName.values()) {
+                        tbl.deleteIndexInfo(shadowIndexName);
+                    }
                     tbl.setState(OlapTableState.NORMAL);
                 }
             } finally {
