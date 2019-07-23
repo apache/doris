@@ -116,7 +116,7 @@ private:
 
     void _alter_tablet(
             TaskWorkerPool* worker_pool_this,
-            const TAlterTabletReq& create_rollup_request,
+            const TAgentTaskRequest& alter_tablet_request,
             int64_t signature,
             const TTaskType::type task_type,
             TFinishTaskRequest* finish_task_request);
