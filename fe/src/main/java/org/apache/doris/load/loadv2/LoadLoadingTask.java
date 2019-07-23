@@ -55,8 +55,6 @@ public class LoadLoadingTask extends LoadTask {
 
     private LoadingTaskPlanner planner;
 
-    private String errMsg;
-
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
@@ -81,6 +79,7 @@ public class LoadLoadingTask extends LoadTask {
 
     @Override
     protected void executeTask() throws Exception{
+        LOG.info("begin to execute loading task. job: {}. left retry: {}", callback.getCallbackId(), retryTime);
         retryTime--;
         executeOnce();
     }
