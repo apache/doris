@@ -329,6 +329,7 @@ void AgentServer::submit_tasks(
             break;
         case TTaskType::ROLLUP:
         case TTaskType::SCHEMA_CHANGE:
+        case TTaskType::ALTER_TASK:
             if (task.__isset.alter_tablet_req) {
                 _alter_tablet_workers->submit_task(task);
             } else {
