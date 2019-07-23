@@ -198,7 +198,7 @@ visible_functions = [
     [['datediff'], 'INT', ['DATETIME', 'DATETIME'],
         '_ZN5doris18TimestampFunctions9date_diffEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValES6_'],
-    [['timediff'], 'DATETIME', ['DATETIME', 'DATETIME'],
+    [['timediff'], 'TIME', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions9time_diffEPN9doris_udf'
             '15FunctionContextERKNS1_11DateTimeValES6_'],
 

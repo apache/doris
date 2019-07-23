@@ -125,6 +125,8 @@ public class ScalarType extends Type {
                 return DATE;
             case DATETIME:
                 return DATETIME;
+            case TIME:
+                return TIME;
             case DECIMAL:
                 return (ScalarType) createDecimalType();
             case DECIMALV2:
@@ -168,6 +170,8 @@ public class ScalarType extends Type {
                 return DATE;
             case "DATETIME":
                 return DATETIME;
+            case "TIME":
+                return TIME;
             case "DECIMAL":
                 return (ScalarType) createDecimalType();
             case "DECIMALV2":
@@ -721,6 +725,7 @@ public class ScalarType extends Type {
             case INT:
                 return 4;
             case BIGINT:
+            case TIME:
                 return 8;
             case LARGEINT:
                 return 16;
