@@ -139,10 +139,16 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT>
         if (src_null) return;
 
         bool dst_null = *reinterpret_cast<bool*>(dst);
+        if (dst_null) {
+            *reinterpret_cast<bool*>(dst) = false;
+            memcpy(dst + 1, src + 1, sizeof(CppType));
+            return;
+        }
+
         CppType dst_val, src_val;
         memcpy(&dst_val, dst + 1, sizeof(CppType));
         memcpy(&src_val, src + 1, sizeof(CppType));
-        if (dst_null || src_val < dst_val) {
+        if (src_val < dst_val) {
             *reinterpret_cast<bool*>(dst) = false;
             memcpy(dst + 1, src + 1, sizeof(CppType));
         }
