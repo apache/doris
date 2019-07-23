@@ -317,7 +317,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
-        return QeProcessorImpl.INSTANCE.reportExecStatus(params);
+        return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
     }
 
     @Override

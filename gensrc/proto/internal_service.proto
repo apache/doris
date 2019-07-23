@@ -95,6 +95,7 @@ message PTabletWriterAddBatchRequest {
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
     repeated PTabletInfo tablet_vec = 2;
+    optional int64 execution_time_us = 3;
 };
 
 // tablet writer cancel
