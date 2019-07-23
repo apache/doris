@@ -152,7 +152,7 @@ private:
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
         encode_fixed32_le(&_buffer[0], _count);
-        uint32_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
+        int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
             // This means the bitshuffle function fails.
