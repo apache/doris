@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -938,7 +939,7 @@ public class OlapTable extends Table {
             for (Partition partition : copied.getPartitions()) {
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     idx.setState(IndexState.NORMAL);
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -1009,7 +1010,7 @@ public class OlapTable extends Table {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
             short replicationNum = partitionInfo.getReplicationNum(partition.getId());
-            for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : mIndex.getTablets()) {
                     if (tabletScheduler.containsTablet(tablet.getId())) {
                         return false;

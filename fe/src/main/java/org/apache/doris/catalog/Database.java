@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
@@ -35,6 +35,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -206,7 +207,7 @@ public class Database extends MetaObject implements Writable {
 
                 OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         // skip ROLLUP index
                         if (mIndex.getState() == IndexState.ROLLUP) {
                             continue;

@@ -17,11 +17,10 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -326,15 +325,7 @@ public class GlobalTransactionMgr {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
                 }
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partition.getId());
-                }
-                
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 if (table.getState() == OlapTableState.ROLLUP || table.getState() == OlapTableState.SCHEMA_CHANGE) {
                     /*
                      * This is just a optimization that do our best to not let publish version tasks
@@ -352,15 +343,7 @@ public class GlobalTransactionMgr {
                      */
                     transactionState.prolongPublishTimeout();
                 }
-                
-                // the rolling up index should also be taken care
-                // if the rollup index failed during load, then set its last failed version
-                // if rollup task finished, it should compare version and last failed version,
-                // if version < last failed version, then the replica is failed
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
-                }
-                MaterializedIndex baseIndex = partition.getBaseIndex();
+
                 int quorumReplicaNum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
@@ -386,17 +369,6 @@ public class GlobalTransactionMgr {
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
                                     ++successReplicaNum;
-                                } else {
-                                    // if this error replica is a base replica and it is under rollup
-                                    // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                    // should remove here, because the error replicas not contains this base replica,
-                                    // but it has errors in the past
-                                    if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                        LOG.info("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]",
-                                                 replica, rollupJob);
-                                        rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                tabletId, replica.getId(), replica.getBackendId());
-                                    }
                                 }
                             } else {
                                 errorBackendIdsForTablet.add(tabletBackend);
@@ -405,7 +377,8 @@ public class GlobalTransactionMgr {
                                 // remove rollup task when commit successfully
                             }
                         }
-                        if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
+
+                        if (successReplicaNum < quorumReplicaNum) {
                             LOG.warn("Failed to commit txn []. "
                                              + "Tablet [{}] success replica num is {} < quorum replica num {} "
                                              + "while error backends {}",
@@ -664,17 +637,7 @@ public class GlobalTransactionMgr {
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
                     MaterializedIndex baseIndex = partition.getBaseIndex();
-                    MaterializedIndex rollingUpIndex = null;
-                    RollupJob rollupJob = null;
-                    if (table.getState() == OlapTableState.ROLLUP) {
-                        rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                        rollingUpIndex = rollupJob.getRollupIndex(partitionId);
-                    }
-                    List<MaterializedIndex> allInices = new ArrayList<>();
-                    allInices.addAll(partition.getMaterializedIndices());
-                    if (rollingUpIndex != null) {
-                        allInices.add(rollingUpIndex);
-                    }
+                    List<MaterializedIndex> allInices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : allInices) {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
@@ -723,17 +686,9 @@ public class GlobalTransactionMgr {
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 }
-                                if (replica.getLastFailedVersion() > 0) {
-                                    // if this error replica is a base replica and it is under rollup
-                                    // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                    if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                        LOG.info("base replica [{}] has errors during load, remove rollup task on related replica", replica);
-                                        rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                           tablet.getId(), replica.getId(), replica.getBackendId());
-                                    }
-                                }
                             }
-                            if (index.getState() != IndexState.ROLLUP && healthReplicaNum < quorumReplicaNum) {
+
+                            if (healthReplicaNum < quorumReplicaNum) {
                                 LOG.info("publish version failed for transaction {} on tablet {},  with only {} replicas less than quorum {}",
                                          transactionState, tablet, healthReplicaNum, quorumReplicaNum);
                                 hasError = true;
@@ -1027,18 +982,7 @@ public class GlobalTransactionMgr {
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 Partition partition = table.getPartition(partitionId);
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                MaterializedIndex baseIndex = partition.getBaseIndex();
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partition.getId());
-                }
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
-                }
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
@@ -1048,14 +992,6 @@ public class GlobalTransactionMgr {
                                 // should get from transaction state
                                 replica.updateLastFailedVersion(partitionCommitInfo.getVersion(),
                                                                 partitionCommitInfo.getVersionHash());
-                                // if this error replica is a base replica and it is under rollup
-                                // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                    LOG.debug("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]",
-                                              replica, rollupJob);
-                                    rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                       tablet.getId(), replica.getId(), replica.getBackendId());
-                                }
                             }
                         }
                     }
@@ -1083,18 +1019,7 @@ public class GlobalTransactionMgr {
                 long newCommitVersion = partitionCommitInfo.getVersion();
                 long newCommitVersionHash = partitionCommitInfo.getVersionHash();
                 Partition partition = table.getPartition(partitionId);
-                MaterializedIndex baseIndex = partition.getBaseIndex();
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partitionId);
-                }
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
-                }
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -1139,15 +1064,6 @@ public class GlobalTransactionMgr {
                                 }
                             }
                             replica.updateVersionInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, lastSucessVersion, lastSuccessVersionHash);
-                            // if this error replica is a base replica and it is under rollup
-                            // then remove the rollup task and rollup job will remove the rollup replica automatically
-                            if (index.getId() == baseIndex.getId()
-                                    && replica.getLastFailedVersion() > 0
-                                    && rollupJob != null) {
-                                LOG.debug("base replica [{}] has errors during load, remove rollup task on related replica", replica);
-                                rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                   tablet.getId(), replica.getId(), replica.getBackendId());
-                            }
                         }
                     }
                 } // end for indices

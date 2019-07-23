@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -34,9 +35,8 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.persist.Storage;
-import com.google.gson.Gson;
 
-import io.netty.handler.codec.http.HttpMethod;
+import com.google.gson.Gson;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -48,6 +48,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 public class ShowMetaInfoAction extends RestBaseAction {
     private enum Action {
@@ -164,7 +166,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
                 long tableSize = 0;
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionSize = 0;
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         long indexSize = 0;
                         for (Tablet tablet : mIndex.getTablets()) {
                             long maxReplicaSize = 0;

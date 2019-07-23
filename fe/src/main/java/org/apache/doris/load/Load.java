@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -59,12 +60,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -74,17 +73,13 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
-import org.apache.doris.thrift.TPushType;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -115,7 +110,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Load {
@@ -1859,8 +1853,8 @@ public class Load {
                                                partitionLoadInfo.getVersionHash(), jobId);
 
                         // update table row count
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                            long tableRowCount = 0L;
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                            long indexRowCount = 0L;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -1869,9 +1863,9 @@ public class Load {
                                         tabletRowCount = replicaRowCount;
                                     }
                                 }
-                                tableRowCount += tabletRowCount;
+                                indexRowCount += tabletRowCount;
                             }
-                            materializedIndex.setRowCount(tableRowCount);
+                            materializedIndex.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
                 } // end for tables
@@ -2389,7 +2383,7 @@ public class Load {
                 updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
                                        partitionLoadInfo.getVersionHash(), jobId);
 
-                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
                     for (Tablet tablet : materializedIndex.getTablets()) {
                         long tabletRowCount = 0L;
@@ -2748,7 +2742,7 @@ public class Load {
             slotRef.setCol(column.getName());
         }
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             // check table has condition column
             Map<String, Column> indexNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (Column column : indexIdToSchema.get(index.getId())) {
@@ -2776,221 +2770,6 @@ public class Load {
 
             // do not need to check replica version and backend alive
 
-        } // end for indices
-
-        if (deleteConditions == null) {
-            return;
-        }
-
-        // save delete conditions
-        for (Predicate condition : conditions) {
-            if (condition instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                SlotRef slotRef = (SlotRef) binaryPredicate.getChild(0);
-                String columnName = slotRef.getColumnName();
-                StringBuilder sb = new StringBuilder();
-                sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
-                deleteConditions.add(sb.toString());
-            } else if (condition instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                SlotRef slotRef = (SlotRef) isNullPredicate.getChild(0);
-                String columnName = slotRef.getColumnName();
-                StringBuilder sb = new StringBuilder();
-                sb.append(columnName);
-                if (isNullPredicate.isNotNull()) {
-                    sb.append(" IS NOT NULL");
-                } else {
-                    sb.append(" IS NULL");
-                }
-                deleteConditions.add(sb.toString());
-            }
-        }
-    }
-
-    private void checkDelete(OlapTable table, Partition partition, List<Predicate> conditions,
-                             long checkVersion, long checkVersionHash, List<String> deleteConditions,
-                             Map<Long, Set<Long>> asyncTabletIdToBackends, boolean preCheck)
-            throws DdlException {
-        // check partition state
-        PartitionState state = partition.getState();
-        if (state != PartitionState.NORMAL) {
-            // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
-        }
-
-        // check running load job
-        List<LoadJob> quorumFinishedLoadJobs = Lists.newArrayList();
-        if (!checkPartitionLoadFinished(partition.getId(), quorumFinishedLoadJobs)) {
-            // ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_HAS_LOADING_JOBS, partition.getName());
-            throw new DdlException("Partition[" + partition.getName() + "] has unfinished load jobs");
-        }
-
-        // get running async delete job
-        List<AsyncDeleteJob> asyncDeleteJobs = getCopiedAsyncDeleteJobs();
-
-        // check condition column is key column and condition value
-        Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (Column column : table.getBaseSchema()) {
-            nameToColumn.put(column.getName(), column);
-        }
-        for (Predicate condition : conditions) {
-            SlotRef slotRef = null;
-            if (condition instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                slotRef = (SlotRef) binaryPredicate.getChild(0);
-            } else if (condition instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                slotRef = (SlotRef) isNullPredicate.getChild(0);
-            }
-            String columnName = slotRef.getColumnName();
-            if (!nameToColumn.containsKey(columnName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
-            }
-
-            Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column");
-            }
-
-            if (condition instanceof BinaryPredicate) {
-                String value = null;
-                try {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
-                } catch (AnalysisException e) {
-                    // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
-                    throw new DdlException("Invalid column value[" + value + "]");
-                }
-            }
-
-            // set schema column name
-            slotRef.setCol(column.getName());
-        }
-
-        long tableId = table.getId();
-        long partitionId = partition.getId();
-        Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
-            // check table has condition column
-            Map<String, Column> indexNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (Column column : indexIdToSchema.get(index.getId())) {
-                indexNameToColumn.put(column.getName(), column);
-            }
-            String indexName = table.getIndexNameById(index.getId());
-            for (Predicate condition : conditions) {
-                String columnName = null;
-                if (condition instanceof BinaryPredicate) {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
-                } else if (condition instanceof IsNullPredicate) {
-                    IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                    columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
-                }
-                Column column = indexNameToColumn.get(columnName);
-                if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
-                }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
-                    throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
-                }
-            }
-
-            // check replica version and backend alive
-            short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
-            for (Tablet tablet : index.getTablets()) {
-                Set<Long> needAsyncBackendIds = Sets.newHashSet();
-                for (Replica replica : tablet.getReplicas()) {
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(replica.getBackendId())) {
-                        LOG.warn("backend[{}] is not alive when delete check. pre: {}",
-                                 replica.getBackendId(), preCheck);
-                        needAsyncBackendIds.add(replica.getBackendId());
-                        continue;
-                    }
-
-                    // check replica version.
-                    // here is a little bit confused. the main idea is
-                    // 1. check if replica catch up the version
-                    // 2. if not catch up and this is pre check, make sure there will be right quorum finished load jobs
-                    //    to fill the version gap between 'replica committed version' and 'partition committed version'.
-                    // 3. if not catch up and this is after check
-                    //      1) if diff version == 1, some sync delete task may failed. add async delete task.
-                    //      2) if diff version > 1, make sure there will be right quorum finished load jobs
-                    //         to fill the version gap between 'replica committed version' and 'delete version - 1'.
-                    // if ok, add async delete task.
-                    if (!replica.checkVersionCatchUp(checkVersion, checkVersionHash)) {
-                        long replicaVersion = replica.getVersion();
-                        if (replicaVersion == checkVersion) {
-                            // in this case, version is same but version hash is not.
-                            // which mean the current replica version is a non-committed version.
-                            // so the replica's committed version should be the previous one.
-                            --replicaVersion;
-                        }
-
-                        // the *diffVersion* is number of versions need to be check
-                        // for now:
-                        //  *replicaVersion* : the 'committed version' of the replica
-                        //  *checkVersion* : 
-                        //      1) if preCheck, this is partition committed version
-                        //      2) if not preCheck, this is delete version
-                        long diffVersion = checkVersion - replicaVersion;
-                        Preconditions.checkState(diffVersion > 0);
-                        for (int i = 1; i <= diffVersion; i++) {
-                            boolean find = false;
-                            long theVersion = replicaVersion + i;
-                            for (LoadJob loadJob : quorumFinishedLoadJobs) {
-                                if (theVersion == loadJob.getPartitionLoadInfo(tableId, partitionId).getVersion()) {
-                                    find = true;
-                                    break;
-                                }
-                            }
-
-                            for (AsyncDeleteJob deleteJob : asyncDeleteJobs) {
-                                if (tableId == deleteJob.getTableId() && partitionId == deleteJob.getPartitionId()
-                                        && theVersion == deleteJob.getPartitionVersion()) {
-                                    find = true;
-                                    break;
-                                }
-                            }
-
-                            if (!find) {
-                                if (theVersion == checkVersion && !preCheck) {
-                                    // the sync delete task of this replica may failed.
-                                    // add async delete task after.
-                                    continue;
-                                } else {
-                                    // this should not happend. add log to observe.
-                                    LOG.error("replica version does not catch up with version: {}-{}. "
-                                                      + "replica: {}-{}-{}-{}",
-                                              checkVersion, checkVersionHash, replica.getId(), tablet.getId(),
-                                              replica.getBackendId(), replica.getState());
-                                    throw new DdlException("Replica[" + tablet.getId() + "-" + replica.getId()
-                                                                   + "] is not catch up with version: " + checkVersion + "-"
-                                                                   + replica.getVersion());
-                                }
-                            }
-                        }
-
-                        needAsyncBackendIds.add(replica.getBackendId());
-                    } // end check replica version
-                } // end for replicas
-
-                if (replicationNum - needAsyncBackendIds.size() < replicationNum / 2 + 1) {
-                    String backendsStr = Joiner.on(", ").join(needAsyncBackendIds);
-                    LOG.warn("too many unavailable replica in tablet[{}], backends:[{}]", tablet.getId(), backendsStr);
-                    throw new DdlException("Too many replicas are not available. Wait 10 mins and try again."
-                                                   + " if still not work, contact Palo RD");
-                }
-
-                if (!needAsyncBackendIds.isEmpty()) {
-                    LOG.info("add tablet[{}] to async delete. backends: {}",
-                             tablet.getId(), needAsyncBackendIds);
-                    asyncTabletIdToBackends.put(tablet.getId(), needAsyncBackendIds);
-                }
-            } // end for tablets
         } // end for indices
 
         if (deleteConditions == null) {
@@ -3137,7 +2916,7 @@ public class Load {
             loadDeleteJob = new LoadJob(jobId, db.getId(), tableId,
                                         partitionId, jobLabel, olapTable.getIndexIdToSchemaHash(), conditions, deleteInfo);
             Map<Long, TabletLoadInfo> idToTabletLoadInfo = Maps.newHashMap();
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : materializedIndex.getTablets()) {
                     long tabletId = tablet.getId();
                     // tabletLoadInfo is empty, because delete load does not need filepath filesize info
@@ -3198,227 +2977,6 @@ public class Load {
             LOG.warn(failMsg, e);
             throw new DdlException(failMsg);
         } finally {
-            writeLock();
-            try {
-                partitionUnderDelete.remove(partitionId);
-            } finally {
-                writeUnlock();
-            }
-        }
-    }
-
-    @Deprecated
-    public void deleteOld(DeleteStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
-        String partitionName = stmt.getPartitionName();
-        List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-
-        DeleteInfo deleteInfo = null;
-
-        long tableId = -1;
-        long partitionId = -1;
-        long visibleVersion = -1;
-        long visibleVersionHash = -1;
-        long newVersion = -1;
-        long newVersionHash = -1;
-        AgentBatchTask deleteBatchTask = null;
-        int totalReplicaNum = 0;
-        Map<Long, Set<Long>> asyncTabletIdToBackends = Maps.newHashMap();
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table does not exist. name: " + tableName);
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Not olap type table. type: " + table.getType().name());
-            }
-            OlapTable olapTable = (OlapTable) table;
-
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table's state is not normal: " + tableName);
-            }
-
-            tableId = olapTable.getId();
-            Partition partition = olapTable.getPartition(partitionName);
-            if (partition == null) {
-                throw new DdlException("Partition does not exist. name: " + partitionName);
-            }
-            partitionId = partition.getId();
-
-            // pre check
-            visibleVersion = partition.getVisibleVersion();
-            visibleVersionHash = partition.getVisibleVersionHash();
-            checkDelete(olapTable, partition, conditions, visibleVersion, visibleVersionHash,
-                        null, asyncTabletIdToBackends, true);
-
-            newVersion = visibleVersion + 1;
-            newVersionHash = Util.generateVersionHash();
-            deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
-                                        partition.getId(), partitionName,
-                                        newVersion, newVersionHash, null);
-
-            checkAndAddRunningSyncDeleteJob(deleteInfo.getPartitionId(), partitionName);
-
-            // create sync delete tasks
-            deleteBatchTask = new AgentBatchTask();
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                int schemaHash = olapTable.getSchemaHashByIndexId(materializedIndex.getId());
-                for (Tablet tablet : materializedIndex.getTablets()) {
-                    long tabletId = tablet.getId();
-                    for (Replica replica : tablet.getReplicas()) {
-
-                        if (asyncTabletIdToBackends.containsKey(tabletId)
-                                && asyncTabletIdToBackends.get(tabletId).contains(replica.getBackendId())) {
-                            continue;
-                        }
-
-                        AgentTask pushTask = new PushTask(null, replica.getBackendId(), db.getId(),
-                                                          tableId, partition.getId(),
-                                                          materializedIndex.getId(), tabletId, replica.getId(),
-                                                          schemaHash, newVersion,
-                                                          newVersionHash, null, -1L, 0, -1L, TPushType.DELETE,
-                                                          conditions, false, TPriority.HIGH);
-                        if (AgentTaskQueue.addTask(pushTask)) {
-                            deleteBatchTask.addTask(pushTask);
-                            ++totalReplicaNum;
-                        }
-                    }
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        // send tasks to backends
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        for (AgentTask task : deleteBatchTask.getAllTasks()) {
-            countDownLatch.addMark(task.getBackendId(), task.getSignature());
-            ((PushTask) task).setCountDownLatch(countDownLatch);
-        }
-        AgentTaskExecutor.submit(deleteBatchTask);
-        long timeout = Config.tablet_delete_timeout_second * 1000L * totalReplicaNum;
-        boolean ok = false;
-        try {
-            ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            LOG.warn("InterruptedException: ", e);
-            ok = false;
-        }
-
-        if (!ok) {
-            // sync delete failed for unknown reason.
-            // use async delete to try to make up after.
-            LOG.warn("sync delete failed. try async delete. table: {}, partition: {}", tableName, partitionName);
-        }
-
-        Partition partition = null;
-        try {
-            // after check
-            db.writeLock();
-            try {
-                OlapTable table = (OlapTable) db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table does not exist. name: " + tableName);
-                }
-
-                partition = table.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition does not exist. name: " + partitionName);
-                }
-
-                // after check
-                // 1. check partition committed version first
-                if (partition.getVisibleVersion() > visibleVersion
-                        || (visibleVersion == partition.getVisibleVersion()
-                        && visibleVersionHash != partition.getVisibleVersionHash())) {
-                    LOG.warn("before delete version: {}-{}. after delete version: {}-{}",
-                             visibleVersion, visibleVersionHash,
-                             partition.getVisibleVersion(), partition.getVisibleVersionHash());
-                    throw new DdlException("There may have some load job done during delete job. Try again");
-                }
-
-                // 2. after check
-                List<String> deleteConditions = Lists.newArrayList();
-                checkDelete(table, partition, conditions, newVersion, newVersionHash, deleteConditions,
-                            asyncTabletIdToBackends, false);
-                deleteInfo.setDeleteConditions(deleteConditions);
-
-                // update partition's version
-                updatePartitionVersion(partition, newVersion, newVersionHash, -1);
-
-                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                    long indexId = materializedIndex.getId();
-                    for (Tablet tablet : materializedIndex.getTablets()) {
-                        long tabletId = tablet.getId();
-                        for (Replica replica : tablet.getReplicas()) {
-                            ReplicaPersistInfo info =
-                                    ReplicaPersistInfo.createForCondDelete(indexId,
-                                            tabletId,
-                                            replica.getId(),
-                                            replica.getVersion(),
-                                            replica.getVersionHash(),
-                                            table.getSchemaHashByIndexId(indexId),
-                                            replica.getDataSize(),
-                                            replica.getRowCount(),
-                                            replica.getLastFailedVersion(),
-                                            replica.getLastFailedVersionHash(),
-                                            replica.getLastSuccessVersion(),
-                                            replica.getLastSuccessVersionHash());
-                            deleteInfo.addReplicaPersistInfo(info);
-                        }
-                    }
-                }
-
-                writeLock();
-                try {
-                    // handle async delete jobs
-                    if (!asyncTabletIdToBackends.isEmpty()) {
-                        AsyncDeleteJob asyncDeleteJob = new AsyncDeleteJob(db.getId(), tableId, partition.getId(),
-                                                                           newVersion, newVersionHash,
-                                                                           conditions);
-                        for (Long tabletId : asyncTabletIdToBackends.keySet()) {
-                            asyncDeleteJob.addTabletId(tabletId);
-                        }
-                        deleteInfo.setAsyncDeleteJob(asyncDeleteJob);
-                        idToQuorumFinishedDeleteJob.put(asyncDeleteJob.getJobId(), asyncDeleteJob);
-                        LOG.info("finished create async delete job: {}", asyncDeleteJob.getJobId());
-                    }
-
-                    // save delete info
-                    List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(db.getId());
-                    if (deleteInfos == null) {
-                        deleteInfos = Lists.newArrayList();
-                        dbToDeleteInfos.put(db.getId(), deleteInfos);
-                    }
-                    deleteInfos.add(deleteInfo);
-                } finally {
-                    writeUnlock();
-                }
-
-                // Write edit log
-                Catalog.getInstance().getEditLog().logFinishSyncDelete(deleteInfo);
-                LOG.info("delete job finished at: {}. table: {}, partition: {}",
-                         TimeUtils.longToTimeString(System.currentTimeMillis()), tableName, partitionName);
-            } finally {
-                db.writeUnlock();
-            }
-        } finally {
-            // clear tasks
-            List<AgentTask> tasks = deleteBatchTask.getAllTasks();
-            for (AgentTask task : tasks) {
-                PushTask pushTask = (PushTask) task;
-                AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                              pushTask.getVersion(), pushTask.getVersionHash(),
-                                              pushTask.getPushType(), pushTask.getTaskType());
-            }
-
             writeLock();
             try {
                 partitionUnderDelete.remove(partitionId);

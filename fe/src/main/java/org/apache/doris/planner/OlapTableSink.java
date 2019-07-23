@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -242,8 +243,8 @@ public class OlapTableSink extends DataSink {
                             tPartition.addToEnd_keys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                         }
                     }
-                    
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNum_buckets(index.getTablets().size());
@@ -273,7 +274,7 @@ public class OlapTableSink extends DataSink {
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
                 // No lowerBound and upperBound for this range
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNum_buckets(index.getTablets().size());
@@ -294,7 +295,7 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         for (Partition partition : table.getPartitions()) {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {

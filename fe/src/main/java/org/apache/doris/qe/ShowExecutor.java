@@ -70,6 +70,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -1148,7 +1149,7 @@ public class ShowExecutor {
                 OlapTable olapTable = (OlapTable) table;
 
                 for (Partition partition : olapTable.getPartitions()) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
                         rows.addAll(procDir.fetchResult().getRows());
                     }

@@ -39,7 +39,17 @@ public class MaterializedIndex extends MetaObject implements Writable {
         NORMAL,
         ROLLUP,
         SCHEMA_CHANGE,
-        SHADOW // index in SHADOW state is visible to load process, but invisible to query
+        SHADOW; // index in SHADOW state is visible to load process, but invisible to query
+
+        public boolean isVisible() {
+            return this == IndexState.NORMAL || this == IndexState.SCHEMA_CHANGE;
+        }
+    }
+    
+    public enum IndexExtState {
+        ALL,
+        VISIBLE, // index state in NORMAL and SCHEMA_CHANGE
+        SHADOW // index state in SHADOW
     }
 
     private long id;
