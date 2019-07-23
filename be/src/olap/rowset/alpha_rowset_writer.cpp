@@ -245,7 +245,7 @@ Version AlphaRowsetWriter::version() {
     return _rowset_writer_context.version;
 }
 
-int32_t AlphaRowsetWriter::num_rows() {
+int64_t AlphaRowsetWriter::num_rows() {
     return _num_rows_written;
 }
 
