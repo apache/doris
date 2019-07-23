@@ -259,13 +259,6 @@ public class Config extends ConfigBase {
      * minimal intervals between two publish version action
      */
     @ConfField public static int publish_version_interval_ms = 100;
-    
-    /*
-     * maximun concurrent running txn num including prepare, commit txns under a single db
-     * txn manager will reject coming txns
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_running_txn_num_per_db = 100;
 
     /*
      * Maximal wait seconds for straggler node in load
@@ -392,6 +385,20 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
+
+    /*
+     * maximun concurrent running txn num including prepare, commit txns under a single db
+     * txn manager will reject coming txns
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_txn_num_per_db = 100;
+
+    /*
+     * The load task executor pool size. This pool size limits the max running load tasks.
+     * Currently, it only limits the load task of broker load, pending and loading phases.
+     * It should be less than 'max_running_txn_num_per_db'
+     */
+    public static int async_load_task_pool_size = 10;
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.

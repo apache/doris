@@ -114,6 +114,9 @@ public:
     static IntCounter stream_receive_bytes_total;
     static IntCounter stream_load_rows_total;
 
+    static IntCounter memtable_flush_total;
+    static IntCounter memtable_flush_duration_us;
+
     // Gauges
     static IntGauge memory_pool_bytes_total;
     static IntGauge process_thread_num;

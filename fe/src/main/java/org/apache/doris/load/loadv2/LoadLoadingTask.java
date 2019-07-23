@@ -55,8 +55,6 @@ public class LoadLoadingTask extends LoadTask {
 
     private LoadingTaskPlanner planner;
 
-    private String errMsg;
-
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
@@ -75,12 +73,13 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
-        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
         planner.plan(fileStatusList, fileNum);
     }
 
     @Override
     protected void executeTask() throws Exception{
+        LOG.info("begin to execute loading task. job: {}. left retry: {}", callback.getCallbackId(), retryTime);
         retryTime--;
         executeOnce();
     }

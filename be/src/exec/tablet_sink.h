@@ -172,6 +172,9 @@ public:
     // at a time can modify them.
     int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
     int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
+    void increase_node_add_batch_time_us(int64_t be_id, int64_t time_ns) {
+        _node_add_batch_time_map[be_id] += time_ns;
+    }
 
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
@@ -257,6 +260,9 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_in_flight_packet_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+
+    // BE id -> execution time of add batch in us
+    std::unordered_map<int64_t, int64_t> _node_add_batch_time_map;
 };
 
 }
