@@ -261,6 +261,7 @@ struct TypeDescriptor {
 
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
+        case TYPE_TIME:
             return 8;
 
         case TYPE_LARGEINT:

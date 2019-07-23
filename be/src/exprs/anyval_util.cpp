@@ -76,6 +76,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_FLOAT:
         return pool->add(new FloatVal);
 
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return pool->add(new DoubleVal);
 
@@ -125,6 +126,7 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_FLOAT:
         out.type = FunctionContext::TYPE_FLOAT;
         break;
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         out.type = FunctionContext::TYPE_DOUBLE;
         break;

@@ -84,7 +84,7 @@ public:
     static doris_udf::IntVal date_diff(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
         const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::DateTimeVal time_diff(
+    static doris_udf::DoubleVal time_diff(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
         const doris_udf::DateTimeVal& ts_val2);
 
