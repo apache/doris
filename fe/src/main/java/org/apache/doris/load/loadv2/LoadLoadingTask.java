@@ -73,7 +73,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
-        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
         planner.plan(fileStatusList, fileNum);
     }
 
