@@ -122,4 +122,6 @@ public final class FeMetaVersion {
     public static final int VERSION_55 = 55;
     // persist auth info in load job
     public static final int VERSION_56 = 56;
+    // for base index using different id
+    public static final int VERSION_57 = 57;
 }
