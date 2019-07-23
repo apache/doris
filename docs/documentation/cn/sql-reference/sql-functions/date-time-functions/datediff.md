@@ -2,7 +2,7 @@
 
 ## Syntax
 
-`DATETIME DATEDIFF(expr1,expr2)`
+`DATETIME DATEDIFF(DATETIME expr1,DATETIME expr2)`
 
 ## Description
 

@@ -63,6 +63,9 @@ public class TimeUtils {
     public static Date MIN_DATETIME = null;
     public static Date MAX_DATETIME = null;
 
+    public static int MIN_TIME;
+    public static int MAX_TIME;
+
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
         
@@ -81,6 +84,7 @@ public class TimeUtils {
 
             MIN_DATETIME = DATETIME_FORMAT.parse("1900-01-01 00:00:00");
             MAX_DATETIME = DATETIME_FORMAT.parse("9999-12-31 23:59:59");
+
         } catch (ParseException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
