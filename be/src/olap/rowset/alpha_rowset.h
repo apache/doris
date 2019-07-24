@@ -52,37 +52,9 @@ public:
 
     OLAPStatus remove() override;
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta) override;
-
     RowsetMetaSharedPtr rowset_meta() const override;
 
-    size_t data_disk_size() const override;
-
-    size_t index_disk_size() const override;
-
-    bool empty() const override;
-
-    bool zero_num_rows() const override;
-
-    size_t num_rows() const override;
-
-    Version version() const override;
-
     void set_version_and_version_hash(Version version, VersionHash version_hash) override;
-
-    int64_t end_version() const override;
-
-    int64_t start_version() const override;
-
-    VersionHash version_hash() const override;
-
-    bool in_use() const override;
-
-    void acquire() override;
-
-    void release() override;
-    
-    int64_t ref_count() const override;
 
     OLAPStatus make_snapshot(const std::string& snapshot_path,
                              std::vector<std::string>* success_links) override;
@@ -97,20 +69,7 @@ public:
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
 
-    RowsetId rowset_id() const override;
-
-    int64_t creation_time() override;
-
     bool is_pending() const override;
-
-    PUniqueId load_id() const override;
-
-    int64_t txn_id() const override;
-
-    int64_t partition_id() const override;
-
-    // flag for push delete rowset
-    bool delete_flag() override;
 
     OLAPStatus split_range(
             const RowCursor& start_key,
@@ -145,7 +104,6 @@ private:
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     bool _is_cumulative_rowset;
     bool _is_pending_rowset;
-    atomic_t _ref_count;
 };
 
 } // namespace doris
