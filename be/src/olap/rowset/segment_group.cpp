@@ -313,7 +313,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::load() {
+OLAPStatus SegmentGroup::load(bool use_cache) {
     if (_empty) {
         _index_loaded = true;
         return OLAP_SUCCESS;
@@ -347,7 +347,7 @@ OLAPStatus SegmentGroup::load() {
         
         // get full path for one segment
         std::string path = construct_index_file_path(seg_id);
-        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
+        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block, use_cache))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
             
