@@ -67,6 +67,7 @@ public class BrokerLoadPendingTask extends LoadTask {
             List<BrokerFileGroup> fileGroups = entry.getValue();
             long totalFileSize = 0;
             int totalFileNum = 0;
+            int groupNum = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
                 long groupFileSize = 0;
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
@@ -83,8 +84,9 @@ public class BrokerLoadPendingTask extends LoadTask {
                 }
                 totalFileSize += groupFileSize;
                 totalFileNum += fileStatuses.size();
-                LOG.info("get {} files to in one group. size: {} job: {}",
-                        fileStatuses.size(), groupFileSize, callback.getCallbackId());
+                LOG.info("get {} files to in file group {}. size: {}. job: {}",
+                        fileStatuses.size(), groupNum, groupFileSize, callback.getCallbackId());
+                groupNum++;
             }
 
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);

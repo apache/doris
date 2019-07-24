@@ -621,9 +621,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-                << ", txn_id=" << _txn_id << ", node add batch time(ns): ";
+                << ", txn_id=" << _txn_id << ", node add batch time(ns) and num: ";
         for (auto const& pair: _node_add_batch_time_map) {
-            ss << "{" << pair.first << "=" << pair.second << "}";
+            ss << "{" << pair.first << "=" << pair.second << "(" << _node_add_batch_num_map[pair.first] << ")}";
         }
         LOG(INFO) << ss.str();
 

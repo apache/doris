@@ -175,6 +175,7 @@ public:
     int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
     void increase_node_add_batch_time_us(int64_t be_id, int64_t time_ns) {
         _node_add_batch_time_map[be_id] += time_ns;
+        _node_add_batch_num_map[be_id] += 1;
     }
 
 private:
@@ -264,6 +265,7 @@ private:
 
     // BE id -> execution time of add batch in us
     std::unordered_map<int64_t, int64_t> _node_add_batch_time_map;
+    std::unordered_map<int64_t, int64_t> _node_add_batch_num_map;
 };
 
 }
