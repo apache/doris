@@ -97,7 +97,8 @@ private:
 
     bool _already_failed = false;
     bool _has_in_flight_packet = false;
-    int _rpc_timeout_ms = 50000;
+    // this should be set in init() using config
+    int _rpc_timeout_ms = 0;
     int64_t _next_packet_seq = 0;
 
     std::unique_ptr<RowBatch> _batch;

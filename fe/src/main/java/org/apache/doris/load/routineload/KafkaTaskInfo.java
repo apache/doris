@@ -99,16 +99,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
+        TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan();
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        // we use task id as both query id(TPlanFragmentExecParams) and load id(olap table sink/scan range desc)
-        TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setLoad_id(queryId);
         tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
-        tExecPlanFragmentParams.getParams().setQuery_id(queryId);
-        tExecPlanFragmentParams.getParams().getPer_node_scan_ranges().values().stream()
-                .forEach(entity -> entity.get(0).getScan_range().getBroker_scan_range().getRanges().get(0).setLoad_id(queryId));
         return tExecPlanFragmentParams;
     }
 }

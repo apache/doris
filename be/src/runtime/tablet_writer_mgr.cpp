@@ -174,7 +174,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key;
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }

@@ -73,6 +73,7 @@ public abstract class LoadTask extends MasterTask {
         return retryTime;
     }
 
+    // Derived class may need to override this.
     public void updateRetryInfo() {
         this.retryTime--;
         this.signature = Catalog.getCurrentCatalog().getNextId();
