@@ -388,8 +388,8 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     // 这样使得修改表的Schema后不影响对已存在的Segment中的数据读取
     column = header->add_column();
     column->set_name(_column.name());
-    column->set_type(FieldInfo::get_string_by_field_type(_column.type()));
-    column->set_aggregation(FieldInfo::get_string_by_aggregation_type(
+    column->set_type(TabletColumn::get_string_by_field_type(_column.type()));
+    column->set_aggregation(TabletColumn::get_string_by_aggregation_type(
             _column.aggregation()));
     column->set_length(_column.length());
     column->set_is_key(_column.is_key());
