@@ -58,7 +58,7 @@ public:
 
     Version version() override;
 
-    int32_t num_rows() override;
+    int64_t num_rows() override;
 
     RowsetId rowset_id() override {
         return _rowset_writer_context.rowset_id;
@@ -80,7 +80,7 @@ private:
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool _is_pending_rowset;
-    int _num_rows_written;
+    int64_t _num_rows_written;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
     bool _rowset_build;
