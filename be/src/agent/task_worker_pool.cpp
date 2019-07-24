@@ -604,7 +604,7 @@ void TaskWorkerPool::_alter_tablet(
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     TTabletId new_tablet_id;
-    TSchemaHash new_schema_hash;
+    TSchemaHash new_schema_hash = 0;
     if (status == DORIS_SUCCESS) {
         OLAPStatus sc_status = OLAP_SUCCESS;
         if (task_type == TTaskType::ALTER_TASK) {
