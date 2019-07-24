@@ -740,8 +740,15 @@ public class ShowExecutor {
 
         // filter by limit
         long limit = showStmt.getLimit();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
