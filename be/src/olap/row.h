@@ -75,7 +75,7 @@ template<typename DstRowType, typename SrcRowType>
 void init_row_with_others(DstRowType* dst, const SrcRowType& src) {
     for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid));
+        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), dst->arena());
     }
 }
 
@@ -142,7 +142,7 @@ template<typename RowType>
 void agg_finalize_row(const std::vector<uint32_t>& ids, RowType* row) {
     for (uint32_t id : ids) {
         auto cell = row->cell(id);
-        row->schema()->column(id)->agg_finalize(&cell);
+        row->schema()->column(id)->agg_finalize(&cell, row->arena());
     }
 }
 

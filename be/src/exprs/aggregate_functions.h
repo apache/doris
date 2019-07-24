@@ -384,6 +384,21 @@ dst);
     static doris_udf::HllVal hll_raw_agg_finalize(
             doris_udf::FunctionContext*,
             const doris_udf::HllVal& src);
+
+    static void bitmap_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    template <typename T>
+    static void bitmap_update(FunctionContext* ctx, T& src, StringVal* dst);
+    static void bitmap_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_finalize(FunctionContext* ctx, const StringVal& src);
+
+    static void bitmap_union_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* slot);
+    static void bitmap_union_update(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
+                                    doris_udf::StringVal* dst);
+    static void bitmap_union_merge(doris_udf::FunctionContext* ctx,const doris_udf::StringVal& src,
+                                   doris_udf::StringVal* dst);
+    static StringVal bitmap_union_serialize(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src);
+    static doris_udf::BigIntVal bitmap_union_finalize(doris_udf::FunctionContext* ctx, const StringVal& src);
 };
 
 }

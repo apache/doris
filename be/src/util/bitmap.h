@@ -20,6 +20,7 @@
 
 #include "util/bit_util.h"
 #include "gutil/strings/fastmem.h"
+#include <roaring/roaring.hh>
 
 namespace doris {
 
@@ -126,7 +127,7 @@ public:
 
     void Reset(const uint8_t* map, size_t num_bits) {
         offset_ = 0;
-        num_bits_ = num_bits_;
+        num_bits_ = num_bits;
         map_ = map;
     }
 
@@ -246,6 +247,46 @@ class Bitmap {
   /// Used for bit shifting and masking for the word and offset calculation.
   static const int64_t NUM_OFFSET_BITS = 6;
   static const int64_t BIT_INDEX_MASK = 63;
+};
+
+// the wrapper class for RoaringBitmap
+// todo(kks): improve for low cardinality set
+class RoaringBitmap {
+public:
+    RoaringBitmap() = default;
+
+    explicit RoaringBitmap(const char* src) {
+        _roaring = Roaring::read(src);
+    }
+
+    void update(int32_t x) {
+        _roaring.add(x);
+    }
+
+    void merge(RoaringBitmap& bitmap) {
+        _roaring = _roaring | bitmap._roaring;
+    }
+
+    int64_t cardinality() const {
+        return _roaring.cardinality();
+    }
+
+    size_t size() {
+        _roaring.runOptimize();
+        return _roaring.getSizeInBytes();
+    }
+
+    //must call size() first
+    void serialize(char* dest) {
+        _roaring.write(dest);
+    }
+
+    std::string toString() const {
+        return _roaring.toString();
+    }
+
+private:
+    Roaring _roaring;
 };
 
 }

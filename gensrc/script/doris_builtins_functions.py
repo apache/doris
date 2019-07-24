@@ -585,6 +585,11 @@ visible_functions = [
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris16HllHashFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
 
+    #bitmap function
+
+    [['bitmap_init'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+
     # aes and base64 function
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'

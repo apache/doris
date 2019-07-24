@@ -37,41 +37,29 @@ void Schema::copy_from(const Schema& other) {
     _col_ids = other._col_ids;
     _col_offsets = other._col_offsets;
     _cols.resize(other._cols.size(), nullptr);
-
     for (auto cid : _col_ids) {
-        _cols[cid] =  new Field(*other._cols[cid]);
+        _cols[cid] =  other._cols[cid]->clone();
     }
 }
 
-
-void Schema::reset(const std::vector<Field>& cols, size_t num_key_columns) {
-    std::vector<ColumnId> col_ids(cols.size());
-    for (uint32_t cid = 0; cid < cols.size(); ++cid) {
-        col_ids[cid] = cid;
-    }
-    reset(cols, col_ids, num_key_columns);
-}
-
-void Schema::reset(const std::vector<Field>& cols,
+void Schema::reset(const std::vector<TabletColumn>& columns,
                    const std::vector<ColumnId>& col_ids,
                    size_t num_key_columns) {
     _num_key_columns = num_key_columns;
-
     _col_ids = col_ids;
-    _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(cols.size(), -1);
+    _cols.resize(columns.size(), nullptr);
+    _col_offsets.resize(columns.size(), -1);
 
     // we must make sure that the offset is the same with RowBlock's
     std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
     size_t offset = 0;
-    for (int cid = 0; cid < cols.size(); ++cid) {
+    for (int cid = 0; cid < columns.size(); ++cid) {
         if (column_set.find(cid) == column_set.end()) {
             continue;
         }
 
-        _cols[cid] = new Field(cols[cid]);
+        _cols[cid] = FieldFactory::create(columns[cid]);
         _col_offsets[cid] = offset;
-
         // 1 for null byte
         offset += _cols[cid]->size() + 1;
     }

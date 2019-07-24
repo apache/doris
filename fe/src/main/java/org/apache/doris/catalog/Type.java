@@ -213,6 +213,11 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
                 || isScalarType(PrimitiveType.INT) || isScalarType(PrimitiveType.BIGINT);
     }
+
+    public boolean is32IntegerType() {
+        return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
+                || isScalarType(PrimitiveType.INT);
+    }
     
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);

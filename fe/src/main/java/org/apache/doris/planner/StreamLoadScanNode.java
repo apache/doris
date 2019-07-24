@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
@@ -186,6 +187,8 @@ public class StreamLoadScanNode extends ScanNode {
             }
         }
 
+        addExprForBitmapUnionColumn();
+
         // analyze where statement
         if (streamLoadTask.getWhereExpr() != null) {
             Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -234,6 +237,21 @@ public class StreamLoadScanNode extends ScanNode {
         brokerScanRange.setParams(params);
 
         brokerScanRange.setBroker_addresses(Lists.newArrayList());
+    }
+
+    // todo(kks): Unify bitmap_union and hll_union
+    private void addExprForBitmapUnionColumn() throws AnalysisException {
+        for (Column column : dstTable.getBaseSchema()) {
+            if (column.getAggregationType() == AggregateType.BITMAP_UNION) {
+                if (!exprsByName.containsKey(column.getName())) {
+                    SlotRef slotRef = new SlotRef(slotDescByName.get(column.getName()));
+                    FunctionParams params = new FunctionParams(false, Lists.newArrayList(slotRef));
+                    FunctionCallExpr expr = new FunctionCallExpr("bitmap_init", params);
+                    expr.analyze(analyzer);
+                    exprsByName.put(column.getName(), expr);
+                }
+            }
+        }
     }
 
     @Override

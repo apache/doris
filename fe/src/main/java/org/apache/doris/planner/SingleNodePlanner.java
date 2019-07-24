@@ -536,6 +536,18 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("BITMAP")) {
+                        if ((!col.isKey())) {
+                            turnOffReason = "BITMAP function with non-key column: " + col.getName();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("BITMAP_COUNT")) {
+                        if (col.getAggregationType() != AggregateType.BITMAP_UNION) {
+                            turnOffReason = "Aggregate Operator not match: BITMAP_COUNT <--> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
                         // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
                         if ((!col.isKey())) {

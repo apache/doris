@@ -93,6 +93,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = OLAP_FIELD_AGGREGATION_REPLACE;
     } else if (0 == upper_str.compare("HLL_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
+    } else if (0 == upper_str.compare("BITMAP_UNION")) {
+        aggregation_type = OLAP_FIELD_AGGREGATION_BITMAP_UNION;
     } else {
         LOG(WARNING) << "invalid aggregation type string. [aggregation='" << str << "']";
         aggregation_type = OLAP_FIELD_AGGREGATION_UNKNOWN;
@@ -191,6 +193,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
         case OLAP_FIELD_AGGREGATION_HLL_UNION:
             return "HLL_UNION";
 
+        case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
+            return "BITMAP_UNION";
+
         default:
             return "UNKNOWN";
     }
@@ -235,6 +240,13 @@ TabletColumn::TabletColumn() {}
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
     _aggregation = agg;
     _type = type;
+}
+
+TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
+    _aggregation = agg;
+    _type = filed_type;
+    _length = get_type_info(filed_type)->size();
+    _is_nullable = is_nullable;
 }
 
 OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {

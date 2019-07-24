@@ -27,6 +27,7 @@
 #include "runtime/datetime_value.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybird_set.h"
+#include "util/bitmap.h"
 #include "util/tdigest.h"
 #include "util/debug_util.h"
 
@@ -2381,6 +2382,95 @@ void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const IntVal& sr
     *dst = src;
 }
 
+
+void AggregateFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(RoaringBitmap);
+    dst->ptr = (uint8_t*)new RoaringBitmap();
+}
+
+template <typename T>
+void AggregateFunctions::bitmap_update(FunctionContext* ctx, T& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    DCHECK(!dst->is_null);
+
+    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
+    dst_bitmap->update(src.val);
+}
+
+void AggregateFunctions::bitmap_merge(FunctionContext* ctx, StringVal& src, StringVal* dst) {
+    DCHECK(!dst->is_null);
+    DCHECK(!src.is_null);
+
+    RoaringBitmap src_bitmap = RoaringBitmap((char*)src.ptr);
+    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
+    dst_bitmap->merge(src_bitmap);
+}
+
+StringVal AggregateFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+
+    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+    StringVal result(ctx, src_bitmap->size());
+    src_bitmap->serialize((char*)result.ptr);
+    delete src_bitmap;
+    return result;
+}
+
+BigIntVal AggregateFunctions::bitmap_finalize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+    BigIntVal result(src_bitmap->cardinality());
+    delete src_bitmap;
+    return result;
+}
+
+
+void AggregateFunctions::bitmap_union_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(RoaringBitmap);
+    dst->ptr = (uint8_t*)new RoaringBitmap();
+}
+
+void AggregateFunctions::bitmap_union_update(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    DCHECK(!dst->is_null);
+
+    RoaringBitmap src_bitmap = RoaringBitmap((char*)src.ptr);
+    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
+    dst_bitmap->merge(src_bitmap);
+}
+
+void AggregateFunctions::bitmap_union_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    DCHECK(!dst->is_null);
+    DCHECK(!src.is_null);
+
+    RoaringBitmap src_bitmap = RoaringBitmap((char*)src.ptr);
+    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
+    dst_bitmap->merge(src_bitmap);
+}
+
+StringVal AggregateFunctions::bitmap_union_serialize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+
+    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+    StringVal result(ctx, src_bitmap->size());
+    src_bitmap->serialize((char*)result.ptr);
+    delete src_bitmap;
+    return result;
+}
+
+BigIntVal AggregateFunctions::bitmap_union_finalize(FunctionContext* ctx, const StringVal& src) {
+    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+    BigIntVal result(src_bitmap->cardinality());
+    delete src_bitmap;
+    return result;
+}
+
 // Stamp out the templates for the types we need.
 template void AggregateFunctions::init_zero<BigIntVal>(FunctionContext*, BigIntVal* dst);
 
@@ -2809,4 +2899,11 @@ template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
 
 template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
     FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
+
+template void AggregateFunctions::bitmap_update<TinyIntVal>(
+        FunctionContext* ctx, TinyIntVal& src, StringVal* dst);
+template void AggregateFunctions::bitmap_update<SmallIntVal>(
+        FunctionContext* ctx, SmallIntVal& src, StringVal* dst);
+template void AggregateFunctions::bitmap_update<IntVal>(
+        FunctionContext* ctx, IntVal& src, StringVal* dst);
 }

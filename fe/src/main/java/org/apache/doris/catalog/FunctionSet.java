@@ -513,6 +513,16 @@ public class FunctionSet {
 
                 .build();
 
+    private static final Map<Type, String> BITMAP_UPDATE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "13bitmap_updateIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "13bitmap_updateIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "13bitmap_updateIN9doris_udf6IntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .build();
+
     public Function getFunction(Function desc, Function.CompareMode mode) {
         List<Function> fns = functions.get(desc.functionName());
         if (fns == null) {
@@ -707,6 +717,16 @@ public class FunctionSet {
                     prefix + "30count_distinct_string_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
 
+               addBuiltin(AggregateFunction.createBuiltin("bitmap_union", Lists.newArrayList(t),
+                    Type.BIGINT,
+                    Type.VARCHAR,
+                    prefix + "17bitmap_union_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + "19bitmap_union_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    prefix + "18bitmap_union_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    prefix + "22bitmap_union_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    prefix + "21bitmap_union_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
             } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT 
                 || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
@@ -824,6 +844,16 @@ public class FunctionSet {
                     prefix + "9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                     null,
                     prefix + "12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
+            // bitmap
+            addBuiltin(AggregateFunction.createBuiltin("bitmap",
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    prefix + "11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + BITMAP_UPDATE_SYMBOL.get(t),
+                    prefix + "12bitmap_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    prefix + "15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             // HLL_UNION_AGG

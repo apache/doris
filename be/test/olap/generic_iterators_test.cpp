@@ -36,9 +36,7 @@ public:
 };
 
 Schema create_schema() {
-    std::vector<Field> col_schemas;
-
-    // c1: small int
+    std::vector<TabletColumn> col_schemas;
     col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
     // c2: int
     col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);

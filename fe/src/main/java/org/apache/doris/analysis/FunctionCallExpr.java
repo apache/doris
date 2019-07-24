@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -378,6 +379,20 @@ public class FunctionCallExpr extends Expr {
                 && arg.type.isHllType()) {
             throw new AnalysisException(
                     "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
+        }
+
+        if ((fnName.getFunction().equalsIgnoreCase("BITMAP") && !arg.type.is32IntegerType())) {
+            throw new AnalysisException("BITMAP params only support TINYINT or SMALLINT or INT");
+        }
+
+        if ((fnName.getFunction().equalsIgnoreCase("BITMAP_UNION"))) {
+            if (children.size() != 1 || !(getChild(0) instanceof SlotRef)) {
+                throw new AnalysisException("bitmap_count(column) only support one column parameter");
+            }
+            SlotRef slotRef = (SlotRef) getChild(0);
+            if (slotRef.getDesc().getColumn().getAggregationType() != AggregateType.BITMAP_UNION) {
+                throw new AnalysisException("bitmap_count require the column is bitmap_count aggregate type");
+            }
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")

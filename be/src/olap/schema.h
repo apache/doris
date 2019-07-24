@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "olap/aggregate_func.h"
+#include "olap/field.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/field.h"
@@ -27,6 +28,7 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
+
 
 class RowBlockRow;
 
@@ -40,35 +42,66 @@ class RowBlockRow;
 class Schema {
 public:
     Schema(const TabletSchema& schema) {
-        std::vector<Field> cols;
         size_t num_key_columns = 0;
-        for (int i = 0; i < schema.num_columns(); ++i) {
-            const TabletColumn& column = schema.column(i);
-            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
+        std::vector<ColumnId> col_ids(schema.num_columns());
+        std::vector<TabletColumn> columns(schema.num_columns());
+
+        for (uint32_t cid = 0; cid < schema.num_columns(); ++cid) {
+            col_ids[cid] = cid;
+            const TabletColumn& column = schema.column(cid);
+            columns[cid] = column;
             if (column.is_key()) {
                 num_key_columns++;
             }
         }
-
-        reset(cols, num_key_columns);
+        reset(columns, col_ids, num_key_columns);
     }
 
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
-        std::vector<Field> cols;
         size_t num_key_columns = 0;
-        for (int i = 0; i < columns.size(); ++i) {
-            const TabletColumn& column = columns[i];
-            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
-            if (column.is_key()) {
+        for (const auto& i: columns) {
+            if (i.is_key()) {
                 num_key_columns++;
             }
         }
 
-        reset(cols, col_ids, num_key_columns);
+        reset(columns, col_ids, num_key_columns);
     }
 
+    Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
+        std::vector<ColumnId> col_ids(columns.size());
+        for (uint32_t cid = 0; cid < columns.size(); ++cid) {
+            col_ids[cid] = cid;
+        }
+
+        reset(columns, col_ids, num_key_columns);
+    }
+
+    // fixme(kks)
     Schema(const std::vector<Field>& cols, size_t num_key_columns) {
-        reset(cols, num_key_columns);
+        std::vector<ColumnId> col_ids(cols.size());
+        for (uint32_t cid = 0; cid < cols.size(); ++cid) {
+            col_ids[cid] = cid;
+        }
+
+        _num_key_columns = num_key_columns;
+        _col_ids = col_ids;
+        _cols.resize(cols.size(), nullptr);
+        _col_offsets.resize(cols.size(), -1);
+
+        // we must make sure that the offset is the same with RowBlock's
+        std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
+        size_t offset = 0;
+        for (int cid = 0; cid < cols.size(); ++cid) {
+            if (column_set.find(cid) == column_set.end()) {
+                continue;
+            }
+
+            _cols[cid] = cols[cid].clone();
+            _col_offsets[cid] = offset;
+            // 1 for null byte
+            offset += _cols[cid]->size() + 1;
+        }
     }
 
     Schema(const Schema&);
@@ -78,16 +111,16 @@ public:
 
     ~Schema();
 
-    void reset(const std::vector<Field>& cols, size_t num_key_columns);
-
-    void reset(const std::vector<Field>& cols,
+    void reset(const std::vector<TabletColumn>& columns,
                const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
 
     const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(int idx) const { return _cols[idx]; }
 
-    size_t num_key_columns() const { return _num_key_columns; }
+    size_t num_key_columns() const {
+        return _num_key_columns;
+    }
 
     size_t column_offset(ColumnId cid) const {
         return _col_offsets[cid];

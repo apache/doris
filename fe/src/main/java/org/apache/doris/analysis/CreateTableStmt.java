@@ -48,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
@@ -246,6 +248,7 @@ public class CreateTableStmt extends DdlStmt {
 
         int rowLengthBytes = 0;
         boolean hasHll = false;
+        boolean hasBitmap = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             if (engineName.equals("kudu")) {
@@ -263,6 +266,15 @@ public class CreateTableStmt extends DdlStmt {
                 hasHll = true;
             }
 
+
+            if (columnDef.getAggregateType() == BITMAP_UNION) {
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("BITMAP can't be used as keys, " +
+                            "please specify the aggregation type HLL_UNION");
+                }
+                hasBitmap = true;
+            }
+
             if (!columnSet.add(columnDef.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
@@ -277,6 +289,10 @@ public class CreateTableStmt extends DdlStmt {
 
         if (hasHll && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
             throw new AnalysisException("HLL must be used in AGG_KEYS");
+        }
+
+        if (hasBitmap && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+            throw new AnalysisException("BITMAP_COUNT must be used in AGG_KEYS");
         }
 
         if (engineName.equals("olap")) {
