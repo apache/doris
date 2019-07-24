@@ -83,6 +83,10 @@ public class LoadLoadingTask extends LoadTask {
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
     @Override
     protected void executeTask() throws Exception{
         LOG.info("begin to execute loading task. load id: {} job: {}. left retry: {}",
