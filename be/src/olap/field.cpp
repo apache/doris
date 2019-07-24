@@ -66,8 +66,7 @@ Field::Field(const TabletColumn& column)
         _size = _type_info->size();
     }
     _index_size = column.index_length();
-    _aggregate_func = get_aggregate_func(column.aggregation(), column.type());
-    _finalize_func = get_finalize_func(column.aggregation(), column.type());
+    _agg_info = get_aggregate_info(column.aggregation(), column.type());
 }
 
 }  // namespace doris
