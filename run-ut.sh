@@ -235,7 +235,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_mgr_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
-${DORIS_TEST_BINARY_DIR}/olap/field_info_test
+${DORIS_TEST_BINARY_DIR}/olap/decimal12_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_snapshot_converter_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "olap/field_info.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 
 namespace doris {
@@ -27,15 +27,14 @@ class RowBlockRow;
 // Column schema informaton
 class ColumnSchemaV2 {
 public:
-    ColumnSchemaV2(const FieldInfo& field_info)
-        : _field_info(field_info), _type_info(get_type_info(field_info.type)) { }
+    ColumnSchemaV2(const TabletColumn& column)
+        : _column(column), _type_info(get_type_info(_column.type())) { }
 
-    const FieldInfo& field_info() const { return _field_info; }
     const TypeInfo* type_info() const { return _type_info; }
-    FieldType type() const { return _field_info.type; }
-    bool is_nullable() const { return _field_info.is_allow_null; }
+    FieldType type() const { return _column.type(); }
+    bool is_nullable() const { return _column.is_nullable(); }
 private:
-    FieldInfo _field_info;
+    TabletColumn _column;
     TypeInfo* _type_info;
 };
 
