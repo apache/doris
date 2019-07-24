@@ -27,7 +27,8 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/field_info.h"
+#include "olap/uint24.h"
+#include "olap/decimal12.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
@@ -486,8 +487,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
-            OLAP_LOG_WARNING("the len of value string is too long[len=%lu, max_len=%lu].",
-                             value_len, OLAP_STRING_MAX_LENGTH);
+            LOG(WARNING) << "the len of value string is too long, len=" << value_len
+                << ", max_len=" <<  OLAP_STRING_MAX_LENGTH;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -548,8 +549,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
-            OLAP_LOG_WARNING("the len of value string is too long[len=%lu, max_len=%lu].",
-                             value_len, OLAP_STRING_MAX_LENGTH);
+            LOG(WARNING) << "the len of value string is too long, len=" << value_len
+                << ", max_len=" <<  OLAP_STRING_MAX_LENGTH;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 

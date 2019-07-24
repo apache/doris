@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/field_info.h"
+#include "olap/decimal12.h"
 
 #include <gtest/gtest.h>
 
