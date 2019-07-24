@@ -148,7 +148,7 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
 };
 
 template<FieldType field_type>
-struct BaseFieldtypeTraits {
+struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static inline bool equal(const void* left, const void* right) {
