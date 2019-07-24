@@ -57,9 +57,9 @@ import org.apache.doris.http.rest.MultiDesc;
 import org.apache.doris.http.rest.MultiList;
 import org.apache.doris.http.rest.MultiStart;
 import org.apache.doris.http.rest.MultiUnload;
-import org.apache.doris.http.rest.RestCountAction;
-import org.apache.doris.http.rest.RestQueryPlanAction;
-import org.apache.doris.http.rest.RestTableSchemaAction;
+import org.apache.doris.http.rest.TableRowCountAction;
+import org.apache.doris.http.rest.TableQueryPlanAction;
+import org.apache.doris.http.rest.TableSchemaAction;
 import org.apache.doris.http.rest.RowCountAction;
 import org.apache.doris.http.rest.SetConfigAction;
 import org.apache.doris.http.rest.ShowMetaInfoAction;
@@ -164,9 +164,9 @@ public class HttpServer {
         RoleAction.registerAction(controller, imageDir);
 
         // external usage
-        RestCountAction.registerAction(controller);
-        RestTableSchemaAction.registerAction(controller);
-        RestQueryPlanAction.registerAction(controller);
+        TableRowCountAction.registerAction(controller);
+        TableSchemaAction.registerAction(controller);
+        TableQueryPlanAction.registerAction(controller);
 
         BootstrapFinishAction.registerAction(controller);
     }

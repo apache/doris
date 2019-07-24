@@ -26,7 +26,7 @@ import org.junit.Test;
 import java.io.IOException;
 
 
-public class RestCountActionTest extends DorisHttpTestCase {
+public class TableRowCountActionTest extends DorisHttpTestCase {
     private static final String PATH_URI = "/_count";
 
     @Test

@@ -33,6 +33,7 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "util/blocking_queue.hpp"
 #include "util/logging.h"
@@ -46,6 +47,11 @@ public:
         // std::vector<doris::StorePath> paths;
         // doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
         // doris::ExecEnv::init(_exec_env, paths);
+            // all below is just only for test MemoryScratchSink
+        ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
+        ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
+        _exec_env._result_queue_mgr = result_queue_mgr;
+        _exec_env._thread_mgr = thread_mgr;
         TQueryOptions query_options;
         query_options.batch_size = 1024;
         TUniqueId query_id;

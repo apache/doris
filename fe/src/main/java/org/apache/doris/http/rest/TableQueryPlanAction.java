@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
@@ -68,17 +69,17 @@ import java.util.UUID;
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
  * the related tablet maybe pruned by query planer according the `where` predicate.
  */
-public class RestQueryPlanAction extends RestBaseAction {
+public class TableQueryPlanAction extends RestBaseAction {
 
-    public RestQueryPlanAction(ActionController controller) {
+    public TableQueryPlanAction(ActionController controller) {
         super(controller);
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.POST,
-                "/api/{cluster}/{database}/{table}/_query_plan", new RestQueryPlanAction(controller));
+                "/api/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_query_plan", new RestQueryPlanAction(controller));
+                "/api/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
     }
 
     @Override
@@ -99,54 +100,50 @@ public class RestQueryPlanAction extends RestBaseAction {
             String sql;
             if (Strings.isNullOrEmpty(postContent)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
-            } else {
-                JSONObject jsonObject;
-                try {
-                    jsonObject = new JSONObject(postContent);
-                } catch (JSONException e) {
-                    throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
-                }
-                sql = String.valueOf(jsonObject.opt("sql"));
-                if (Strings.isNullOrEmpty(sql)) {
-                    throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
-                }
             }
+            JSONObject jsonObject;
+            try {
+                jsonObject = new JSONObject(postContent);
+            } catch (JSONException e) {
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
+            }
+            sql = String.valueOf(jsonObject.opt("sql"));
+            if (Strings.isNullOrEmpty(sql)) {
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
+            }
+
             String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
             // check privilege for select, otherwise return HTTP 401
             checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
-            } else {
-                // may be should acquire writeLock
-                db.readLock();
-                try {
-                    Table table = db.getTable(tableName);
-                    if (table == null) {
-                        throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-                    } else {
-                        // just only support OlapTable, ignore others such as ESTable, KuduTable
-                        if (table.getType() != Table.TableType.OLAP) {
-                            // Forbidden
-                            throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "only support OlapTable currently, but Table [" + tableName + "] "
-                                    + "is not a OlapTable");
-                        } else {
-                            // construct ConnectContext  for analyzer
-                            ConnectContext context = new ConnectContext(null);
-                            context.setCatalog(Catalog.getCurrentCatalog());
-                            context.setCluster(clusterName);
-                            context.setQualifiedUser(authInfo.fullUserName);
-                            context.setRemoteIP(authInfo.remoteIp);
-                            context.setThreadLocalInfo();
-                            // parse/analysis/plan the sql and acquire tablet distributions
-                            handleQuery(context, fullDbName, tableName, sql, resultMap);
-                        }
-                    }
-                } finally {
-                    db.readUnlock();
-                }
             }
-
+            // may be should acquire writeLock
+            db.readLock();
+            try {
+                Table table = db.getTable(tableName);
+                if (table == null) {
+                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+                }
+                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                if (table.getType() != Table.TableType.OLAP) {
+                    // Forbidden
+                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "only support OlapTable currently, but Table [" + tableName + "] "
+                            + "is not a OlapTable");
+                }
+                // construct ConnectContext  for analyzer
+                ConnectContext context = new ConnectContext(null);
+                context.setCatalog(Catalog.getCurrentCatalog());
+                context.setCluster(clusterName);
+                context.setQualifiedUser(authInfo.fullUserName);
+                context.setRemoteIP(authInfo.remoteIp);
+                context.setThreadLocalInfo();
+                // parse/analysis/plan the sql and acquire tablet distributions
+                handleQuery(context, fullDbName, tableName, sql, resultMap);
+            } finally {
+                db.readUnlock();
+            }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());
@@ -196,7 +193,7 @@ public class RestQueryPlanAction extends RestBaseAction {
         }
         SelectStmt stmt = (SelectStmt) query;
         // just only process sql like `select * from table where <predicate>`, only support executing scan semantic
-        if (stmt.hasAggInfo() || stmt.hasGroupByClause() || stmt.hasAnalyticInfo()
+        if (stmt.hasAggInfo() || stmt.hasAnalyticInfo()
                 || stmt.hasOrderByClause() || stmt.hasOffset() || stmt.hasLimit() || stmt.isExplain()) {
             throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "only support single table filter-prune-scan, but found [ " + sql + "]");
         }
@@ -204,6 +201,11 @@ public class RestQueryPlanAction extends RestBaseAction {
         List<TableRef> fromTables = stmt.getTableRefs();
         if (fromTables.size() != 1) {
             throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must hava only one table");
+        }
+
+        TableRef fromTable = fromTables.get(0);
+        if (fromTable instanceof InlineViewRef) {
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must not embed another statement");
         }
         // check consistent http requested resource with sql referenced
         // if consistent in this way, can avoid check privilege

@@ -27,7 +27,7 @@ import java.io.IOException;
 
 import static org.junit.Assert.assertTrue;
 
-public class RestTableSchemaActionTest extends DorisHttpTestCase {
+public class TableSchemaActionTest extends DorisHttpTestCase {
 
     private static final String QUERY_PLAN_URI = "/_schema";
 

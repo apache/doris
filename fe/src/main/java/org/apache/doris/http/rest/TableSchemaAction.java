@@ -24,7 +24,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
@@ -42,16 +45,16 @@ import java.util.Map;
 /**
  * Get table schema for specified cluster.database.table with privilege checking
  */
-public class RestTableSchemaAction extends RestBaseAction {
+public class TableSchemaAction extends RestBaseAction {
 
-    public RestTableSchemaAction(ActionController controller) {
+    public TableSchemaAction(ActionController controller) {
         super(controller);
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         // the extra `/api` path is so disgusting
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_schema", new RestTableSchemaAction(controller));
+                "/api/{cluster}/{database}/{table}/_schema", new TableSchemaAction(controller));
     }
 
 
@@ -75,41 +78,44 @@ public class RestTableSchemaAction extends RestBaseAction {
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
-            } else {
-                db.readLock();
-                try {
-                    Table table = db.getTable(tableName);
-                    if (table == null) {
-                        throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-                    } else {
-                        // just only support OlapTable, ignore others such as ESTable, KuduTable
-                        if (!(table instanceof OlapTable)) {
-                            // Forbidden
-                            throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
-                                    + "is not a OlapTable, only support OlapTable currently");
-                        } else {
-                            try {
-                                List<Column> columns = table.getBaseSchema();
-                                Map<String, Map<String, String>> propMap = new HashMap<>(columns.size());
-                                for (Column column : columns) {
-                                    Map<String, String> baseInfo = new HashMap<>(2);
-                                    baseInfo.put("type", column.getType().getPrimitiveType().toString());
-                                    baseInfo.put("comment", column.getComment());
-                                    propMap.put(column.getName(), baseInfo);
-                                }
-                                resultMap.put("status", 200);
-                                resultMap.put("properties", propMap);
-                            } catch (Exception e) {
-                                // Transform the general Exception to custom DorisHttpException
-                                throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
-                            }
-                        }
-                    }
-                } finally {
-                    db.readUnlock();
-                }
             }
-
+            db.readLock();
+            try {
+                Table table = db.getTable(tableName);
+                if (table == null) {
+                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+                }
+                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                if (!(table instanceof OlapTable)) {
+                    // Forbidden
+                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                            + "is not a OlapTable, only support OlapTable currently");
+                }
+                try {
+                    List<Column> columns = table.getBaseSchema();
+                    Map<String, Map<String, String>> propMap = new HashMap<>(columns.size());
+                    for (Column column : columns) {
+                        Map<String, String> baseInfo = new HashMap<>(2);
+                        Type colType = column.getType();
+                        PrimitiveType primitiveType = colType.getPrimitiveType();
+                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                            ScalarType scalarType = (ScalarType) colType;
+                            baseInfo.put("precision", scalarType.getPrecision() + "");
+                            baseInfo.put("scale", scalarType.getScalarScale() + "");
+                        }
+                        baseInfo.put("type", primitiveType.toString());
+                        baseInfo.put("comment", column.getComment());
+                        propMap.put(column.getName(), baseInfo);
+                    }
+                    resultMap.put("status", 200);
+                    resultMap.put("properties", propMap);
+                } catch (Exception e) {
+                    // Transform the general Exception to custom DorisHttpException
+                    throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
+                }
+            } finally {
+                db.readUnlock();
+            }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());

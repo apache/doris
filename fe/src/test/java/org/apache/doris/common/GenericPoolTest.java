@@ -232,17 +232,17 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TScanOpenResult open(TScanOpenParams params) throws TException {
+        public TScanOpenResult open_scanner(TScanOpenParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanBatchResult getNext(TScanNextBatchParams params) throws TException {
+        public TScanBatchResult get_next(TScanNextBatchParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanCloseResult close(TScanCloseParams params) throws TException {
+        public TScanCloseResult close_scanner(TScanCloseParams params) throws TException {
             return null;
         }
     }

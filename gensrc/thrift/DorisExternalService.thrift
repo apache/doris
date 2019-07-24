@@ -154,11 +154,11 @@ struct TScanCloseResult {
 // scan service expose ability of scanning data ability to other compute system
 service TDorisExternalService {
     // doris will build  a scan context for this session, context_id returned if success
-    TScanOpenResult open(1: TScanOpenParams params);
+    TScanOpenResult open_scanner(1: TScanOpenParams params);
 
     // return the batch_size of data
-    TScanBatchResult getNext(1: TScanNextBatchParams params);
+    TScanBatchResult get_next(1: TScanNextBatchParams params);
 
     // release the context resource associated with the context_id
-    TScanCloseResult close(1: TScanCloseParams params);
+    TScanCloseResult close_scanner(1: TScanCloseParams params);
 }

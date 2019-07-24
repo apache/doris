@@ -80,7 +80,7 @@ BackendService::BackendService(ExecEnv* exec_env) :
     value.to_string(buf);
     _is_stop = false;
     LOG(INFO) << "DorisExternalService ctor init ";
-    _scan_context_gc_interval = doris::config::scan_context_gc_interval;
+    _scan_context_gc_interval_min = doris::config::scan_context_gc_interval_min;
     // start the reaper thread for gc the expired context
     _keep_alive_reaper.reset(
             new boost::thread(
@@ -280,7 +280,7 @@ void BackendService::submit_routine_load_task(
  * 3. build TExecPlanFragmentParams
  * 4. FragmentMgr#exec_plan_fragment
  */
-void BackendService::open(TScanOpenResult& result_, const TScanOpenParams& params) {
+void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
     LOG(INFO) << "BackendService open ";
     std::string opaqued_query_plan = params.opaqued_query_plan;
     std::string query_plan_info;
@@ -412,7 +412,7 @@ void BackendService::open(TScanOpenResult& result_, const TScanOpenParams& param
 }
 
 // fetch result from polling the queue, should always maintaince the context offset, otherwise inconsistent result
-void BackendService::getNext(TScanBatchResult& result_, const TScanNextBatchParams& params) {
+void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) {
     std::string context_id = params.context_id;
     u_int64_t offset = params.offset;
     TStatus t_status;
@@ -462,7 +462,7 @@ void BackendService::getNext(TScanBatchResult& result_, const TScanNextBatchPara
     context->last_access_time = time(NULL);
 }
 
-void BackendService::close(TScanCloseResult& result_, const TScanCloseParams& params) {
+void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
     std::string context_id = params.context_id;
      TStatus t_status;
     std::shared_ptr<Context> context;
@@ -495,7 +495,7 @@ void BackendService::close(TScanCloseResult& result_, const TScanCloseParams& pa
 // schdule gc proceess per 1min
 void BackendService::expired_context_gc() {
     while (!_is_stop) {
-        boost::this_thread::sleep(boost::posix_time::minutes(_scan_context_gc_interval));
+        boost::this_thread::sleep(boost::posix_time::minutes(_scan_context_gc_interval_min));
         time_t current_time = time(NULL);
         for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
             TUniqueId fragment_instance_id = iter->second->fragment_instance_id;

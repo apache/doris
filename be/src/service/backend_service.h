@@ -168,13 +168,13 @@ public:
     virtual void submit_routine_load_task(TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) override;
 
     // used for external service, open means start the scan procedure
-    virtual void open(TScanOpenResult& result_, const TScanOpenParams& params);
+    virtual void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params);
 
     // used for external service, external use getNext to fetch data batch after batch until eos = true
-    virtual void getNext(TScanBatchResult& result_, const TScanNextBatchParams& params);
+    virtual void get_next(TScanBatchResult& result_, const TScanNextBatchParams& params);
 
     // used for external service, close some context and release resource related with this context
-    virtual void close(TScanCloseResult& result_, const TScanCloseParams& params);
+    virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params);
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
@@ -191,7 +191,7 @@ private:
     boost::scoped_ptr<boost::thread> _keep_alive_reaper;
 
     boost::mutex _lock;
-    u_int32_t _scan_context_gc_interval;
+    u_int32_t _scan_context_gc_interval_min;
 };
 
 } // namespace doris

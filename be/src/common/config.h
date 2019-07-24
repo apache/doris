@@ -420,7 +420,7 @@ namespace config {
     
     // This configuration is used for the context gc thread schedule period
     // note: unit is minute, default is 5min
-    CONF_Int32(scan_context_gc_interval, "5");
+    CONF_Int32(scan_context_gc_interval_min, "5");
 
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the

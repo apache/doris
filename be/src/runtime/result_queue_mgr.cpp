@@ -26,7 +26,6 @@
 
 namespace doris {
 
-
 ResultQueueMgr::ResultQueueMgr() {
     _max_sink_batch_count = doris::config::max_memory_sink_batch_count;
 }

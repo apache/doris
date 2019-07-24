@@ -49,16 +49,16 @@ import java.util.Map;
  * This API is not intended to compute the exact row count of the specified table, if you need the exact row count,
  * please consider using the sql syntax `select count(*) from {table}`
  */
-public class RestCountAction extends RestBaseAction {
-    public RestCountAction(ActionController controller) {
+public class TableRowCountAction extends RestBaseAction {
+    public TableRowCountAction(ActionController controller) {
         super(controller);
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_count", new RestCountAction(controller));
+                "/api/{cluster}/{database}/{table}/_count", new TableRowCountAction(controller));
         controller.registerHandler(HttpMethod.GET,
-                "/api/{database}/{table}/_count", new RestCountAction(controller));
+                "/api/{database}/{table}/_count", new TableRowCountAction(controller));
     }
 
     @Override
@@ -80,46 +80,42 @@ public class RestCountAction extends RestBaseAction {
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
-            } else {
-                db.writeLock();
-                try {
-                    Table table = db.getTable(tableName);
-                    if (table == null) {
-                        throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-                    } else {
-                        // just only support OlapTable, ignore others such as ESTable, KuduTable
-                        if (!(table instanceof OlapTable)) {
-                            // Forbidden
-                            throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
-                                    + "is not a OlapTable, only support OlapTable currently");
-                        } else {
-                            OlapTable olapTable = (OlapTable) table;
-                            long totalCount = 0;
-                            for (Partition partition : olapTable.getPartitions()) {
-                                long version = partition.getVisibleVersion();
-                                long versionHash = partition.getVisibleVersionHash();
-                                for (MaterializedIndex index : partition.getMaterializedIndices()) {
-                                    for (Tablet tablet : index.getTablets()) {
-                                        long tabletRowCount = 0L;
-                                        for (Replica replica : tablet.getReplicas()) {
-                                            if (replica.checkVersionCatchUp(version, versionHash)
-                                                    && replica.getRowCount() > tabletRowCount) {
-                                                tabletRowCount = replica.getRowCount();
-                                            }
-                                        }
-                                        totalCount += tabletRowCount;
-                                    } // end for tablets
-                                } // end for indices
-                            } // end for partitions
-                            resultMap.put("status", 200);
-                            resultMap.put("size", totalCount);
-                        }
-                    }
-                } finally {
-                    db.writeUnlock();
-                }
             }
-
+            db.writeLock();
+            try {
+                Table table = db.getTable(tableName);
+                if (table == null) {
+                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+                }
+                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                if (!(table instanceof OlapTable)) {
+                    // Forbidden
+                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                            + "is not a OlapTable, only support OlapTable currently");
+                }
+                OlapTable olapTable = (OlapTable) table;
+                long totalCount = 0;
+                for (Partition partition : olapTable.getPartitions()) {
+                    long version = partition.getVisibleVersion();
+                    long versionHash = partition.getVisibleVersionHash();
+                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        for (Tablet tablet : index.getTablets()) {
+                            long tabletRowCount = 0L;
+                            for (Replica replica : tablet.getReplicas()) {
+                                if (replica.checkVersionCatchUp(version, versionHash)
+                                        && replica.getRowCount() > tabletRowCount) {
+                                    tabletRowCount = replica.getRowCount();
+                                }
+                            }
+                            totalCount += tabletRowCount;
+                        } // end for tablets
+                    } // end for indices
+                } // end for partitions
+                resultMap.put("status", 200);
+                resultMap.put("size", totalCount);
+            } finally {
+                db.writeUnlock();
+            }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());

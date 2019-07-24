@@ -30,7 +30,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.util.Base64;
 
-public class RestQueryPlanActionTest extends DorisHttpTestCase {
+public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     private static final String PATH_URI = "/_query_plan";
     protected static final String ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + CLUSTER_NAME + "/" + DB_NAME + "/es_table";
