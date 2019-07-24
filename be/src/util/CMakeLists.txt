@@ -29,6 +29,7 @@ set(UTIL_FILES
   coding.cpp
   compress.cpp
   cpu_info.cpp
+  date_func.cpp
   dynamic_util.cpp
   debug_util.cpp
   decompress.cpp
