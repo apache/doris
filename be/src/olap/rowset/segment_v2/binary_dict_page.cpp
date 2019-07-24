@@ -62,25 +62,25 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         size_t num_added = 0;
         uint32_t value_code = -1;
         for (int i = 0; i < *count; ++i, ++src) {
-            auto ret = _dictionary.find(*src);
-            size_t add_count = 1;
-            if (ret != _dictionary.end()) {
-                value_code = ret->second;
+            auto iter = _dictionary.find(*src);
+            if (iter != _dictionary.end()) {
+                value_code = iter->second;
             } else {
                 if (_dict_builder->is_page_full()) {
                     break;
                 }
                 char* item_mem = _arena.Allocate(src->size);
                 if (item_mem == nullptr) {
-                    return Status::Corruption(Substitute("memory allocate failed, size:$0", src->size));
+                    return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
                 }
                 Slice dict_item(src->data, src->size);
                 dict_item.relocate(item_mem);
                 value_code = _dictionary.size();
-                _dictionary.insert({dict_item, value_code});
+                _dictionary.emplace(dict_item, value_code);
                 _dict_items.push_back(dict_item);
                 _dict_builder->update_prepared_size(dict_item.size);
             }
+            size_t add_count = 1;
             RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code), &add_count));
             if (add_count == 0) {
                 // current data page is full, stop processing remaining inputs
@@ -151,7 +151,6 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
 Status BinaryDictPageDecoder::init() {
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
-        LOG(WARNING) << "corrupted data, data size:" << _data.size;
         return Status::Corruption(Substitute("invalid data size:$0, header size:$1",
                 _data.size, BINARY_DICT_PAGE_HEADER_SIZE));
     }
@@ -170,11 +169,7 @@ Status BinaryDictPageDecoder::init() {
         return Status::Corruption(Substitute("invalid encoding type:$0", _encoding_type));
     }
 
-    Status status = _data_page_decoder->init();
-    if (!status.ok()) {
-        LOG(WARNING) << "status:" << status.to_string();
-        return status;
-    }
+    RETURN_IF_ERROR(_data_page_decoder->init());
     _parsed = true;
     return Status::OK();
 }
@@ -209,7 +204,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
             Slice element = _dict_decoder->string_at_index(codeword);
             char* destination = dst->column_block()->arena()->Allocate(element.size);
             if (destination == nullptr) {
-                return Status::Corruption(Substitute("memory allocate failed, size:$0", element.size));
+                return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
             }
             element.relocate(destination);
             *out = element;

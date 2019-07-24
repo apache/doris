@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 namespace doris {
 namespace segment_v2 {
 
@@ -31,7 +33,7 @@ struct PageBuilderOptions {
 };
 
 struct PageDecoderOptions {
-    const BinaryPlainPageDecoder* dict_decoder = nullptr;
+    std::shared_ptr<BinaryPlainPageDecoder> dict_decoder = nullptr;
 };
 
 } // namespace segment_v2

@@ -118,7 +118,7 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    const BinaryPlainPageDecoder* _dict_decoder;
+    std::shared_ptr<BinaryPlainPageDecoder> _dict_decoder;
     bool _parsed;
     EncodingTypePB _encoding_type;
     faststring _code_buf;
