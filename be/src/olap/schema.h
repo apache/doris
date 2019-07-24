@@ -31,8 +31,7 @@ class ColumnSchema {
 public:
     ColumnSchema(const FieldAggregationMethod& agg, const FieldType& type) {
         _type_info = get_type_info(type);
-        _aggregate_func = get_aggregate_func(agg, type);
-        _finalize_func = get_finalize_func(agg, type);
+        _agg_info = get_aggregate_info(agg, type);
         _size = _type_info->size();
         _col_offset = 0;
     }
@@ -69,12 +68,12 @@ public:
     }
 
     void aggregate(char* left, const char* right, Arena* arena) const {
-        _aggregate_func(left + _col_offset, right + _col_offset, arena);
+        _agg_info->update(left + _col_offset, right + _col_offset, arena);
     }
 
     void finalize(char* data) const {
         // data of Hyperloglog type will call this function.
-        _finalize_func(data + _col_offset + 1);
+        _agg_info->finalize(data + _col_offset + 1, nullptr);
     }
 
     int size() const {
@@ -83,8 +82,7 @@ public:
 private:
     FieldType _type;
     TypeInfo* _type_info;
-    AggregateFunc _aggregate_func;
-    FinalizeFunc _finalize_func;
+    const AggregateInfo* _agg_info;
     int _size;
     int _col_offset;
 };
