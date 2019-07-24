@@ -40,30 +40,30 @@ SchemaV2 create_schema() {
 
     // c1: small int
     {
-        FieldInfo info;
+        TabletColumn column;
         auto type = get_type_info(OLAP_FIELD_TYPE_SMALLINT);
-        info.length = type->size();
-        info.type = type->type();
-        info.is_allow_null = true;
-        col_schemas.push_back(info);
+        column._length = type->size();
+        column._type = type->type();
+        column._is_nullable = true;
+        col_schemas.push_back(column);
     }
     // c2: int
     {
-        FieldInfo info;
+        TabletColumn column;
         auto type = get_type_info(OLAP_FIELD_TYPE_INT);
-        info.length = type->size();
-        info.type = type->type();
-        info.is_allow_null = true;
-        col_schemas.push_back(info);
+        column._length = type->size();
+        column._type = type->type();
+        column._is_nullable = true;
+        col_schemas.push_back(column);
     }
     // c3: big int
     {
-        FieldInfo info;
+        TabletColumn column;
         auto type = get_type_info(OLAP_FIELD_TYPE_BIGINT);
-        info.length = type->size();
-        info.type = type->type();
-        info.is_allow_null = true;
-        col_schemas.push_back(info);
+        column._length = type->size();
+        column._type = type->type();
+        column._is_nullable = true;
+        col_schemas.push_back(column);
     }
 
     SchemaV2 schema(col_schemas, 2);

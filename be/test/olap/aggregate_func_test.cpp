@@ -19,7 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/field_info.h"
+#include "olap/decimal12.h"
+#include "olap/uint24.h"
 
 namespace doris {
 
