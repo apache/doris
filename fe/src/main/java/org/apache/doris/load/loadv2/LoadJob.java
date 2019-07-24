@@ -45,6 +45,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -479,6 +481,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                  .build());
             }
         }
+        
+        Coordinator coordinator = QeProcessorImpl.INSTANCE.getQ
 
         // change state
         state = JobState.CANCELLED;
