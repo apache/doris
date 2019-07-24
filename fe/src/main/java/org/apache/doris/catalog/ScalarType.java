@@ -634,8 +634,13 @@ public class ScalarType extends Type {
             return t1;
         }
 
-        if (t1.type == PrimitiveType.HLL || t2.type == PrimitiveType.HLL) {
-            return createHllType();
+        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
+        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
+        if (t1IsHLL || t2IsHLL) {
+            if (t1IsHLL && t2IsHLL) {
+                return createHllType();
+            }
+            return INVALID;
         }
 
         if (t1.isStringType() || t2.isStringType()) {
