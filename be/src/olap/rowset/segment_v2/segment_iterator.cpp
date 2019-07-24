@@ -101,18 +101,18 @@ Status SegmentIterator::_init_short_key_range() {
 
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek() {
-    std::vector<Field> key_fields;
+    std::vector<const Field*> key_fields;
     std::set<uint32_t> column_set;
     if (_opts.lower_bound != nullptr) {
         for (auto cid : _opts.lower_bound->schema()->column_ids()) {
             column_set.emplace(cid);
-            key_fields.push_back(*_opts.lower_bound->schema()->column(cid));
+            key_fields.emplace_back(_opts.lower_bound->schema()->column(cid));
         }
     }
     if (_opts.upper_bound != nullptr) {
         for (auto cid : _opts.upper_bound->schema()->column_ids()) {
             if (column_set.count(cid) == 0) {
-                key_fields.push_back(*_opts.upper_bound->schema()->column(cid));
+                key_fields.emplace_back(_opts.upper_bound->schema()->column(cid));
                 column_set.emplace(cid);
             }
         }

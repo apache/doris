@@ -121,8 +121,8 @@ public:
     void close();
 
     // Reader next row with aggregation.
-    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, bool *eof) {
-        return (this->*_next_row_func)(row_cursor, eof);
+    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, Arena* arena, bool *eof) {
+        return (this->*_next_row_func)(row_cursor, arena, eof);
     }
 
     uint64_t merged_rows() const {
@@ -196,9 +196,9 @@ private:
 
     OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, bool* eof);
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, bool* eof);
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, bool* eof);
+    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof);
+    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof);
+    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof);
 
     TabletSharedPtr tablet() { return _tablet; }
 
@@ -229,7 +229,7 @@ private:
 
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, bool* eof) = nullptr;
+    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, Arena* arena, bool* eof) = nullptr;
 
     bool _aggregation;
     bool _version_locked;

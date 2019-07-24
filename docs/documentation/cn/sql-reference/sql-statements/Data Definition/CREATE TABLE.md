@@ -51,10 +51,13 @@
                                 程度系统内控制，并且HLL列只能通过配套的hll_union_agg、Hll_cardinality、hll_hash进行查询或使用
                                 
         agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
-                            SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)
+                            SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、BITMAP_UNION(列类型需要定义为VARCHAR(20))
                             该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
 
         是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
+
+        注意： 
+            BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT。
 
     2. ENGINE 类型
         默认为 olap。可选 mysql, broker
@@ -293,7 +296,20 @@
         DISTRIBUTED BY HASH(k1) BUCKETS 32
         PROPERTIES ("storage_type"="column");
 
-    7. 创建两张支持Colocat Join的表t1 和t2
+    7. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
+        CREATE TABLE example_db.example_table
+        (
+        k1 TINYINT,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        v1 VARCHAR(20) BITMAP_UNION,
+        v2 VARCHAR(20) BITMAP_UNION
+        )
+        ENGINE=olap
+        AGGREGATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 32
+        PROPERTIES ("storage_type"="column");
+
+    8. 创建两张支持Colocat Join的表t1 和t2
         CREATE TABLE `t1` (
         `id` int(11) COMMENT "",
         `value` varchar(8) COMMENT ""
@@ -314,7 +330,7 @@
         "colocate_with" = "t1"
         );
 
-    8. 创建一个数据文件存储在BOS上的 broker 外部表
+    9. 创建一个数据文件存储在BOS上的 broker 外部表
         CREATE EXTERNAL TABLE example_db.table_broker (
         k1 DATE
         )

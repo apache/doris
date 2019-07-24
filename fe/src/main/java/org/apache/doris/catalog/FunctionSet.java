@@ -513,6 +513,21 @@ public class FunctionSet {
 
                 .build();
 
+    public static final String BITMAP_UNION = "bitmap_union";
+    public static final String BITMAP_UNION_INT = "bitmap_union_int";
+    public static final String BITMAP_COUNT = "bitmap_count";
+    public static final String TO_BITMAP = "to_bitmap";
+
+    private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .build();
+
     public Function getFunction(Function desc, Function.CompareMode mode) {
         List<Function> fns = functions.get(desc.functionName());
         if (fns == null) {
@@ -707,6 +722,16 @@ public class FunctionSet {
                     prefix + "30count_distinct_string_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
 
+               addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(t),
+                    Type.VARCHAR,
+                    Type.VARCHAR,
+                    "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
             } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT 
                 || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
@@ -824,6 +849,16 @@ public class FunctionSet {
                     prefix + "9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                     null,
                     prefix + "12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
+            // BITMAP_UNION_INT
+            addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_INT,
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    BITMAP_UNION_INT_SYMBOL.get(t),
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             // HLL_UNION_AGG

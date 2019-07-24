@@ -152,6 +152,7 @@ public:
     const Schema* schema() const { return _schema.get(); }
 
     char* row_ptr() const { return _fixed_buf; }
+
 private:
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema,
@@ -165,11 +166,9 @@ private:
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
-    std::vector<HllContext*> hll_contexts;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
-
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROW_CURSOR_H

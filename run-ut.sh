@@ -164,6 +164,7 @@ ${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 ${DORIS_TEST_BINARY_DIR}/exprs/timestamp_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/percentile_approx_test
+${DORIS_TEST_BINARY_DIR}/exprs/bitmap_function_test
 
 ## Running geo unit test
 ${DORIS_TEST_BINARY_DIR}/geo/geo_functions_test
