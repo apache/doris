@@ -132,7 +132,11 @@ public class BrokerFileGroup implements Writable {
         }
 
         fileFormat = dataDescription.getFileFormat();
-
+        if (fileFormat != null) {
+            if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv")) {
+                throw new DdlException("File Format Type("+fileFormat+") Is Invalid. Only support 'csv' or 'parquet'");
+            }
+        }
         isNegative = dataDescription.isNegative();
 
         // FilePath

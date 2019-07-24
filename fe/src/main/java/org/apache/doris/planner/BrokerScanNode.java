@@ -17,6 +17,10 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -62,12 +66,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -571,8 +569,11 @@ public class BrokerScanNode extends ScanNode {
         if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
             return TFileFormatType.FORMAT_PARQUET;
         }
+
         String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".gz")) {
+        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.endsWith(".gz")) {
             return TFileFormatType.FORMAT_CSV_GZ;
         } else if (lowerCasePath.endsWith(".bz2")) {
             return TFileFormatType.FORMAT_CSV_BZ2;
