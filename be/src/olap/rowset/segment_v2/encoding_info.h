@@ -29,9 +29,9 @@ class TypeInfo;
 
 namespace segment_v2 {
 
-class PageBuilder;	
-class PageDecoder;	
-class PageBuilderOptions;	
+class PageBuilder;
+class PageDecoder;
+class PageBuilderOptions;
 class PageDecoderOptions;
 
 class EncodingInfo {
