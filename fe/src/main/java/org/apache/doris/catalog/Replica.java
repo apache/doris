@@ -386,7 +386,20 @@ public class Replica implements Writable {
                 this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
     }
 
-    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash) {
+    /*
+     * Check whether the replica's version catch up with the expected version.
+     * If ignoreAlter is true, and state is ALTER, and replica's version is PARTITION_INIT_VERSION, just return true, ignore the version.
+     *      This is for the case that when altering table, the newly created replica's version is PARTITION_INIT_VERSION,
+     *      but we need to treat it as a "normal" replica which version is supposed to be "catch-up".
+     *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
+     *      is already updated by load process, so we need to consider its version.
+     */
+    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash, boolean ignoreAlter) {
+        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION
+                && versionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+            return true;
+        }
+        
         if (expectedVersion == Partition.PARTITION_INIT_VERSION
                 && expectedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
             // no data is loaded into this replica, just return true

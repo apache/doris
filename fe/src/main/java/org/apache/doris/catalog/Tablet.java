@@ -194,7 +194,7 @@ public class Tablet extends MetaObject implements Writable {
             ReplicaState state = replica.getState();
             if (state.canQuery()) {
                 // replica.getSchemaHash() == -1 is for compatibility
-                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash)
+                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
                     allQuerableReplica.add(replica);
                     if (localBeId != -1 && replica.getBackendId() == localBeId) {

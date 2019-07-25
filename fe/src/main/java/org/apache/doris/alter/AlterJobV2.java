@@ -130,6 +130,7 @@ public class AlterJobV2 implements Writable {
     public synchronized void run() {
         if (isTimeout()) {
             cancel("Timeout");
+            return;
         }
 
         switch (jobState) {
@@ -159,7 +160,7 @@ public class AlterJobV2 implements Writable {
         throw new NotImplementedException();
     }
 
-    public synchronized void cancel(String errMsg) {
+    public synchronized boolean cancel(String errMsg) {
         throw new NotImplementedException();
     }
 

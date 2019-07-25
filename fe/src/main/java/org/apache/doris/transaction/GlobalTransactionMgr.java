@@ -636,7 +636,7 @@ public class GlobalTransactionMgr {
                         continue;
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
-                    MaterializedIndex baseIndex = partition.getBaseIndex();
+
                     List<MaterializedIndex> allInices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : allInices) {
                         for (Tablet tablet : index.getTablets()) {
@@ -648,7 +648,7 @@ public class GlobalTransactionMgr {
                                     // it is healthy in the past and does not have error in current load
                                     
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(),
-                                                                    partition.getVisibleVersionHash())) {
+                                            partition.getVisibleVersionHash(), true)) {
                                         // during rollup, the rollup replica's last failed version < 0,
                                         // it may be treated as a normal replica.
                                         // the replica is not failed during commit or publish
@@ -1035,7 +1035,7 @@ public class GlobalTransactionMgr {
                                     newVersion = replica.getVersion();
                                     newVersionHash = replica.getVersionHash();
                                 } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(),
-                                                                        partition.getVisibleVersionHash())) {
+                                        partition.getVisibleVersionHash(), false)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example, A,B,C 3 replica
                                     // A,B 's version is 10, C's version is 10 but C' 10 is abnormal should be rollback
