@@ -421,7 +421,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     replica.setState(ReplicaState.NORMAL);
                 }
             }
-            partition.visualiseShadowIndex(rollupIndexId);
+            partition.visualiseShadowIndex(rollupIndexId, false);
         }
         tbl.setState(OlapTableState.NORMAL);
     }
@@ -448,7 +448,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ROLLUP);
+        AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ALTER);
         // remove all rollup indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
