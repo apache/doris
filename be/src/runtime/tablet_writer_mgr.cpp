@@ -277,11 +277,14 @@ static void dummy_deleter(const CacheKey& key, void* value) {
 
 Status TabletWriterMgr::add_batch(
         const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+        int64_t* wait_lock_time_ns) {
     TabletsChannelKey key(request.id(), request.index_id());
     std::shared_ptr<TabletsChannel> channel;
     {
+        MonotonicStopWatch timer;
         std::lock_guard<std::mutex> l(_lock);
+        *wait_lock_time_ns += timer.elapsed_time();
         auto value = _tablets_channels.seek(key);
         if (value == nullptr) {
             auto handle = _lastest_success_channel->lookup(key.to_string());
@@ -309,7 +312,9 @@ Status TabletWriterMgr::add_batch(
                 << ", err_msg=" << st.get_error_msg();
         }
         if (finished) {
+            MonotonicStopWatch timer;
             std::lock_guard<std::mutex> l(_lock);
+            *wait_lock_time_ns += timer.elapsed_time();
             _tablets_channels.erase(key);
             if (st.ok()) {
                 auto handle = _lastest_success_channel->insert(
