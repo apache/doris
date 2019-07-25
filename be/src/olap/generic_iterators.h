@@ -38,6 +38,6 @@ RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs);
 // This class aims to be used in unit test.
 //
 // Client should delete returned iterator.
-RowwiseIterator* new_auto_increment_iterator(const SchemaV2& schema, size_t num_rows);
+RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows);
 
 }

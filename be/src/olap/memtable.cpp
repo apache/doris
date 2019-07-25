@@ -156,7 +156,7 @@ OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
         SCOPED_RAW_TIMER(&duration_ns);
         Table::Iterator it(_skip_list);
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            const char* row = it.key();
+            char* row = (char*)it.key();
             _schema->finalize(row);
             RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
         }

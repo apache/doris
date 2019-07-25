@@ -22,7 +22,7 @@
 namespace doris {
 
 class RowBlockV2;
-class SchemaV2;
+class Schema;
 
 struct StorageReadOptions {
 };
@@ -47,7 +47,7 @@ public:
     virtual Status next_batch(RowBlockV2* block) = 0;
 
     // return schema for this Iterator
-    virtual const SchemaV2& schema() const = 0;
+    virtual const Schema& schema() const = 0;
 };
 
 }
