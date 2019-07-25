@@ -102,9 +102,7 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
 
 OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _need_column_data_writer = false;
-    // this api is for LinkedSchemaChange
-    // use create hard link to copy rowset for performance
-    // this is feasible because LinkedSchemaChange is done on the same disk
+    // this api is for clone
     AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
     for (auto& segment_group : alpha_rowset->_segment_groups) {
         RETURN_NOT_OK(_init());
@@ -115,6 +113,10 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         _cur_segment_group->add_zone_maps(segment_group->get_zone_maps());
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
+    }
+    // process delete predicate
+    if (rowset->rowset_meta()->has_delete_predicate()) {
+        _current_rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
     return OLAP_SUCCESS;
 }

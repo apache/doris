@@ -228,7 +228,7 @@ public:
         return _rowset_meta_pb.mutable_delete_predicate();
     }
 
-    void set_delete_predicate(DeletePredicatePB& delete_predicate) {
+    void set_delete_predicate(const DeletePredicatePB& delete_predicate) {
         DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
         *new_delete_condition = delete_predicate;
     }
