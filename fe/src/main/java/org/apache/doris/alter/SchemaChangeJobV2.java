@@ -277,6 +277,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
             for (MaterializedIndex shadowIndex : shadowIndexMap.values()) {
+                Preconditions.checkState(shadowIndex.getState() == IndexState.SHADOW, shadowIndex.getState());
                 partition.createRollupIndex(shadowIndex);
             }
         }
@@ -470,7 +471,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     }
                 }
 
-                shadowIdx.setState(IndexState.NORMAL);
+                partition.visualiseShadowIndex(shadowIdx.getId());
             }
         }
 
@@ -662,6 +663,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay cancelled rollup job: {}", jobId);
     }
 
+    @Override
     public void replay() {
         switch (jobState) {
             case PENDING:

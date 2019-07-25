@@ -167,6 +167,10 @@ public class AlterJobV2 implements Writable {
         throw new NotImplementedException();
     }
 
+    public void replay() {
+        throw new NotImplementedException();
+    }
+
     public static AlterJobV2 read(DataInput in) throws IOException {
         JobType type = JobType.valueOf(Text.readString(in));
         switch (type) {

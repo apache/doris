@@ -680,9 +680,4 @@ public class RollupHandler extends AlterHandler {
             jobDone(rollupJob);
         }
     }
-
-    // replay the rollup job by job state
-    public void replayRollupJobV2(RollupJobV2 rollupJob) {
-        rollupJob.replay();
-    }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJob;
+import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeHandler;
@@ -766,9 +767,9 @@ public class MasterImpl {
     private void finishAlterTask(AgentTask task) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
-            if (alterTask.getTaskType() == TTaskType.ROLLUP) {
+            if (alterTask.getJobType() == JobType.ROLLUP) {
                 Catalog.getCurrentCatalog().getRollupHandler().handleFinishAlterTask(alterTask);
-            } else if (alterTask.getTaskType() == TTaskType.SCHEMA_CHANGE) {
+            } else if (alterTask.getJobType() == JobType.SCHEMA_CHANGE) {
                 Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
