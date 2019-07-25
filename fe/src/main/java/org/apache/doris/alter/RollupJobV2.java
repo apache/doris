@@ -258,6 +258,7 @@ public class RollupJobV2 extends AlterJobV2 {
             long partitionId = partition.getId();
             MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
             Preconditions.checkNotNull(rollupIndex);
+            Preconditions.checkState(rollupIndex.getState() == IndexState.SHADOW, rollupIndex.getState());
             partition.createRollupIndex(rollupIndex);
         }
 
@@ -420,7 +421,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     replica.setState(ReplicaState.NORMAL);
                 }
             }
-            rollupIndex.setState(IndexState.NORMAL);
+            partition.visualiseShadowIndex(rollupIndexId);
         }
         tbl.setState(OlapTableState.NORMAL);
     }
@@ -657,6 +658,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("replay cancelled rollup job: {}", jobId);
     }
 
+    @Override
     public void replay() {
         switch (jobState) {
             case PENDING:

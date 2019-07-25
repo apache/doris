@@ -19,12 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.meta.MetaContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
@@ -269,6 +271,22 @@ public class Partition extends MetaObject implements Writable {
 
     public boolean hasData() {
         return !(visibleVersion == PARTITION_INIT_VERSION && visibleVersionHash == PARTITION_INIT_VERSION_HASH);
+    }
+
+    /*
+     * Change the index' state from SHADOW to NORMAL
+     * Also move it to idToVisibleRollupIndex
+     */
+    public boolean visualiseShadowIndex(long shadowIndexId) {
+        MaterializedIndex shadowIdx = idToShadowIndex.remove(shadowIndexId);
+        if (shadowIdx == null) {
+            return false;
+        }
+        Preconditions.checkState(!idToVisibleRollupIndex.containsKey(shadowIndexId), shadowIndexId);
+        shadowIdx.setState(IndexState.NORMAL);
+        idToVisibleRollupIndex.put(shadowIndexId, shadowIdx);
+        LOG.info("visualise the shadow index: {}", shadowIndexId);
+        return true;
     }
 
     public static Partition read(DataInput in) throws IOException {

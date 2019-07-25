@@ -407,4 +407,11 @@ public abstract class AlterHandler extends Daemon {
             db.writeUnlock();
         }
     }
+
+    // replay the alter job v2
+    public void replayAlterJobV2(AlterJobV2 alterJob) {
+        // always replace the alter job with the newly replayed one
+        alterJobsV2.put(alterJob.getJobId(), alterJob);
+        alterJob.replay();
+    }
 }
