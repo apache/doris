@@ -232,14 +232,18 @@ public class OlapTable extends Table {
         indexIdToStorageType.put(indexId, newStorageType);
     }
 
-    public void deleteIndexInfo(String indexName) {
-        long indexId = this.indexNameToId.remove(indexName);
+    public boolean deleteIndexInfo(String indexName) {
+        if (!indexNameToId.containsKey(indexName)) {
+            return false;
+        }
 
+        long indexId = this.indexNameToId.remove(indexName);
         indexIdToSchema.remove(indexId);
         indexIdToSchemaVersion.remove(indexId);
         indexIdToSchemaHash.remove(indexId);
         indexIdToShortKeyColumnCount.remove(indexId);
         indexIdToStorageType.remove(indexId);
+        return true;
     }
 
     public Map<String, Long> getIndexNameToId() {

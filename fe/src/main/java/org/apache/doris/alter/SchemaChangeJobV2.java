@@ -209,7 +209,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                     tbl.getKeysType(), TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch);
-                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdx).get(shadowTabletId), originSchemaHash);
+                            createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
 
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
@@ -471,7 +471,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     }
                 }
 
-                partition.visualiseShadowIndex(shadowIdx.getId());
+                partition.visualiseShadowIndex(shadowIdxId);
             }
         }
 
@@ -488,6 +488,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             if (originIdxId == tbl.getBaseIndexId()) {
                 // set base index
                 tbl.setNewBaseSchema(indexSchemaMap.get(shadowIdxId));
+                tbl.setBaseIndexId(shadowIdxId);
             }
         }
 

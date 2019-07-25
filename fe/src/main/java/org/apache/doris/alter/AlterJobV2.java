@@ -177,6 +177,8 @@ public class AlterJobV2 implements Writable {
         switch (type) {
             case ROLLUP:
                 return RollupJobV2.read(in);
+            case SCHEMA_CHANGE:
+                return SchemaChangeJobV2.read(in);
             default:
                 Preconditions.checkState(false);
                 return null;
