@@ -91,7 +91,7 @@ public abstract class AlterHandler extends Daemon {
 
     public AlterJobV2 getAlterJobV2(long tblId) {
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
-            if (alterJob.getTableId() == tblId) {
+            if (alterJob.getTableId() == tblId && alterJob.getJobState() == AlterJobV2.JobState.RUNNING) {
                 return alterJob;
             }
         }
