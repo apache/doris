@@ -209,7 +209,7 @@ Status NodeChannel::_wait_in_flight_packet() {
     }
 
     if (_add_batch_closure->result.has_execution_time_us()) {
-        _parent->increase_node_add_batch_time_us(_node_id,
+        _parent->update_node_add_batch_counter(_node_id,
                 _add_batch_closure->result.execution_time_us(),
                 _add_batch_closure->result.wait_lock_time_us());
     }
@@ -624,10 +624,10 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
                 << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
-        for (auto const& pair: _node_add_batch_time_map) {
-            ss << "{" << pair.first << ":(" << (pair.second / 1000) << ")("
-               << (_node_add_batch_wait_time_map[pair.first] / 1000) << ")("
-               << _node_add_batch_num_map[pair.first] << ")} ";
+        for (auto const& pair : _node_add_batch_counter_map) {
+            ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_ns / 1000) << ")("
+               << (pair.second.add_batch_wait_lock_time_ns / 1000) << ")("
+               << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
 

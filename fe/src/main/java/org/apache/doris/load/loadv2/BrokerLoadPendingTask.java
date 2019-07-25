@@ -84,8 +84,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                 }
                 totalFileSize += groupFileSize;
                 totalFileNum += fileStatuses.size();
-                LOG.info("get {} files to in file group {}. size: {}. job: {}",
-                        fileStatuses.size(), groupNum, groupFileSize, callback.getCallbackId());
+                LOG.info("get {} files in file group {} for table {}. size: {}. job: {}",
+                        fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId());
                 groupNum++;
             }
 

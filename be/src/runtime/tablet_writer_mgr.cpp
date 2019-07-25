@@ -283,6 +283,7 @@ Status TabletWriterMgr::add_batch(
     std::shared_ptr<TabletsChannel> channel;
     {
         MonotonicStopWatch timer;
+        timer.start();
         std::lock_guard<std::mutex> l(_lock);
         *wait_lock_time_ns += timer.elapsed_time();
         auto value = _tablets_channels.seek(key);
@@ -313,6 +314,7 @@ Status TabletWriterMgr::add_batch(
         }
         if (finished) {
             MonotonicStopWatch timer;
+            timer.start();
             std::lock_guard<std::mutex> l(_lock);
             *wait_lock_time_ns += timer.elapsed_time();
             _tablets_channels.erase(key);

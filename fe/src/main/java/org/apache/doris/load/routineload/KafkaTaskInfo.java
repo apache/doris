@@ -85,7 +85,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        tRoutineLoadTask.setParams(updateTExecPlanFragmentParams(routineLoadJob));
+        tRoutineLoadTask.setParams(rePlan(routineLoadJob));
         tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
@@ -98,7 +98,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return gson.toJson(partitionIdToOffset);
     }
 
-    private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
+    private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId);
