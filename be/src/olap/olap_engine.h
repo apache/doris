@@ -402,6 +402,8 @@ private:
 
     void _update_storage_medium_type_count();
 
+    void _update_storage_medium_type_count_unlock();
+
     OLAPStatus _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
     OLAPStatus _calc_snapshot_id_path(

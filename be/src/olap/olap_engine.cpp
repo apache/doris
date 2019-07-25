@@ -444,18 +444,19 @@ OLAPStatus OLAPEngine::open() {
 }
 
 void OLAPEngine::_update_storage_medium_type_count() {
-    set<TStorageMedium::type> available_storage_medium_types;
-
     std::lock_guard<std::mutex> l(_store_lock);
+    _update_storage_medium_type_count_unlock();
+}
+
+void OLAPEngine::_update_storage_medium_type_count_unlock() {
+    set<TStorageMedium::type> available_storage_medium_types;
     for (auto& it : _store_map) {
         if (it.second->is_used()) {
             available_storage_medium_types.insert(it.second->storage_medium());
         }
     }
-
     _available_storage_medium_type_count = available_storage_medium_types.size();
 }
-
 
 OLAPStatus OLAPEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -487,7 +488,7 @@ void OLAPEngine::set_store_used_flag(const string& path, bool is_used) {
     }
 
     it->second->set_is_used(is_used);
-    _update_storage_medium_type_count();
+    _update_storage_medium_type_count_unlock();
 }
 
 void OLAPEngine::get_all_available_root_path(std::vector<std::string>* available_paths) {
@@ -593,9 +594,13 @@ OLAPStatus OLAPEngine::register_table_into_root_path(OLAPTable* olap_table) {
 }
 
 void OLAPEngine::start_disk_stat_monitor() {
-    for (auto& it : _store_map) {
-        it.second->health_check();
+    {
+        std::lock_guard<std::mutex> l(_store_lock);
+        for (auto& it : _store_map) {
+            it.second->health_check();
+        }
     }
+
     _update_storage_medium_type_count();
     _delete_tables_on_unused_root_path();
     
