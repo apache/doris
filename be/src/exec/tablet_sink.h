@@ -193,7 +193,7 @@ public:
         AddBatchCounter& counter = _node_add_batch_counter_map[be_id];
         counter.add_batch_execution_time_ns += add_batch_time_ns;
         counter.add_batch_wait_lock_time_ns += wait_lock_time_ns;
-        counter._node_add_batch_num_map += 1;
+        counter.add_batch_num += 1;
     }
 
 private:
