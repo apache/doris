@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
@@ -1567,17 +1568,19 @@ public class Catalog {
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
         ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
+        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
         }
-
 
         // alter jobs
         int size = dis.readInt();
@@ -1610,6 +1613,16 @@ public class Catalog {
                     // delete history jobs
                     finishedOrCancelledAlterJobs.add(job);
                 }
+            }
+        }
+
+        // alter job v2
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
+            size = dis.readInt();
+            newChecksum ^= size;
+            for (int i = 0; i < size; i++) {
+                AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
             }
         }
 
@@ -1919,12 +1932,15 @@ public class Catalog {
     public long saveAlterJob(DataOutputStream dos, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
         ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
+        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1950,6 +1966,14 @@ public class Catalog {
             checksum ^= tableId;
             dos.writeLong(tableId);
             alterJob.write(dos);
+        }
+
+        // alter job v2
+        size = alterJobsV2.size();
+        checksum ^= size;
+        dos.writeInt(size);
+        for (AlterJobV2 alterJobV2 : alterJobsV2.values()) {
+            alterJobV2.write(dos);
         }
 
         return checksum;

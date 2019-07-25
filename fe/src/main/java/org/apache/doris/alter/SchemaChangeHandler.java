@@ -1027,8 +1027,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         long shadowReplicaId = catalog.getNextId();
                         long backendId = originReplica.getBackendId();
                         Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL);
-                        Replica rollupReplica = new Replica(shadowReplicaId, backendId, newSchemaHash, ReplicaState.ALTER);
-                        shadowTablet.addReplica(rollupReplica);
+                        Replica shadowReplica = new Replica(shadowReplicaId, backendId, ReplicaState.ALTER,
+                                Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
+                                newSchemaHash);
+                        shadowTablet.addReplica(shadowReplica);
                     }
                 }
                 

@@ -332,7 +332,9 @@ public class RollupHandler extends AlterHandler {
                     }
                     Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL);
                     // replica's init state is ALTER, so that tablet report process will ignore its report
-                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, rollupSchemaHash, ReplicaState.ALTER);
+                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, ReplicaState.ALTER,
+                            Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
+                            rollupSchemaHash);
                     newTablet.addReplica(rollupReplica);
                 } // end for baseReplica
             } // end for baseTablets
