@@ -24,7 +24,8 @@ AggregateInfo::AggregateInfo(const Traits& traits)
         : _init_fn(traits.init),
         _update_fn(traits.update),
         _merge_fn(traits.merge),
-        _finalize_fn(traits.finalize) {
+        _finalize_fn(traits.finalize),
+        _agg_method(traits.agg_method) {
     if (_merge_fn == nullptr) {
         _merge_fn = _update_fn;
     }

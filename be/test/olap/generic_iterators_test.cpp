@@ -22,7 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "olap/olap_common.h"
-#include "olap/schema2.h"
+#include "olap/schema.h"
 #include "olap/row_block2.h"
 #include "util/slice.h"
 
@@ -35,38 +35,17 @@ public:
     }
 };
 
-SchemaV2 create_schema() {
-    std::vector<ColumnSchemaV2> col_schemas;
+Schema create_schema() {
+    std::vector<ColumnSchema> col_schemas;
 
     // c1: small int
-    {
-        TabletColumn column;
-        auto type = get_type_info(OLAP_FIELD_TYPE_SMALLINT);
-        column._length = type->size();
-        column._type = type->type();
-        column._is_nullable = true;
-        col_schemas.push_back(column);
-    }
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
     // c2: int
-    {
-        TabletColumn column;
-        auto type = get_type_info(OLAP_FIELD_TYPE_INT);
-        column._length = type->size();
-        column._type = type->type();
-        column._is_nullable = true;
-        col_schemas.push_back(column);
-    }
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
     // c3: big int
-    {
-        TabletColumn column;
-        auto type = get_type_info(OLAP_FIELD_TYPE_BIGINT);
-        column._length = type->size();
-        column._type = type->type();
-        column._is_nullable = true;
-        col_schemas.push_back(column);
-    }
+    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_BIGINT, true);
 
-    SchemaV2 schema(col_schemas, 2);
+    Schema schema(col_schemas, 2);
     return schema;
 }
 
