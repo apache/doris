@@ -26,7 +26,7 @@
 using strings::Substitute;
 namespace doris {
 
-RowBlockV2::RowBlockV2(const SchemaV2& schema,
+RowBlockV2::RowBlockV2(const Schema& schema,
                        uint16_t capacity, Arena* arena)
         : _schema(schema),
         _column_datas(_schema.num_columns(), nullptr),
@@ -36,7 +36,7 @@ RowBlockV2::RowBlockV2(const SchemaV2& schema,
         _arena(arena) {
     auto bitmap_size = BitmapSize(capacity);
     int i = 0;
-    for (auto& col_schema : _schema.column_schemas()) {
+    for (auto& col_schema : _schema.columns()) {
         size_t data_size = col_schema.type_info()->size() * _capacity;
         _column_datas[i] = new uint8_t[data_size];
 

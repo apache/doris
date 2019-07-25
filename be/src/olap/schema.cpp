@@ -21,27 +21,41 @@
 
 namespace doris {
 
-int SchemaV2::compare(const RowBlockRow& lhs, const RowBlockRow& rhs) const {
+int Schema::compare(const RowBlockRow& lhs, const RowBlockRow& rhs) const {
     for (int i = 0; i < _num_key_columns; ++i) {
-        auto& col_schema = _column_schemas[i];
-        if (col_schema.is_nullable()) {
-            if (lhs.is_null(i)) {
-                if (rhs.is_null(i)) {
-                    continue;
-                } else {
-                    return -1;
-                }
-            }
-            if (rhs.is_null(i)) {
-                return 1;
+        auto& col = _cols[i];
+        if (col.is_nullable()) {
+            bool l_null = lhs.is_null(i);
+            bool r_null = rhs.is_null(i);
+            if (l_null != r_null) {
+                return l_null ? -1 : 1;
+            } else if (l_null) {
+                continue;
             }
         }
-        auto cmp = col_schema.type_info()->cmp(lhs.cell_ptr(i), rhs.cell_ptr(i));
+        auto cmp = col.compare(lhs.cell_ptr(i), rhs.cell_ptr(i));
         if (cmp != 0) {
             return cmp;
         }
     }
     return 0;
+}
+
+void Schema::reset(const std::vector<ColumnSchema>& cols, size_t num_key_columns) {
+    _cols = cols;
+    _num_key_columns = num_key_columns;
+
+    int offset = 0;
+    _col_offsets.resize(_cols.size());
+    for (int i = 0; i < _cols.size(); ++i) {
+        _col_offsets[i] = offset;
+        // 1 for null byte
+        offset += _cols[i].size() + 1;
+
+        if (_cols[i].type() == OLAP_FIELD_TYPE_HLL) {
+            _hll_col_ids.push_back(i);
+        }
+    }
 }
 
 }

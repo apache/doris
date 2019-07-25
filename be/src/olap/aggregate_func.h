@@ -73,6 +73,8 @@ public:
         _finalize_fn((char*)src, arena);
     }
 
+    FieldAggregationMethod agg_method() const { return _agg_method; }
+
 private:
     void (*_init_fn)(char* dst, Arena* arena);
     void (*_update_fn)(char* dst, const char* src, Arena* arena);
@@ -83,6 +85,8 @@ private:
 
     template<typename Traits>
     AggregateInfo(const Traits& traits);
+
+    FieldAggregationMethod _agg_method;
 };
 
 struct BaseAggregateFuncs {
