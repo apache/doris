@@ -200,11 +200,6 @@ public class Partition extends MetaObject implements Writable {
         return baseIndex;
     }
 
-    // this is now only for schema change job
-    public void setBaseIndex(MaterializedIndex baseIndex) {
-        this.baseIndex = baseIndex;
-    }
-
     public long getNextVersion() {
         return nextVersion;
     }
@@ -275,16 +270,20 @@ public class Partition extends MetaObject implements Writable {
 
     /*
      * Change the index' state from SHADOW to NORMAL
-     * Also move it to idToVisibleRollupIndex
+     * Also move it to idToVisibleRollupIndex if it is not the base index.
      */
-    public boolean visualiseShadowIndex(long shadowIndexId) {
+    public boolean visualiseShadowIndex(long shadowIndexId, boolean isBaseIndex) {
         MaterializedIndex shadowIdx = idToShadowIndex.remove(shadowIndexId);
         if (shadowIdx == null) {
             return false;
         }
         Preconditions.checkState(!idToVisibleRollupIndex.containsKey(shadowIndexId), shadowIndexId);
         shadowIdx.setState(IndexState.NORMAL);
-        idToVisibleRollupIndex.put(shadowIndexId, shadowIdx);
+        if (isBaseIndex) {
+            baseIndex = shadowIdx;
+        } else {
+            idToVisibleRollupIndex.put(shadowIndexId, shadowIdx);
+        }
         LOG.info("visualise the shadow index: {}", shadowIndexId);
         return true;
     }

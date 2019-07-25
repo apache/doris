@@ -424,7 +424,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         }
 
                         if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                            LOG.warn("rollup tablet {} has few healthy replicas: {}, rollup job: {}",
+                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}",
                                     shadowTablet.getId(), replicas, jobId);
                             cancel("shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                             return;
@@ -443,7 +443,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.finishedTimeMs = System.currentTimeMillis();
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
-        LOG.info("rollup job finished: {}", jobId);
+        LOG.info("schema change job finished: {}", jobId);
     }
 
     private void onFinished(OlapTable tbl) {
@@ -459,10 +459,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 // in catalog.
                 MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
                 Preconditions.checkNotNull(shadowIdx, shadowIdxId);
-                // base index need special handling
-                if (originIdxId == partition.getBaseIndex().getId()) {
-                    partition.setBaseIndex(shadowIdx);
-                }
                 partition.deleteRollupIndex(originIdxId);
                 // set replica state
                 for (Tablet tablet : shadowIdx.getTablets()) {
@@ -471,7 +467,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     }
                 }
 
-                partition.visualiseShadowIndex(shadowIdxId);
+                partition.visualiseShadowIndex(shadowIdxId, originIdxId == partition.getBaseIndex().getId());
             }
         }
 
@@ -522,8 +518,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ROLLUP);
-        // remove all rollup indexes, and set state to NORMAL
+        AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
+        // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
@@ -561,9 +557,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     public static SchemaChangeJobV2 read(DataInput in) throws IOException {
-        SchemaChangeJobV2 rollupJob = new SchemaChangeJobV2();
-        rollupJob.readFields(in);
-        return rollupJob;
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2();
+        schemaChangeJob.readFields(in);
+        return schemaChangeJob;
     }
 
     /*
@@ -654,7 +650,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 db.writeUnlock();
             }
         }
-        LOG.info("replay finished rollup job: {}", jobId);
+        LOG.info("replay finished schema change job: {}", jobId);
     }
 
     /*
@@ -662,7 +658,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayCancelled() {
         cancelInternal();
-        LOG.info("replay cancelled rollup job: {}", jobId);
+        LOG.info("replay cancelled schema change job: {}", jobId);
     }
 
     @Override
@@ -720,11 +716,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (jobState == JobState.RUNNING) {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
-                AlterReplicaTask rollupTask = (AlterReplicaTask)agentTask;
+                AlterReplicaTask alterTask = (AlterReplicaTask) agentTask;
                 List<String> info = Lists.newArrayList();
-                info.add(String.valueOf(rollupTask.getBackendId()));
-                info.add(String.valueOf(rollupTask.getBaseTabletId()));
-                info.add(String.valueOf(rollupTask.getSignature()));
+                info.add(String.valueOf(alterTask.getBackendId()));
+                info.add(String.valueOf(alterTask.getBaseTabletId()));
+                info.add(String.valueOf(alterTask.getSignature()));
                 taskInfos.add(info);
             }
         }
