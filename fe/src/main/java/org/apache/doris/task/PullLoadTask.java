@@ -109,7 +109,7 @@ public class PullLoadTask {
 
     private long getLeftTimeMs() {
         if (jobDeadlineMs <= 0) {
-            return Config.pull_load_task_default_timeout_second * 1000;
+            return Config.broker_load_default_timeout_second * 1000;
         }
         return jobDeadlineMs - System.currentTimeMillis();
     }

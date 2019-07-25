@@ -336,10 +336,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int load_running_job_num_limit = 0; // 0 is no limit
     /*
-     * Default pull load timeout
+     * Default broker load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int pull_load_task_default_timeout_second = 14400; // 4 hour
+    public static int broker_load_default_timeout_second = 14400; // 4 hour
 
     /*
      * Default non-streaming mini load timeout
@@ -361,16 +361,16 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 600; // 300s
 
     /*
-     * Max stream load timeout
+     * Max load timeout applicable to all type of load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_stream_load_timeout_second = 259200; // 3days
+    public static int max_load_timeout_second = 259200; // 3days
 
     /*
-    * Min stream load timeout
+    * Min stream load timeout applicable to all type of load
     */
     @ConfField(mutable = true, masterOnly = true)
-    public static int min_stream_load_timeout_second = 1; // 1s
+    public static int min_load_timeout_second = 1; // 1s
 
     /*
      * Default hadoop load timeout
