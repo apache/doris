@@ -396,7 +396,7 @@ public abstract class AlterHandler extends Daemon {
                     // Case 2.1
                     replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
                 } else {
-                    Preconditions.checkState(replica.getLastFailedVersion() == -1);
+                    Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
                     // Case 1
                     replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
                 }

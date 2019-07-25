@@ -125,7 +125,7 @@ public class TabletStatMgr extends Daemon {
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.checkVersionCatchUp(version, versionHash)
+                                    if (replica.checkVersionCatchUp(version, versionHash, false)
                                             && replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
                                     }

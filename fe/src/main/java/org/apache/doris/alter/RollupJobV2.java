@@ -386,7 +386,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     int healthyReplicaNum = 0;
                     for (Replica replica : replicas) {
                         if (replica.getLastFailedVersion() < 0
-                                && replica.checkVersionCatchUp(visiableVersion, visiableVersionHash)) {
+                                && replica.checkVersionCatchUp(visiableVersion, visiableVersionHash, false)) {
                             healthyReplicaNum++;
                         }
                     }
@@ -431,9 +431,9 @@ public class RollupJobV2 extends AlterJobV2 {
      * We need to clean any possible residual of this job.
      */
     @Override
-    public synchronized void cancel(String errMsg) {
+    public synchronized boolean cancel(String errMsg) {
         if (jobState.isFinalState()) {
-            return;
+            return false;
         }
 
         cancelInternal();
@@ -443,6 +443,7 @@ public class RollupJobV2 extends AlterJobV2 {
         this.finishedTimeMs = System.currentTimeMillis();
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
+        return true;
     }
 
     private void cancelInternal() {

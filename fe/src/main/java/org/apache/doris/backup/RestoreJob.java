@@ -1224,7 +1224,7 @@ public class RestoreJob extends AbstractJob {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
-                                                                 part.getVisibleVersionHash())) {
+                                        part.getVisibleVersionHash(), false)) {
                                     replica.updateVersionInfo(part.getVisibleVersion(), part.getVisibleVersionHash(),
                                                        replica.getDataSize(), replica.getRowCount());
                                 }

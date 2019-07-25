@@ -1634,7 +1634,7 @@ public class Load {
                     long versionHash = partitionLoadInfo.getVersionHash();
 
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash)) {
+                        if (replica.checkVersionCatchUp(version, versionHash, false)) {
                             continue;
                         }
 

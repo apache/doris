@@ -663,7 +663,9 @@ public class RollupHandler extends AlterHandler {
             // find from new alter jobs first
             rollupJobV2 = getAlterJobV2(olapTable.getId());
             if (rollupJobV2 != null) {
-                rollupJobV2.cancel("user cancelled");
+                if (!rollupJobV2.cancel("user cancelled")) {
+                    throw new DdlException("Job can not be cancelled. State: " + rollupJobV2.getJobState());
+                }
             } else {
                 rollupJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(rollupJob, olapTable.getId());
