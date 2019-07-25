@@ -625,9 +625,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
                 << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
         for (auto const& pair: _node_add_batch_time_map) {
-            ss << "{" << pair.first << "=" << (pair.second / 1000) << "("
-               << (_node_add_batch_wait_time_ns[pair.first] / 1000) << ")(";
-               << _node_add_batch_num_map[pair.first] << ")}";
+            ss << "{" << pair.first << ":(" << (pair.second / 1000) << ")("
+               << (_node_add_batch_wait_time_map[pair.first] / 1000) << ")("
+               << _node_add_batch_num_map[pair.first] << ")} ";
         }
         LOG(INFO) << ss.str();
 

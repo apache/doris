@@ -174,7 +174,7 @@ public:
     int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
     int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
     void increase_node_add_batch_time_us(int64_t be_id, int64_t add_batch_time_ns, int64_t wait_lock_time_ns) {
-        _node_add_batch_time_map[be_id] += time_ns;
+        _node_add_batch_time_map[be_id] += add_batch_time_ns;
         _node_add_batch_wait_time_map[be_id] += wait_lock_time_ns;
         _node_add_batch_num_map[be_id] += 1;
     }
