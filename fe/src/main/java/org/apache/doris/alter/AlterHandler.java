@@ -22,7 +22,11 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -30,8 +34,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.thrift.TTabletInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -334,5 +340,71 @@ public abstract class AlterHandler extends Daemon {
             }
         }
         return jobNum;
+    }
+
+    /*
+     * Handle the finish report of alter task.
+     * If task is success, which means the history data before specified version has been transformed successfully.
+     * So here we should modify the replica's version.
+     * We assume that the specified version is X.
+     * Case 1:
+     *      After alter table process starts, there is no new load job being submitted. So the new replica
+     *      should be with version (1-0). So we just modify the replica's version to partition's visible version, which is X.
+     * Case 2:
+     *      After alter table process starts, there are some load job being processed.
+     * Case 2.1:
+     *      Only one new load job, and it failed on this replica. so the replica's last failed version should be X + 1
+     *      and version is still 1. We should modify the replica's version to (last failed version - 1)
+     * Case 2.2 
+     *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
+     *      So the replica's version should be larger than X. So we don't need to modify the replica version
+     *      because its already looks like normal.
+     */
+    public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
+        if (db == null) {
+            throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
+        }
+
+        db.writeLock();
+        try {
+            OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
+            if (tbl == null) {
+                throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                throw new MetaNotFoundException("index " + task.getIndexId() + " does not exist");
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            Preconditions.checkNotNull(tablet, task.getTabletId());
+            Replica replica = tablet.getReplicaById(task.getNewReplicaId());
+            if (replica == null) {
+                throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
+            }
+            
+            LOG.info("before handle alter task replica: {}, task version: {}-{}",
+                    replica, task.getVersion(), task.getVersionHash());
+            if (replica.getVersion() > task.getVersion()) {
+                // Case 2.2, do nothing
+            } else {
+                if (replica.getLastFailedVersion() > task.getVersion()) {
+                    // Case 2.1
+                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                } else {
+                    Preconditions.checkState(replica.getLastFailedVersion() == -1);
+                    // Case 1
+                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                }
+            }
+            
+            LOG.info("after handle alter task replica: {}", replica);
+        } finally {
+            db.writeUnlock();
+        }
     }
 }

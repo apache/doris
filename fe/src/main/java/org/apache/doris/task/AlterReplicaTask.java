@@ -17,51 +17,56 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
 
 /*
- * This is to replace the old CreateRollupTask.
- * This task only do data transformation from base tablet to rollup tablet.
- * The rollup tablet has already been created before.
+ * This task is used for alter table process, such as rollup and schema change
+ * The task will do data transformation from base replica to new replica.
+ * The new replica should be created before.
+ * The new replica can be a rollup replica, or a shadow replica of schema change.
  */
-public class CreateRollupTaskV2 extends AgentTask {
+public class AlterReplicaTask extends AgentTask {
 
     private long baseTabletId;
-    private long rollupReplicaId;
+    private long newReplicaId;
     private int baseSchemaHash;
-    private int rollupSchemaHash;
+    private int newSchemaHash;
     private long version;
     private long versionHash;
     private long jobId;
+    private AlterJobV2.JobType jobType;
 
-    public CreateRollupTaskV2(long backendId, long dbId, long tableId,
+    public AlterReplicaTask(long backendId, long dbId, long tableId,
             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
-            long baseTabletId, long rollupReplicaId, int rollupSchemaHash, int baseSchemaHash,
-            long version, long versionHash, long jobId) {
+            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
+            long version, long versionHash, long jobId, AlterJobV2.JobType jobType) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
-        this.rollupReplicaId = rollupReplicaId;
+        this.newReplicaId = newReplicaId;
 
-        this.rollupSchemaHash = rollupSchemaHash;
+        this.newSchemaHash = newSchemaHash;
         this.baseSchemaHash = baseSchemaHash;
 
         this.version = version;
         this.versionHash = versionHash;
         this.jobId = jobId;
+
+        this.jobType = jobType;
     }
 
     public long getBaseTabletId() {
         return baseTabletId;
     }
 
-    public long getRollupReplicaId() {
-        return rollupReplicaId;
+    public long getNewReplicaId() {
+        return newReplicaId;
     }
 
-    public int getRollupSchemaHash() {
-        return rollupSchemaHash;
+    public int getNewSchemaHash() {
+        return newSchemaHash;
     }
 
     public int getBaseSchemaHash() {
@@ -80,8 +85,12 @@ public class CreateRollupTaskV2 extends AgentTask {
         return jobId;
     }
 
+    public AlterJobV2.JobType getJobType() {
+        return jobType;
+    }
+
     public TAlterTabletReqV2 toThrift() {
-        TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, rollupSchemaHash);
+        TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
         return req;

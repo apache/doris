@@ -40,13 +40,13 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
-import org.apache.doris.task.CreateRollupTaskV2;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
@@ -764,8 +764,17 @@ public class MasterImpl {
     }
 
     private void finishAlterTask(AgentTask task) {
-        CreateRollupTaskV2 createRollupTaskV2 = (CreateRollupTaskV2) task;
-        createRollupTaskV2.setFinished(true);
+        AlterReplicaTask alterTask = (AlterReplicaTask) task;
+        try {
+            if (alterTask.getTaskType() == TTaskType.ROLLUP) {
+                Catalog.getCurrentCatalog().getRollupHandler().handleFinishAlterTask(alterTask);
+            } else if (alterTask.getTaskType() == TTaskType.SCHEMA_CHANGE) {
+                Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
+            }
+            alterTask.setFinished(true);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to handle finish alter task: {}", e.getMessage());
+        }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
     }
 }
