@@ -181,37 +181,36 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
         return _data_page_decoder->next_batch(n, dst);
-    } else {
-        // dictionary encoding
-        DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
-            *n = 0;
-            return Status::OK();
-        }
-        Slice* out = reinterpret_cast<Slice*>(dst->data());
-        _code_buf.resize((*n) * sizeof(int32_t));
-        
-        // copy the codewords into a temporary buffer first
-        // And then copy the strings corresponding to the codewords to the destination buffer
-        TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_INT);
-        // the data in page is not null
-        ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena()); 
-        ColumnBlockView tmp_block_view(&column_block);
-        RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
-        for (int i = 0; i < *n; ++i) {
-            int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
-            // get the string from the dict decoder
-            Slice element = _dict_decoder->string_at_index(codeword);
-            char* destination = dst->column_block()->arena()->Allocate(element.size);
-            if (destination == nullptr) {
-                return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
-            }
-            element.relocate(destination);
-            *out = element;
-            ++out;
-        }
+    }
+    // dictionary encoding
+    DCHECK(_parsed);
+    if (PREDICT_FALSE(*n == 0)) {
+        *n = 0;
         return Status::OK();
     }
+    Slice *out = reinterpret_cast<Slice *>(dst->data());
+    _code_buf.resize((*n) * sizeof(int32_t));
+
+    // copy the codewords into a temporary buffer first
+    // And then copy the strings corresponding to the codewords to the destination buffer
+    TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_INT);
+    // the data in page is not null
+    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena());
+    ColumnBlockView tmp_block_view(&column_block);
+    RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
+    for (int i = 0; i < *n; ++i) {
+        int32_t codeword = *reinterpret_cast<int32_t *>(&_code_buf[i * sizeof(int32_t)]);
+        // get the string from the dict decoder
+        Slice element = _dict_decoder->string_at_index(codeword);
+        char *destination = dst->column_block()->arena()->Allocate(element.size);
+        if (destination == nullptr) {
+            return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
+        }
+        element.relocate(destination);
+        *out = element;
+        ++out;
+    }
+    return Status::OK();
 }
 
 } // namespace segment_v2
