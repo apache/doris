@@ -29,7 +29,7 @@ namespace doris {
 // (0, 1), (1, 2), (2, 4), (3, 4)...
 //
 // Usage:
-//      SchemaV2 schema;
+//      Schema schema;
 //      AutoIncrementIterator iter(schema, 1000);
 //      StorageReadOptions opts;
 //      RETURN_IF_ERROR(iter.init(opts));
@@ -40,7 +40,7 @@ namespace doris {
 class AutoIncrementIterator : public RowwiseIterator {
 public:
     // Will generate num_rows rows in total
-    AutoIncrementIterator(const SchemaV2& schema, size_t num_rows)
+    AutoIncrementIterator(const Schema& schema, size_t num_rows)
         : _schema(schema), _num_rows(num_rows), _rows_returned(0) {
     }
     ~AutoIncrementIterator() override { }
@@ -49,9 +49,9 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const SchemaV2& schema() const override { return _schema; }
+    const Schema& schema() const override { return _schema; }
 private:
-    SchemaV2 _schema;
+    Schema _schema;
     size_t _num_rows;
     size_t _rows_returned;
 };
@@ -65,9 +65,9 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     while (row_idx < block->capacity() && _rows_returned < _num_rows) {
         RowBlockRow row = block->row(row_idx);
 
-        for (int i = 0; i < _schema.column_schemas().size(); ++i) {
+        for (int i = 0; i < _schema.columns().size(); ++i) {
             row.set_is_null(i, false);
-            auto& col_schema = _schema.column_schemas()[i];
+            auto& col_schema = _schema.columns()[i];
             switch (col_schema.type()) {
             case OLAP_FIELD_TYPE_SMALLINT:
                 *(int16_t*)row.cell_ptr(i) = _rows_returned + i;
@@ -190,7 +190,7 @@ Status MergeContext::_load_next_block() {
 }
 
 struct MergeContextComaprator {
-    MergeContextComaprator(SchemaV2* schema) : _schema(schema) { }
+    MergeContextComaprator(Schema* schema) : _schema(schema) { }
     bool operator()(const MergeContext* lhs, const MergeContext* rhs) const {
         auto lhs_row = lhs->current_row();
         auto rhs_row = rhs->current_row();
@@ -198,7 +198,7 @@ struct MergeContextComaprator {
         return _schema->compare(lhs_row, rhs_row) > 0;
     }
 private:
-    SchemaV2* _schema;
+    Schema* _schema;
 };
 
 class MergeIterator : public RowwiseIterator {
@@ -221,14 +221,14 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const SchemaV2& schema() const override {
+    const Schema& schema() const override {
         return *_schema.get();
     }
 private:
     std::vector<RowwiseIterator*> _origin_iters;
     std::vector<MergeContext*> _merge_ctxs;
 
-    std::unique_ptr<SchemaV2> _schema;
+    std::unique_ptr<Schema> _schema;
     using MergeHeap = std::priority_queue<MergeContext*, std::vector<MergeContext*>, MergeContextComaprator>;
     std::unique_ptr<MergeHeap> _merge_heap;
 };
@@ -237,7 +237,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema.reset(new SchemaV2(_origin_iters[0]->schema()));
+    _schema.reset(new Schema(_origin_iters[0]->schema()));
     _merge_heap.reset(new MergeHeap(MergeContextComaprator(_schema.get())));
 
     for (auto iter : _origin_iters) {
@@ -293,7 +293,7 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const SchemaV2& schema() const override {
+    const Schema& schema() const override {
         return _origin_iters[0]->schema();
     }
 
@@ -339,7 +339,7 @@ RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs) {
     return new UnionIterator(std::move(inputs));
 }
 
-RowwiseIterator* new_auto_increment_iterator(const SchemaV2& schema, size_t num_rows) {
+RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
     return new AutoIncrementIterator(schema, num_rows);
 }
 
