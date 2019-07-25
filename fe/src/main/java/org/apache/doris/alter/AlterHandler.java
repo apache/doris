@@ -92,6 +92,10 @@ public abstract class AlterHandler extends Daemon {
         return null;
     }
 
+    public Map<Long, AlterJobV2> getAlterJobsV2() {
+        return this.alterJobsV2;
+    }
+
     @Deprecated
     protected void addAlterJob(AlterJob alterJob) {
         this.alterJobs.put(alterJob.getTableId(), alterJob);
