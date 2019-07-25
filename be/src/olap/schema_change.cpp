@@ -1335,8 +1335,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         if (res != OLAP_SUCCESS) {
             break;
         }
-        res = _validate_alter_result(new_tablet, request);
     } while(0);
+
+    // _validate_alter_result should be outside the above while loop.
+    // to avoid requiring the header lock twice.
+    res = _validate_alter_result(new_tablet, request);
 
     // if failed convert history data, then just remove the new tablet
     if (res != OLAP_SUCCESS) {

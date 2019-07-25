@@ -39,8 +39,8 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.task.CreateRollupTaskV2;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -186,6 +186,8 @@ public class RollupJobV2 extends AlterJobV2 {
                         long backendId = rollupReplica.getBackendId();
                         Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
                         countDownLatch.addMark(backendId, rollupTabletId);
+                        // create replica with version 1.
+                        // version will be updated by following load process, or when rollup task finished.
                         CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                 backendId, dbId, tableId, partitionId, rollupIndexId, rollupTabletId,
                                 rollupShortKeyColumnCount, rollupSchemaHash,
@@ -311,12 +313,12 @@ public class RollupJobV2 extends AlterJobV2 {
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
                     for (Replica rollupReplica : rollupReplicas) {
-                        CreateRollupTaskV2 rollupTask = new CreateRollupTaskV2(
+                        AlterReplicaTask rollupTask = new AlterReplicaTask(
                                 rollupReplica.getBackendId(), dbId, tableId, partitionId,
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                visibleVersion, visibleVersionHash, jobId);
+                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -702,7 +704,7 @@ public class RollupJobV2 extends AlterJobV2 {
         if (jobState == JobState.RUNNING) {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
-                CreateRollupTaskV2 rollupTask = (CreateRollupTaskV2)agentTask;
+                AlterReplicaTask rollupTask = (AlterReplicaTask)agentTask;
                 List<String> info = Lists.newArrayList();
                 info.add(String.valueOf(rollupTask.getBackendId()));
                 info.add(String.valueOf(rollupTask.getBaseTabletId()));

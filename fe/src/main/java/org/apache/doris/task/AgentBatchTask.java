@@ -361,7 +361,7 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
             }
             case ALTER: {
-                CreateRollupTaskV2 createRollupTask = (CreateRollupTaskV2) task;
+                AlterReplicaTask createRollupTask = (AlterReplicaTask) task;
                 TAlterTabletReqV2 request = createRollupTask.toThrift();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());

@@ -39,8 +39,8 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.task.CreateRollupTaskV2;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -343,12 +343,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            CreateRollupTaskV2 rollupTask = new CreateRollupTaskV2(
+                            AlterReplicaTask rollupTask = new AlterReplicaTask(
                                     shadowReplica.getBackendId(), dbId, tableId, partitionId,
                                     shadowIdxId, originIdxId,
                                     shadowTabletId, originTabletId, shadowReplica.getId(),
                                     shadowSchemaHash, originSchemaHash,
-                                    visibleVersion, visibleVersionHash, jobId);
+                                    visibleVersion, visibleVersionHash, jobId, JobType.SCHEMA_CHANGE);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -716,7 +716,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (jobState == JobState.RUNNING) {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
-                CreateRollupTaskV2 rollupTask = (CreateRollupTaskV2)agentTask;
+                AlterReplicaTask rollupTask = (AlterReplicaTask)agentTask;
                 List<String> info = Lists.newArrayList();
                 info.add(String.valueOf(rollupTask.getBackendId()));
                 info.add(String.valueOf(rollupTask.getBaseTabletId()));
