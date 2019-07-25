@@ -190,6 +190,7 @@ public class AlterJobV2 implements Writable {
         out.writeLong(jobId);
         out.writeLong(dbId);
         out.writeLong(tableId);
+        Text.writeString(out, tableName);
 
         Text.writeString(out, errMsg);
         out.writeLong(createTimeMs);
@@ -206,6 +207,7 @@ public class AlterJobV2 implements Writable {
         jobId = in.readLong();
         dbId = in.readLong();
         tableId = in.readLong();
+        tableName = Text.readString(in);
 
         errMsg = Text.readString(in);
         createTimeMs = in.readLong();

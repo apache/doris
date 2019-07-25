@@ -47,8 +47,12 @@ public class Replica implements Writable {
         ALTER, // replica is under rollup or schema change
         DECOMMISSION; // replica is ready to be deleted
 
-        public boolean isLoadable() {
-            return this == ReplicaState.NORMAL || this == ReplicaState.SCHEMA_CHANGE || this == ReplicaState.ALTER;
+        public boolean canLoad() {
+            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER;
+        }
+
+        public boolean canQuery() {
+            return this == NORMAL || this == SCHEMA_CHANGE;
         }
     }
     
