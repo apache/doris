@@ -46,7 +46,9 @@ public:
 
     // data of Hyperloglog type will call this function.
     void finalize(void* data) const {
-        _agg_info->finalize(data, nullptr);
+        // NOTE(zc): Currently skip null byte, this is different with update interface
+        // we should unify this
+        _agg_info->finalize((char*)data + 1, nullptr);
     }
 
     int size() const { return _type_info->size(); }
