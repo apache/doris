@@ -502,7 +502,10 @@ public class InsertStmt extends DdlStmt {
             } else {
                 if (col.getDefaultValue() == null && col.isAllowNull()) {
                     resultExprs.add(NullLiteral.create(col.getType()));
-                } else {
+                }
+                // Situation: column is not nullable and the default value of column is null
+                // Solution: the import stmt has been filtered in function: checkColumnCoverage
+                else {
                     resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
                 }
             }
