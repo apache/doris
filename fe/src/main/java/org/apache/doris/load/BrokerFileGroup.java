@@ -17,11 +17,10 @@
 
 package org.apache.doris.load;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -33,6 +32,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,11 +63,14 @@ public class BrokerFileGroup implements Writable {
     private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
+    // this is a compatible param which only happens before the function of broker has been supported.
     private List<String> fileFieldNames;
     private List<String> filePaths;
 
-    // This column need expression to get column
+    // this is a compatible param which only happens before the function of broker has been supported.
     private Map<String, Expr> exprColumnMap;
+    // this param will be recreated by data desc when the log replay
+    private List<ImportColumnDesc> columnExprList;
 
     // Used for recovery from edit log
     private BrokerFileGroup() {
@@ -82,7 +88,8 @@ public class BrokerFileGroup implements Writable {
 
     public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
-        exprColumnMap = dataDescription.getParsedExprMap();
+        this.exprColumnMap = null;
+        this.columnExprList = dataDescription.getParsedColumnExprList();
     }
 
     // NOTE: DBLock will be held
@@ -114,11 +121,6 @@ public class BrokerFileGroup implements Writable {
                 }
                 partitionIds.add(partition.getId());
             }
-        }
-
-        // fileFieldNames
-        if (dataDescription.getColumnNames() != null) {
-            fileFieldNames = Lists.newArrayList(dataDescription.getColumnNames());
         }
 
         // column
@@ -163,10 +165,6 @@ public class BrokerFileGroup implements Writable {
         return isNegative;
     }
 
-    public List<String> getFileFieldNames() {
-        return fileFieldNames;
-    }
-
     public List<Long> getPartitionIds() {
         return partitionIds;
     }
@@ -175,8 +173,8 @@ public class BrokerFileGroup implements Writable {
         return filePaths;
     }
 
-    public Map<String, Expr> getExprColumnMap() {
-        return exprColumnMap;
+    public List<ImportColumnDesc> getColumnExprList() {
+        return columnExprList;
     }
 
     @Override
@@ -257,7 +255,7 @@ public class BrokerFileGroup implements Writable {
         for (String path : filePaths) {
             Text.writeString(out, path);
         }
-        // expr column map
+        // expr column map will be null after broker load supports function
         if (exprColumnMap == null) {
             out.writeInt(0);
         } else {
@@ -326,6 +324,16 @@ public class BrokerFileGroup implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
             if (in.readBoolean()) {
                 fileFormat = Text.readString(in);
+            }
+        }
+
+        // merge fileFieldName into exprColumnMap
+        if (fileFieldNames != null) {
+            if (exprColumnMap == null) {
+                exprColumnMap = Maps.newHashMap();
+            }
+            for (String fileFieldName : fileFieldNames) {
+                exprColumnMap.put(fileFieldName, null);
             }
         }
     }

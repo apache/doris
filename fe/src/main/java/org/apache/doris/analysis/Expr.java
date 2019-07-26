@@ -1447,6 +1447,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     enum ExprSerCode {
+        // Expr is null
+        NULL(-1),
         SLOT_REF(1),
         NULL_LITERAL(2),
         BOOL_LITERAL(3),
@@ -1484,6 +1486,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public static void writeTo(Expr expr, DataOutput output) throws IOException {
+        if (expr == null) {
+            output.writeInt(ExprSerCode.NULL.getCode());
+            return;
+        }
         if (expr instanceof SlotRef) {
             output.writeInt(ExprSerCode.SLOT_REF.getCode());
         } else if (expr instanceof NullLiteral) {
@@ -1512,6 +1518,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         expr.write(output);
     }
 
+    /**
+     * The expr result may be null
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
@@ -1519,6 +1531,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throw new IOException("Unknown code: " + code);
         }
         switch (exprSerCode) {
+            case NULL:
+                return null;
             case SLOT_REF:
                 return SlotRef.read(in);
             case NULL_LITERAL:

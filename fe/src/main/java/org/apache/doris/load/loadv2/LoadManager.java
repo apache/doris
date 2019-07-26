@@ -90,7 +90,7 @@ public class LoadManager implements Writable{
      * @param stmt
      * @throws DdlException
      */
-    public void createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
+    public void createLoadJobFromStmt(LoadStmt stmt, String originStmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob = null;
@@ -104,7 +104,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
@@ -454,9 +454,22 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void submitJobs() {
+    public void prepareJobs() {
+        submitJobs();
+        analyzeLoadJobs();
+    }
+
+    private void submitJobs() {
         loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
+    }
+
+    private void analyzeLoadJobs() {
+        for (LoadJob loadJob : idToLoadJob.values()) {
+            if (loadJob.getState() == JobState.PENDING) {
+                loadJob.analyze();
+            }
+        }
     }
 
     private Map<Long, LoadJob> getIdToLoadJobs() {

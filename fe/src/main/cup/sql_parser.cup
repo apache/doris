@@ -381,7 +381,7 @@ nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys;
 nonterminal List<String> opt_partitions, partitions;
-nonterminal List<Expr> opt_col_mapping_list;
+nonterminal List<Expr> opt_col_mapping_list, opt_col_expr_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
