@@ -44,13 +44,14 @@ class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions& options) :
             _size_estimate(0),
+            _prepared_size(0),
             _options(options) {
-        _buffer.reserve(_options.data_page_size);
         reset();
     }
 
     bool is_page_full() override {
-        return _size_estimate > _options.data_page_size;
+        return _size_estimate > _options.data_page_size
+            || _prepared_size > _options.data_page_size;
     }
 
     Status add(const uint8_t *vals, size_t *count) override {
@@ -94,7 +95,9 @@ public:
         _offsets.clear();
         _buffer.clear();
         _buffer.resize(MAX_HEADER_SIZE);
+        _buffer.reserve(_options.data_page_size);
         _size_estimate = MAX_HEADER_SIZE;
+        _prepared_size = MAX_HEADER_SIZE;
         _finished = false;
     }
 
@@ -112,11 +115,17 @@ public:
         (void) ret;
     }
 
+    void update_prepared_size(size_t added_size) {
+        _prepared_size += added_size;
+        _prepared_size += sizeof(uint32_t);
+    }
+
     // Length of a header.
     static const size_t MAX_HEADER_SIZE = sizeof(uint32_t) * 2;
 private:
     faststring _buffer;
     size_t _size_estimate;
+    size_t _prepared_size;
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;

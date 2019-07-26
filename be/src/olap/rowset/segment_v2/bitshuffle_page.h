@@ -29,9 +29,9 @@
 #include "gutil/port.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 
@@ -39,33 +39,10 @@ namespace doris {
 namespace segment_v2 {
 
 enum {
-    BITSHUFFLE_BLOCK_HEADER_SIZE = 16
+    BITSHUFFLE_PAGE_HEADER_SIZE = 16
 };
 
-void warn_with_bitshuffle_error(int64_t val) {
-    switch (val) {
-    case -1:
-      LOG(WARNING) << "Failed to allocate memory";
-      break;
-    case -11:
-      LOG(WARNING) << "Missing SSE";
-      break;
-    case -12:
-      LOG(WARNING) << "Missing AVX";
-      break;
-    case -80:
-      LOG(WARNING) << "Input size not a multiple of 8";
-      break;
-    case -81:
-      LOG(WARNING) << "block_size not multiple of 8";
-      break;
-    case -91:
-      LOG(WARNING) << "Decompression error, wrong number of bytes processed";
-      break;
-    default:
-      LOG(WARNING) << "Error internal to compression routine";
-    }
-}
+void warn_with_bitshuffle_error(int64_t val);
 
 // BitshufflePageBuilder bitshuffles and compresses the bits of fixed
 // size type blocks with lz4.
@@ -105,8 +82,8 @@ void warn_with_bitshuffle_error(int64_t val) {
 template<FieldType Type>
 class BitshufflePageBuilder : public PageBuilder {
 public:
-    BitshufflePageBuilder(PageBuilderOptions options) :
-            _options(std::move(options)),
+    BitshufflePageBuilder(const PageBuilderOptions& options) :
+            _options(options),
             _count(0),
             _remain_element_capacity(0),
             _finished(false) {
@@ -140,7 +117,7 @@ public:
         DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
             << "buffer must be naturally-aligned";
         _buffer.clear();
-        _buffer.resize(BITSHUFFLE_BLOCK_HEADER_SIZE);
+        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
         _finished = false;
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
@@ -160,7 +137,8 @@ public:
 
 private:
     Slice _finish(int final_size_of_type) {
-        _data.resize(BITSHUFFLE_BLOCK_HEADER_SIZE + final_size_of_type * _count);
+        //_data.resize(BITSHUFFLE_PAGE_HEADER_SIZE + final_size_of_type * _count);
+        _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
         int num_elems_after_padding = ALIGN_UP(_count, 8);
@@ -170,11 +148,11 @@ private:
             _data.push_back(0);
         }
 
-        _buffer.resize(BITSHUFFLE_BLOCK_HEADER_SIZE +
+        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE +
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
         encode_fixed32_le(&_buffer[0], _count);
-        int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_BLOCK_HEADER_SIZE],
+        int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
             // This means the bitshuffle function fails.
@@ -184,11 +162,11 @@ private:
             // since we have logged fatal in warn_with_bitshuffle_error().
             return Slice();
         }
-        encode_fixed32_le(&_buffer[4], BITSHUFFLE_BLOCK_HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
-        return Slice(_buffer.data(), BITSHUFFLE_BLOCK_HEADER_SIZE + bytes);
+        return Slice(_buffer.data(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;
@@ -225,9 +203,9 @@ public:
 
     Status init() override {
         CHECK(!_parsed);
-        if (_data.size < BITSHUFFLE_BLOCK_HEADER_SIZE) {
+        if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << BITSHUFFLE_BLOCK_HEADER_SIZE;
+            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
@@ -235,6 +213,7 @@ public:
         if (_compressed_size != _data.size) {
             std::stringstream ss;
             ss << "Size information unmatched, _compressed_size:" << _compressed_size
+                << ", _num_elements:" << _num_elements
                 << ", data size:" << _data.size;
             return Status::InternalError(ss.str());
         }
@@ -324,7 +303,7 @@ private:
         if (_num_elements > 0) {
             int64_t bytes;
             _decoded.resize(_num_element_after_padding * _size_of_element);
-            char* in = const_cast<char*>(&_data[BITSHUFFLE_BLOCK_HEADER_SIZE]);
+            char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);
             bytes = bitshuffle::decompress_lz4(in, _decoded.data(), _num_element_after_padding,
                     _size_of_element, 0);
             if (PREDICT_FALSE(bytes < 0)) {
