@@ -151,7 +151,7 @@ OLAPStatus ColumnDataWriter::write(const char* row, const Schema* schema) {
 
 void ColumnDataWriter::next(const RowCursor& row_cursor) {
     for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
+        char* right = row_cursor.nullable_cell_ptr(i);
         if (_zone_maps[i].first->cmp(right) > 0) {
             _zone_maps[i].first->copy(right);
         }
@@ -166,7 +166,7 @@ void ColumnDataWriter::next(const RowCursor& row_cursor) {
 
 void ColumnDataWriter::next(const char* row, const Schema* schema) {
     for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = const_cast<char*>(row + schema->get_col_offset(i));
+        char* right = const_cast<char*>(row + schema->column_offset(i));
         if (_zone_maps[i].first->cmp(right) > 0) {
             _zone_maps[i].first->copy(right);
         }

@@ -230,9 +230,8 @@ OLAPStatus ColumnWriter::init() {
 OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    const Field* field = row_cursor->get_field_by_index(_column_id);
     bool is_null = row_cursor->is_null(_column_id);
-    char* buf = field->get_ptr(row_cursor->get_buf());
+    char* buf = row_cursor->cell_ptr(_column_id);
     if (_is_present) {
         res = _is_present->write(is_null);
 
@@ -250,7 +249,7 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
             } else {
-                _bf->add_bytes(buf, field->size());
+                _bf->add_bytes(buf, row_cursor->column_size(_column_id));
             }
         } else {
             _bf->add_bytes(NULL, 0);

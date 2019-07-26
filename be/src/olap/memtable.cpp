@@ -20,6 +20,7 @@
 #include "olap/hll.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/row_cursor.h"
+#include "olap/row.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
@@ -46,9 +47,10 @@ MemTable::~MemTable() {
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema)
     : _schema(schema) {}
 
-int MemTable::RowCursorComparator::operator()
-    (const char* left, const char* right) const {
-    return _schema->compare(left, right);
+int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
+    ContiguousRow lhs_row(_schema, left);
+    ContiguousRow rhs_row(_schema, right);
+    return compare_row(lhs_row, rhs_row);
 }
 
 size_t MemTable::memory_usage() {
@@ -63,7 +65,7 @@ void MemTable::insert(Tuple* tuple) {
         _schema->set_not_null(i, _tuple_buf);
         if (tuple->is_null(slot->null_indicator_offset())) {
             _schema->set_null(i, _tuple_buf);
-            offset += _schema->get_col_size(i) + 1;
+            offset += _schema->column_size(i) + 1;
             continue;
         }
         offset += 1;
@@ -136,11 +138,11 @@ void MemTable::insert(Tuple* tuple) {
                 break;
             }
             default: {
-                memcpy(_tuple_buf + offset, tuple->get_slot(slot->tuple_offset()), _schema->get_col_size(i));
+                memcpy(_tuple_buf + offset, tuple->get_slot(slot->tuple_offset()), _schema->column_size(i));
                 break;
             }
         }
-        offset = offset + _schema->get_col_size(i);
+        offset = offset + _schema->column_size(i);
     }
 
     bool overwritten = false;
@@ -157,7 +159,8 @@ OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
         Table::Iterator it(_skip_list);
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             char* row = (char*)it.key();
-            _schema->finalize(row);
+            ContiguousRow dst_row(_schema, row);
+            agg_finalize_row(&dst_row, _skip_list->arena());
             RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
         }
         RETURN_NOT_OK(rowset_writer->flush());

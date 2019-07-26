@@ -48,16 +48,16 @@ public:
         return _cmp(left, right);
     }
 
-    inline void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) const {
-        _copy_with_pool(dest, src, mem_pool);
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+        _deep_copy(dest, src, mem_pool);
     }
 
     inline void copy_with_arena(void* dest, const void* src, Arena* arena) const {
         _copy_with_arena(dest, src, arena);
     }
 
-    inline void copy_without_pool(void* dest, const void* src) const {
-        _copy_without_pool(dest, src);
+    inline void direct_copy(void* dest, const void* src) const {
+        _direct_copy(dest, src);
     }
 
     OLAPStatus from_string(void* buf, const std::string& scan_key) const {
@@ -66,8 +66,8 @@ public:
 
     std::string to_string(const void* src) const { return _to_string(src); }
 
-    inline void set_to_max(void* buf) { _set_to_max(buf); }
-    inline void set_to_min(void* buf) { _set_to_min(buf); }
+    inline void set_to_max(void* buf) const { _set_to_max(buf); }
+    inline void set_to_min(void* buf) const { _set_to_min(buf); }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const { return _hash_code(data, seed); }
     inline const size_t size() const { return _size; }
@@ -77,9 +77,9 @@ private:
     bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_copy_with_pool)(void* dest, const void* src, MemPool* mem_pool);
+    void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_copy_with_arena)(void* dest, const void* src, Arena* arena);
-    void (*_copy_without_pool)(void* dest, const void* src);
+    void (*_direct_copy)(void* dest, const void* src);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -170,7 +170,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
+    static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
@@ -178,7 +178,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void copy_without_pool(void* dest, const void* src) {
+    static inline void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
@@ -317,13 +317,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
     }
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
+    static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
-    static void copy_without_pool(void* dest, const void* src) {
+    static void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void set_to_max(void* buf) {
@@ -508,7 +508,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         const Slice* slice = reinterpret_cast<const Slice*>(src);
         return slice->to_string();
     }
-    static void copy_with_pool(void* dest, const void* src, MemPool* mem_pool) {
+    static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         Slice* l_slice = reinterpret_cast<Slice*>(dest);
         const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
@@ -522,7 +522,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void copy_without_pool(void* dest, const void* src) {
+    static void direct_copy(void* dest, const void* src) {
         Slice* l_slice = reinterpret_cast<Slice*>(dest);
         const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);

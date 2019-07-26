@@ -485,8 +485,7 @@ OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& col
 
 bool CondColumn::eval(const RowCursor& row) const {
     //通过一列上的所有查询条件对单行数据进行过滤
-    Field* field = const_cast<Field*>(row.get_field_by_index(_col_index));
-    char* buf = field->get_field_ptr(row.get_buf());
+    char* buf = row.nullable_cell_ptr(_col_index);
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
         if (!each_cond->eval(buf)) {

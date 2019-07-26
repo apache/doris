@@ -163,9 +163,8 @@ public:
                 return res;
             }
 
-            const Field* field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_field_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->nullable_cell_ptr(column_id());
             _block_statistics.add(buf);
             if (!is_null) {
                 char value = *reinterpret_cast<char*>(buf + 1);
@@ -265,9 +264,8 @@ public:
                 return res;
             }
 
-            const Field* field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_field_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->nullable_cell_ptr(column_id());
             _block_statistics.add(buf);
             if (!is_null) {
                 T value = *reinterpret_cast<T*>(buf + 1);
@@ -368,10 +366,8 @@ public:
                 return res;
             }
 
-            const Field* field = cursor->get_field_by_index(column_id());
-
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_field_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->nullable_cell_ptr(column_id());
             _block_statistics.add(buf);
             if (!is_null) {
                 T* value = reinterpret_cast<T*>(buf + 1);
@@ -435,10 +431,9 @@ public:
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
-            auto field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
             if (!is_null) {
-                char* buf = field->get_ptr(cursor->get_buf());
+                char* buf = cursor->cell_ptr(column_id());
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 res = write(slice->data, slice->size);
                 if (res != OLAP_SUCCESS) {
@@ -516,9 +511,8 @@ public:
                 return res;
             }
 
-            const Field* field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->cell_ptr(column_id());
 
             if (!is_null) {
                 //const char* str = reinterpret_cast<const char*>(buf);
@@ -565,9 +559,8 @@ public:
                 return res;
             }
 
-            const Field* field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_field_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->nullable_cell_ptr(column_id());
             _block_statistics.add(buf);
             if (!is_null) {
                 decimal12_t value = *reinterpret_cast<decimal12_t*>(buf + 1);
@@ -614,9 +607,8 @@ public:
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
-            const Field* field = cursor->get_field_by_index(column_id());
-            bool is_null = field->is_null(cursor->get_buf());
-            char* buf = field->get_field_ptr(cursor->get_buf());
+            bool is_null = cursor->is_null(column_id());
+            char* buf = cursor->nullable_cell_ptr(column_id());
             _block_statistics.add(buf);
             if (!is_null) {
                 int64_t* value = reinterpret_cast<int64_t*>(buf + 1);

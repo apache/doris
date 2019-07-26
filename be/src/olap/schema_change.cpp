@@ -29,6 +29,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
+#include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "common/resource_tls.h"
@@ -235,17 +236,12 @@ bool RowBlockChanger::change_row_block(
                     if (true == read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
                     } else {
-                        const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (nullptr == field_to_read) {
-                            LOG(WARNING) << "failed to get ref field. index=" << ref_column;
-                            return false;
-                        }
 
                         write_helper.set_not_null(i);
                         if (mutable_block->tablet_schema().column(i).type() == OLAP_FIELD_TYPE_CHAR) {
                             // if modify length of CHAR type, the size of slice should be equal
                             // to new length.
-                            Slice* src = (Slice*)(field_to_read->get_ptr(read_helper.get_buf()));
+                            Slice* src = (Slice*)(read_helper.cell_ptr(ref_column));
                             size_t size = mutable_block->tablet_schema().column(i).length();
                             char* buf = reinterpret_cast<char*>(mem_pool->allocate(size));
                             memset(buf, 0, size);
@@ -254,7 +250,7 @@ bool RowBlockChanger::change_row_block(
                             Slice dst(buf, size);
                             write_helper.set_field_content(i, reinterpret_cast<char*>(&dst), mem_pool);
                         } else {
-                            char* src = field_to_read->get_ptr(read_helper.get_buf());
+                            char* src = read_helper.cell_ptr(ref_column);
                             write_helper.set_field_content(i, src, mem_pool);
                         }
                     }
@@ -280,15 +276,10 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_null(i);
                     } else {
                         // 要写入的
-                        const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (nullptr == field_to_read) {
-                            LOG(WARNING) << "failed to get ref field. index=" << ref_column;
-                            return false;
-                        }
 
                         write_helper.set_not_null(i);
                         int p = ref_block->tablet_schema().column(ref_column).length() - 1;
-                        Slice* slice = reinterpret_cast<Slice*>(field_to_read->get_ptr(read_helper.get_buf()));
+                        Slice* slice = reinterpret_cast<Slice*>(read_helper.cell_ptr(ref_column));
                         char* buf = slice->data;
                         while (p >= 0 && buf[p] == '\0') {
                             p--;
@@ -425,10 +416,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     _swap_row_block->clear();
     for (size_t i = 0; i < row_cursor_list.size(); ++i) {
         _swap_row_block->get_row(i, &helper_row);
-        if (helper_row.copy(*row_cursor_list[i], _swap_row_block->mem_pool()) != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to set row for row block. row=" << i;
-            goto SORT_ERR_EXIT;
-        }
+        copy_row(&helper_row, *row_cursor_list[i], _swap_row_block->mem_pool());
     }
 
     _swap_row_block->finalize(row_cursor_list.size());
@@ -548,7 +536,7 @@ bool RowBlockMerger::merge(
     while (_heap.size() > 0) {
         row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), rowset_writer->mem_pool());
 
-        row_cursor.agg_init(*(_heap.top().row_cursor));
+        init_row_with_others(&row_cursor, *(_heap.top().row_cursor));
 
         if (!_pop_heap()) {
             goto MERGE_ERR;
@@ -559,14 +547,14 @@ bool RowBlockMerger::merge(
             continue;
         }
 
-        while (!_heap.empty() && row_cursor.full_key_cmp(*(_heap.top().row_cursor)) == 0) {
-            row_cursor.aggregate(*(_heap.top().row_cursor));
+        while (!_heap.empty() && compare_row(row_cursor, *_heap.top().row_cursor) == 0) {
+            agg_update_row(&row_cursor, *(_heap.top().row_cursor), nullptr);
             ++tmp_merged_rows;
             if (!_pop_heap()) {
                 goto MERGE_ERR;
             }
         }
-        row_cursor.finalize_one_merge();
+        agg_finalize_row(&row_cursor, nullptr);
         rowset_writer->add_row(&row_cursor);
     }
     if (rowset_writer->flush() != OLAP_SUCCESS) {
@@ -665,7 +653,7 @@ SchemaChangeDirectly::~SchemaChangeDirectly() {
 bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         row_block->get_row(i, _src_cursor);
-        _dst_cursor->copy(*_src_cursor, rowset_writer->mem_pool());
+        copy_row(_dst_cursor, *_src_cursor, rowset_writer->mem_pool());
         if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
             LOG(WARNING) << "fail to attach writer";
             return false;

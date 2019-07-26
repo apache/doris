@@ -42,13 +42,13 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
         typename TypeTraits<field_type>::CppType dst_val;
         MemTracker tracker;
         MemPool pool(&tracker);
-        type->copy_with_pool((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        type->copy_without_pool((char*)&dst_val, (char*)&src_val);
+        type->direct_copy((char*)&dst_val, (char*)&src_val);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -80,14 +80,14 @@ void test_char(FieldType field_type, Slice src_val) {
         Slice dst_val(buf, sizeof(buf));
         MemTracker tracker;
         MemPool pool(&tracker);
-        type->copy_with_pool((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        type->copy_without_pool((char*)&dst_val, (char*)&src_val);
+        type->direct_copy((char*)&dst_val, (char*)&src_val);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }

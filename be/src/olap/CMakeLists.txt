@@ -35,7 +35,6 @@ add_library(Olap STATIC
     cumulative_compaction.cpp
     delete_handler.cpp
     delta_writer.cpp
-    field.cpp
     file_helper.cpp
     file_stream.cpp
     generic_iterators.cpp

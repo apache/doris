@@ -20,6 +20,8 @@
 #include <queue>
 
 #include "olap/row_block2.h"
+#include "olap/row_cursor_cell.h"
+#include "olap/row.h"
 #include "util/arena.h"
 
 namespace doris {
@@ -68,7 +70,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
         for (int i = 0; i < _schema.columns().size(); ++i) {
             row.set_is_null(i, false);
             auto& col_schema = _schema.columns()[i];
-            switch (col_schema.type()) {
+            switch (col_schema->type()) {
             case OLAP_FIELD_TYPE_SMALLINT:
                 *(int16_t*)row.cell_ptr(i) = _rows_returned + i;
                 break;
@@ -195,7 +197,7 @@ struct MergeContextComaprator {
         auto lhs_row = lhs->current_row();
         auto rhs_row = rhs->current_row();
 
-        return _schema->compare(lhs_row, rhs_row) > 0;
+        return compare_row(lhs_row, rhs_row) > 0;
     }
 private:
     Schema* _schema;
