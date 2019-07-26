@@ -2744,9 +2744,9 @@ public class Load {
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             // check table has condition column
-            Map<String, Column> indexNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            Map<String, Column> indexColNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (Column column : indexIdToSchema.get(index.getId())) {
-                indexNameToColumn.put(column.getName(), column);
+                indexColNameToColumn.put(column.getName(), column);
             }
             String indexName = table.getIndexNameById(index.getId());
             for (Predicate condition : conditions) {
@@ -2758,7 +2758,7 @@ public class Load {
                     IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
                     columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
                 }
-                Column column = indexNameToColumn.get(columnName);
+                Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
                 }

@@ -153,7 +153,7 @@ public class SchemaChangeHandler extends AlterHandler {
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
             boolean isKey = false;
             for (Column column : baseSchema) {
-                if (column.isKey() && column.getName().equals(dropColName)) {
+                if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                     isKey = true;
                     break;
                 }
@@ -171,7 +171,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 boolean isKey = false;
                 boolean hasReplaceColumn = false;
                 for (Column column : baseSchema) {
-                    if (column.isKey() && column.getName().equals(dropColName)) {
+                    if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
                     } else if (AggregateType.REPLACE == column.getAggregationType()) {
                         hasReplaceColumn = true;
@@ -188,7 +188,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 boolean isKey = false;
                 boolean hasReplaceColumn = false;
                 for (Column column : targetIndexSchema) {
-                    if (column.isKey() && column.getName().equals(dropColName)) {
+                    if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
                     } else if (AggregateType.REPLACE == column.getAggregationType()) {
                         hasReplaceColumn = true;
@@ -218,7 +218,7 @@ public class SchemaChangeHandler extends AlterHandler {
             Iterator<Column> baseIter = baseSchema.iterator();
             while (baseIter.hasNext()) {
                 Column column = baseIter.next();
-                if (column.getName().equals(dropColName)) {
+                if (column.getName().equalsIgnoreCase(dropColName)) {
                     baseIter.remove();
                     found = true;
                     break;
@@ -234,7 +234,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 Iterator<Column> iter = rollupSchema.iterator();
                 while (iter.hasNext()) {
                     Column column = iter.next();
-                    if (column.getName().equals(dropColName)) {
+                    if (column.getName().equalsIgnoreCase(dropColName)) {
                         iter.remove();
                         break;
                     }
@@ -249,7 +249,7 @@ public class SchemaChangeHandler extends AlterHandler {
             Iterator<Column> iter = targetIndexSchema.iterator();
             while (iter.hasNext()) {
                 Column column = iter.next();
-                if (column.getName().equals(dropColName)) {
+                if (column.getName().equalsIgnoreCase(dropColName)) {
                     iter.remove();
                     found = true;
                     break;
@@ -315,12 +315,12 @@ public class SchemaChangeHandler extends AlterHandler {
         int lastColIndex = -1;
         for (int i = 0; i < schemaForFinding.size(); i++) {
             Column col = schemaForFinding.get(i);
-            if (col.getName().equals(newColName)) {
+            if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
             }
             if (hasColPos) {
-                if (col.getName().equals(columnPos.getLastCol())) {
+                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
                     lastColIndex = i;
                 }
             } else {
@@ -380,7 +380,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 List<Column> schema = entry.getValue();
                 for (Column column : schema) {
-                    if (column.getName().equals(modColumn.getName())) {
+                    if (column.getName().equalsIgnoreCase(modColumn.getName())) {
                         otherIndexIds.add(entry.getKey());
                         break;
                     }
@@ -392,7 +392,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
                     modColIndex = -1;
                     for (int i = 0; i < otherIndexSchema.size(); i++) {
-                        if (otherIndexSchema.get(i).getName().equals(modColumn.getName())) {
+                        if (otherIndexSchema.get(i).getName().equalsIgnoreCase(modColumn.getName())) {
                             modColIndex = i;
                             break;
                         }
@@ -407,7 +407,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
                     modColIndex = -1;
                     for (int i = 0; i < otherIndexSchema.size(); i++) {
-                        if (otherIndexSchema.get(i).getName().equals(modColumn.getName())) {
+                        if (otherIndexSchema.get(i).getName().equalsIgnoreCase(modColumn.getName())) {
                             modColIndex = i;
                             break;
                         }
@@ -452,7 +452,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String colName : orderedColNames) {
             Column oneCol = null;
             for (Column column : targetIndexSchema) {
-                if (column.getName().equals(colName)) {
+                if (column.getName().equalsIgnoreCase(colName)) {
                     oneCol = column;
                     break;
                 }
@@ -518,7 +518,7 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Column> baseSchema = olapTable.getBaseSchema();
         boolean found = false;
         for (Column column : baseSchema) { 
-            if (column.getName().equals(newColName)) {
+            if (column.getName().equalsIgnoreCase(newColName)) {
                 found = true;
                 break;
             }
@@ -618,7 +618,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
         for (int i = 0; i < modIndexSchema.size(); i++) {
             Column col = modIndexSchema.get(i);
-            if (col.getName().equals(newColName)) {
+            if (col.getName().equalsIgnoreCase(newColName)) {
                 if (!isBaseIndex || !newColNameSet.contains(newColName)) {
                     // if this is not a base index, we should check if user repeatedly add columns
                     throw new DdlException("Repeatedly add column: " + newColName);
@@ -636,7 +636,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (hasPos) {
                 // after the field
-                if (col.getName().equals(columnPos.getLastCol())) {
+                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
             } else {
@@ -900,7 +900,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 // 2. check compatible
                 for (Column alterColumn : alterSchema) {
                     for (Column oriColumn : originSchema) {
-                        if (alterColumn.getName().equals(oriColumn.getName())) {
+                        if (alterColumn.getName().equalsIgnoreCase(oriColumn.getName())) {
                             if (!alterColumn.equals(oriColumn)) {
                                 // 3.1 check type
                                 oriColumn.checkSchemaChangeAllowed(alterColumn);
@@ -918,7 +918,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column partitionCol : partitionColumns) {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
-                        if (alterColumn.getName().equals(partitionCol.getName())) {
+                        if (alterColumn.getName().equalsIgnoreCase(partitionCol.getName())) {
                             // 2.1 partition column cannot be modified
                             if (!alterColumn.equals(partitionCol)) {
                                 throw new DdlException("Can not modify partition column["
@@ -946,7 +946,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column distributionCol : distributionColumns) {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
-                        if (alterColumn.getName().equals(distributionCol.getName())) {
+                        if (alterColumn.getName().equalsIgnoreCase(distributionCol.getName())) {
                             // 3.1 distribution column cannot be modified
                             if (!alterColumn.equals(distributionCol)) {
                                 throw new DdlException("Can not modify distribution column["
