@@ -15,19 +15,17 @@ Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的
 
 Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步返回导入结果。
 
-Insert Into 创建导入语句
-
 语法：
 
 ```
-Insert Into INTO table_name [partition_info] [col_list] [query_stmt] [VALUES];
+INSERT INTO table_name [partition_info] [col_list] [query_stmt] [VALUES];
 ```
 
 示例：
 
 ```
-Insert Into INTO tbl2 SELECT * FROM tbl3;
-Insert Into INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
+INSERT INTO tbl2 SELECT * FROM tbl3;
+INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 ```
 
 下面主要介绍创建导入语句中使用到的参数：
@@ -50,7 +48,7 @@ Insert Into INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
     
     用户可以通过 VALUES 语法插入一条或者多条数据。
     
-    *注意：VALUES 方式仅适用于导入几条数据作为导入 DEMO 的情况，完全不适用于任何测试和生产环境。Doris 系统本身也不适合单条数据导入的场景。建议使用 Insert Into INTO SELECT 的方式进行批量导入。*
+    *注意：VALUES 方式仅适用于导入几条数据作为导入 DEMO 的情况，完全不适用于任何测试和生产环境。Doris 系统本身也不适合单条数据导入的场景。建议使用 INSERT INTO SELECT 的方式进行批量导入。*
     
 ### 导入结果
 
@@ -85,9 +83,9 @@ Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一�
 ## 最佳实践
 
 ### 应用场景
-1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 Insert Into INTO VALUS 的语法。
-2. 用户希望将已经在 Doris 表中的数据进行 ETL 转换并导入到一个新的 Doris 表中，此时适合使用 Insert Into INTO SELECT 语法。
-3. 用户可以创建一种外部表，如 MySQL 外部表映射一张 MySQL 系统中的表。或者创建 Broker 外部表来映射 HDFS 上的数据文件。然后通过 Insert Into INTO SELECT 语法将外部表中的数据导入到 Doris 表中存储。
+1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 INSERT INTO VALUS 的语法。
+2. 用户希望将已经在 Doris 表中的数据进行 ETL 转换并导入到一个新的 Doris 表中，此时适合使用 INSERT INTO SELECT 语法。
+3. 用户可以创建一种外部表，如 MySQL 外部表映射一张 MySQL 系统中的表。或者创建 Broker 外部表来映射 HDFS 上的数据文件。然后通过 INSERT INTO SELECT 语法将外部表中的数据导入到 Doris 表中存储。
 
 ### 数据量
 Insert Into 对数据量没有限制，大数据量导入也可以支持。但 Insert Into 有默认的超时时间，用户预估的导入数据量过大，就需要修改系统的 Insert Into 导入超时时间。
@@ -99,7 +97,7 @@ Insert Into 对数据量没有限制，大数据量导入也可以支持。但 I
 
 ### 完整例子
 
-用户有一张表 store_sales 在数据库 sales 中，用户又创建了一张表叫 bj_store_sales 也在数据库 sales 中，用户希望将 store_sales 中销售记录在 bj 的数据导入到这张新建的表 bj_store_sales 中。导入的数据量约为：10G。
+用户有一张表 store\_sales 在数据库 sales 中，用户又创建了一张表叫 bj\_store\_sales 也在数据库 sales 中，用户希望将 store\_sales 中销售记录在 bj 的数据导入到这张新建的表 bj\_store\_sales 中。导入的数据量约为：10G。
 
 ```
 store_sales schema：
@@ -127,7 +125,7 @@ bj_store_sales schema:
     由于用户是希望将一张表中的数据做 ETL 并导入到目标表中，所以应该使用 Insert into query\_stmt 方式导入。
 
     ```
-    Insert Into INTO bj_store_sales SELECT id, total, user_id, sale_timestamp FROM store_sales where region = "bj";
+    INSERT INTO bj_store_sales SELECT id, total, user_id, sale_timestamp FROM store_sales where region = "bj";
     ```
 
 ## 常见问题

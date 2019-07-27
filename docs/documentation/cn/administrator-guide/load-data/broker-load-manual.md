@@ -211,7 +211,7 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 |not null    | aaa                 | NULL            | false              | NULL|
 |not null    | 1                   | 1               | true or false      | correct data|
 
->这里以列类型为 Decimal(1,0) 举例
+这里以列类型为 Decimal(1,0) 举例
  
 >注：当表中的列允许导入空值时
 
