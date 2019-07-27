@@ -11,19 +11,19 @@
 ## Examples
 
 ```
-mysql> select split_part("hello word", " ", 1);
+mysql> select split_part("hello world", " ", 1);
 +----------------------------------+
-| split_part('hello word', ' ', 1) |
+| split_part('hello world', ' ', 1) |
 +----------------------------------+
 | hello                            |
 +----------------------------------+
 
 
-mysql> select split_part("hello word", " ", 2);
+mysql> select split_part("hello world", " ", 2);
 +----------------------------------+
-| split_part('hello word', ' ', 2) |
+| split_part('hello world', ' ', 2) |
 +----------------------------------+
-| word                             |
+| world                             |
 +----------------------------------+
 
 mysql> select split_part("2019年7月8号", "月", 1);
