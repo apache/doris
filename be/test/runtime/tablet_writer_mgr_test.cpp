@@ -39,6 +39,7 @@ std::unordered_map<int64_t, int> _k_tablet_recorder;
 OLAPStatus open_status;
 OLAPStatus add_status;
 OLAPStatus close_status;
+int64_t wait_lock_time_ns;
 
 // mock
 DeltaWriter::DeltaWriter(WriteRequest* req) : _req(*req) {
@@ -223,7 +224,7 @@ TEST_F(TabletWriterMgrTest, normal) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -387,7 +388,7 @@ TEST_F(TabletWriterMgrTest, add_failed) {
         row_batch.serialize(request.mutable_row_batch());
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -476,7 +477,7 @@ TEST_F(TabletWriterMgrTest, close_failed) {
         row_batch.serialize(request.mutable_row_batch());
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -561,7 +562,7 @@ TEST_F(TabletWriterMgrTest, unknown_tablet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -646,10 +647,10 @@ TEST_F(TabletWriterMgrTest, duplicate_packet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec1;
-        auto st = mgr.add_batch(request, &tablet_vec1);
+        auto st = mgr.add_batch(request, &tablet_vec1, &wait_lock_time_ns);
         ASSERT_TRUE(st.ok());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec2;
-        st = mgr.add_batch(request, &tablet_vec2);
+        st = mgr.add_batch(request, &tablet_vec2, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -662,7 +663,7 @@ TEST_F(TabletWriterMgrTest, duplicate_packet) {
         request.set_eos(true);
         request.set_packet_seq(0);
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }

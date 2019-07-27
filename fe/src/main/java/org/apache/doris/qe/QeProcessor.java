@@ -36,4 +36,6 @@ public interface QeProcessor {
     void unregisterQuery(TUniqueId queryId);
 
     Map<String, QueryStatisticsItem> getQueryStatistics();
+
+    Coordinator getCoordinator(TUniqueId queryId);
 }

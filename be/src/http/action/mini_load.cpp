@@ -397,7 +397,7 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {
     size_t body_bytes = 0;
-    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
         if (body_bytes > max_body_bytes) {
@@ -733,7 +733,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
 // new on_header of mini load
 Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     size_t body_bytes = 0;
-    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
         if (body_bytes > max_body_bytes) {

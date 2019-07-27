@@ -78,6 +78,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _add_batch_request.set_index_id(_index_id);
     _add_batch_request.set_sender_id(_parent->_sender_id);
 
+    _rpc_timeout_ms = config::tablet_writer_rpc_timeout_sec * 1000;
     return Status::OK();
 }
 
@@ -208,7 +209,9 @@ Status NodeChannel::_wait_in_flight_packet() {
     }
 
     if (_add_batch_closure->result.has_execution_time_us()) {
-        _parent->increase_node_add_batch_time_us(_node_id, _add_batch_closure->result.execution_time_us());
+        _parent->update_node_add_batch_counter(_node_id,
+                _add_batch_closure->result.execution_time_us(),
+                _add_batch_closure->result.wait_lock_time_us());
     }
     return {_add_batch_closure->result.status()};
 }
@@ -620,9 +623,11 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-                << ", txn_id=" << _txn_id << ", node add batch time(ns): ";
-        for (auto const& pair: _node_add_batch_time_map) {
-            ss << "{" << pair.first << "=" << pair.second << "}";
+                << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
+        for (auto const& pair : _node_add_batch_counter_map) {
+            ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_ns / 1000) << ")("
+               << (pair.second.add_batch_wait_lock_time_ns / 1000) << ")("
+               << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
 
