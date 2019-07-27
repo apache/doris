@@ -664,7 +664,7 @@ public class Coordinator {
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero();
-            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks());
+            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks().stream().map(e->DebugUtil.printId(e.getKey())).toArray());
         }
     }
 

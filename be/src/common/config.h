@@ -259,11 +259,19 @@ namespace config {
     CONF_Int64(load_data_reserve_hours, "4");
     // log error log will be removed after this time
     CONF_Int64(load_error_log_reserve_hours, "48");
+    // Deprecated, use streaming_load_max_mb instead
     CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
     CONF_Int64(streaming_load_max_mb, "10240");
-    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "600");
+    // the alive time of a TabletsChannel.
+    // If the channel does not receive any data till this time,
+    // the channel will be removed.
+    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "1200");
+    // the timeout of a rpc to process one batch in tablet writer.
+    // you may need to increase this timeout if using larger 'streaming_load_max_mb',
+    // or encounter 'tablet writer write failed' error when loading.
+    CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");

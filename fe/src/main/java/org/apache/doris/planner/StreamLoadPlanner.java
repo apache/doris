@@ -52,7 +52,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
@@ -81,7 +80,8 @@ public class StreamLoadPlanner {
         descTable = analyzer.getDescTbl();
     }
 
-    public TExecPlanFragmentParams plan() throws UserException {
+    // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
+    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = streamLoadTask.getNegative();
@@ -96,14 +96,14 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
 
         // create dest sink
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
-        olapTableSink.init(streamLoadTask.getId(), streamLoadTask.getTxnId(), db.getId());
+        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -120,11 +120,9 @@ public class StreamLoadPlanner {
         params.setDesc_tbl(analyzer.getDescTbl().toThrift());
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
-        // Only use fragment id
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execParams.setQuery_id(queryId);
-        execParams.setFragment_instance_id(new TUniqueId(queryId.hi, queryId.lo + 1));
+        // user load id (streamLoadTask.id) as query id
+        execParams.setQuery_id(loadId);
+        execParams.setFragment_instance_id(new TUniqueId(loadId.hi, loadId.lo + 1));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();

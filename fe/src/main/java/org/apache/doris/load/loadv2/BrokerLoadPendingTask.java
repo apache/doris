@@ -65,24 +65,33 @@ public class BrokerLoadPendingTask extends LoadTask {
 
             List<List<TBrokerFileStatus>> fileStatusList = Lists.newArrayList();
             List<BrokerFileGroup> fileGroups = entry.getValue();
+            long totalFileSize = 0;
+            int totalFileNum = 0;
+            int groupNum = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
+                long groupFileSize = 0;
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                 for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusList.add(fileStatuses);
-                if (LOG.isDebugEnabled()) {
-                    for (TBrokerFileStatus fstatus : fileStatuses) {
+                for (TBrokerFileStatus fstatus : fileStatuses) {
+                    groupFileSize += fstatus.getSize();
+                    if (LOG.isDebugEnabled()) {
                         LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                          .add("file_status", fstatus)
-                                          .build());
+                                .add("file_status", fstatus).build());
                     }
                 }
+                totalFileSize += groupFileSize;
+                totalFileNum += fileStatuses.size();
+                LOG.info("get {} files in file group {} for table {}. size: {}. job: {}",
+                        fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId());
+                groupNum++;
             }
 
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
-            LOG.info("get {} files to be loaded. cost: {} ms, job: {}",
-                    fileStatusList.size(), (System.currentTimeMillis() - start), callback.getCallbackId());
+            LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
+                    totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
         }
     }
 }

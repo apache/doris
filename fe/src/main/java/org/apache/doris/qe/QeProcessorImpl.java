@@ -50,6 +50,15 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
+    public Coordinator getCoordinator(TUniqueId queryId) {
+        QueryInfo queryInfo = coordinatorMap.get(queryId);
+        if (queryInfo != null) {
+            return queryInfo.getCoord();
+        }
+        return null;
+    }
+
+    @Override
     public void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException {
         registerQuery(queryId, new QueryInfo(coord));
     }

@@ -45,7 +45,10 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionException;
@@ -307,7 +310,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (isCompleted() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
                 return;
             }
-            executeCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
+            unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
         } finally {
             writeUnlock();
         }
@@ -353,7 +356,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn) {
         writeLock();
         try {
-            executeCancel(failMsg, abortTxn);
+            unprotectedExecuteCancel(failMsg, abortTxn);
         } finally {
             writeUnlock();
         }
@@ -382,7 +385,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
 
             checkAuth("CANCEL LOAD");
-            executeCancel(failMsg, true);
+            unprotectedExecuteCancel(failMsg, true);
         } finally {
             writeUnlock();
         }
@@ -446,7 +449,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @param failMsg
      * @param abortTxn true: abort txn when cancel job, false: only change the state of job and ignore abort txn
      */
-    protected void executeCancel(FailMsg failMsg, boolean abortTxn) {
+    protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                          .add("transaction_id", transactionId)
                          .add("error_msg", "Failed to execute load with error " + failMsg.getMsg())
@@ -455,8 +458,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // clean the loadingStatus
         loadingStatus.setState(TEtlState.CANCELLED);
 
-        // tasks will not be removed from task pool.
-        // it will be aborted on the stage of onTaskFinished or onTaskFailed.
+        // get load ids of all loading tasks, we will cancel their coordinator process later
+        List<TUniqueId> loadIds = Lists.newArrayList();
+        for (LoadTask loadTask : idToTasks.values()) {
+            if (loadTask instanceof LoadLoadingTask ) {
+                loadIds.add(((LoadLoadingTask)loadTask).getLoadId());
+            }
+        }
         idToTasks.clear();
 
         // set failMsg and state
@@ -478,6 +486,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                  .add("transaction_id", transactionId)
                                  .add("error_msg", "failed to abort txn when job is cancelled, txn will be aborted later")
                                  .build());
+            }
+        }
+        
+        // cancel all running coordinators, so that the scheduler's worker thread will be released
+        for (TUniqueId loadId : loadIds) {
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
+            if (coordinator != null) {
+                coordinator.cancel();
             }
         }
 
@@ -683,7 +699,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // record attachment in load job
             executeAfterAborted(txnState);
             // cancel load job
-            executeCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason), false);
+            unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason), false);
         } finally {
             writeUnlock();
         }
