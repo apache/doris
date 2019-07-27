@@ -39,6 +39,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -56,6 +57,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -219,7 +221,7 @@ public class BrokerLoadJob extends LoadJob {
                 return;
             }
             if (loadTask.getRetryTime() <= 0) {
-                executeCancel(failMsg, true);
+                unprotectedExecuteCancel(failMsg, true);
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
@@ -304,7 +306,9 @@ public class BrokerLoadJob extends LoadJob {
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                                                            entry.getValue(), getDeadlineMs(), execMemLimit,
                                                            strictMode, transactionId, this);
-                task.init(attachment.getFileStatusByTable(tableId),
+                UUID uuid = UUID.randomUUID();
+                TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                task.init(loadId, attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
                 idToTasks.put(task.getSignature(), task);

@@ -46,6 +46,7 @@ import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -559,7 +560,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), streamLoadTask);
     }
 
-    public TExecPlanFragmentParams plan() throws UserException {
+    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -567,7 +568,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         db.readLock();
         try {
-            return planner.plan();
+            return planner.plan(loadId);
         } finally {
             db.readUnlock();
         }

@@ -85,7 +85,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        tRoutineLoadTask.setParams(updateTExecPlanFragmentParams(routineLoadJob));
+        tRoutineLoadTask.setParams(rePlan(routineLoadJob));
         tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
@@ -98,17 +98,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return gson.toJson(partitionIdToOffset);
     }
 
-    private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
+    private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
+        TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan();
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        // we use task id as both query id(TPlanFragmentExecParams) and load id(olap table sink/scan range desc)
-        TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setLoad_id(queryId);
         tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
-        tExecPlanFragmentParams.getParams().setQuery_id(queryId);
-        tExecPlanFragmentParams.getParams().getPer_node_scan_ranges().values().stream()
-                .forEach(entity -> entity.get(0).getScan_range().getBroker_scan_range().getRanges().get(0).setLoad_id(queryId));
         return tExecPlanFragmentParams;
     }
 }

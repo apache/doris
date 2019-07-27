@@ -21,6 +21,7 @@
 
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "common/config.h"
 #include "runtime/decimal_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
@@ -49,6 +50,8 @@ public:
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._brpc_stub_cache = new BrpcStubCache();
+
+        config::tablet_writer_rpc_timeout_sec = 600;
     }
     void TearDown() override {
         delete _env._brpc_stub_cache;
