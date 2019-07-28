@@ -761,16 +761,16 @@ public class TabletScheduler extends Daemon {
                 // this case should be handled in deleteBackendDropped()
                 return false;
             }
-            List<Replica> replicas = hostBeIds.get(be.getHost());
+            List<Replica> replicas = hostToReplicas.get(be.getHost());
             if (replicas == null) {
                 replicas = Lists.newArrayList();
-                hostBeIds.put(be.getHost(), replicas);
+                hostToReplicas.put(be.getHost(), replicas);
             }
             replicas.add(replica);
         }
 
         // find if there are replicas on same host, if yes, delete one.
-        for (List<Replica> replicas : hostBeIds.values()) {
+        for (List<Replica> replicas : hostToReplicas.values()) {
             if (replicas.size() > 1) {
                 // delete one replica from replicas on same host.
                 // better to choose high load backend
