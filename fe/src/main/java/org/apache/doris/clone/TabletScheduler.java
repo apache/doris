@@ -754,7 +754,7 @@ public class TabletScheduler extends Daemon {
 
         // collect replicas of this tablet.
         // host -> (replicas on same host)
-        Map<String, List<Replica>> hostBeIds = Maps.newHashMap();
+        Map<String, List<Replica>> hostToReplicas = Maps.newHashMap();
         for (Replica replica : tabletCtx.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
