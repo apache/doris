@@ -112,8 +112,11 @@ Status ParquetScanner::open_next_reader() {
                 break;
             }
             case TFileType::FILE_BROKER: {
+                int64_t file_size = 0;
+                // for compatibility
+                if (range.__isset.file_size) { file_size = range.file_size; }
                 file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                               range.path, range.start_offset));
+                                               range.path, range.start_offset, file_size));
                 break;
             }
 #if 0
@@ -134,7 +137,7 @@ Status ParquetScanner::open_next_reader() {
             }
         }
         RETURN_IF_ERROR(file_reader->open());
-        if (file_reader->size() == 0) {
+        if (file_reader->file_size() == 0) {
             file_reader->close();
             continue;
         }
