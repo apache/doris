@@ -471,7 +471,7 @@ arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* byt
 }
 
 arrow::Status ParquetFile::GetSize(int64_t* size) {
-    *size = _file->file_size();
+    *size = _file->size();
     return arrow::Status::OK();
 }
 

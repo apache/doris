@@ -187,7 +187,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
     return Status::OK();
 }
 
-int64_t BrokerReader::file_size() {
+int64_t BrokerReader::size() {
     return _file_size;
 }
 
