@@ -139,11 +139,10 @@ LZ4_SOURCE=lz4-1.7.5
 LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
-# BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
-BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
-BZIP_NAME=bzip2-1.0.6.tar.gz
-BZIP_SOURCE=bzip2-1.0.6
-BZIP_MD5SUM="00b516f4704d4a7cb50a1d97e6e8e15b"
+BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
+BZIP_NAME=bzip2-1.0.8.tar.gz
+BZIP_SOURCE=bzip2-1.0.8
+BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
 LZO2_DOWNLOAD="http://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
