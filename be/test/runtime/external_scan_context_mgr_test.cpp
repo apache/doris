@@ -74,8 +74,8 @@ TEST_F(ExternalScanContextMgrTest, get_normal) {
 TEST_F(ExternalScanContextMgrTest, get_abnormal) {
     std::string context_id = "not_exist";
     std::shared_ptr<Context> result;
-    context_mgr._is_stop = true;
     ExternalScanContextMgr context_mgr(&_exec_env);
+    context_mgr._is_stop = true;
     Status st = context_mgr.get_scan_context(context_id, &result);
     ASSERT_TRUE(!st.ok());
     ASSERT_TRUE(result == nullptr);
