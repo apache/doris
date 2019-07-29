@@ -112,6 +112,8 @@ struct TBrokerRangeDesc {
     6: required i64 size
     // used to get stream for this load
     7: optional Types.TUniqueId load_id
+    // total size of the file
+    8: optional i64 file_size
 }
 
 struct TBrokerScanRangeParams {

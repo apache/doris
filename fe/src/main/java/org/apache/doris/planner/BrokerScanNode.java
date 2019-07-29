@@ -17,10 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -66,6 +62,12 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -608,27 +610,12 @@ public class BrokerScanNode extends ScanNode {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset = 0;
                     i++;
                 }
@@ -639,15 +626,8 @@ public class BrokerScanNode extends ScanNode {
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                rangeDesc.setFormat_type(formatType);
-                rangeDesc.setPath(fileStatus.path);
-                rangeDesc.setSplittable(fileStatus.isSplitable);
-                rangeDesc.setStart_offset(curFileOffset);
-                rangeDesc.setSize(leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
                 i++;
@@ -658,6 +638,19 @@ public class BrokerScanNode extends ScanNode {
         if (brokerScanRange(curLocations).isSetRanges()) {
             locationsList.add(curLocations);
         }
+    }
+
+    private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
+            TFileFormatType formatType, long rangeBytes) {
+        TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
+        rangeDesc.setFile_type(TFileType.FILE_BROKER);
+        rangeDesc.setFormat_type(formatType);
+        rangeDesc.setPath(fileStatus.path);
+        rangeDesc.setSplittable(fileStatus.isSplitable);
+        rangeDesc.setStart_offset(curFileOffset);
+        rangeDesc.setSize(rangeBytes);
+        rangeDesc.setFile_size(fileStatus.size);
+        return rangeDesc;
     }
 
     @Override
