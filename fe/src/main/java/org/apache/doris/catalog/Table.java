@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -33,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -58,7 +58,8 @@ public class Table extends MetaObject implements Writable {
     protected String name;
     protected TableType type;
     protected List<Column> baseSchema;
-    // tree map for case-insensitive lookup
+    // tree map for case-insensitive lookup.
+    // This should contains all columns in both baseSchema and baseSchemaForLoad
     protected Map<String, Column> nameToColumn;
 
     // DO NOT persist this variable.
@@ -66,7 +67,7 @@ public class Table extends MetaObject implements Writable {
 
     public Table(TableType type) {
         this.type = type;
-        this.baseSchema = new LinkedList<Column>();
+        this.baseSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
     }
 
@@ -75,7 +76,6 @@ public class Table extends MetaObject implements Writable {
         this.name = tableName;
         this.type = type;
         this.baseSchema = baseSchema;
-
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (baseSchema != null) {
             for (Column col : baseSchema) {

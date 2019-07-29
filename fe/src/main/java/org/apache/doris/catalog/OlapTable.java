@@ -226,6 +226,10 @@ public class OlapTable extends Table {
         indexIdToSchemaVersion.put(indexId, schemaVersion);
         indexIdToSchemaHash.put(indexId, schemaHash);
         indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
+
+        if (schema.size() > baseSchemaForLoad.size()) {
+
+        }
     }
     public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
         Preconditions.checkState(newStorageType == TStorageType.COLUMN);
@@ -1078,5 +1082,10 @@ public class OlapTable extends Table {
             }
         }
         return totalCount;
+    }
+
+    @Override
+    public List<Column> getBaseSchema() {
+        return indexIdToSchema.get(baseIndexId);
     }
 }

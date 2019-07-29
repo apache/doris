@@ -62,7 +62,7 @@ import java.util.Set;
 // This class used to split data read from file to batch
 @Deprecated
 public class DataSplitSink extends DataSink {
-    private static final Logger LOG = LogManager.getLogger(Planner.class);
+    private static final Logger LOG = LogManager.getLogger(DataSplitSink.class);
 
     private final OlapTable targetTable;
 
