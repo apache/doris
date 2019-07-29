@@ -582,7 +582,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_HLL> : public FieldTypeTraits<OLAP_FIELD_
 // Instantiate this template to get static access to the type traits.
 template<FieldType field_type>
 struct TypeTraits : public FieldTypeTraits<field_type> {
-    using CppType = typename FieldTypeTraits<field_type>::CppType;
+    using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static const FieldType type = field_type;
     static const int32_t size = sizeof(CppType);

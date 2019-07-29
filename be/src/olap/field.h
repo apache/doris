@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_FIELD_H
 
 #include <string>
+#include <sstream>
 
 #include "olap/aggregate_func.h"
 #include "olap/olap_common.h"
@@ -43,6 +44,13 @@ public:
     }
 
     static Field* create_by_type(const FieldType& type) {
+        // TODO(zc): To be compatible with old version, we should return nullptr for
+        // CHAR, VARCHAR, HLL. Because ColumnStatistics depend on this function return nullptr
+        if (type == OLAP_FIELD_TYPE_CHAR ||
+            type == OLAP_FIELD_TYPE_VARCHAR ||
+            type == OLAP_FIELD_TYPE_HLL) {
+            return nullptr;
+        }
         return new Field(type);
     }
 
@@ -143,8 +151,7 @@ public:
     // enough space and copy source content into destination without
     // memory allocation.
     template<typename DstCellType, typename SrcCellType>
-    void direct_copy(DstCellType* dst,
-                      const SrcCellType& src) const {
+    void direct_copy(DstCellType* dst, const SrcCellType& src) const {
         bool is_null = src.is_null();
         dst->set_is_null(is_null);
         if (is_null) {
@@ -207,6 +214,18 @@ public:
     inline std::string to_string(char* src) const {
         return _type_info->to_string(src);
     }
+
+    template<typename CellType>
+    std::string debug_string(const CellType& cell) const {
+        std::stringstream ss;
+        if (cell.is_null()) {
+            ss << "(null)";
+        } else {
+            ss << _type_info->to_string(cell.cell_ptr());
+        }
+        return ss.str();
+    }
+
 
     template<typename CellType>
     uint32_t hash_code(const CellType& cell, uint32_t seed) const;
@@ -285,9 +304,11 @@ void Field::agg_init(DstCellType* dst, const SrcCellType& src) const {
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         HllSetHelper::init_context(context);
+#if 0
         if (is_null) {
             return;
         }
+#endif
         HllSetHelper::fill_set((const char*)src.cell_ptr(), context);
         context->has_value = true;
     }

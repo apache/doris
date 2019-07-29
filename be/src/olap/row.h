@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <string>
+#include <sstream>
+
 #include "olap/row_cursor_cell.h"
 #include "olap/schema.h"
 
@@ -69,9 +72,9 @@ int compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
 // value.
 template<typename DstRowType, typename SrcRowType>
 void init_row_with_others(DstRowType* dst, const SrcRowType& src) {
-    for (auto cid : src.schema()->column_ids()) {
+    for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        src.schema()->column(cid)->agg_init(&dst_cell, src.cell(cid));
+        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid));
     }
 }
 
@@ -79,29 +82,29 @@ void init_row_with_others(DstRowType* dst, const SrcRowType& src) {
 // that destination has enough space for source conetent.
 template<typename DstRowType, typename SrcRowType>
 void direct_copy_row(DstRowType* dst, const SrcRowType& src) {
-    for (auto cid : src.schema()->column_ids()) {
+    for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        src.schema()->column(cid)->direct_copy(&dst_cell, src.cell(cid));
+        dst->schema()->column(cid)->direct_copy(&dst_cell, src.cell(cid));
     }
 }
 
 // Deep copy other row's content into itself.
 template<typename DstRowType, typename SrcRowType>
 void copy_row(DstRowType* dst, const SrcRowType& src, MemPool* pool) {
-    for (auto cid : src.schema()->column_ids()) {
+    for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
         auto src_cell = src.cell(cid);
-        src.schema()->column(cid)->deep_copy(&dst_cell, src_cell, pool);
+        dst->schema()->column(cid)->deep_copy(&dst_cell, src_cell, pool);
     }
 }
 
 // Deep copy src row to dst row. Schema of src and dst row must be same.
 template<typename DstRowType, typename SrcRowType>
 void copy_row(DstRowType* dst, const SrcRowType& src, Arena* arena) {
-    for (uint32_t cid = 0; cid < src.schema()->num_columns(); ++cid) {
+    for (uint32_t cid = 0; cid < dst->schema()->num_columns(); ++cid) {
         auto dst_cell = dst->cell(cid);
         auto src_cell = src.cell(cid);
-        src.schema()->column(cid)->deep_copy(&dst_cell, src_cell, arena);
+        dst->schema()->column(cid)->deep_copy(&dst_cell, src_cell, arena);
     }
 }
 
@@ -148,6 +151,21 @@ uint32_t hash_row(const RowType& row, uint32_t seed) {
         seed = row.schema()->column(cid)->hash_code(row.cell(cid), seed);
     }
     return seed;
+}
+
+template<typename RowType>
+std::string print_row(const RowType& row) {
+    std::stringstream ss;
+
+    size_t i = 0;
+    for (auto cid : row.schema()->column_ids()) {
+        if (i++ > 0) {
+            ss << "|";
+        }
+        ss << row.schema()->column(cid)->debug_string(row.cell(cid));
+    }
+
+    return ss.str();
 }
 
 }
