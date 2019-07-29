@@ -80,7 +80,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
     // all shadow indexes should have this prefix in name
-    public static final String SHADOW_INDEX_NAME_PRFIX = "__doris_shadow_";
+    public static final String SHADOW_NAME_PRFIX = "__doris_shadow_";
 
     public SchemaChangeHandler() {
         super("schema change");
@@ -280,7 +280,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 modColumn.setAggregationType(AggregateType.REPLACE, true);
             }
         } else {
-            // DUPLICATE table also has key and value column.
             if (null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on column in Duplicate data model table: " + modColumn.getName());
             }
@@ -311,6 +310,7 @@ public class SchemaChangeHandler extends AlterHandler {
         String newColName = modColumn.getName();
         boolean hasColPos = (columnPos != null && !columnPos.isFirst());
         boolean found = false;
+        boolean typeChanged = false;
         int modColIndex = -1;
         int lastColIndex = -1;
         for (int i = 0; i < schemaForFinding.size(); i++) {
@@ -318,6 +318,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                if (!col.equals(modColumn)) {
+                    typeChanged = true;
+                }
             }
             if (hasColPos) {
                 if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
@@ -427,6 +430,20 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } // end for handling other indices
+
+        if (typeChanged) {
+            /*
+             * In the new alter table process (AlterJobV2), any modified column is treated as a new column.
+             * But the modified column's name does not changed. So in order to distinguish this, we will add
+             * a prefix in the name of the modified column.
+             * This prefix only exist during the schema change process. Once the schema change is finished,
+             * it will be removed.
+             * 
+             * And if the column type not changed, the same column name is still to the same column type,
+             * so no need to add prefix.
+             */
+            modColumn.setName(SHADOW_NAME_PRFIX + modColumn.getName());
+        }
     }
 
     private void processReorderColumn(ReorderColumnsClause alterClause, OlapTable olapTable,
@@ -515,7 +532,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
-        List<Column> baseSchema = olapTable.getBaseSchema();
+        List<Column> baseSchema = olapTable.getBaseSchema(false);
         boolean found = false;
         for (Column column : baseSchema) { 
             if (column.getName().equalsIgnoreCase(newColName)) {
@@ -1001,7 +1018,7 @@ public class SchemaChangeHandler extends AlterHandler {
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
             }
-            String newIndexName = SHADOW_INDEX_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
             short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(originIndexId);
             long shadowIndexId = catalog.getNextId();
 

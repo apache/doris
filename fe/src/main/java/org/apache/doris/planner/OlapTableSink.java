@@ -78,11 +78,6 @@ public class OlapTableSink extends DataSink {
     // set after init called
     private TDataSink tDataSink;
 
-    public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor) {
-        this.dstTable = dstTable;
-        this.tupleDescriptor = tupleDescriptor;
-    }
-
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, String partitions) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
