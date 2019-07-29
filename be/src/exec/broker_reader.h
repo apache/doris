@@ -37,11 +37,14 @@ class RuntimeState;
 // Reader of broker file
 class BrokerReader : public FileReader {
 public:
+    // If the reader need the file size, set it when construct BrokerReader.
+    // There is no other way to set the file size.
     BrokerReader(ExecEnv* env,
                  const std::vector<TNetworkAddress>& broker_addresses,
                  const std::map<std::string, std::string>& properties,
                  const std::string& path,
-                 int64_t start_offset);
+                 int64_t start_offset,
+                 int64_t file_size = 0);
     virtual ~BrokerReader();
 
     virtual Status open() override;
@@ -49,7 +52,7 @@ public:
     // Read 
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
     virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
-    virtual int64_t size () override;
+    virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;
     virtual void close() override;
