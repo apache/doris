@@ -144,6 +144,8 @@ public:
     }
 
     const Schema* schema() const { return _schema.get(); }
+
+    char* row_ptr() const { return _fixed_buf; }
 private:
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema,

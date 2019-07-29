@@ -39,6 +39,7 @@ struct ContiguousRow {
         _schema->set_is_null(_row, cid, is_null);
     }
     const Schema* schema() const { return _schema; }
+    void* row_ptr() const { return _row; }
 private:
     const Schema* _schema;
     void* _row;

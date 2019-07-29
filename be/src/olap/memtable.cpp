@@ -161,7 +161,7 @@ OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
             char* row = (char*)it.key();
             ContiguousRow dst_row(_schema, row);
             agg_finalize_row(&dst_row, _skip_list->arena());
-            RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
+            RETURN_NOT_OK(rowset_writer->add_row(dst_row));
         }
         RETURN_NOT_OK(rowset_writer->flush());
     }

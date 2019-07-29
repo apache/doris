@@ -163,11 +163,10 @@ public:
                 return res;
             }
 
-            bool is_null = cursor->is_null(column_id());
-            char* buf = cursor->nullable_cell_ptr(column_id());
-            _block_statistics.add(buf);
-            if (!is_null) {
-                char value = *reinterpret_cast<char*>(buf + 1);
+            auto cell = cursor->cell(column_id());
+            _block_statistics.add(cell);
+            if (!cell.is_null()) {
+                char value = *reinterpret_cast<const char*>(cell.cell_ptr());
                 res = _writer->write(value);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write double, res=" << res;
@@ -264,11 +263,10 @@ public:
                 return res;
             }
 
-            bool is_null = cursor->is_null(column_id());
-            char* buf = cursor->nullable_cell_ptr(column_id());
-            _block_statistics.add(buf);
-            if (!is_null) {
-                T value = *reinterpret_cast<T*>(buf + 1);
+            auto cell = cursor->cell(column_id());
+            _block_statistics.add(cell);
+            if (!cell.is_null()) {
+                T value = *reinterpret_cast<const T*>(cell.cell_ptr());
                 res =  _writer.write(static_cast<int64_t>(value));
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write integer, res=" << res;
@@ -366,12 +364,11 @@ public:
                 return res;
             }
 
-            bool is_null = cursor->is_null(column_id());
-            char* buf = cursor->nullable_cell_ptr(column_id());
-            _block_statistics.add(buf);
-            if (!is_null) {
-                T* value = reinterpret_cast<T*>(buf + 1);
-                res = _stream->write(reinterpret_cast<char*>(value), sizeof(T));
+            auto cell = cursor->cell(column_id());
+            _block_statistics.add(cell);
+            if (!cell.is_null()) {
+                const T* value = reinterpret_cast<const T*>(cell.cell_ptr());
+                res = _stream->write(reinterpret_cast<const char*>(value), sizeof(T));
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write double, res=" << res;
                     return res;
@@ -559,11 +556,10 @@ public:
                 return res;
             }
 
-            bool is_null = cursor->is_null(column_id());
-            char* buf = cursor->nullable_cell_ptr(column_id());
-            _block_statistics.add(buf);
-            if (!is_null) {
-                decimal12_t value = *reinterpret_cast<decimal12_t*>(buf + 1);
+            auto cell = cursor->cell(column_id());
+            _block_statistics.add(cell);
+            if (!cell.is_null()) {
+                decimal12_t value = *reinterpret_cast<const decimal12_t*>(cell.cell_ptr());
                 res = _int_writer->write(value.integer);
                 if (res != OLAP_SUCCESS) {
                     OLAP_LOG_WARNING("fail to write integer of Decimal.");
@@ -607,11 +603,10 @@ public:
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
-            bool is_null = cursor->is_null(column_id());
-            char* buf = cursor->nullable_cell_ptr(column_id());
-            _block_statistics.add(buf);
-            if (!is_null) {
-                int64_t* value = reinterpret_cast<int64_t*>(buf + 1);
+            auto cell = cursor->cell(column_id());
+            _block_statistics.add(cell);
+            if (!cell.is_null()) {
+                const int64_t* value = reinterpret_cast<const int64_t*>(cell.cell_ptr());
                 res = _high_writer->write(*value);
                 if (res != OLAP_SUCCESS) {
                     OLAP_LOG_WARNING("fail to write integer of LargeInt.");

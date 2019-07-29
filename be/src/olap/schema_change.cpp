@@ -543,7 +543,7 @@ bool RowBlockMerger::merge(
         }
 
         if (KeysType::DUP_KEYS == _tablet->keys_type()) {
-            rowset_writer->add_row(&row_cursor);
+            rowset_writer->add_row(row_cursor);
             continue;
         }
 
@@ -555,7 +555,7 @@ bool RowBlockMerger::merge(
             }
         }
         agg_finalize_row(&row_cursor, nullptr);
-        rowset_writer->add_row(&row_cursor);
+        rowset_writer->add_row(row_cursor);
     }
     if (rowset_writer->flush() != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to finalizing writer.";
@@ -654,7 +654,7 @@ bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer,
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         row_block->get_row(i, _src_cursor);
         copy_row(_dst_cursor, *_src_cursor, rowset_writer->mem_pool());
-        if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
+        if (OLAP_SUCCESS != rowset_writer->add_row(*_dst_cursor)) {
             LOG(WARNING) << "fail to attach writer";
             return false;
         }

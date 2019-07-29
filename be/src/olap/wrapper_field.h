@@ -131,6 +131,8 @@ public:
         return _field_buf + 1;
     }
 
+    const Field* field() const { return _rep; }
+
 private:
     Field* _rep = nullptr;
     bool _is_string_type;

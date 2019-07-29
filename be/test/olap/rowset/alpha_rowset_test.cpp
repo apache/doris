@@ -224,7 +224,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
     int32_t field_2 = 100;
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
-    _alpha_rowset_writer->add_row(&row);
+    _alpha_rowset_writer->add_row(row);
     _alpha_rowset_writer->flush();
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);

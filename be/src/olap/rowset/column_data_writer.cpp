@@ -22,7 +22,7 @@
 #include "olap/rowset/segment_writer.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/row_block.h"
-
+#include "olap/row.h"
 
 namespace doris {
 
@@ -122,22 +122,10 @@ OLAPStatus ColumnDataWriter::_init_segment() {
     return res;
 }
 
-OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
-    _row_block->set_row(_row_index, *row_cursor);
-    next(*row_cursor);
-    if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
-        if (OLAP_SUCCESS != _flush_row_block(false)) {
-            LOG(WARNING) << "failed to flush data while attaching row cursor.";
-            return OLAP_ERR_OTHER_ERROR;
-        }
-        RETURN_NOT_OK(_flush_segment_with_verfication());
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus ColumnDataWriter::write(const char* row, const Schema* schema) {
+template<typename RowType>
+OLAPStatus ColumnDataWriter::write(const RowType& row) {
     _row_block->set_row(_row_index, row);
-    next(row, schema);
+    next(row);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
@@ -148,31 +136,18 @@ OLAPStatus ColumnDataWriter::write(const char* row, const Schema* schema) {
     return OLAP_SUCCESS;
 }
 
+template<typename RowType>
+void ColumnDataWriter::next(const RowType& row) {
+    for (size_t cid = 0; cid < _segment_group->get_num_key_columns(); ++cid) {
+        auto field = row.schema()->column(cid);
+        auto cell = row.cell(cid);
 
-void ColumnDataWriter::next(const RowCursor& row_cursor) {
-    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = row_cursor.nullable_cell_ptr(i);
-        if (_zone_maps[i].first->cmp(right) > 0) {
-            _zone_maps[i].first->copy(right);
+        if (field->compare_cell(*_zone_maps[cid].first, cell) > 0) {
+            field->direct_copy(_zone_maps[cid].first, cell);
         }
 
-        if (_zone_maps[i].second->cmp(right) < 0) {
-            _zone_maps[i].second->copy(right);
-        }
-    }
-
-    ++_row_index;
-}
-
-void ColumnDataWriter::next(const char* row, const Schema* schema) {
-    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = const_cast<char*>(row + schema->column_offset(i));
-        if (_zone_maps[i].first->cmp(right) > 0) {
-            _zone_maps[i].first->copy(right);
-        }
-
-        if (_zone_maps[i].second->cmp(right) < 0) {
-            _zone_maps[i].second->copy(right);
+        if (field->compare_cell(*_zone_maps[cid].second, cell) < 0) {
+            field->direct_copy(_zone_maps[cid].second, cell);
         }
     }
 
@@ -340,5 +315,11 @@ MemPool* ColumnDataWriter::mem_pool() {
 CompressKind ColumnDataWriter::compress_kind() {
     return _compress_kind;
 }
+
+template OLAPStatus ColumnDataWriter::write<RowCursor>(const RowCursor& row);
+template OLAPStatus ColumnDataWriter::write<ContiguousRow>(const ContiguousRow& row);
+
+template void ColumnDataWriter::next<RowCursor>(const RowCursor& row);
+template void ColumnDataWriter::next<ContiguousRow>(const ContiguousRow& row);
 
 }  // namespace doris
