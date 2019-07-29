@@ -104,21 +104,11 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 res = publish_status;
                 continue;
             }
-            if (publish_status == OLAP_SUCCESS || publish_status == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                          << ", transaction_id=" << transaction_id << ", version=" << version.first
-                          << ", res=" << publish_status;
-                // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
-                RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
-                // delete txn info
-            } else {
-                LOG(WARNING) << "fail to publish version on tablet. tablet=" << tablet->full_name().c_str()
-                             << "transaction_id=" << transaction_id
-                             << "version=" <<  version.first
-                             << " res=" << publish_status;
-                _error_tablet_ids->push_back(tablet->tablet_id());
-                res = publish_status;
-            }
+            LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
+                      << ", transaction_id=" << transaction_id << ", version=" << version.first
+                      << ", res=" << publish_status;
+            // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
+            RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
         }
     }
 
