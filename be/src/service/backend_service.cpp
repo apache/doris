@@ -285,7 +285,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     }
     std::vector<TScanColumnDesc> selected_columns;
     // start the scan procedure
-    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(params, fragment_instance_id, selected_columns);
+    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(params, fragment_instance_id, &selected_columns);
     exec_st.to_thrift(&t_status);
     //return status
     // t_status.status_code = TStatusCode::OK;

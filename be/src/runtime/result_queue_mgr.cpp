@@ -26,13 +26,12 @@
 
 namespace doris {
 
-ResultQueueMgr::ResultQueueMgr() {
-    _max_sink_batch_count = doris::config::max_memory_sink_batch_count;
+ResultQueueMgr::ResultQueueMgr() : _max_sink_batch_count(config::max_memory_sink_batch_count) {
 }
 ResultQueueMgr::~ResultQueueMgr() {
 }
 
-Status ResultQueueMgr::fetch_result(TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos) {
+Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (_fragment_queue_map.end() != iter) {
@@ -54,7 +53,7 @@ Status ResultQueueMgr::fetch_result(TUniqueId& fragment_instance_id, std::shared
     }
 }
 
-void ResultQueueMgr::create_queue(TUniqueId& fragment_instance_id, shared_block_queue_t* queue) {
+void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (iter != _fragment_queue_map.end()) {

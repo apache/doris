@@ -555,12 +555,12 @@ void FragmentMgr::debug(std::stringstream& ss) {
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TExecPlanFragmentParams
  */
-Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>& selected_columns) {
-    std::string opaqued_query_plan = params.opaqued_query_plan;
+Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns) {
+    const std::string& opaqued_query_plan = params.opaqued_query_plan;
     std::string query_plan_info;
     // base64 decode query plan
     if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
-        LOG(ERROR) << "open context error: base64_decode decode opaqued_query_plan failure";
+        LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
         std::stringstream msg;
         msg << "query_plan_info: " << query_plan_info << " validate error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
@@ -571,7 +571,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     // deserialize TQueryPlanInfo
     auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
     if (!st.ok()) {
-        LOG(ERROR) << "open context error: deserialize TQueryPlanInfo failure";
+        LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
         std::stringstream msg;
         msg << "query_plan_info: " << query_plan_info << " deserialize error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
@@ -582,14 +582,14 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     ObjectPool obj_pool;
     st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
     if (!st.ok()) {
-        LOG(ERROR) << "open context error: extract DescriptorTbl failure";
+        LOG(WARNING) << "open context error: extract DescriptorTbl failure";
         std::stringstream msg;
         msg << "query_plan_info: " << query_plan_info << " create DescriptorTbl error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
     }
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     if (tuple_desc == nullptr) {
-        LOG(ERROR) << "open context error: extract TupleDescriptor failure";
+        LOG(WARNING) << "open context error: extract TupleDescriptor failure";
         std::stringstream msg;
         msg << "query_plan_info: " << query_plan_info << " get  TupleDescriptor error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
@@ -599,7 +599,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
         TScanColumnDesc col;
         col.__set_name(slot->col_name());
         col.__set_type(to_thrift(slot->type().type));
-        selected_columns.emplace_back(std::move(col));
+        selected_columns->emplace_back(std::move(col));
     }
 
     LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: " << apache::thrift::ThriftDebugString(t_query_plan_info);
@@ -635,7 +635,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
         } else {
             std::stringstream msg;
             msg << "tablet_id: " << tablet_id << " not found";
-            return Status::InvalidArgument(msg.str());
+            LOG(WARNING) << "tablet_id [ " << tablet_id << " ] not found";
+            return Status::NotFound(msg.str());
         }
         TScanRange doris_scan_range;
         doris_scan_range.__set_palo_scan_range(scan_range);

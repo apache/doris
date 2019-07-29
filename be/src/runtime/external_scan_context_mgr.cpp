@@ -17,20 +17,20 @@
 
 #include "runtime/external_scan_context_mgr.h"
 
+#include <chrono>
+#include <functional>
+
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) {
-    _is_stop = false;
-    _exec_env = exec_env;
-    _scan_context_gc_interval_min = doris::config::scan_context_gc_interval_min;
+ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _is_stop(false), _exec_env(exec_env), _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min), {
     // start the reaper thread for gc the expired context
     _keep_alive_reaper.reset(
-            new boost::thread(
-                    boost::bind<void>(boost::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
+            new std::thread(
+                    std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
 }
 
 Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<Context>* p_context) {
@@ -38,7 +38,7 @@ Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<Context>* p_c
     std::shared_ptr<Context> context(new Context(context_id));
     // context->last_access_time  = time(NULL);
     {
-        boost::lock_guard<boost::mutex> l(_lock);        
+        std::lock_guard<std::mutex> l(_lock);        
         _active_contexts.insert(std::make_pair(context_id, context));
     }
     *p_context = context;
@@ -47,7 +47,7 @@ Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<Context>* p_c
 
 Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, std::shared_ptr<Context>* p_context) {
     {
-        boost::lock_guard<boost::mutex> l(_lock);        
+        std::lock_guard<std::mutex> l(_lock);        
         auto iter = _active_contexts.find(context_id);
         if (iter != _active_contexts.end()) {
             *p_context = iter->second;
@@ -63,13 +63,13 @@ Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, s
 
 Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id) {
     std::shared_ptr<Context> context;
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _active_contexts.find(context_id);
     if (iter != _active_contexts.end()) {
         context = iter->second;
         // maybe do not this context-local-lock
         {
-            boost::lock_guard<boost::mutex> l(context->_local_lock);
+            std::lock_guard<std::mutex> l(context->_local_lock);
             // first cancel the fragment instance, just ignore return status
             _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
             // clear the fragment instance's related result queue
@@ -87,7 +87,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
 
 void ExternalScanContextMgr::gc_expired_context() {
     while (!_is_stop) {
-        boost::this_thread::sleep(boost::posix_time::minutes(_scan_context_gc_interval_min));
+        std::this_thread::sleep_for(std::chrono::seconds(_scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
         for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
             TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
@@ -95,7 +95,7 @@ void ExternalScanContextMgr::gc_expired_context() {
             {
                 // This lock maybe should deleted, all right? 
                 // here we do not need lock guard in fact
-                boost::lock_guard<boost::mutex> l(context->_local_lock);        
+                std::lock_guard<std::mutex> l(context->_local_lock);        
                 // being processed or timeout is disabled
                 if (context->last_access_time == -1) {
                     continue;

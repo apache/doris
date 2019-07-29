@@ -39,9 +39,9 @@ public:
     ResultQueueMgr();
     ~ResultQueueMgr();
 
-    Status fetch_result(TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos);
+    Status fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos);
 
-    void create_queue(TUniqueId& fragment_instance_id, shared_block_queue_t* queue);
+    void create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue);
 
     Status cancel(const TUniqueId& fragment_id);
 

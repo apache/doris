@@ -17,16 +17,13 @@
 
 #pragma once
 
-#include <boost/thread/lock_guard.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/thread.hpp>
-
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <time.h>
-#include <map>
+#include <thread>
+#include <utility>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -34,17 +31,17 @@
 
 namespace doris {
 
-struct Context{
+struct Context {
 public:
     TUniqueId fragment_instance_id;
     int64_t offset;
     // use this access_time to clean zombie context
     time_t last_access_time;
-    boost::mutex _local_lock;
+    std::mutex _local_lock;
     std::string context_id;
     short keep_alive_min;
-    Context(std::string context_id) : context_id(context_id) {}
-    Context(TUniqueId fragment_instance_id, int64_t offset) : fragment_instance_id(fragment_instance_id), offset(offset) {}
+    Context(std::string id) : context_id(std::move(id)) {}
+    Context(const TUniqueId& fragment_id, int64_t offset) : fragment_instance_id(fragment_id), offset(offset) {}
 };
 
 class ExternalScanContextMgr {
@@ -66,18 +63,14 @@ public:
 
 
 private:
+
     ExecEnv* _exec_env;
     std::map<std::string, std::shared_ptr<Context>> _active_contexts;
-    
     void gc_expired_context();
     bool _is_stop;
-
-    boost::scoped_ptr<boost::thread> _keep_alive_reaper;
-
-    boost::mutex _lock;
-
+    std::unique_ptr<std::thread> _keep_alive_reaper;
+    std::mutex _lock;
     u_int32_t _scan_context_gc_interval_min;
-
 };
 
 }
