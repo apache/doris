@@ -108,16 +108,8 @@ public:
         return _rep->compare_cell(*this, *field);
     }
 
-    int cmp(char* right) const {
-        return _rep->compare_cell(*this, RowCursorCell(right));
-    }
-
     void copy(const WrapperField* field) {
         _rep->direct_copy(this, *field);
-    }
-
-    void copy(char* src) {
-        _rep->direct_copy(this, RowCursorCell(src));
     }
 
     uint32_t hash_code() const {
