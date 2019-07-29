@@ -118,9 +118,8 @@ Status BrokerReader::open() {
     // This will be removed later.
     if (response.__isset.size) {
         _file_size = response.size;
-    } else {
-        _file_size = 0;
     }
+
     _fd = response.fd;
     _is_fd_valid = true;
     return Status::OK();
