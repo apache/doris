@@ -102,6 +102,7 @@ set(RUNTIME_FILES
   small_file_mgr.cpp
   result_queue_mgr.cpp
   memory_scratch_sink.cpp
+  external_scan_context_mgr.cpp
 )
 
 if (WITH_MYSQL)

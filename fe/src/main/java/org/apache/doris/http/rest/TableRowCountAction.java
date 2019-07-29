@@ -22,12 +22,8 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
@@ -94,25 +90,8 @@ public class TableRowCountAction extends RestBaseAction {
                             + "is not a OlapTable, only support OlapTable currently");
                 }
                 OlapTable olapTable = (OlapTable) table;
-                long totalCount = 0;
-                for (Partition partition : olapTable.getPartitions()) {
-                    long version = partition.getVisibleVersion();
-                    long versionHash = partition.getVisibleVersionHash();
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
-                        for (Tablet tablet : index.getTablets()) {
-                            long tabletRowCount = 0L;
-                            for (Replica replica : tablet.getReplicas()) {
-                                if (replica.checkVersionCatchUp(version, versionHash)
-                                        && replica.getRowCount() > tabletRowCount) {
-                                    tabletRowCount = replica.getRowCount();
-                                }
-                            }
-                            totalCount += tabletRowCount;
-                        } // end for tablets
-                    } // end for indices
-                } // end for partitions
                 resultMap.put("status", 200);
-                resultMap.put("size", totalCount);
+                resultMap.put("size", olapTable.proximateRowCount());
             } finally {
                 db.writeUnlock();
             }

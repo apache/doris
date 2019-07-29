@@ -107,6 +107,8 @@ struct TScanOpenParams {
   9: optional string user
 
   10: optional string passwd
+    // max keep alive time min
+  11: optional i16 keep_alive_min
 }
 
 

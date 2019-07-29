@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SERVICE_BACKEND_SERVICE_H
 #define DORIS_BE_SERVICE_BACKEND_SERVICE_H
 
+#include <map>
 #include <memory>
 #include <time.h>
-#include<map>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "agent/agent_server.h"
@@ -30,17 +30,6 @@
 #include "gen_cpp/DorisExternalService_types.h"
 
 namespace doris {
-
-struct Context{
-public:
-    TUniqueId fragment_instance_id;
-    int64_t offset;
-    // use this access_time to clean zombie context
-    time_t last_access_time;
-    boost::mutex _local_lock;
-    Context(TUniqueId fragment_instance_id, int64_t offset) : fragment_instance_id(fragment_instance_id), offset(offset) {}
-};
-
 
 class ExecEnv;
 class ThriftServer;
@@ -82,8 +71,8 @@ public:
     BackendService(ExecEnv* exec_env);
 
     virtual ~BackendService() {
-        _is_stop = true;
-        _keep_alive_reaper->join();
+        // _is_stop = true;
+        // _keep_alive_reaper->join();
     }
 
     // NOTE: now we do not support multiple backend in one process
@@ -177,21 +166,11 @@ public:
     virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params);
 
 private:
-    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 
+    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
     std::unique_ptr<AgentServer> _agent_server;
 
-    std::map<std::string, std::shared_ptr<Context>> _active_contexts;
-
-    void expired_context_gc();
-
-    bool _is_stop;
-
-    boost::scoped_ptr<boost::thread> _keep_alive_reaper;
-
-    boost::mutex _lock;
-    u_int32_t _scan_context_gc_interval_min;
 };
 
 } // namespace doris

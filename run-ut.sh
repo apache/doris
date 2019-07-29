@@ -189,6 +189,7 @@ ${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
 
 # Running runtime Unittest
+${DORIS_TEST_BINARY_DIR}/runtime/external_scan_context_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test

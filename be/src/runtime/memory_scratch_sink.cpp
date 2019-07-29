@@ -29,6 +29,7 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
+#include "util/date_func.h"
 #include "util/types.h"
 
 namespace doris {
@@ -163,6 +164,11 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 }
                 result->cols[i].double_vals.push_back(*static_cast<double*>(item));         
                 break;
+            case TYPE_TIME: {
+                double time = *static_cast<double *>(item);
+                std::string time_str = time_str_from_int((int) time);
+                break;
+            }
             case TYPE_DATE:
             case TYPE_DATETIME: {
                 if (result->cols[i].__isset.long_vals) {

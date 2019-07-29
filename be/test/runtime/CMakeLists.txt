@@ -62,3 +62,4 @@ ADD_BE_TEST(small_file_mgr_test)
 
 ADD_BE_TEST(result_queue_mgr_test)
 ADD_BE_TEST(memory_scratch_sink_test)
+ADD_BE_TEST(external_scan_context_mgr_test)

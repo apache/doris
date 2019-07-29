@@ -32,6 +32,7 @@ class DataStreamMgr;
 class DiskIoMgr;
 class EtlJobMgr;
 class EvHttpServer;
+class ExternalScanContextMgr;
 class FragmentMgr;
 class LoadPathMgr;
 class LoadStreamMgr;
@@ -87,6 +88,7 @@ public:
     ~ExecEnv();
 
     const std::string& token() const;
+    ExternalScanContextMgr* external_scan_context_mgr() {return _external_scan_context_mgr;}
     MetricRegistry* metrics() const { return _metrics; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
@@ -137,6 +139,7 @@ private:
 private:
     std::vector<StorePath> _store_paths;
     // Leave protected so that subclasses can override
+    ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     MetricRegistry* _metrics = nullptr;
     DataStreamMgr* _stream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;

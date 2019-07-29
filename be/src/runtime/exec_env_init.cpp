@@ -26,6 +26,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
+#include "runtime/external_scan_context_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/mem_tracker.h"
@@ -69,7 +70,7 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _store_paths = store_paths;
-    
+    _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _metrics = DorisMetrics::metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -220,7 +221,7 @@ void ExecEnv::_destory() {
     delete _stream_mgr;
     delete _stream_load_executor;
     delete _routine_load_task_executor;
-
+    delete _external_scan_context_mgr;
     _metrics = nullptr;
 }
 

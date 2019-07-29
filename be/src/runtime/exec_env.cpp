@@ -18,8 +18,7 @@
 #include "runtime/exec_env.h"
 
 #include "gen_cpp/HeartbeatService_types.h"
-#include "runtime/result_queue_mgr.h"
-#include "runtime/thread_resource_mgr.h"
+
 namespace doris {
 
 ExecEnv::ExecEnv() {

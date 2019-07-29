@@ -26,13 +26,14 @@
 
 #include "common/logging.h"
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/TDorisExternalService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/storage_engine.h"
+
+#include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
@@ -55,8 +56,6 @@
 #include "util/thrift_util.h"
 #include "util/thrift_server.h"
 
-
-
 namespace doris {
 
 using apache::thrift::TException;
@@ -78,13 +77,6 @@ BackendService::BackendService(ExecEnv* exec_env) :
     char buf[64];
     DateTimeValue value = DateTimeValue::local_time();
     value.to_string(buf);
-    _is_stop = false;
-    LOG(INFO) << "DorisExternalService ctor init ";
-    _scan_context_gc_interval_min = doris::config::scan_context_gc_interval_min;
-    // start the reaper thread for gc the expired context
-    _keep_alive_reaper.reset(
-            new boost::thread(
-                    boost::bind<void>(boost::mem_fn(&BackendService::expired_context_gc), this)));
 }
 
 Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
@@ -276,138 +268,29 @@ void BackendService::submit_routine_load_task(
 
 /*
  * 1. validate user privilege (todo)
- * 2. resolve opaqued_query_plan to thrift structure
- * 3. build TExecPlanFragmentParams
- * 4. FragmentMgr#exec_plan_fragment
+ * 2. FragmentMgr#exec_plan_fragment
  */
 void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
-    LOG(INFO) << "BackendService open ";
-    std::string opaqued_query_plan = params.opaqued_query_plan;
-    std::string query_plan_info;
     TStatus t_status;
-    // base64 decode query plan
-    if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
-        LOG(ERROR) << "open context error: base64_decode decode opaqued_query_plan failure";
-        t_status.status_code = TStatusCode::INVALID_ARGUMENT;
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " validate error, should not be modified after returned Doris FE processed";
-        t_status.error_msgs.push_back(msg.str());
-        result_.status = t_status;
-        return;
+    TUniqueId fragment_instance_id = generate_uuid();
+    std::shared_ptr<Context> p_context;
+    _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
+    p_context->fragment_instance_id = fragment_instance_id;
+    p_context->offset = 0;
+    p_context->last_access_time  = time(NULL);
+    if (params.__isset.keep_alive_min) {
+        p_context->keep_alive_min = params.keep_alive_min;
+    } else {
+        p_context->keep_alive_min = 5;
     }
-    TQueryPlanInfo t_query_plan_info;
-    const uint8_t* buf = (const uint8_t*)query_plan_info.data();
-    uint32_t len = query_plan_info.size();
-    // deserialize TQueryPlanInfo
-    auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
-    if (!st.ok()) {
-        LOG(ERROR) << "open context error: deserialize TQueryPlanInfo failure";
-        t_status.status_code = TStatusCode::INVALID_ARGUMENT;
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " deserialize error, should not be modified after returned Doris FE processed";
-        t_status.error_msgs.push_back(msg.str());
-        result_.status = t_status;
-        return;
-    }
-
-    // set up desc tbl
-    DescriptorTbl* desc_tbl = NULL;
-    ObjectPool obj_pool;
-    st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
-    if (!st.ok()) {
-        LOG(ERROR) << "open context error: extract DescriptorTbl failure";
-        t_status.status_code = TStatusCode::INVALID_ARGUMENT;
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " create DescriptorTbl error, should not be modified after returned Doris FE processed";
-        t_status.error_msgs.push_back(msg.str());
-        result_.status = t_status;
-        return;
-    }
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    if (tuple_desc == nullptr) {
-        LOG(ERROR) << "open context error: extract TupleDescriptor failure";
-        t_status.status_code = TStatusCode::INVALID_ARGUMENT;
-        std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " get  TupleDescriptor error, should not be modified after returned Doris FE processed";
-        t_status.error_msgs.push_back(msg.str());
-        result_.status = t_status;
-        return;
-    }
-    // process selected columns form slots
     std::vector<TScanColumnDesc> selected_columns;
-    for (const SlotDescriptor* slot : tuple_desc->slots()) {
-        TScanColumnDesc col;
-        col.__set_name(slot->col_name());
-        col.__set_type(to_thrift(slot->type().type));
-        selected_columns.emplace_back(std::move(col));
-    }
-
-    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: " << apache::thrift::ThriftDebugString(t_query_plan_info);
-    // assign the param used to execute PlanFragment
-    TExecPlanFragmentParams exec_fragment_params;
-    exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
-    exec_fragment_params.__set_fragment(t_query_plan_info.plan_fragment);
-    exec_fragment_params.__set_desc_tbl(t_query_plan_info.desc_tbl);
-
-    // assign the param used for executing of PlanFragment-self
-    TPlanFragmentExecParams fragment_exec_params;
-    fragment_exec_params.query_id = t_query_plan_info.query_id;
-    fragment_exec_params.fragment_instance_id = generate_uuid();
-    std::map<::doris::TPlanNodeId, std::vector<TScanRangeParams>> per_node_scan_ranges;
-    std::vector<TScanRangeParams> scan_ranges;
-    std::vector<int64_t> tablet_ids = params.tablet_ids;
-    TNetworkAddress address;
-    address.hostname = BackendOptions::get_localhost();
-    address.port = doris::config::be_port;
-    std::map<int64_t, TTabletVersionInfo> tablet_info = t_query_plan_info.tablet_info;
-    for (auto tablet_id : params.tablet_ids) {
-        TPaloScanRange scan_range;
-        scan_range.db_name = params.database;
-        scan_range.table_name = params.table;
-        auto iter = tablet_info.find(tablet_id);
-        if (iter != tablet_info.end()) {
-            TTabletVersionInfo info = iter->second;
-            scan_range.tablet_id = tablet_id;
-            scan_range.version = std::to_string(info.version);
-            scan_range.version_hash = std::to_string(info.version_hash);
-            scan_range.schema_hash = std::to_string(info.schema_hash);
-            scan_range.hosts.push_back(address);
-        } else {
-            t_status.status_code = TStatusCode::NOT_FOUND;
-            std::stringstream msg;
-            msg << "tablet_id: " << tablet_id << " not found";
-            t_status.error_msgs.push_back(msg.str());
-            result_.status = t_status;
-            return;
-        }
-        TScanRange doris_scan_range;
-        doris_scan_range.__set_palo_scan_range(scan_range);
-        TScanRangeParams scan_range_params;
-        scan_range_params.scan_range = doris_scan_range;
-        scan_ranges.push_back(scan_range_params);
-    }
-    per_node_scan_ranges.insert(std::make_pair((::doris::TPlanNodeId)0, scan_ranges));
-    fragment_exec_params.per_node_scan_ranges = per_node_scan_ranges;
-    exec_fragment_params.__set_params(fragment_exec_params);
-    // batch_size for one RowBatch
-    TQueryOptions query_options;
-    query_options.batch_size = params.batch_size;
-    exec_fragment_params.__set_query_options(query_options);
-    std::string context_id = generate_uuid_string();
-    std::shared_ptr<Context> context(new Context(fragment_exec_params.fragment_instance_id, 0));
-    context->last_access_time  = time(NULL);
-    {
-        boost::lock_guard<boost::mutex> l(_lock);        
-        _active_contexts.insert(std::make_pair(context_id, context));
-    }
     // start the scan procedure
-    Status exec_st = _exec_env->fragment_mgr()->exec_plan_fragment(exec_fragment_params);
-    VLOG_ROW << "external exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
+    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(params, fragment_instance_id, selected_columns);
+    exec_st.to_thrift(&t_status);
     //return status
-    t_status.status_code = TStatusCode::OK;
+    // t_status.status_code = TStatusCode::OK;
     result_.status = t_status;
-    result_.__set_context_id(context_id);
+    result_.__set_context_id(p_context->context_id);
     result_.__set_selected_columns(selected_columns);
 }
 
@@ -417,19 +300,11 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
     u_int64_t offset = params.offset;
     TStatus t_status;
     std::shared_ptr<Context> context;
-    {
-        boost::lock_guard<boost::mutex> l(_lock);        
-        auto iter = _active_contexts.find(context_id);
-        if (iter != _active_contexts.end()) {
-            context = iter->second;
-        } else {
-            LOG(ERROR) << "getNext error: context id [ " << context_id << " ] not found";
-            t_status.status_code = TStatusCode::NOT_FOUND;
-            std::stringstream msg;
-            msg << "context_id: " << context_id << " not found"; 
-            t_status.error_msgs.push_back(msg.str());
-            result_.status = t_status;
-        }
+    Status context_st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
+    if (!context_st.ok()) {
+        context_st.to_thrift(&t_status);
+        result_.status = t_status;
+        return;
     }
     if (offset != context->offset) {
         LOG(ERROR) << "getNext error: context offset [" <<  context->offset<<" ]" << " ,client offset [ " << offset << " ]";
@@ -445,79 +320,27 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         TUniqueId fragment_instance_id = context->fragment_instance_id;
         std::shared_ptr<TScanRowBatch> rows_per_col;
         bool eos;
-        Status st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
-        if (st.ok()) {
+        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
+        if (fetch_st.ok()) {
             result_.__set_eos(eos);
             // when eos = true  rows_per_col = nullptr
             if (!eos) {
                 result_.__set_rows(*rows_per_col);
                 context->offset += (*rows_per_col).num_rows;
             }
-            t_status.status_code = TStatusCode::OK;
-            result_.status = t_status;
-        } else {
-            result_.status = t_status;
         }
+        fetch_st.to_thrift(&t_status);
+        result_.status = t_status;
     }
     context->last_access_time = time(NULL);
 }
 
 void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
     std::string context_id = params.context_id;
-     TStatus t_status;
-    std::shared_ptr<Context> context;
-    {
-        boost::lock_guard<boost::mutex> l(_lock);        
-        auto iter = _active_contexts.find(context_id);
-        if (iter != _active_contexts.end()) {
-            context = iter->second;
-        } else {
-            t_status.status_code = TStatusCode::NOT_FOUND;
-            std::stringstream msg;
-            msg << "context_id: " << context_id << " not found"; 
-            t_status.error_msgs.push_back(msg.str());
-            result_.status = t_status;
-            return;
-        }
-    }
-    {
-        // maybe do not this context-local-lock
-        boost::lock_guard<boost::mutex> l(context->_local_lock);
-        // first cancel the fragment instance, just ignore return status
-        _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-        // clear the fragment instance's related result queue
-        _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
-    }
-    t_status.status_code = TStatusCode::OK;
+    TStatus t_status;
+    Status st = _exec_env->external_scan_context_mgr()->clear_scan_context(context_id);
+    st.to_thrift(&t_status);
     result_.status = t_status;
-}
-
-// schdule gc proceess per 1min
-void BackendService::expired_context_gc() {
-    while (!_is_stop) {
-        boost::this_thread::sleep(boost::posix_time::minutes(_scan_context_gc_interval_min));
-        time_t current_time = time(NULL);
-        for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
-            TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
-            auto context = iter->second;
-            {
-                // This lock maybe should deleted, all right? 
-                // here we do not need lock guard in fact
-                boost::lock_guard<boost::mutex> l(context->_local_lock);        
-                // being processed or timeout is disabled
-                if (context->last_access_time == -1) {
-                    continue;
-                }
-                // free context since last accesstime is 5 minutes ago
-                if (current_time - context->last_access_time > 5 * 60) {
-                    // must cancel the fragment instance, otherwise return thrift transport TTransportException
-                    _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-                    _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
-                    iter = _active_contexts.erase(iter);
-                }
-            }
-        }
-    }
 }
 
 } // namespace doris
