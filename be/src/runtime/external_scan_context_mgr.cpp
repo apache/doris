@@ -26,7 +26,7 @@
 
 namespace doris {
 
-ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _is_stop(false), _exec_env(exec_env), _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min), {
+ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _is_stop(false), _exec_env(exec_env), _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min) {
     // start the reaper thread for gc the expired context
     _keep_alive_reaper.reset(
             new std::thread(
