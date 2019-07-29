@@ -138,16 +138,11 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
             TBrokerFD fd = fileSystemManager.openReader(request.clientId, request.path,
                     request.startOffset, request.properties);
             response.setFd(fd);
-            // get file size
-            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listPath(request.path,
-                    false, request.properties);
-            response.setSize(fileStatuses.get(0).size);
             response.setOpStatus(generateOKStatus());
         } catch (BrokerException e) {
             logger.warn("failed to open reader for path: " + request.path, e);
             TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
             response.setOpStatus(errorStatus);
-            response.setSize(0);
         }
         return response;
     }
