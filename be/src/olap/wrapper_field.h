@@ -64,45 +64,20 @@ public:
     }
 
     bool is_string_type() const { return _is_string_type; }
-
-    char* ptr() const {
-        return _field_buf + 1;
-    }
-
-    size_t size() const {
-        return _rep->size();
-    }
-
-    size_t field_size() const {
-        return _rep->field_size();
-    }
-
-    bool is_null() const {
-        return *reinterpret_cast<bool*>(_field_buf);
-    }
-
-    void set_is_null(bool is_null) {
-        *reinterpret_cast<bool*>(_field_buf) = is_null;
-    }
-    void set_null() {
-        *reinterpret_cast<bool*>(_field_buf) = true;
-    }
-
-    void set_not_null() {
-        *reinterpret_cast<bool*>(_field_buf) = false;
-    }
-
-    char* nullable_cell_ptr() const {
-        return _field_buf;
-    }
-
-    void set_to_max() {
-        _rep->set_to_max(_field_buf + 1);
-    }
-
-    void set_to_min() {
-        _rep->set_to_min(_field_buf + 1);
-    }
+    char* ptr() const { return _field_buf + 1; }
+    size_t size() const { return _rep->size(); }
+    size_t field_size() const { return _rep->field_size(); }
+    bool is_null() const { return *reinterpret_cast<bool*>(_field_buf); }
+    void set_is_null(bool is_null) { *reinterpret_cast<bool*>(_field_buf) = is_null; }
+    void set_null() { *reinterpret_cast<bool*>(_field_buf) = true; }
+    void set_not_null() { *reinterpret_cast<bool*>(_field_buf) = false; }
+    char* nullable_cell_ptr() const { return _field_buf; }
+    void set_to_max() { _rep->set_to_max(_field_buf + 1); }
+    void set_to_min() { _rep->set_to_min(_field_buf + 1); }
+    uint32_t hash_code() const { return _rep->hash_code(*this, 0); }
+    void* cell_ptr() const { return _field_buf + 1; }
+    void* mutable_cell_ptr() const { return _field_buf + 1; }
+    const Field* field() const { return _rep; }
 
     int cmp(const WrapperField* field) const {
         return _rep->compare_cell(*this, *field);
@@ -112,18 +87,6 @@ public:
         _rep->direct_copy(this, *field);
     }
 
-    uint32_t hash_code() const {
-        return _rep->hash_code(*this, 0);
-    }
-
-    void* cell_ptr() const {
-        return _field_buf + 1;
-    }
-    void* mutable_cell_ptr() const {
-        return _field_buf + 1;
-    }
-
-    const Field* field() const { return _rep; }
 
 private:
     Field* _rep = nullptr;

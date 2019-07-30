@@ -30,52 +30,6 @@ namespace doris {
 
 class RowBlockRow;
 
-#if 0
-class ColumnSchema {
-public:
-    ColumnSchema(const FieldAggregationMethod& agg, const FieldType& type, bool is_nullable)
-        : _type_info(get_type_info(type)),
-        _agg_info(get_aggregate_info(agg, type)),
-        _index_size(-1),
-        _is_nullable(is_nullable) {
-    }
-
-    ColumnSchema(const FieldAggregationMethod& agg, const FieldType& type, size_t index_size, bool is_nullable)
-        : _type_info(get_type_info(type)),
-        _agg_info(get_aggregate_info(agg, type)),
-        _index_size(index_size),
-        _is_nullable(is_nullable) {
-    }
-
-    int compare(const void* left, const void* right) const {
-        return _type_info->cmp(left, right);
-    }
-
-    void aggregate(void* left, const void* right, Arena* arena) const {
-        _agg_info->update(left, right, arena);
-    }
-
-    // data of Hyperloglog type will call this function.
-    void finalize(void* data) const {
-        // NOTE(zc): Currently skip null byte, this is different with update interface
-        // we should unify this
-        _agg_info->finalize((char*)data + 1, nullptr);
-    }
-
-    int size() const { return _type_info->size(); }
-    bool is_nullable() const { return _is_nullable; }
-
-    FieldType type() const { return _type_info->type(); }
-    const TypeInfo* type_info() const { return _type_info; }
-    size_t index_size() const { return _index_size; }
-private:
-    const TypeInfo* _type_info;
-    const AggregateInfo* _agg_info;
-    size_t _index_size;
-    bool _is_nullable;
-};
-#endif
-
 // The class is used to represent row's format in memory.
 // One row contains some columns, within these columns there may be key columns which
 // must be the first few columns.
@@ -142,20 +96,13 @@ public:
     size_t column_size(ColumnId cid) const {
         return _cols[cid]->size();
     }
+
     size_t index_size(ColumnId cid) const {
         return _cols[cid]->index_size();
     }
 
-    bool is_null(int index, const char* row) const {
+    bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
-    }
-
-    void set_null(int index, char* row) const {
-        *reinterpret_cast<bool*>(row + _col_offsets[index]) = true;
-    }
-
-    void set_not_null(int index, char* row) const {
-        *reinterpret_cast<bool*>(row + _col_offsets[index]) = false;
     }
 
     void set_is_null(void* row, uint32_t cid, bool is_null) const {

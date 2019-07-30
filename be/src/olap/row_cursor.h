@@ -131,6 +131,7 @@ public:
     inline void set_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
     }
+
     inline void set_not_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
