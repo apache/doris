@@ -406,7 +406,7 @@ Status BinaryPredicate::codegen_compare_fn(
         RETURN_IF_ERROR(codegen_compare_fn(state, fn, LLVM_PRED)); \
         _ir_compute_fn = *fn; \
         return Status::OK(); \
-    } \
+    }
 
 // add '/**/' to pass codestyle check of cooder
 #define BINARY_PRED_INT_FNS(TYPE, FN) \
@@ -451,7 +451,7 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
     } \
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
         return get_codegend_compute_fn_wrapper(state, fn); \
-    } \
+    }
 
 
 #define COMPLICATE_BINARY_PRED_FNS(TYPE, FN, DORIS_TYPE, FROM_FUNC) \
@@ -485,7 +485,7 @@ COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from
         RETURN_IF_ERROR(codegen_compare_fn(state, fn , LLVM_PRED)); \
         _ir_compute_fn = *fn; \
         return Status::OK(); \
-    } \
+    }
 
 #define DATETIME_BINARY_PRED_FNS() \
     DATETIME_BINARY_PRED_FN(Eq##DateTimeVal##Pred, ==, CmpInst::ICMP_EQ) \
@@ -562,11 +562,11 @@ Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Funct
         RETURN_IF_ERROR(codegen_compare_fn(state, fn, LLVM_PRED)); \
         _ir_compute_fn = *fn; \
         return Status::OK(); \
-    } \
+    }
 
 // add '/**/' to pass codestyle check of cooder
 #define BINARY_PRED_FOR_NULL_INT_FNS(TYPE, FN) \
-    BINARY_PRED_FOR_NULL_FN(EqForNull##TYPE##Pred, TYPE, FN, /**/ == /**/, CmpInst::ICMP_EQ) \
+    BINARY_PRED_FOR_NULL_FN(EqForNull##TYPE##Pred, TYPE, FN, /**/ == /**/, CmpInst::ICMP_EQ)
 
 BINARY_PRED_FOR_NULL_INT_FNS(BooleanVal, get_boolean_val);
 BINARY_PRED_FOR_NULL_INT_FNS(TinyIntVal, get_tiny_int_val);
@@ -576,7 +576,7 @@ BINARY_PRED_FOR_NULL_INT_FNS(BigIntVal, get_big_int_val);
 BINARY_PRED_FOR_NULL_INT_FNS(LargeIntVal, get_large_int_val);
 
 #define BINARY_PRED_FOR_NULL_FLOAT_FNS(TYPE, FN) \
-    BINARY_PRED_FOR_NULL_FN(EqForNull##TYPE##Pred, TYPE, FN, ==, CmpInst::FCMP_OEQ) \
+    BINARY_PRED_FOR_NULL_FN(EqForNull##TYPE##Pred, TYPE, FN, ==, CmpInst::FCMP_OEQ)
 
 BINARY_PRED_FOR_NULL_FLOAT_FNS(FloatVal, get_float_val);
 BINARY_PRED_FOR_NULL_FLOAT_FNS(DoubleVal, get_double_val);
@@ -597,11 +597,11 @@ BINARY_PRED_FOR_NULL_FLOAT_FNS(DoubleVal, get_double_val);
     } \
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
         return get_codegend_compute_fn_wrapper(state, fn); \
-    } \
+    }
 
 
 #define COMPLICATE_BINARY_FOR_NULL_PRED_FNS(TYPE, FN, DORIS_TYPE, FROM_FUNC) \
-    COMPLICATE_BINARY_FOR_NULL_PRED_FN(EqForNull##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, ==) \
+    COMPLICATE_BINARY_FOR_NULL_PRED_FN(EqForNull##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, ==)
 
 COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
 COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from_decimal_val)
@@ -625,10 +625,10 @@ COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Va
         RETURN_IF_ERROR(codegen_compare_fn(state, fn , LLVM_PRED)); \
         _ir_compute_fn = *fn; \
         return Status::OK(); \
-    } \
+    }
 
 #define DATETIME_BINARY_FOR_NULL_PRED_FNS() \
-    DATETIME_BINARY_FOR_NULL_PRED_FN(EqForNull##DateTimeVal##Pred, ==, CmpInst::ICMP_EQ) \
+    DATETIME_BINARY_FOR_NULL_PRED_FN(EqForNull##DateTimeVal##Pred, ==, CmpInst::ICMP_EQ)
 
 DATETIME_BINARY_FOR_NULL_PRED_FNS()
 
