@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
@@ -640,25 +641,21 @@ public class Load {
             }
 
             // get table schema
-            List<Column> tableSchema = table.getBaseSchema();
-            Map<String, Column> nameToTableColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (Column column : tableSchema) {
-                nameToTableColumn.put(column.getName(), column);
-            }
+            List<Column> baseSchema = table.getBaseSchema();
 
             // source columns
             List<String> columnNames = Lists.newArrayList();
             List<String> assignColumnNames = dataDescription.getColumnNames();
             if (assignColumnNames == null) {
                 // use table columns
-                for (Column column : tableSchema) {
+                for (Column column : baseSchema) {
                     columnNames.add(column.getName());
                 }
             } else {
                 // convert column to schema format
                 for (String assignCol : assignColumnNames) {
-                    if (nameToTableColumn.containsKey(assignCol)) {
-                        columnNames.add(nameToTableColumn.get(assignCol).getName());
+                    if (table.getColumn(assignCol) != null) {
+                        columnNames.add(table.getColumn(assignCol).getName());
                     } else {
                         columnNames.add(assignCol);
                     }
@@ -695,7 +692,7 @@ public class Load {
 
             // check negative for sum aggreate type
             if (dataDescription.isNegative()) {
-                for (Column column : tableSchema) {
+                for (Column column : baseSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
                         throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
                     }
@@ -703,16 +700,36 @@ public class Load {
             }
 
             // check hll
-            for (Column column : tableSchema) {
+            for (Column column : baseSchema) {
                 if (column.getDataType() == PrimitiveType.HLL) {
                     if (assignColumnToFunction != null && !assignColumnToFunction.containsKey(column.getName())) {
                         throw new DdlException("Hll column is not assigned. column:" + column.getName());
                     }
                 }
             }
+
             // check mapping column exist in table
             // check function
             // convert mapping column and func arg columns to schema format
+            
+            // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
+            // their names. These columns are visible to user, but we need to generate data for these columns.
+            // So we add column mappings for these column.
+            // eg:
+            // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+            // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = B);
+            List<Column> fullSchema = table.getFullSchema();
+            for (Column column : fullSchema) {
+                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                    if (assignColumnToFunction == null) {
+                        assignColumnToFunction = Maps.newHashMap();
+                        dataDescription.setColumnToFunction(assignColumnToFunction);
+                    }
+                    assignColumnToFunction.put(column.getName(), Pair.create("substitute",
+                            Lists.newArrayList(column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX))));
+                }
+            }
+            
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (String columnName : columnNames) {
                 columnNameMap.put(columnName, columnName);
@@ -721,11 +738,11 @@ public class Load {
                 columnToFunction = Maps.newHashMap();
                 for (Entry<String, Pair<String, List<String>>> entry : assignColumnToFunction.entrySet()) {
                     String mappingColumnName = entry.getKey();
-                    if (!nameToTableColumn.containsKey(mappingColumnName)) {
+                    if (table.getColumn(mappingColumnName) == null) {
                         throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
                     }
 
-                    Column mappingColumn = nameToTableColumn.get(mappingColumnName);
+                    Column mappingColumn = table.getColumn(mappingColumnName);
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,

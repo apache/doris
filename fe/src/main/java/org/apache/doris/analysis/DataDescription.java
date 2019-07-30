@@ -302,8 +302,8 @@ public class DataDescription {
             validateHllHash(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);
-        } else if (functionName.equalsIgnoreCase("replace")) {
-            validateReplaceFunction(args, columnNameMap);
+        } else if (functionName.equalsIgnoreCase("substitute")) {
+            validateSubstituteFunction(args, columnNameMap);
         } else {
             if (isHadoopLoad) {
                 throw new AnalysisException("Unknown function: " + functionName);
@@ -311,7 +311,9 @@ public class DataDescription {
         }
     }
 
-    private static void validateReplaceFunction(List<String> args, Map<String, String> columnNameMap)
+    // eg: k2 = substitute(k1)
+    // this is used for creating derivative column from existing column
+    private static void validateSubstituteFunction(List<String> args, Map<String, String> columnNameMap)
             throws AnalysisException {
         if (args.size() != 1) {
             throw new AnalysisException("Should has only one argument: " + args);

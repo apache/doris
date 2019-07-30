@@ -215,6 +215,9 @@ public class OlapTable extends Table {
         return indexNameToId.containsKey(indexName);
     }
 
+    /*
+     * Set index schema info for specified index.
+     */
     public void setIndexSchemaInfo(Long indexId, String indexName, List<Column> schema, int schemaVersion,
                                    int schemaHash, short shortKeyColumnCount) {
         if (indexName == null) {
@@ -226,14 +229,26 @@ public class OlapTable extends Table {
         indexIdToSchemaVersion.put(indexId, schemaVersion);
         indexIdToSchemaHash.put(indexId, schemaHash);
         indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
-
-        if (schema.size() > baseSchemaForLoad.size()) {
-
-        }
     }
+
     public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
         Preconditions.checkState(newStorageType == TStorageType.COLUMN);
         indexIdToStorageType.put(indexId, newStorageType);
+    }
+
+    // rebuild the full schema of table
+    // the order of columns in fullSchema is meaningless
+    public void rebuildFullSchema() {
+        fullSchema.clear();
+        nameToColumn.clear();
+        for (List<Column> columns : indexIdToSchema.values()) {
+            for (Column column : columns) {
+                if (!nameToColumn.containsKey(column.getName())) {
+                    fullSchema.add(column);
+                    nameToColumn.put(column.getName(), column);
+                }
+            }
+        }
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -271,6 +286,13 @@ public class OlapTable extends Table {
     public void renameIndexForSchemaChange(String name, String newName) {
         long idxId = indexNameToId.remove(name);
         indexNameToId.put(newName, idxId);
+    }
+
+    public void renameColumnNamePrefix(long idxId) {
+        List<Column> columns = indexIdToSchema.get(idxId);
+        for (Column column : columns) {
+            column.setName(Column.removeNamePrefix(column.getName()));
+        }
     }
 
     public Status resetIdsForRestore(Catalog catalog, Database db, int restoreReplicationNum) {
@@ -587,7 +609,7 @@ public class OlapTable extends Table {
     public TTableDescriptor toThrift() {
         TOlapTable tOlapTable = new TOlapTable(getName());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.OLAP_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setOlapTable(tOlapTable);
         return tTableDescriptor;
     }
@@ -1087,5 +1109,15 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema() {
         return indexIdToSchema.get(baseIndexId);
+    }
+
+    public int getKeysNum() {
+        int keysNum = 0;
+        for (Column column : getBaseSchema()) {
+            if (column.isKey()) {
+                keysNum += 1;
+            }
+        }
+        return keysNum;
     }
 }

@@ -288,6 +288,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     indexSchemaVersionAndHashMap.get(shadowIdxId).second,
                     indexShortKeyMap.get(shadowIdxId));
             tbl.setStorageTypeToIndex(shadowIdxId, TStorageType.COLUMN);
+
+            tbl.rebuildFullSchema();
         }
     }
 
@@ -471,7 +473,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
 
-        // update index schema info in table
+        // update index schema info of each index
         for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
             long shadowIdxId = entry.getKey();
             long originIdxId = entry.getValue();
@@ -479,14 +481,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             String originIdxName = tbl.getIndexNameById(originIdxId);
             tbl.deleteIndexInfo(originIdxName);
             // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'
+            // this will also remove the prefix of columns
             tbl.renameIndexForSchemaChange(shadowIdxName, originIdxName);
+            tbl.renameColumnNamePrefix(shadowIdxId);
 
             if (originIdxId == tbl.getBaseIndexId()) {
                 // set base index
-                tbl.setNewBaseSchema(indexSchemaMap.get(shadowIdxId));
                 tbl.setBaseIndexId(shadowIdxId);
             }
         }
+        // rebuild table's full schema
+        tbl.rebuildFullSchema();
 
         // update bloom filter
         if (hasBfChange) {

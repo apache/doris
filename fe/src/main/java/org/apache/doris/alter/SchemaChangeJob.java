@@ -851,7 +851,7 @@ public class SchemaChangeJob extends AlterJob {
 
                 // 3. update base schema if changed
                 if (this.changedIndexIdToSchema.containsKey(olapTable.getBaseIndexId())) {
-                    table.setNewBaseSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
+                    table.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
                 }
 
                 // 4. update table bloom filter columns
@@ -1016,7 +1016,7 @@ public class SchemaChangeJob extends AlterJob {
                     olapTable.setIndexStorageType(indexId, newStorageType);
                 }
                 if (indexId == olapTable.getBaseIndexId()) {
-                    olapTable.setNewBaseSchema(entry.getValue());
+                    olapTable.setNewFullSchema(entry.getValue());
                 }
             }
 

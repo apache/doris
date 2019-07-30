@@ -57,9 +57,17 @@ public class Table extends MetaObject implements Writable {
     protected long id;
     protected String name;
     protected TableType type;
-    protected List<Column> baseSchema;
+    /*
+     *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
+     *  eg. for OlapTable, when doing schema change, there will be some shadow columns which are not visible
+     *      to query but visible to load process.
+     *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
+     *  sub classes.
+     *  
+     *  NOTICE: the order of this fullSchema is meaningless to OlapTable
+     */
+    protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
-    // This should contains all columns in both baseSchema and baseSchemaForLoad
     protected Map<String, Column> nameToColumn;
 
     // DO NOT persist this variable.
@@ -67,18 +75,18 @@ public class Table extends MetaObject implements Writable {
 
     public Table(TableType type) {
         this.type = type;
-        this.baseSchema = Lists.newArrayList();
+        this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
     }
 
-    public Table(long id, String tableName, TableType type, List<Column> baseSchema) {
+    public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        this.baseSchema = baseSchema;
+        this.fullSchema = fullSchema;
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        if (baseSchema != null) {
-            for (Column col : baseSchema) {
+        if (fullSchema != null) {
+            for (Column col : fullSchema) {
                 nameToColumn.put(col.getName(), col);
             }
         } else {
@@ -107,24 +115,19 @@ public class Table extends MetaObject implements Writable {
         return type;
     }
 
-    public int getKeysNum() {
-        int keysNum = 0;
-        for (Column column : baseSchema) {
-            if (column.isKey()) {
-                keysNum += 1;
-            }
-        }
-        return keysNum;
+    public List<Column> getFullSchema() {
+        return fullSchema;
     }
 
+    // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return baseSchema;
+        return fullSchema;
     }
 
-    public void setNewBaseSchema(List<Column> newSchema) {
-        this.baseSchema = newSchema;
+    public void setNewFullSchema(List<Column> newSchema) {
+        this.fullSchema = newSchema;
         this.nameToColumn.clear();
-        for (Column col : baseSchema) {
+        for (Column col : fullSchema) {
             nameToColumn.put(col.getName(), col);
         }
     }
@@ -182,9 +185,9 @@ public class Table extends MetaObject implements Writable {
         Text.writeString(out, name);
 
         // base schema
-        int columnCount = baseSchema.size();
+        int columnCount = fullSchema.size();
         out.writeInt(columnCount);
-        for (Column column : baseSchema) {
+        for (Column column : fullSchema) {
             column.write(out);
         }
     }
@@ -205,7 +208,7 @@ public class Table extends MetaObject implements Writable {
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
-            this.baseSchema.add(column);
+            this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
     }

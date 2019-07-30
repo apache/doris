@@ -72,7 +72,7 @@ api：
 命令:
 
 ```
-./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx`
+./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx
 ```
 
 ### 展示 pb 格式的 TabletMeta
