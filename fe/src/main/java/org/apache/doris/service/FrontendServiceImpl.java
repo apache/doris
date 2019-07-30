@@ -500,7 +500,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             return result;
         } catch (UserException e) {
-            LOG.warn("catch unknown result.", e);
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
             return result;
