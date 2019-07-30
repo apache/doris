@@ -3640,7 +3640,7 @@ comparison_predicate ::=
   | expr:e1 GREATERTHAN:op expr:e2
   {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.GT, e1, e2); :}
   | expr:e1 LESSTHAN EQUAL GREATERTHAN:op expr:e2
-  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, e2); :}
+  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ_FOR_NULL, e1, e2); :}
   ;
 
 like_predicate ::=

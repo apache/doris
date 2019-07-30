@@ -248,10 +248,18 @@ public class InPredicate extends Predicate {
             return this;
         }
 
+        if (leftChildValue instanceof NullLiteral) {
+            return leftChildValue;
+        }
+
         List<Expr> inListChildren = children.subList(1, children.size());
         if (inListChildren.contains(leftChildValue)) {
             return new BoolLiteral(true);
         } else {
+            final NullLiteral nullLiteral = new NullLiteral();
+            if (inListChildren.contains(nullLiteral)) {
+                return nullLiteral;
+            }
             return new BoolLiteral(false);
         }
     }
