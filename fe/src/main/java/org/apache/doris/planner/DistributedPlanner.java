@@ -287,59 +287,73 @@ public class DistributedPlanner {
                                                 PlanFragment leftChildFragment, long perNodeMemLimit,
                                                 ArrayList<PlanFragment> fragments)
             throws UserException {
-        // broadcast: send the rightChildFragment's output to each node executing
-        // the leftChildFragment; the cost across all nodes is proportional to the
-        // total amount of data sent
-        PlanNode rhsTree = rightChildFragment.getPlanRoot();
-        long rhsDataSize = 0;
-        long broadcastCost = 0;
-        if (rhsTree.getCardinality() != -1 && leftChildFragment.getNumNodes() != -1) {
-            rhsDataSize = Math.round((double) rhsTree.getCardinality() * rhsTree.getAvgRowSize());
-            broadcastCost = rhsDataSize * leftChildFragment.getNumNodes();
-        }
-        LOG.info("broadcast: cost=" + Long.toString(broadcastCost));
-        LOG.info("card=" + Long.toString(rhsTree.getCardinality())
-                + " row_size=" + Float.toString(rhsTree.getAvgRowSize())
-                + " #nodes=" + Integer.toString(leftChildFragment.getNumNodes()));
-
-        // repartition: both left- and rightChildFragment are partitioned on the
-        // join exprs
-        // TODO: take existing partition of input fragments into account to avoid
-        // unnecessary repartitioning
-        PlanNode lhsTree = leftChildFragment.getPlanRoot();
-        long partitionCost = 0;
-        if (lhsTree.getCardinality() != -1 && rhsTree.getCardinality() != -1) {
-            partitionCost = Math.round(
-                    (double) lhsTree.getCardinality() * lhsTree.getAvgRowSize() + (double) rhsTree
-                            .getCardinality() * rhsTree.getAvgRowSize());
-        }
-        LOG.info("partition: cost=" + Long.toString(partitionCost));
-        LOG.info(
-                "lhs card=" + Long.toString(lhsTree.getCardinality()) + " row_size=" + Float.toString(
-                        lhsTree.getAvgRowSize()));
-        LOG.info(
-                "rhs card=" + Long.toString(rhsTree.getCardinality()) + " row_size=" + Float.toString(
-                        rhsTree.getAvgRowSize()));
-        LOG.info(rhsTree.getExplainString());
-
         boolean doBroadcast;
-        // we do a broadcast join if
-        // - we're explicitly told to do so
-        // - or if it's cheaper and we weren't explicitly told to do a partitioned join
-        // - and we're not doing a full or right outer join (those require the left-hand
-        //   side to be partitioned for correctness)
-        // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
-        // we do a "<=" comparison of the costs so that we default to broadcast joins if
-        // we're unable to estimate the cost
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
-                && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
-                && (perNodeMemLimit == 0 || Math.round(
-                (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
-                && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && broadcastCost <= partitionCost))) {
-            doBroadcast = true;
+        if (!ctx_.getRootAnalyzer().getContext().getSessionVariable().isDisableCostOptimization()) {
+            // broadcast: send the rightChildFragment's output to each node executing
+            // the leftChildFragment; the cost across all nodes is proportional to the
+            // total amount of data sent
+            PlanNode rhsTree = rightChildFragment.getPlanRoot();
+            long rhsDataSize = 0;
+            long broadcastCost = 0;
+            if (rhsTree.getCardinality() != -1 && leftChildFragment.getNumNodes() != -1) {
+                rhsDataSize = Math.round((double) rhsTree.getCardinality() * rhsTree.getAvgRowSize());
+                broadcastCost = rhsDataSize * leftChildFragment.getNumNodes();
+            }
+            LOG.info("broadcast: cost=" + Long.toString(broadcastCost));
+            LOG.info("card=" + Long.toString(rhsTree.getCardinality())
+                    + " row_size=" + Float.toString(rhsTree.getAvgRowSize())
+                    + " #nodes=" + Integer.toString(leftChildFragment.getNumNodes()));
+
+            // repartition: both left- and rightChildFragment are partitioned on the
+            // join exprs
+            // TODO: take existing partition of input fragments into account to avoid
+            // unnecessary repartitioning
+            PlanNode lhsTree = leftChildFragment.getPlanRoot();
+            long partitionCost = 0;
+            if (lhsTree.getCardinality() != -1 && rhsTree.getCardinality() != -1) {
+                partitionCost = Math.round(
+                        (double) lhsTree.getCardinality() * lhsTree.getAvgRowSize() + (double) rhsTree
+                                .getCardinality() * rhsTree.getAvgRowSize());
+            }
+            LOG.info("partition: cost=" + Long.toString(partitionCost));
+            LOG.info(
+                    "lhs card=" + Long.toString(lhsTree.getCardinality()) + " row_size=" + Float.toString(
+                            lhsTree.getAvgRowSize()));
+            LOG.info(
+                    "rhs card=" + Long.toString(rhsTree.getCardinality()) + " row_size=" + Float.toString(
+                            rhsTree.getAvgRowSize()));
+            LOG.info(rhsTree.getExplainString());
+
+            // we do a broadcast join if
+            // - we're explicitly told to do so
+            // - or if it's cheaper and we weren't explicitly told to do a partitioned join
+            // - and we're not doing a full or right outer join (those require the left-hand
+            //   side to be partitioned for correctness)
+            // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
+            // we do a "<=" comparison of the costs so that we default to broadcast joins if
+            // we're unable to estimate the cost
+            if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
+                    && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
+                    && node.getJoinOp() != JoinOperator.RIGHT_ANTI_JOIN
+                    && node.getJoinOp() != JoinOperator.RIGHT_SEMI_JOIN
+                    && (perNodeMemLimit == 0 || Math.round(
+                    (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
+                    && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
+                    && broadcastCost <= partitionCost))) {
+                doBroadcast = true;
+            } else {
+                doBroadcast = false;
+            }
         } else {
-            doBroadcast = false;
+            if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
+                    && node.getJoinOp() != JoinOperator.RIGHT_ANTI_JOIN
+                    && node.getJoinOp() != JoinOperator.RIGHT_SEMI_JOIN
+                    && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
+                    && !node.getInnerRef().isPartitionJoin()) {
+                doBroadcast = true;
+            } else {
+                doBroadcast = false;
+            }
         }
 
         List<String> reason = Lists.newArrayList();

@@ -379,8 +379,17 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString_ = toSql();
         }
-        reorderTable(analyzer);
 
+        if (!analyzer.getContext().getSessionVariable().isDisableCostOptimization()) {
+            reorderTable(analyzer);
+            if (fromClause_.getTableRefs().size() > 1) {
+                final StringBuilder logBuilder = new StringBuilder("Tables order:");
+                for (TableRef tableRef : fromClause_.getTableRefs()) {
+                    logBuilder.append(" ").append(tableRef.getAlias());
+                }
+                LOG.info(logBuilder.toString());
+            }
+        }
         resolveInlineViewRefs(analyzer);
 
         if (analyzer.hasEmptySpjResultSet() && aggInfo == null) {

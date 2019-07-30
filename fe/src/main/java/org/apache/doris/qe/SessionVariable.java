@@ -73,6 +73,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    public static final String DISABLE_COST_OPTIMIZATION = "disable_cost_optimization";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -191,6 +192,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     private boolean forwardToMaster = false;
+
+    @VariableMgr.VarAttr(name = DISABLE_COST_OPTIMIZATION)
+    private boolean disableCostOptimization = true;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -449,6 +453,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForwardToMaster(boolean forwardToMaster) {
         this.forwardToMaster = forwardToMaster;
+    }
+
+    public boolean isDisableCostOptimization() {
+        return this.disableCostOptimization;
     }
 
     // Serialize to thrift object

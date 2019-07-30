@@ -121,8 +121,8 @@ public class TableRef implements ParseNode, Writable {
     protected TupleDescriptor desc;
 
     // set after analyzeJoinHints(); true if explicitly set via hints
-    private boolean isBroadcastJoin;
-    private boolean isPartitionJoin;
+    private boolean isBroadcastJoin = false;
+    private boolean isPartitionJoin = false;
     private String sortColumn = null;
 
     // END: Members that need to be reset()
