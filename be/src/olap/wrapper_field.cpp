@@ -66,13 +66,12 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     _field_buf = new char[_length];
     memset(_field_buf, 0, _length);
     _owned_buf = _field_buf;
-    _is_null = _field_buf;
-    _buf = _field_buf + 1;
+    char* buf = _field_buf + 1;
 
     if (_is_string_type) {
-        Slice* slice = reinterpret_cast<Slice*>(_buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = variable_len;
-        slice->data = _buf + fixed_len;
+        slice->data = buf + fixed_len;
     }
 }
 

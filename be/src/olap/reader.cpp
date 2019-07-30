@@ -31,6 +31,7 @@
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/storage_engine.h"
+#include "olap/row.h"
 
 using std::nothrow;
 using std::set;
@@ -257,7 +258,7 @@ bool CollectIterator::ChildCtxComparator::operator()(const ChildCtx* a, const Ch
     // First compare row cursor.
     const RowCursor* first = a->current_row();
     const RowCursor* second = b->current_row();
-    int cmp_res = first->full_key_cmp(*second);
+    int cmp_res = compare_row(*first, *second);
     if (cmp_res != 0) {
         return cmp_res > 0;
     }
@@ -341,7 +342,7 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
         *eof = true;
         return OLAP_SUCCESS;
     }
-    row_cursor->copy_without_pool(*_next_key);
+    direct_copy_row(row_cursor, *_next_key);
     auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
@@ -356,7 +357,7 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         *eof = true;
         return OLAP_SUCCESS;
     }
-    row_cursor->agg_init(*_next_key);
+    init_row_with_others(row_cursor, *_next_key);
     int64_t merged_count = 0;
     do {
         auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -373,14 +374,14 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         }
 
         // break while can NOT doing aggregation
-        if (!RowCursor::equal(_key_cids, row_cursor, _next_key)) {
+        if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
             break;
         }
-        RowCursor::aggregate(_value_cids, row_cursor, _next_key);
+        agg_update_row(_value_cids, row_cursor, *_next_key);
         ++merged_count;
     } while (true);
     _merged_rows += merged_count;
-    row_cursor->finalize_one_merge(_value_cids);
+    agg_finalize_row(_value_cids, row_cursor);
     return OLAP_SUCCESS;
 }
 
@@ -394,7 +395,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
         }
     
         cur_delete_flag = _next_delete_flag;
-        row_cursor->agg_init(*_next_key);
+        init_row_with_others(row_cursor, *_next_key);
 
         int64_t merged_count = 0;
         while (NULL != _next_key) {
@@ -410,17 +411,17 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
             if (_aggregation && merged_count > config::doris_scanner_row_num) {
-                row_cursor->finalize_one_merge(_value_cids);
+                agg_finalize_row(_value_cids, row_cursor);
                 break;
             }
             // break while can NOT doing aggregation
-            if (!RowCursor::equal(_key_cids, row_cursor, _next_key)) {
-                row_cursor->finalize_one_merge(_value_cids);
+            if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
+                agg_finalize_row(_value_cids, row_cursor);
                 break;
             }
 
             cur_delete_flag = _next_delete_flag;
-            RowCursor::aggregate(_value_cids, row_cursor, _next_key);
+            agg_update_row(_value_cids, row_cursor, *_next_key);
             ++merged_count;
         }
     

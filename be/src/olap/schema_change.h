@@ -28,6 +28,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 #include "olap/column_mapping.h"
+#include "olap/row.h"
 
 namespace doris {
 // defined in 'field.h'
@@ -83,7 +84,7 @@ public:
 
 private:
     static bool _row_cursor_comparator(const RowCursor* a, const RowCursor* b) {
-        return a->full_key_cmp(*b) < 0;
+        return compare_row(*a, *b) < 0;
     }
 
     RowBlockAllocator* _row_block_allocator;
@@ -119,7 +120,7 @@ public:
 private:
     struct MergeElement {
         bool operator<(const MergeElement& other) const {
-            return row_cursor->full_key_cmp(*(other.row_cursor)) > 0;
+            return compare_row(*row_cursor, *other.row_cursor) > 0;
         }
 
         const RowBlock* row_block;

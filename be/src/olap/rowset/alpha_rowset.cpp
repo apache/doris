@@ -18,6 +18,7 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/row.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -287,7 +288,7 @@ OLAPStatus AlphaRowset::split_range(
 
     cur_start_key.attach(entry.data);
     last_start_key.allocate_memory_for_string_type(*_schema);
-    last_start_key.copy_without_pool(cur_start_key);
+    direct_copy_row(&last_start_key, cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->emplace_back(start_key.to_tuple());
 
@@ -309,7 +310,7 @@ OLAPStatus AlphaRowset::split_range(
         if (cur_start_key.cmp(last_start_key) != 0) {
             ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
             ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
-            last_start_key.copy_without_pool(cur_start_key);
+            direct_copy_row(&last_start_key, cur_start_key);
         }
     }
 

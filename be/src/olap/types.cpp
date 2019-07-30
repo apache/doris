@@ -23,9 +23,9 @@ template<typename TypeTraitsClass>
 TypeInfo::TypeInfo(TypeTraitsClass t)
       : _equal(TypeTraitsClass::equal),
         _cmp(TypeTraitsClass::cmp),
-        _copy_with_pool(TypeTraitsClass::copy_with_pool),
+        _deep_copy(TypeTraitsClass::deep_copy),
         _copy_with_arena(TypeTraitsClass::copy_with_arena),
-        _copy_without_pool(TypeTraitsClass::copy_without_pool),
+        _direct_copy(TypeTraitsClass::direct_copy),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),

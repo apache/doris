@@ -27,6 +27,8 @@ namespace doris {
 class Arena;
 class TypeInfo;
 
+class ColumnBlockCell;
+
 // Block of data belong to a single column.
 // It doesn't own any data, user should keep the life of input data.
 class ColumnBlock {
@@ -44,15 +46,33 @@ public:
     bool is_null(size_t idx) const {
         return BitmapTest(_null_bitmap, idx);
     }
-    void set_is_null(size_t idx, bool is_null) {
+    void set_is_null(size_t idx, bool is_null) const {
         return BitmapChange(_null_bitmap, idx, is_null);
     }
+
+    ColumnBlockCell cell(size_t idx) const;
 private:
     const TypeInfo* _type_info;
     uint8_t* _data;
     uint8_t* _null_bitmap;
     Arena* _arena;
 };
+
+struct ColumnBlockCell {
+    ColumnBlockCell(ColumnBlock block, size_t idx) : _block(block), _idx(idx) { }
+
+    bool is_null() const { return _block.is_null(_idx); }
+    void set_is_null(bool is_null) const { return _block.set_is_null(_idx, is_null); }
+    uint8_t* mutable_cell_ptr() const { return _block.mutable_cell_ptr(_idx); }
+    const uint8_t* cell_ptr() const { return _block.cell_ptr(_idx); }
+private:
+    ColumnBlock _block;
+    size_t _idx;
+};
+
+inline ColumnBlockCell ColumnBlock::cell(size_t idx) const {
+    return ColumnBlockCell(*this, idx);
+}
 
 // Wrap ColumnBlock and offset, easy to access data at the specified offset
 // Used to read data from page decoder

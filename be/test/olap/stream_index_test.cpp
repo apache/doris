@@ -283,25 +283,25 @@ TEST_F(TestStreamIndex, test_statistic) {
 
     // 1 
     field->from_string("3");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "3");
 
     // 2
     field->from_string("5");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "5");
 
     // 3
     field->from_string("899");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
     // 4
     field->from_string("-111");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "-111");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
@@ -311,9 +311,9 @@ TEST_F(TestStreamIndex, test_statistic) {
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "-2147483648");
 
     field->from_string("3");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     field->from_string("6");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "6");
 
@@ -348,11 +348,11 @@ TEST_F(TestStreamIndex, statistic) {
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 9);
         field->from_string(string_buffer);
-        stat.add(field->field_ptr());
+        stat.add(*field);
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 2);
         field->from_string(string_buffer);
-        stat.add(field->field_ptr());
+        stat.add(*field);
 
         entry.set_statistic(&stat);
 

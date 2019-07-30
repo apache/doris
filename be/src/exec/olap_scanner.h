@@ -128,7 +128,6 @@ private:
     std::vector<uint32_t> _request_columns_size;
 
     std::vector<SlotDescriptor*> _query_slots;
-    std::vector<const Field*> _query_fields;
 
     // time costed and row returned statistics
     ExecNode::EvalConjunctsFn _eval_conjuncts_fn = nullptr;

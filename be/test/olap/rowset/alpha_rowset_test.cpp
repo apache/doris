@@ -131,6 +131,8 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_1->set_name("k1");
     column_1->set_type("INT");
     column_1->set_is_key(true);
+    column_1->set_length(4);
+    column_1->set_index_length(4);
     column_1->set_is_nullable(true);
     column_1->set_is_bf_column(false);
 
@@ -139,6 +141,8 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_2->set_name("k2");
     column_2->set_type("VARCHAR");
     column_2->set_length(20);
+    column_2->set_index_length(20);
+    column_2->set_is_nullable(true);
     column_2->set_is_key(true);
     column_2->set_is_nullable(true);
     column_2->set_is_bf_column(false);
@@ -147,6 +151,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_3->set_unique_id(3);
     column_3->set_name("v1");
     column_3->set_type("INT");
+    column_3->set_length(4);
     column_3->set_is_key(false);
     column_3->set_is_nullable(false);
     column_3->set_is_bf_column(false);
@@ -219,7 +224,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
     int32_t field_2 = 100;
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
-    _alpha_rowset_writer->add_row(&row);
+    _alpha_rowset_writer->add_row(row);
     _alpha_rowset_writer->flush();
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);

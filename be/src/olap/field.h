@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_FIELD_H
 
 #include <string>
+#include <sstream>
 
 #include "olap/aggregate_func.h"
 #include "olap/olap_common.h"
@@ -26,6 +27,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "olap/row_cursor_cell.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
@@ -33,69 +35,177 @@
 
 namespace doris {
 
-// Field内部参数为Field*的方法都要求实例类型和当前类型一致，否则会产生无法预知的错误
-// 出于效率的考虑，大部分函数实现均没有对参数进行检查
+// A Field is used to represent a column in memory format.
+// User can use this class to access or deal with column data in memory.
 class Field {
 public:
-    // 使用FieldInfo创建一个Field对象的实例
-    // 根据类型的不同，使用不同的类模板参数或者子类
-    // 对于没有预料到的类型，会返回NULL
-    static Field* create(const TabletColumn& column);
-    static Field* create_by_type(const FieldType& type);
+    static Field* create(const TabletColumn& column) {
+        return new Field(column);
+    }
 
-    Field(const TabletColumn& column);
+    static Field* create_by_type(const FieldType& type) {
+        // TODO(zc): To be compatible with old version, we should return nullptr for
+        // CHAR, VARCHAR, HLL. Because ColumnStatistics depend on this function return nullptr
+        if (type == OLAP_FIELD_TYPE_CHAR ||
+            type == OLAP_FIELD_TYPE_VARCHAR ||
+            type == OLAP_FIELD_TYPE_HLL) {
+            return nullptr;
+        }
+        return new Field(type);
+    }
 
-    inline void set_offset(size_t offset) { _offset = offset; }
-    inline size_t get_offset() const { return _offset; }
+    Field(const TabletColumn& column)
+        : _type_info(get_type_info(column.type())),
+        _agg_info(get_aggregate_info(column.aggregation(), column.type())),
+        _index_size(column.index_length()),
+        _is_nullable(column.is_nullable()) { }
 
-    //get ptr without NULL byte
-    inline char* get_ptr(char* buf) const { return buf + _offset + 1; }
+    Field(FieldType type)
+        : _type_info(get_type_info(type)),
+        _agg_info(get_aggregate_info(OLAP_FIELD_AGGREGATION_NONE, type)),
+        _index_size(_type_info->size()),
+        _is_nullable(true) {
+    }
 
-    //get ptr with NULL byte
-    inline char* get_field_ptr(char* buf) const { return buf + _offset; }
+    Field(const FieldAggregationMethod& agg, const FieldType& type, bool is_nullable)
+        : _type_info(get_type_info(type)),
+        _agg_info(get_aggregate_info(agg, type)),
+        _index_size(-1),
+        _is_nullable(is_nullable) {
+    }
 
-    inline size_t size() const { return _size; }
-    inline size_t field_size() const { return _size + 1; }
+    Field(const FieldAggregationMethod& agg, const FieldType& type, size_t index_size, bool is_nullable)
+        : _type_info(get_type_info(type)),
+        _agg_info(get_aggregate_info(agg, type)),
+        _index_size(index_size),
+        _is_nullable(is_nullable) {
+    }
+
+    inline size_t size() const { return _type_info->size(); }
+    inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
 
-    inline void set_to_max(char* buf) { return _type_info->set_to_max(buf); }
-    inline void set_to_min(char* buf) { return _type_info->set_to_min(buf); }
+    inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
+    inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
 
-    inline bool is_null(char* buf) const {
-        return *reinterpret_cast<bool*>(buf + _offset);
+    inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, Arena* arena = nullptr) const {
+        _agg_info->update(dest, src, arena);
     }
 
-    inline void set_null(char* buf) const {
-        *reinterpret_cast<bool*>(buf + _offset) = true;
+    void agg_finalize(RowCursorCell* dst, Arena* arena = nullptr) const {
+        _agg_info->finalize(dst->mutable_cell_ptr(), arena);
     }
 
-    inline void set_not_null(char* buf) const {
-        *reinterpret_cast<bool*>(buf + _offset) = false;
+    // Test if these two cell is equal with each other
+    template<typename LhsCellType, typename RhsCellType>
+    bool equal(const LhsCellType& lhs,
+               const RhsCellType& rhs) const {
+        bool l_null = lhs.is_null();
+        bool r_null = rhs.is_null();
+
+        if (l_null != r_null) {
+            return false;
+        } else if (l_null) {
+            return true;
+        } else {
+            return _type_info->equal(lhs.cell_ptr(), rhs.cell_ptr());
+        }
     }
 
-    // 返回-1，0，1，分别代表当前field小于，等于，大于传入参数中的field
-    inline int cmp(char* left, char* right) const;
-    inline int cmp(char* left, bool r_null, char* right) const;
-    inline int index_cmp(char* left, char* right) const;
-    inline bool equal(char* left, char* right);
+    // Only compare column content, without considering NULL condition.
+    // RETURNS:
+    //      0 means equal,
+    //      -1 means left less than rigth,
+    //      1 means left bigger than right
+    int compare(const void* left, const void* right) const {
+        return _type_info->cmp(left, right);
+    }
 
-    inline void aggregate(char* dest, char* src);
-    inline void finalize(char* data);
+    // Compare two types of cell.
+    // This function differs compare in that this function compare cell which
+    // will consider the condition which cell may be NULL. While compare only
+    // compare column content without considering NULL condition.
+    // Only compare column content, without considering NULL condition.
+    // RETURNS:
+    //      0 means equal,
+    //      -1 means left less than rigth,
+    //      1 means left bigger than right
+    template<typename LhsCellType, typename RhsCellType>
+    int compare_cell(const LhsCellType& lhs,
+                     const RhsCellType& rhs) const {
+        bool l_null = lhs.is_null();
+        bool r_null = rhs.is_null();
+        if (l_null != r_null) {
+            return l_null ? -1 : 1;
+        }
+        return l_null ? 0 : _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
+    }
 
-    inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool);
-    inline void copy_without_pool(char* dest, const char* src);
-    inline void copy_without_pool(char* dest, bool is_null, const char* src);
-    inline void agg_init(char* dest, const char* src);
+    // Used to compare short key index. Because short key will truncate
+    // a varchar column, this function will handle in this condition.
+    template<typename LhsCellType, typename RhsCellType> 
+    inline int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
+
+    // Copy source cell's content to destination cell directly.
+    // For string type, this function assume that destination has
+    // enough space and copy source content into destination without
+    // memory allocation.
+    template<typename DstCellType, typename SrcCellType>
+    void direct_copy(DstCellType* dst, const SrcCellType& src) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
+        return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
+    }
+
+    // deep copy source cell' content to destination cell.
+    // For string type, this will allocate data form pool,
+    // and copy srouce's conetent.
+    template<typename DstCellType, typename SrcCellType>
+    void deep_copy(DstCellType* dst,
+                   const SrcCellType& src,
+                   MemPool* pool) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
+    }
+
+    template<typename DstCellType, typename SrcCellType>
+    void deep_copy(DstCellType* dst,
+                   const SrcCellType& src,
+                   Arena* arena) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
+        _type_info->copy_with_arena(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
+    }
+
+    // This function will initialize destination with source.
+    // This functionn differs copy functionn in that if this filed
+    // contain aggregate information, this functionn will initialize
+    // destination in aggregate format, and update with srouce content.
+    template<typename DstCellType, typename SrcCellType>
+    void agg_init(DstCellType* dst, const SrcCellType& src) const;
 
     // copy filed content from src to dest without nullbyte
-    inline void copy_content(char* dest, const char* src, MemPool* mem_pool) {
-        _type_info->copy_with_pool(dest, src, mem_pool);
+    inline void copy_content(char* dest, const char* src, MemPool* mem_pool) const {
+        _type_info->deep_copy(dest, src, mem_pool);
     }
-    inline void to_index(char* dest, const char* src);
+
+    // Copy srouce content to destination in index format.
+    template<typename DstCellType, typename SrcCellType>
+    void to_index(DstCellType* dst, const SrcCellType& src) const;
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
-    inline OLAPStatus from_string(char* buf, const std::string& value_string) {
+    inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
         return _type_info->from_string(buf, value_string);
     }
 
@@ -105,42 +215,36 @@ public:
         return _type_info->to_string(src);
     }
 
-    inline uint32_t hash_code(char* data, uint32_t seed) const;
-private:
-    FieldType _type;
-    // Field的长度，单位为字节
-    uint16_t _size;
-    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
-    uint16_t _index_size;
-    size_t _offset; //offset in row buf
-    TypeInfo* _type_info;
+    template<typename CellType>
+    std::string debug_string(const CellType& cell) const {
+        std::stringstream ss;
+        if (cell.is_null()) {
+            ss << "(null)";
+        } else {
+            ss << _type_info->to_string(cell.cell_ptr());
+        }
+        return ss.str();
+    }
 
+
+    template<typename CellType>
+    uint32_t hash_code(const CellType& cell, uint32_t seed) const;
+
+    FieldType type() const { return _type_info->type(); }
+    const TypeInfo* type_info() const { return _type_info; }
+    bool is_nullable() const { return _is_nullable; }
+private:
+    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
+    const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
+    uint16_t _index_size;
+    bool _is_nullable;
 };
 
-// 返回-1，0，1，分别代表当前field小于，等于，大于传入参数中的field
-inline int Field::cmp(char* left, char* right) const {
-    bool l_null = *reinterpret_cast<bool*>(left);
-    bool r_null = *reinterpret_cast<bool*>(right);
-    if (l_null != r_null) {
-        return l_null ? -1 : 1;
-    } else {
-        return l_null ? 0 : (_type_info->cmp(left + 1, right + 1));
-    }
-}
-
-inline int Field::cmp(char* left, bool r_null, char* right) const {
-    bool l_null = *reinterpret_cast<bool*>(left);
-    if (l_null != r_null) {
-        return l_null ? -1 : 1;
-    } else {
-        return l_null ? 0 : (_type_info->cmp(left + 1, right));
-    }
-}
-
-inline int Field::index_cmp(char* left, char* right) const {
-    bool l_null = *reinterpret_cast<bool*>(left);
-    bool r_null = *reinterpret_cast<bool*>(right);
+template<typename LhsCellType, typename RhsCellType>
+int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
+    bool l_null = lhs.is_null();
+    bool r_null = rhs.is_null();
     if (l_null != r_null) {
         return l_null ? -1 : 1;
     } else if (l_null){
@@ -148,9 +252,9 @@ inline int Field::index_cmp(char* left, char* right) const {
     }
 
     int32_t res = 0;
-    if (_type == OLAP_FIELD_TYPE_VARCHAR) {
-        Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
-        Slice* r_slice = reinterpret_cast<Slice*>(right + 1);
+    if (type() == OLAP_FIELD_TYPE_VARCHAR) {
+        const Slice* l_slice = reinterpret_cast<const Slice*>(lhs.cell_ptr());
+        const Slice* r_slice = reinterpret_cast<const Slice*>(rhs.cell_ptr());
 
         if (r_slice->size + OLAP_STRING_MAX_BYTES > _index_size
                 || l_slice->size + OLAP_STRING_MAX_BYTES > _index_size) {
@@ -178,110 +282,71 @@ inline int Field::index_cmp(char* left, char* right) const {
             res = l_slice->compare(*r_slice);
         }
     } else {
-        res = _type_info->cmp(left + 1, right + 1);
+        res = _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
     }
 
     return res;
 }
 
-inline bool Field::equal(char* left, char* right) {
-    bool l_null = *reinterpret_cast<bool*>(left);
-    bool r_null = *reinterpret_cast<bool*>(right);
-
-    if (l_null != r_null) {
-        return false;
-    } else if (l_null) {
-        return true;
-    } else {
-        return _type_info->equal(left + 1, right + 1);
-    }
-}
-
-inline void Field::aggregate(char* dest, char* src) {
-    _agg_info->update(dest, src, nullptr);
-}
-
-inline void Field::finalize(char* data) {
-    if (OLAP_UNLIKELY(_type == OLAP_FIELD_TYPE_HLL)) {
-        // hyperloglog type use this function
-        _agg_info->finalize(data, nullptr);
-    }
-}
-
-inline void Field::copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
-    bool is_null = *reinterpret_cast<const bool*>(src);
-    *reinterpret_cast<bool*>(dest) = is_null;
-    if (is_null) {
-        return;
-    }
-    _type_info->copy_with_pool(dest + 1, src + 1, mem_pool);
-}
-
-inline void Field::copy_without_pool(char* dest, const char* src) {
-    bool is_null = *reinterpret_cast<const bool*>(src);
-    *reinterpret_cast<bool*>(dest) = is_null;
-    if (is_null) {
-        return;
-    }
-    return _type_info->copy_without_pool(dest + 1, src + 1);
-}
-
-inline void Field::copy_without_pool(char* dest, bool is_null, const char* src) {
-    *reinterpret_cast<bool*>(dest) = is_null;
-    if (is_null) {
-        return;
-    }
-    return _type_info->copy_without_pool(dest + 1, src);
-}
-
-inline void Field::agg_init(char* dest, const char* src) {
+template<typename DstCellType, typename SrcCellType>
+void Field::agg_init(DstCellType* dst, const SrcCellType& src) const {
     // TODO(zc): This function is also used to initialize key columns.
     // So, refactor this in later PR
-    if (OLAP_LIKELY(_type != OLAP_FIELD_TYPE_HLL)) {
-        copy_without_pool(dest, src);
+    if (OLAP_LIKELY(type() != OLAP_FIELD_TYPE_HLL)) {
+        direct_copy(dst, src);
     } else {
-        bool is_null = *reinterpret_cast<const bool*>(src);
-        *reinterpret_cast<bool*>(dest) = is_null;
-        Slice* slice = reinterpret_cast<Slice*>(dest + 1);
+        bool is_null = src.is_null();
+        // TODO(zc): If source is null, can we set this to null?
+        // I'm not sure, just set like old code
+        dst->set_is_null(is_null);
+
+        Slice* slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         HllSetHelper::init_context(context);
-        HllSetHelper::fill_set(src + 1, context);
+#if 0
+        if (is_null) {
+            return;
+        }
+#endif
+        HllSetHelper::fill_set((const char*)src.cell_ptr(), context);
         context->has_value = true;
     }
 }
 
-inline void Field::to_index(char* dest, const char* src) {
-    bool is_null = *reinterpret_cast<const bool*>(src);
-    *reinterpret_cast<bool*>(dest) = is_null;
+template<typename DstCellType, typename SrcCellType>
+void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
+    bool is_null = src.is_null();
+    dst->set_is_null(is_null);
     if (is_null) {
         return;
     }
 
-    if (_type == OLAP_FIELD_TYPE_VARCHAR) {
+    if (type() == OLAP_FIELD_TYPE_VARCHAR) {
         // 先清零，再拷贝
-        memset(dest + 1, 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src + 1);
+        memset(dst->mutable_cell_ptr(), 0, _index_size);
+        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES ?
                            slice->size : _index_size - OLAP_STRING_MAX_BYTES;
-        *reinterpret_cast<StringLengthType*>(dest + 1) = copy_size;
-        memory_copy(dest + OLAP_STRING_MAX_BYTES + 1, slice->data, copy_size);
-    } else if (_type == OLAP_FIELD_TYPE_CHAR) {
+        *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
+        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
+    } else if (type() == OLAP_FIELD_TYPE_CHAR) {
         // 先清零，再拷贝
-        memset(dest + 1, 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src + 1);
-        memory_copy(dest + 1, slice->data, _index_size);
+        memset(dst->mutable_cell_ptr(), 0, _index_size);
+        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);
     } else {
-        memory_copy(dest + 1, src + 1, size());
+        memory_copy(dst->mutable_cell_ptr(), src.cell_ptr(), size());
     }
 }
 
-inline uint32_t Field::hash_code(char* data, uint32_t seed) const {
-    bool is_null = (*reinterpret_cast<bool*>(data) != 0);
+template<typename CellType>
+uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
+    bool is_null = cell.is_null();
     if (is_null) {
         return HashUtil::hash(&is_null, sizeof(is_null), seed);
     }
-    return _type_info->hash_code(data + 1, seed);
+    return _type_info->hash_code(cell.cell_ptr(), seed);
 }
 
 }  // namespace doris

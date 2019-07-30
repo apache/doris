@@ -40,11 +40,12 @@ void test_min() {
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MIN, field_type);
     agg->init(buf, &arena);
 
+    RowCursorCell dst(buf);
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -53,7 +54,7 @@ void test_min() {
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(100, val);
@@ -64,7 +65,7 @@ void test_min() {
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(100, val);
@@ -75,7 +76,7 @@ void test_min() {
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(50, val);
@@ -84,7 +85,7 @@ void test_min() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         CppType val;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -113,11 +114,12 @@ void test_max() {
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MAX, field_type);
     agg->init(buf, &arena);
 
+    RowCursorCell dst(buf);
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -126,7 +128,7 @@ void test_max() {
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(100, val);
@@ -137,7 +139,7 @@ void test_max() {
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(200, val);
@@ -148,7 +150,7 @@ void test_max() {
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(200, val);
@@ -157,7 +159,7 @@ void test_max() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         CppType val;
         memcpy(&val, buf + 1, sizeof(CppType));
@@ -180,6 +182,7 @@ void test_sum() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     char buf[64];
+    RowCursorCell dst(buf);
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_SUM, field_type);
@@ -189,7 +192,7 @@ void test_sum() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -198,7 +201,7 @@ void test_sum() {
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(100, val);
@@ -209,7 +212,7 @@ void test_sum() {
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(300, val);
@@ -220,7 +223,7 @@ void test_sum() {
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(350, val);
@@ -229,7 +232,7 @@ void test_sum() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         CppType val;
         memcpy(&val, buf + 1, sizeof(CppType));
@@ -252,6 +255,7 @@ void test_replace() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     char buf[64];
+    RowCursorCell dst(buf);
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
@@ -261,7 +265,7 @@ void test_replace() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -270,7 +274,7 @@ void test_replace() {
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(100, val);
@@ -279,7 +283,7 @@ void test_replace() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 50
@@ -288,7 +292,7 @@ void test_replace() {
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(50, val);
@@ -305,6 +309,7 @@ void test_replace_string() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     char buf[64];
+    RowCursorCell dst(buf);
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
@@ -314,7 +319,7 @@ void test_replace_string() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // "12345"
@@ -324,7 +329,7 @@ void test_replace_string() {
         Slice* slice = (Slice*)(val_buf + 1);
         slice->data = (char*)"1234567890";
         slice->size = 10;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         slice = (Slice*)(buf + 1);
         ASSERT_EQ(10, slice->size);
@@ -337,7 +342,7 @@ void test_replace_string() {
         Slice* slice = (Slice*)(val_buf + 1);
         slice->data = (char*)"abc";
         slice->size = 3;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         slice = (Slice*)(buf + 1);
         ASSERT_EQ(3, slice->size);
@@ -347,7 +352,7 @@ void test_replace_string() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // "12345"
@@ -357,7 +362,7 @@ void test_replace_string() {
         Slice* slice = (Slice*)(val_buf + 1);
         slice->data = (char*)"12345";
         slice->size = 5;
-        agg->update(buf, val_buf, &arena);
+        agg->update(&dst, val_buf, &arena);
         ASSERT_FALSE(*(bool*)(buf));
         slice = (Slice*)(buf + 1);
         ASSERT_EQ(5, slice->size);

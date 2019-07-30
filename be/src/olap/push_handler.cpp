@@ -365,7 +365,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
                         << " res=" << res << " read_rows=" << num_rows;
                     break;
                 } else {
-                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(&row))) {
+                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                             << " res=" << res
                             << ", tablet=" << cur_tablet->full_name()

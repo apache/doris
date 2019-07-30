@@ -21,40 +21,65 @@
 
 namespace doris {
 
-int Schema::compare(const RowBlockRow& lhs, const RowBlockRow& rhs) const {
-    for (int i = 0; i < _num_key_columns; ++i) {
-        auto& col = _cols[i];
-        if (col.is_nullable()) {
-            bool l_null = lhs.is_null(i);
-            bool r_null = rhs.is_null(i);
-            if (l_null != r_null) {
-                return l_null ? -1 : 1;
-            } else if (l_null) {
-                continue;
-            }
-        }
-        auto cmp = col.compare(lhs.cell_ptr(i), rhs.cell_ptr(i));
-        if (cmp != 0) {
-            return cmp;
-        }
-    }
-    return 0;
+Schema::Schema(const Schema& other) {
+    copy_from(other);
 }
 
-void Schema::reset(const std::vector<ColumnSchema>& cols, size_t num_key_columns) {
-    _cols = cols;
+Schema& Schema::operator=(const Schema& other) {
+    if (this != &other) {
+        copy_from(other);
+    }
+    return *this;
+}
+
+void Schema::copy_from(const Schema& other) {
+    _num_key_columns = other._num_key_columns;
+    _col_ids = other._col_ids;
+    _col_offsets = other._col_offsets;
+    _cols.resize(other._cols.size(), nullptr);
+
+    for (auto cid : _col_ids) {
+        _cols[cid] =  new Field(*other._cols[cid]);
+    }
+}
+
+
+void Schema::reset(const std::vector<Field>& cols, size_t num_key_columns) {
+    std::vector<ColumnId> col_ids(cols.size());
+    for (uint32_t cid = 0; cid < cols.size(); ++cid) {
+        col_ids[cid] = cid;
+    }
+    reset(cols, col_ids, num_key_columns);
+}
+
+void Schema::reset(const std::vector<Field>& cols,
+                   const std::vector<ColumnId>& col_ids,
+                   size_t num_key_columns) {
     _num_key_columns = num_key_columns;
 
-    int offset = 0;
-    _col_offsets.resize(_cols.size());
-    for (int i = 0; i < _cols.size(); ++i) {
-        _col_offsets[i] = offset;
-        // 1 for null byte
-        offset += _cols[i].size() + 1;
+    _col_ids = col_ids;
+    _cols.resize(cols.size(), nullptr);
+    _col_offsets.resize(cols.size(), -1);
 
-        if (_cols[i].type() == OLAP_FIELD_TYPE_HLL) {
-            _hll_col_ids.push_back(i);
+    // we must make sure that the offset is the same with RowBlock's
+    std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
+    size_t offset = 0;
+    for (int cid = 0; cid < cols.size(); ++cid) {
+        if (column_set.find(cid) == column_set.end()) {
+            continue;
         }
+
+        _cols[cid] = new Field(cols[cid]);
+        _col_offsets[cid] = offset;
+
+        // 1 for null byte
+        offset += _cols[cid]->size() + 1;
+    }
+}
+
+Schema::~Schema() {
+    for (auto col : _cols) {
+        delete col;
     }
 }
 
