@@ -97,10 +97,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
     int num_cols = _output_expr_ctxs.size();
     for (int i = 0; i < num_cols; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
-        // if (!result->cols[i].__isset.bool_vals) {
-        //     std::vector<bool> tmp;
-        //     result->cols[i].__set_is_null(tmp);
-        // }
         if (item == nullptr) {
             result->cols[i].is_null.push_back(true);
             continue;
@@ -110,10 +106,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
         switch (_output_expr_ctxs[i]->root()->type().type) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                // if (!result->cols[i].__isset.byte_vals) {
-                //     std::vector<int8_t> tmp;
-                //     result->cols[i].__set_byte_vals(tmp);
-                // }
                 result->cols[i].__isset.byte_vals = true;
                 result->cols[i].byte_vals.push_back(*static_cast<int8_t*>(item));
                 break;
@@ -126,26 +118,14 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 result->cols[i].short_vals.push_back(*static_cast<int16_t*>(item));
                 break;
             case TYPE_INT:
-                // if (!result->cols[i].__isset.int_vals) {
-                //     std::vector<int32_t> tmp;
-                //     result->cols[i].__set_int_vals(tmp);
-                // }
                 result->cols[i].__isset.int_vals = true;
                 result->cols[i].int_vals.push_back(*static_cast<int32_t*>(item));
                 break;
             case TYPE_BIGINT:
-                // if (!result->cols[i].__isset.long_vals) {
-                //     std::vector<int64_t> tmp;
-                //     result->cols[i].__set_long_vals(tmp);
-                // }
                 result->cols[i].__isset.long_vals = true;
                 result->cols[i].long_vals.push_back(*static_cast<int64_t*>(item));
                 break;
             case TYPE_LARGEINT: {
-                // if (!result->cols[i].__isset.string_vals) {
-                //     std::vector<std::string> tmp;
-                //     result->cols[i].__set_string_vals(tmp);
-                // }
                 char buf[48];
                 int len = 48;
                 char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value, buf, &len);
@@ -155,18 +135,10 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 break;
             }
             case TYPE_FLOAT:
-                // if (result->cols[i].__isset.double_vals) {
-                //     std::vector<double> tmp;
-                //     result->cols[i].__set_double_vals(tmp);
-                // }
                 result->cols[i].__isset.double_vals = true;
                 result->cols[i].double_vals.push_back(*static_cast<float*>(item));
                 break;
             case TYPE_DOUBLE:
-                // if (!result->cols[i].__isset.double_vals) {
-                //     std::vector<double> tmp;
-                //     result->cols[i].__set_double_vals(tmp);
-                // }
                 result->cols[i].__isset.double_vals = true;
                 result->cols[i].double_vals.push_back(*static_cast<double*>(item));         
                 break;
@@ -179,10 +151,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
             }
             case TYPE_DATE:
             case TYPE_DATETIME: {
-                // if (result->cols[i].__isset.long_vals) {
-                //     std::vector<int64_t> tmp;
-                //     result->cols[i].__set_long_vals(tmp);
-                // }
                 result->cols[i].__isset.long_vals = true;
                 const DateTimeValue* time_val = (const DateTimeValue*)(item);
                 result->cols[i].long_vals.push_back(time_val->to_olap_datetime());
@@ -191,10 +159,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
             case TYPE_VARCHAR:
             case TYPE_HLL:
             case TYPE_CHAR: {
-                // if (!result->cols[i].__isset.string_vals) {
-                //     std::vector<std::string> tmp;
-                //     result->cols[i].__set_string_vals(tmp);
-                // }
                 const StringValue* string_val = (const StringValue*)(item);
                 if (string_val->ptr == NULL) {
                     if (string_val->len == 0) {
@@ -212,10 +176,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 break;
             }
             case TYPE_DECIMAL: {
-                // if (!result->cols[i].__isset.string_vals) {
-                //     std::vector<std::string> tmp;
-                //     result->cols[i].__set_string_vals(tmp);
-                // }
                 result->cols[i].__isset.string_vals = true;
                 const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
                 std::string decimal_str;
@@ -230,10 +190,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 break;
             }
             case TYPE_DECIMALV2: {
-                // if (!result->cols[i].__isset.string_vals) {
-                //     std::vector<std::string> tmp;
-                //     result->cols[i].__set_string_vals(tmp);
-                // }
                 result->cols[i].__isset.string_vals = true;
                 DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
