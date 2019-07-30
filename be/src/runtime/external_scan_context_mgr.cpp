@@ -52,7 +52,7 @@ Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, s
         if (iter != _active_contexts.end()) {
             *p_context = iter->second;
         } else {
-            LOG(ERROR) << "get_scan_context error: context id [ " << context_id << " ] not found";
+            LOG(WARNING) << "get_scan_context error: context id [ " << context_id << " ] not found";
             std::stringstream msg;
             msg << "context_id: " << context_id << " not found"; 
             return  Status::NotFound(msg.str());
@@ -77,12 +77,8 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
         }
         _active_contexts.erase(iter);
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
-        return Status::OK();
-    } else {
-        std::stringstream msg;
-        msg << "context_id: " << context_id << " not found"; 
-        return  Status::NotFound(msg.str());;
     }
+    return Status::OK();
 }
 
 void ExternalScanContextMgr::gc_expired_context() {

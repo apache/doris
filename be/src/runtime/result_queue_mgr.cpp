@@ -32,25 +32,28 @@ ResultQueueMgr::~ResultQueueMgr() {
 }
 
 Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos) {
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _fragment_queue_map.find(fragment_instance_id);
-    if (_fragment_queue_map.end() != iter) {
-        auto queue = iter->second;
-        bool sucess = queue->blocking_get(result);
-        if (sucess) {
-            // sentinel nullptr indicates scan end
-            if (*result == nullptr) {
-                *eos = true;
-            } else {
-                *eos = false;
-            }
+    shared_block_queue_t queue;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto iter = _fragment_queue_map.find(fragment_instance_id);
+        if (_fragment_queue_map.end() != iter) {
+            queue = iter->second;
         } else {
-            *eos = true;
+            return Status::InternalError("fragment_instance_id does not exists");
         }
-        return Status::OK();
-    } else {
-        return Status::InternalError("fragment_instance_id does not exists");
     }
+    bool sucess = queue->blocking_get(result);
+    if (sucess) {
+        // sentinel nullptr indicates scan end
+        if (*result == nullptr) {
+            *eos = true;
+        } else {
+            *eos = false;
+        }
+    } else {
+        *eos = true;
+    }
+    return Status::OK();
 }
 
 void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue) {

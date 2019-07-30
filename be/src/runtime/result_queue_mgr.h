@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
+#include "util/hash_util.hpp"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 
@@ -47,16 +48,8 @@ public:
 
 private:
     std::mutex _lock;
-    // used for TUniqueId hash 
-    struct HashSupplier {
-        uint32_t operator()(const TUniqueId& fragment_id) const {
-            uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
-            value = RawValue::get_hash_value(&fragment_id.hi, TypeDescriptor(TYPE_BIGINT), value);
-            return value;
-        }
-    };
     u_int32_t _max_sink_batch_count;
-    std::unordered_map<TUniqueId, shared_block_queue_t, HashSupplier> _fragment_queue_map;
+    std::unordered_map<TUniqueId, shared_block_queue_t> _fragment_queue_map;
 };
 
 }
