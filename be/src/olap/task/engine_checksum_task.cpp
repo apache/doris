@@ -18,6 +18,7 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include "olap/reader.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -122,7 +123,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             return res;
         }
 
-        row_checksum = row.hash_code(row_checksum);
+        row_checksum = hash_row(row, row_checksum);
     }
 
     LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;

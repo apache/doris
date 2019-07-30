@@ -17,6 +17,7 @@
 
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/alpha_rowset.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -178,7 +179,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
             return status;
         }
         _read_block->get_row(_read_block->pos(), _dst_cursor);
-        _dst_cursor->copy(*row_cursor, _read_block->mem_pool());
+        copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
         _read_block->pos_inc();
         num_rows_in_block++;
     }
