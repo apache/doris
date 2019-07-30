@@ -85,7 +85,8 @@ public class StreamLoadPlanner {
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = streamLoadTask.getNegative();
-        for (Column col : destTable.getBaseSchema()) {
+        // here we should be full schema to fill the descriptor table
+        for (Column col : destTable.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);

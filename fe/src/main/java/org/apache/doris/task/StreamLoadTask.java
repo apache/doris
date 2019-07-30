@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,7 +52,7 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
 
     // optional
-    private List<ImportColumnDesc> columnExprDesc;
+    private List<ImportColumnDesc> columnExprDescs;
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
     private String partitions;
@@ -83,8 +84,15 @@ public class StreamLoadTask {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDesc() {
-        return columnExprDesc;
+    public List<ImportColumnDesc> getColumnExprDescs() {
+        return columnExprDescs;
+    }
+
+    public void addColumnExprDesc(ImportColumnDesc columnExprDesc) {
+        if (columnExprDesc == null) {
+            columnExprDescs = Lists.newArrayList();
+        }
+        this.columnExprDescs.add(columnExprDesc);
     }
 
     public Expr getWhereExpr() {
@@ -162,7 +170,7 @@ public class StreamLoadTask {
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        columnExprDesc = routineLoadJob.getColumnDescs();
+        columnExprDescs = routineLoadJob.getColumnDescs();
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
@@ -193,7 +201,7 @@ public class StreamLoadTask {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDesc = columnsStmt.getColumns();
+            columnExprDescs = columnsStmt.getColumns();
         }
     }
 

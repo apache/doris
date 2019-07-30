@@ -435,13 +435,15 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (typeChanged) {
             /*
-             * In the new alter table process (AlterJobV2), any modified column is treated as a new column.
-             * But the modified column's name does not changed. So in order to distinguish this, we will add
-             * a prefix in the name of the modified column.
+             * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
+             * But the modified columns' name does not changed. So in order to distinguish this, we will add
+             * a prefix in the name of these modified columns.
              * This prefix only exist during the schema change process. Once the schema change is finished,
              * it will be removed.
              * 
-             * And if the column type not changed, the same column name is still to the same column type,
+             * After adding this prefix, modify a column is just same as 'add' a column.
+             * 
+             * And if the column type is not changed, the same column name is still to the same column type,
              * so no need to add prefix.
              */
             modColumn.setName(SHADOW_NAME_PRFIX + modColumn.getName());
@@ -538,7 +540,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
-        List<Column> baseSchema = olapTable.getBaseSchema(false);
+        List<Column> baseSchema = olapTable.getBaseSchema();
         boolean found = false;
         for (Column column : baseSchema) { 
             if (column.getName().equalsIgnoreCase(newColName)) {
@@ -923,7 +925,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 // 2. check compatible
                 for (Column alterColumn : alterSchema) {
                     for (Column oriColumn : originSchema) {
-                        if (alterColumn.getName().equalsIgnoreCase(oriColumn.getName())) {
+                        if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
                             if (!alterColumn.equals(oriColumn)) {
                                 // 3.1 check type
                                 oriColumn.checkSchemaChangeAllowed(alterColumn);
@@ -941,7 +943,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column partitionCol : partitionColumns) {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
-                        if (alterColumn.getName().equalsIgnoreCase(partitionCol.getName())) {
+                        if (alterColumn.nameEquals(partitionCol.getName(), true)) {
                             // 2.1 partition column cannot be modified
                             if (!alterColumn.equals(partitionCol)) {
                                 throw new DdlException("Can not modify partition column["
@@ -952,6 +954,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
+
                     if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.1 partition column cannot be deleted.
                         throw new DdlException("Partition column[" + partitionCol.getName()
@@ -969,7 +972,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column distributionCol : distributionColumns) {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
-                        if (alterColumn.getName().equalsIgnoreCase(distributionCol.getName())) {
+                        if (alterColumn.nameEquals(distributionCol.getName(), true)) {
                             // 3.1 distribution column cannot be modified
                             if (!alterColumn.equals(distributionCol)) {
                                 throw new DdlException("Can not modify distribution column["
@@ -980,6 +983,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     } // end for alterColumns
+
                     if (!found && alterIndexId == olapTable.getBaseIndexId()) {
                         // 2.2 distribution column cannot be deleted.
                         throw new DdlException("Distribution column[" + distributionCol.getName()

@@ -144,7 +144,7 @@ public class MysqlTable extends Table {
         TMySQLTable tMySQLTable = 
                 new TMySQLTable(host, port, userName, passwd, mysqlDatabaseName, mysqlTableName);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setMysqlTable(tMySQLTable);
         return tTableDescriptor;
     }

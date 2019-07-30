@@ -204,7 +204,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                         } else {
                             aggregation = aggregateType.name();
                         }
-                    } else if ("UNIQUE_KEYS" == table.getKeysType().name()) {
+                    } else if (table.getKeysType().name().equalsIgnoreCase("UNIQUE_KEYS")) {
                         aggregation = "REPLACE";
                     }
                     dppColumn.put("aggregation_method", aggregation);

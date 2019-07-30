@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -116,6 +118,17 @@ public class Column implements Writable {
 
     public String getName() {
         return this.name;
+    }
+
+    public String getNameWithoutPrefix(String prefix) {
+        if (isNameWithPrefix(prefix)) {
+            return name.substring(prefix.length());
+        }
+        return name;
+    }
+
+    public boolean isNameWithPrefix(String prefix) {
+        return this.name.startsWith(prefix);
     }
 
     public void setIsKey(boolean isKey) {
@@ -250,6 +263,29 @@ public class Column implements Writable {
         if (this.getScale() != other.getScale()) {
             throw new DdlException("Cannot change scale");
         }
+    }
+
+    public boolean nameEquals(String otherColName, boolean ignorePrefix) {
+        if (CaseSensibility.COLUMN.getCaseSensibility()) {
+            if (!ignorePrefix) {
+                return name.equals(otherColName);
+            } else {
+                return removeNamePrefix(name).equals(removeNamePrefix(otherColName));
+            }
+        } else {
+            if (!ignorePrefix) {
+                return name.equalsIgnoreCase(otherColName);
+            } else {
+                return removeNamePrefix(name).equalsIgnoreCase(removeNamePrefix(otherColName));
+            }
+        }
+    }
+
+    public static String removeNamePrefix(String colName) {
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
+        }
+        return colName;
     }
 
     public String toSql() {

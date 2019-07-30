@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -124,67 +126,83 @@ public class StreamLoadScanNode extends ScanNode {
         // columns: k1, k2, v1, v2=k1 + k2
         // this means that there are three columns(k1, k2, v1) in source file,
         // and v2 is derived from (k1 + k2)
-        if (streamLoadTask.getColumnExprDesc() != null && !streamLoadTask.getColumnExprDesc().isEmpty()) {
-            for (ImportColumnDesc importColumnDesc : streamLoadTask.getColumnExprDesc()) {
-                // make column name case match with real column name
-                String columnName = importColumnDesc.getColumnName();
-                String realColName = dstTable.getColumn(columnName) == null ? columnName
-                        : dstTable.getColumn(columnName).getName();
-                if (importColumnDesc.getExpr() != null) {
-                    exprsByName.put(realColName, importColumnDesc.getExpr());
-                } else {
-                    SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setIsMaterialized(true);
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable
-                    slotDesc.setIsNullable(true);
-                    params.addToSrc_slot_ids(slotDesc.getId().asInt());
-                    slotDescByName.put(realColName, slotDesc);
-                }
+
+        // If user does not specify the column expr desc, generate it by using base schema of table.
+        // So that the following process can be unified
+        if (streamLoadTask.getColumnExprDescs() == null || streamLoadTask.getColumnExprDescs().isEmpty()) {
+            List<Column> columns = dstTable.getBaseSchema();
+            List<ImportColumnDesc> columnDescs = Lists.newArrayList();
+            for (Column column : columns) {
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                columnDescs.add(columnDesc);
+                streamLoadTask.addColumnExprDesc(columnDesc);
             }
+        }
 
-            // analyze all exprs
-            for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
-                ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                List<SlotRef> slots = Lists.newArrayList();
-                entry.getValue().collect(SlotRef.class, slots);
-                for (SlotRef slot : slots) {
-                    SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
-                    if (slotDesc == null) {
-                        throw new UserException("unknown reference column, column=" + entry.getKey()
-                                + ", reference=" + slot.getColumnName());
-                    }
-                    smap.getLhs().add(slot);
-                    smap.getRhs().add(new SlotRef(slotDesc));
-                }
-                Expr expr = entry.getValue().clone(smap);
-                expr.analyze(analyzer);
-
-                // check if contain aggregation
-                List<FunctionCallExpr> funcs = Lists.newArrayList();
-                expr.collect(FunctionCallExpr.class, funcs);
-                for (FunctionCallExpr fn : funcs) {
-                    if (fn.isAggregateFunction()) {
-                        throw new AnalysisException("Don't support aggregation function in load expression");
-                    }
-                }
-
-                exprsByName.put(entry.getKey(), expr);
+        // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
+        // their names. These columns are visible to user, but we need to generate data for these columns.
+        // So we add column mappings for these column.
+        // eg:
+        // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+        // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = B);
+        List<Column> fullSchema = dstTable.getFullSchema();
+        for (Column column : fullSchema) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                String baseColName = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, baseColName));
+                streamLoadTask.addColumnExprDesc(columnDesc);
             }
-        } else {
-            for (Column column : dstTable.getBaseSchema()) {
+        }
+        Preconditions.checkState(streamLoadTask.getColumnExprDescs() != null);
+        Preconditions.checkState(!streamLoadTask.getColumnExprDescs().isEmpty());
+
+        for (ImportColumnDesc importColumnDesc : streamLoadTask.getColumnExprDescs()) {
+            // make column name case match with real column name
+            String columnName = importColumnDesc.getColumnName();
+            String realColName = dstTable.getColumn(columnName) == null ? columnName
+                    : dstTable.getColumn(columnName).getName();
+            if (importColumnDesc.getExpr() != null) {
+                exprsByName.put(realColName, importColumnDesc.getExpr());
+            } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 slotDesc.setIsMaterialized(true);
-                // same as ISSUE A
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable.
                 slotDesc.setIsNullable(true);
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
-
-                slotDescByName.put(column.getName(), slotDesc);
+                slotDescByName.put(realColName, slotDesc);
             }
+        }
+
+        // analyze all exprs
+        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
+            ExprSubstitutionMap smap = new ExprSubstitutionMap();
+            List<SlotRef> slots = Lists.newArrayList();
+            entry.getValue().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
+                if (slotDesc == null) {
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                            + ", reference=" + slot.getColumnName());
+                }
+                smap.getLhs().add(slot);
+                smap.getRhs().add(new SlotRef(slotDesc));
+            }
+            Expr expr = entry.getValue().clone(smap);
+            expr.analyze(analyzer);
+
+            // check if contain aggregation
+            List<FunctionCallExpr> funcs = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, funcs);
+            for (FunctionCallExpr fn : funcs) {
+                if (fn.isAggregateFunction()) {
+                    throw new AnalysisException("Don't support aggregation function in load expression");
+                }
+            }
+            exprsByName.put(entry.getKey(), expr);
         }
 
         // analyze where statement
