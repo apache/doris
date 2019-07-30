@@ -212,9 +212,6 @@ Status OlapScanner::_init_params(
         return Status::InternalError("failed to initialize storage read row cursor");
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
-    for (auto cid : _return_columns) {
-        _query_fields.push_back(_read_row_cursor.get_field_by_index(cid));
-    }
 
     return Status::OK();
 }
@@ -368,17 +365,16 @@ Status OlapScanner::get_batch(
 }
 
 void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
-    char* row = _read_row_cursor.get_buf();
     size_t slots_size = _query_slots.size();
     for (int i = 0; i < slots_size; ++i) {
         SlotDescriptor* slot_desc = _query_slots[i];
-        const Field* field = _query_fields[i];
-        if (field->is_null(row)) {
+        auto cid = _return_columns[i];
+        if (_read_row_cursor.is_null(cid)) {
             tuple->set_null(slot_desc->null_indicator_offset());
             continue;
         }
-        char* ptr = (char*)field->get_ptr(row);
-        size_t len = field->size();
+        char* ptr = (char*)_read_row_cursor.cell_ptr(cid);
+        size_t len = _read_row_cursor.column_size(cid);
         switch (slot_desc->type().type) {
         case TYPE_CHAR: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);

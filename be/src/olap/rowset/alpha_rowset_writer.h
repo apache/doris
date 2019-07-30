@@ -39,10 +39,12 @@ public:
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
-    // add a row block to rowset
-    OLAPStatus add_row(RowCursor* row) override;
-
-    OLAPStatus add_row(const char* row, Schema* schema) override;
+    OLAPStatus add_row(const RowCursor& row) override {
+        return _add_row(row);
+    }
+    OLAPStatus add_row(const ContiguousRow& row) override {
+        return _add_row(row);
+    }
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
@@ -70,6 +72,9 @@ public:
 
 private:
     OLAPStatus _init();
+
+    template<typename RowType>
+    OLAPStatus _add_row(const RowType& row);
     
     // validate rowset build arguments before create rowset to make sure correctness
     bool _validate_rowset();

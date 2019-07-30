@@ -38,10 +38,13 @@ public:
             CompressKind compress_kind, double bloom_filter_fpp);
     ~ColumnDataWriter();
     OLAPStatus init();
-    OLAPStatus write(RowCursor* row_cursor);
-    OLAPStatus write(const char* row, const Schema* schema);
-    void next(const RowCursor& row_cursor);
-    void next(const char* row, const Schema* schema);
+    
+    template<typename RowType>
+    OLAPStatus write(const RowType& row);
+
+    template<typename RowType>
+    void next(const RowType& row);
+
     OLAPStatus finalize();
     uint64_t written_bytes();
     MemPool* mem_pool();

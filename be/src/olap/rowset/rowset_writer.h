@@ -27,6 +27,7 @@
 
 namespace doris {
 
+class ContiguousRow;
 class RowsetWriter;
 using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 
@@ -36,10 +37,8 @@ public:
 
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    // add a row to rowset
-    virtual OLAPStatus add_row(RowCursor* row_block) = 0;
-
-    virtual OLAPStatus add_row(const char* row, Schema* schema) = 0;
+    virtual OLAPStatus add_row(const RowCursor& row) = 0;
+    virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
     virtual OLAPStatus add_rowset_for_linked_schema_change(

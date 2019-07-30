@@ -37,11 +37,11 @@ RowBlockV2::RowBlockV2(const Schema& schema,
     auto bitmap_size = BitmapSize(capacity);
     int i = 0;
     for (auto& col_schema : _schema.columns()) {
-        size_t data_size = col_schema.type_info()->size() * _capacity;
+        size_t data_size = col_schema->type_info()->size() * _capacity;
         _column_datas[i] = new uint8_t[data_size];
 
         uint8_t* null_bitmap = nullptr;
-        if (col_schema.is_nullable()) {
+        if (col_schema->is_nullable()) {
             null_bitmap = new uint8_t[bitmap_size];
         }
         _column_null_bitmaps[i] = null_bitmap;
@@ -76,7 +76,7 @@ Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
             cursor->set_not_null(cid);
             char* dest = cursor->get_field_content_ptr(cid);
             char* src = (char*)_column_datas[i] + row_idx * type_info->size();
-            type_info->copy_without_pool(dest, src);
+            type_info->direct_copy(dest, src);
         }
     }
 #endif
@@ -86,28 +86,19 @@ Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
 std::string RowBlockRow::debug_string() const {
     std::stringstream ss;
     ss << "[";
-    for (int i = 0; i < _block->schema().num_columns(); ++i) {
+    for (int i = 0; i < _block->schema()->num_columns(); ++i) {
         if (i != 0) {
             ss << ",";
         }
-        auto& col_schema = _block->schema().column(i);
-        if (col_schema.is_nullable() && is_null(i)) {
+        auto col_schema = _block->schema()->column(i);
+        if (col_schema->is_nullable() && is_null(i)) {
             ss << "NULL";
         } else {
-            ss << col_schema.type_info()->to_string(cell_ptr(i));
+            ss << col_schema->type_info()->to_string(cell_ptr(i));
         }
     }
     ss << "]";
     return ss.str();
-}
-
-void copy_row(RowBlockRow* dst, const RowBlockRow& src, Arena* arena) {
-    for (int i = 0; i < src.schema().num_columns(); ++i) {
-        dst->set_is_null(i, src.is_null(i));
-        if (!src.is_null(i)) {
-            src.schema().column(i).type_info()->copy_with_arena(dst->mutable_cell_ptr(i), src.cell_ptr(i), arena);
-        }
-    }
 }
 
 }

@@ -115,8 +115,8 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     // TODO(zc): too ugly
     if (_null_supported) {
         size_t copy_size = _minimum->field_size();
-        memcpy(buffer, _minimum->get_null(), copy_size);
-        memcpy(buffer + copy_size, _maximum->get_null(), copy_size);
+        memcpy(buffer, _minimum->nullable_cell_ptr(), copy_size);
+        memcpy(buffer + copy_size, _maximum->nullable_cell_ptr(), copy_size);
     } else {
         size_t copy_size = _minimum->size();
         memcpy(buffer, _minimum->ptr(), copy_size);
