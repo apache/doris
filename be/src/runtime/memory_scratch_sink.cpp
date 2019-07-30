@@ -234,7 +234,7 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 //     std::vector<std::string> tmp;
                 //     result->cols[i].__set_string_vals(tmp);
                 // }
-                result->cols[i].__isset.string_vals
+                result->cols[i].__isset.string_vals = true;
                 DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
