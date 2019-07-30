@@ -149,7 +149,9 @@ public class LoadManager implements Writable{
                     .stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst()
                     .get().getTransactionId();
         } catch (UserException e) {
-            loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
+            if (loadJob != null) {
+                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
+            }
             throw e;
         } finally {
             writeUnlock();
