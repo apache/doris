@@ -129,12 +129,12 @@ BooleanVal InPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     if (lhs_slot == NULL) {
         return BooleanVal::null();
     }
-    if (_null_in_set) {
-        return BooleanVal::null();
-    }
     // if find in const set, return true
     if (_hybird_set->find(lhs_slot)) {
         return BooleanVal(!_is_not_in);
+    }
+    if (_null_in_set) {
+        return BooleanVal::null();
     }
     return BooleanVal(_is_not_in);
 }
