@@ -641,6 +641,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         jobState = JobState.RUNNING;
+        this.watershedTxnId = replayedJob.watershedTxnId;
         LOG.info("replay waiting txn schema change job: {}", jobId);
     }
 
@@ -680,7 +681,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     public void replay(AlterJobV2 replayedJob) {
         SchemaChangeJobV2 replayedSchemaChangeJob = (SchemaChangeJobV2) replayedJob;
-        switch (jobState) {
+        switch (replayedJob.jobState) {
             case PENDING:
                 replayPending(replayedSchemaChangeJob);
                 break;
