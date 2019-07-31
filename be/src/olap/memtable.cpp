@@ -58,11 +58,10 @@ size_t MemTable::memory_usage() {
 }
 
 void MemTable::insert(Tuple* tuple) {
-    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
     ContiguousRow row(_schema, _tuple_buf);
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
-        const SlotDescriptor* slot = _slot_descs[i];
+        const SlotDescriptor* slot = (*_slot_descs)[i];
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         void* value = tuple->get_slot(slot->tuple_offset());

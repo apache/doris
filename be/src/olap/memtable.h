@@ -32,7 +32,7 @@ class RowCursor;
 class MemTable {
 public:
     MemTable(Schema* schema, const TabletSchema* tablet_schema,
-             std::vector<SlotDescriptor>* slot_descs, TupleDescriptor* tuple_desc,
+             std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type);
     ~MemTable();
     size_t memory_usage();
