@@ -85,6 +85,7 @@ void ExternalScanContextMgr::gc_expired_context() {
     while (!_is_stop) {
         std::this_thread::sleep_for(std::chrono::seconds(_scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
+        std::lock_guard<std::mutex> l(_lock);
         for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
             TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
             auto context = iter->second;

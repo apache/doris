@@ -38,7 +38,9 @@ import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.codehaus.jackson.map.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -93,7 +95,7 @@ public class TableSchemaAction extends RestBaseAction {
                 }
                 try {
                     List<Column> columns = table.getBaseSchema();
-                    Map<String, Map<String, String>> propMap = new HashMap<>(columns.size());
+                    List<Map<String, String>> propList = new ArrayList(columns.size());
                     for (Column column : columns) {
                         Map<String, String> baseInfo = new HashMap<>(2);
                         Type colType = column.getType();
@@ -105,10 +107,11 @@ public class TableSchemaAction extends RestBaseAction {
                         }
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
-                        propMap.put(column.getName(), baseInfo);
+                        baseInfo.put("name", column.getName());
+                        propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
-                    resultMap.put("properties", propMap);
+                    resultMap.put("properties", propList);
                 } catch (Exception e) {
                     // Transform the general Exception to custom DorisHttpException
                     throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
