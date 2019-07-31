@@ -90,6 +90,11 @@ void ExternalScanContextMgr::gc_expired_context() {
             TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
             auto context = iter->second;
             {
+                if (context == nullptr) {
+                    LOG(WARNING) << "gc expired scan context: nullptr";
+                    iter = _active_contexts.erase(iter);
+                    continue;
+                }
                 // This lock maybe should deleted, all right? 
                 // here we do not need lock guard in fact
                 std::lock_guard<std::mutex> l(context->_local_lock);        
