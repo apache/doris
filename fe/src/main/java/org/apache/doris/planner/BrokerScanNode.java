@@ -74,6 +74,7 @@ import org.apache.logging.log4j.Logger;
 import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -588,6 +589,42 @@ public class BrokerScanNode extends ScanNode {
         }
     }
 
+    private Map<String, String> parsePartitionedFields(String filePath) {
+        for (BrokerFileGroup fileGroup : fileGroups) {
+            String fileFormat = fileGroup.getFileFormat();
+            if ((fileFormat == null || !fileFormat.toLowerCase().equals("parquet")) || !filePath.endsWith(".parquet")) {
+                continue;
+            }
+            for (String base : fileGroup.getFilePaths()) {
+                if (base.endsWith("/*")) {
+                    base = base.substring(0, base.indexOf("/*"));
+                }
+                if (!filePath.startsWith(base)) {
+                    continue;
+                }
+                String subPath = filePath.substring(base.length());
+                String[] strings = subPath.split("/");
+                Map<String, String> partitionedFields = new HashMap<>();
+                for (String str : strings) {
+                    if (str == null || str.isEmpty() || !str.contains("=")) {
+                        continue;
+                    }
+                    String[] pair = str.split("=");
+                    if (pair.length != 2) {
+                        continue;
+                    }
+                    Column column = targetTable.getColumn(pair[0]);
+                    if (column == null) {
+                        continue;
+                    }
+                    partitionedFields.put(pair[0], pair[1]);
+                }
+                return partitionedFields;
+            }
+        }
+        return Collections.emptyMap();
+    }
+
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
             String fileFormat,
@@ -650,6 +687,7 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setStart_offset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setFile_size(fileStatus.size);
+        rangeDesc.setPartition_columns(parsePartitionedFields(fileStatus.path));
         return rangeDesc;
     }
 

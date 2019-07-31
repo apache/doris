@@ -61,28 +61,10 @@ public class BrokerUtil {
                 throw new UserException("Create connection to broker(" + address + ") failed.");
             }
         }
+        LOG.info("base path={}, brokerDesc={}", path, brokerDesc.getProperties());
         boolean failed = true;
         try {
-            TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
-            TBrokerListResponse tBrokerListResponse = null;
-            try {
-                tBrokerListResponse = client.listPath(request);
-            } catch (TException e) {
-                ClientPool.brokerPool.reopen(client);
-                tBrokerListResponse = client.listPath(request);
-            }
-            if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker list path failed.path=" + path
-                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
-            }
-            failed = false;
-            for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
-                if (tBrokerFileStatus.isDir) {
-                    continue;
-                }
-                fileStatuses.add(tBrokerFileStatus);
-            }
+            failed = listFiles(client, address, path, brokerDesc, fileStatuses);
         } catch (TException e) {
             LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
             throw new UserException("Broker list path exception.path=" + path + ",broker=" + address);
@@ -93,6 +75,34 @@ public class BrokerUtil {
                 ClientPool.brokerPool.returnObject(address, client);
             }
         }
+    }
+
+    // recursively list files under the path by default
+    private static boolean listFiles(TPaloBrokerService.Client client, TNetworkAddress address, String path,
+                                     BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) throws TException, UserException {
+        TBrokerListPathRequest request = new TBrokerListPathRequest(
+                TBrokerVersion.VERSION_ONE, path, true, brokerDesc.getProperties());
+        TBrokerListResponse tBrokerListResponse = null;
+        try {
+            tBrokerListResponse = client.listPath(request);
+        } catch (TException e) {
+            ClientPool.brokerPool.reopen(client);
+            tBrokerListResponse = client.listPath(request);
+        }
+        if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
+            throw new UserException("Broker list path failed.path=" + path
+                    + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
+        }
+        List<TBrokerFileStatus> tBrokerFileStatuses = tBrokerListResponse.getFiles();
+        for (TBrokerFileStatus tBrokerFileStatus : tBrokerFileStatuses) {
+            if (tBrokerFileStatus.isDir) {
+                listFiles(client, address, tBrokerFileStatus.path + "/*", brokerDesc, fileStatuses);
+            } else {
+                LOG.info("adding file = {}", tBrokerFileStatus.path);
+                fileStatuses.add(tBrokerFileStatus);
+            }
+        }
+        return false;
     }
 
     public static String printBroker(String brokerName, TNetworkAddress address) {
