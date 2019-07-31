@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
@@ -377,6 +378,29 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
+        /*
+         * When doing schema change, there may be some shadow columns. we should add them add the end of
+         * targetColumns. And use 'origColIdxsForShadowCols' to save the index of column in 'targetColumns'
+         * which the shadow column related to. 
+         * eg:
+         *      origin targetColumns: (A,B,C), shadow column: __doris_shadow_B
+         *      after processing, targetColumns: (A, B, C, __doris_shadow_B),
+         *      and origColIdxsForShadowCols has 1 element: "1", which is the index of column B in targetColumns.
+         */
+        List<Integer> origColIdxsForShadowCols = Lists.newArrayList();
+        for (Column column : targetTable.getFullSchema()) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                String origName = Column.removeNamePrefix(column.getName());
+                for (int i = 0; i < targetColumns.size(); i++) {
+                    if (targetColumns.get(i).nameEquals(origName, false)) {
+                        origColIdxsForShadowCols.add(i);
+                        break;
+                    }
+                }
+                targetColumns.add(column);
+            }
+        }
+
         // parse query statement
         queryStmt.setFromInsert(true);
         queryStmt.analyze(analyzer);
@@ -388,22 +412,45 @@ public class InsertStmt extends DdlStmt {
 
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
+        
+        // handle VALUES() or SELECT list
         if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (selectStmt.getValueList() != null) {
+                // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows.get(rowIdx), rowIdx + 1);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols);
                 }
-                for (int i = 0; i < selectStmt.getResultExprs().size(); ++i) {
-                    selectStmt.getResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
-                    selectStmt.getBaseTblResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
+
+                // clear these 2 structures, rebuild them using VALUES exprs
+                selectStmt.getResultExprs().clear();
+                selectStmt.getBaseTblResultExprs().clear();
+
+                for (int i = 0; i < selectStmt.getValueList().getFirstRow().size(); ++i) {
+                    selectStmt.getResultExprs().add(selectStmt.getValueList().getFirstRow().get(i));
+                    selectStmt.getBaseTblResultExprs().add(selectStmt.getValueList().getFirstRow().get(i));
                 }
             } else {
-                analyzeRow(analyzer, targetColumns, selectStmt.getResultExprs(), 1);
+                // INSERT INTO SELECT ...
+                List<ArrayList<Expr>> rows = Lists.newArrayList();
+                rows.add(selectStmt.getResultExprs());
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols);
+                // rows may be changed in analyzeRow(), so rebuild the result exprs
+                selectStmt.getResultExprs().clear();
+                for (Expr expr : rows.get(0)) {
+                    selectStmt.getResultExprs().add(expr);
+                }
             }
             isStreaming = true;
         } else {
+            if (!origColIdxsForShadowCols.isEmpty()) {
+                // extend the result expr by duplicating the related exprs
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(idx));
+                }
+            }
+            // check compatibility
             for (int i = 0; i < targetColumns.size(); ++i) {
                 Column column = targetColumns.get(i);
                 if (column.getType().isHllType()) {
@@ -419,12 +466,37 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, ArrayList<Expr> row, int rowIdx)
-            throws AnalysisException {
+    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
+            int rowIdx, List<Integer> origColIdxsForShadowCols) throws AnalysisException {
         // 1. check number of fields if equal with first row
-        if (row.size() != targetColumns.size()) {
-            throw new AnalysisException("Column count doesn't match value count at row " + rowIdx);
+        // targetColumns contains some shadow columns, which is added by system,
+        // so we should minus this
+        if (rows.get(rowIdx).size() != targetColumns.size() - origColIdxsForShadowCols.size()) {
+            throw new AnalysisException("Column count doesn't match value count at row " + (rowIdx + 1));
         }
+
+        ArrayList<Expr> row = rows.get(rowIdx);
+        if (!origColIdxsForShadowCols.isEmpty()) {
+            /*
+             * we should extends the row for shadow columns.
+             * eg:
+             *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
+             *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
+             */
+            ArrayList<Expr> extentedRow = Lists.newArrayList();
+            for (Expr expr : row) {
+                extentedRow.add(expr);
+            }
+            
+            for (Integer idx : origColIdxsForShadowCols) {
+                extentedRow.add(extentedRow.get(idx));
+            }
+
+            row = extentedRow;
+            rows.set(rowIdx, row);
+        }
+
+        // check the compatibility of expr in row and column in targetColumns
         for (int i = 0; i < row.size(); ++i) {
             Expr expr = row.get(i);
             Column col = targetColumns.get(i);

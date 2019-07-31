@@ -74,6 +74,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -1120,6 +1121,21 @@ public class ShowExecutor {
                         isSync = false;
                         break;
                     }
+
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
+                        if (tmp == null) {
+                            isSync = false;
+                            break;
+                        }
+                        // use !=, not equals(), because this should be the same object.
+                        if (tmp != replica) {
+                            isSync = false;
+                            break;
+                        }
+                    }
+
                 } finally {
                     db.readUnlock();
                 }

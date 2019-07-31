@@ -1038,7 +1038,7 @@ public class GlobalTransactionMgr {
                                     newVersion = replica.getVersion();
                                     newVersionHash = replica.getVersionHash();
                                 } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(),
-                                        partition.getVisibleVersionHash(), false)) {
+                                        partition.getVisibleVersionHash(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example, A,B,C 3 replica
                                     // A,B 's version is 10, C's version is 10 but C' 10 is abnormal should be rollback

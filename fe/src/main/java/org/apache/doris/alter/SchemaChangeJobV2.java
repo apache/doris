@@ -513,7 +513,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
-        jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
@@ -554,6 +553,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 db.writeUnlock();
             }
         }
+
+        jobState = JobState.CANCELLED;
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
@@ -572,7 +573,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in SchemaChangeHandler.createJob()
      */
-    private void replayPending() {
+    private void replayPending(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -610,6 +611,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         } finally {
             db.writeUnlock();
         }
+        
+        this.watershedTxnId = replayedJob.watershedTxnId;
+        jobState = JobState.WAITING_TXN;
         LOG.info("replay pending schema change job: {}", jobId);
     }
 
@@ -617,7 +621,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayWaitingTxn() {
+    private void replayWaitingTxn(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -635,6 +639,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         } finally {
             db.writeUnlock();
         }
+
+        jobState = JobState.RUNNING;
         LOG.info("replay waiting txn schema change job: {}", jobId);
     }
 
@@ -642,7 +648,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
-    private void replayFinished() {
+    private void replayFinished(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             db.writeLock();
@@ -655,31 +661,37 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 db.writeUnlock();
             }
         }
+        jobState = JobState.FINISHED;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished schema change job: {}", jobId);
     }
 
     /*
      * Replay job in CANCELLED state.
      */
-    private void replayCancelled() {
+    private void replayCancelled(SchemaChangeJobV2 replayedJob) {
         cancelInternal();
+        this.jobState = JobState.CANCELLED;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled schema change job: {}", jobId);
     }
 
     @Override
-    public void replay() {
+    public void replay(AlterJobV2 replayedJob) {
+        SchemaChangeJobV2 replayedSchemaChangeJob = (SchemaChangeJobV2) replayedJob;
         switch (jobState) {
             case PENDING:
-                replayPending();
+                replayPending(replayedSchemaChangeJob);
                 break;
             case WAITING_TXN:
-                replayWaitingTxn();
+                replayWaitingTxn(replayedSchemaChangeJob);
                 break;
             case FINISHED:
-                replayFinished();
+                replayFinished(replayedSchemaChangeJob);
                 break;
             case CANCELLED:
-                replayCancelled();
+                replayCancelled(replayedSchemaChangeJob);
                 break;
             default:
                 break;
