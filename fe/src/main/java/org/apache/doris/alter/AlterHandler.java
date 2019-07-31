@@ -33,6 +33,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.thrift.TTabletInfo;
@@ -389,17 +390,30 @@ public abstract class AlterHandler extends Daemon {
             
             LOG.info("before handle alter task replica: {}, task version: {}-{}",
                     replica, task.getVersion(), task.getVersionHash());
+            boolean versionChanged = false;
             if (replica.getVersion() > task.getVersion()) {
                 // Case 2.2, do nothing
             } else {
                 if (replica.getLastFailedVersion() > task.getVersion()) {
                     // Case 2.1
                     replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                    versionChanged = true;
                 } else {
                     // Case 1
                     Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
                     replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                    versionChanged = true;
                 }
+            }
+            
+            if (versionChanged) {
+                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
+                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                        replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
+                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                Catalog.getInstance().getEditLog().logUpdateReplica(info);
             }
             
             LOG.info("after handle alter task replica: {}", replica);

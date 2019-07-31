@@ -1868,7 +1868,7 @@ show_param ::=
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
-        RESULT = new ShowTabletStmt(null, tabletId);
+        RESULT = new ShowTabletStmt(null, tabletId, null);
     :}
     | KW_TABLET KW_FROM table_name:dbTblName opt_partitions:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
