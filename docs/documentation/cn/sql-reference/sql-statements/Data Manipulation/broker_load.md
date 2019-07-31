@@ -353,6 +353,9 @@
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
      8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+        如果导入路径为目录（base_path），则递归地列出该目录下的所有parquet文件
+        如果需要，则会根据表中定义的字段类型解析base_path目录下的partitioned fields，实现类似Spark中读parquet文件
+
         LOAD LABEL example_db.label9
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
@@ -361,6 +364,18 @@
         (k1, k2, k3)
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir")
+        INTO TABLE `my_table`
+        FORMAT AS "parquet"
+        (k1, k2, k3)
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/k1=key1/xxx.parquet, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/k1=key2/xxx.parquet, ...]
+        如果my_table中定义了列k1，则会从文件path中提取k1对应的partitioned field的值，并完成数据导入
      
 ## keyword
     BROKER,LOAD
