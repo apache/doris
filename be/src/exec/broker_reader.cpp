@@ -126,7 +126,8 @@ Status BrokerReader::open() {
 }
 
 Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf);
+    DCHECK_NE(*buf_len, 0);
+    RETURN_IF_ERROR(readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf));
     if (*buf_len == 0) {
         *eof = true;
     } else {
