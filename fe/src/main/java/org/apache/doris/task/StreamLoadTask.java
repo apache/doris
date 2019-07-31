@@ -88,7 +88,7 @@ public class StreamLoadTask {
     }
 
     public void addColumnExprDesc(ImportColumnDesc columnExprDesc) {
-        if (columnExprDesc == null) {
+        if (columnExprDescs == null) {
             columnExprDescs = Lists.newArrayList();
         }
         this.columnExprDescs.add(columnExprDesc);

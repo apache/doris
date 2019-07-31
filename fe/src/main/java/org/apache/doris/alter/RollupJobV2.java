@@ -603,8 +603,9 @@ public class RollupJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
-        this.watershedTxnId = replayedJob.watershedTxnId;
         this.jobState = JobState.WAITING_TXN;
+        this.watershedTxnId = replayedJob.watershedTxnId;
+
         LOG.info("replay pending rollup job: {}", jobId);
     }
 
@@ -632,6 +633,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
 
         this.jobState = JobState.RUNNING;
+        this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay waiting txn rollup job: {}", jobId);
     }
@@ -675,7 +677,7 @@ public class RollupJobV2 extends AlterJobV2 {
     @Override
     public void replay(AlterJobV2 replayedJob) {
         RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
-        switch (jobState) {
+        switch (replayedJob.jobState) {
             case PENDING:
                 replayPending(replayedRollupJob);
                 break;
