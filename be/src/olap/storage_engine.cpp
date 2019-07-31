@@ -767,7 +767,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
             << ", unique id:" << rowset->unique_id();
     auto it = _unused_rowsets.find(rowset->unique_id());
     if (it == _unused_rowsets.end()) {
-        rowset->set_need_delete_file(true);
+        rowset->set_need_delete_file();
         _unused_rowsets[rowset->unique_id()] = rowset;
     }
     _gc_mutex.unlock();
