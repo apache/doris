@@ -568,7 +568,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
-    private void replayPending() {
+    private void replayPending(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -602,6 +602,9 @@ public class RollupJobV2 extends AlterJobV2 {
         } finally {
             db.writeUnlock();
         }
+
+        this.watershedTxnId = replayedJob.watershedTxnId;
+        this.jobState = JobState.WAITING_TXN;
         LOG.info("replay pending rollup job: {}", jobId);
     }
 
@@ -609,7 +612,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayWaitingTxn() {
+    private void replayWaitingTxn(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -627,6 +630,9 @@ public class RollupJobV2 extends AlterJobV2 {
         } finally {
             db.writeUnlock();
         }
+
+        this.jobState = JobState.RUNNING;
+
         LOG.info("replay waiting txn rollup job: {}", jobId);
     }
 
@@ -634,7 +640,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
-    private void replayFinished() {
+    private void replayFinished(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             db.writeLock();
@@ -648,31 +654,39 @@ public class RollupJobV2 extends AlterJobV2 {
                 db.writeUnlock();
             }
         }
+        
+        this.jobState = JobState.FINISHED;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        
         LOG.info("replay finished rollup job: {}", jobId);
     }
 
     /*
      * Replay job in CANCELLED state.
      */
-    private void replayCancelled() {
+    private void replayCancelled(RollupJobV2 replayedJob) {
         cancelInternal();
+        this.jobState = JobState.CANCELLED;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled rollup job: {}", jobId);
     }
 
     @Override
-    public void replay() {
+    public void replay(AlterJobV2 replayedJob) {
+        RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
         switch (jobState) {
             case PENDING:
-                replayPending();
+                replayPending(replayedRollupJob);
                 break;
             case WAITING_TXN:
-                replayWaitingTxn();
+                replayWaitingTxn(replayedRollupJob);
                 break;
             case FINISHED:
-                replayFinished();
+                replayFinished(replayedRollupJob);
                 break;
             case CANCELLED:
-                replayCancelled();
+                replayCancelled(replayedRollupJob);
                 break;
             default:
                 break;

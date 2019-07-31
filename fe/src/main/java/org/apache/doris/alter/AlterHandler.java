@@ -410,8 +410,13 @@ public abstract class AlterHandler extends Daemon {
 
     // replay the alter job v2
     public void replayAlterJobV2(AlterJobV2 alterJob) {
-        // always replace the alter job with the newly replayed one
-        alterJobsV2.put(alterJob.getJobId(), alterJob);
-        alterJob.replay();
+        AlterJobV2 existingJob = alterJobsV2.get(alterJob.getJobId());
+        if (existingJob == null) {
+            // This is the first time to replay the alter job, so just using the replayed alterJob to call replay();
+            alterJob.replay(alterJob);
+            alterJobsV2.put(alterJob.getJobId(), alterJob);
+        } else {
+            existingJob.replay(alterJob);
+        }
     }
 }

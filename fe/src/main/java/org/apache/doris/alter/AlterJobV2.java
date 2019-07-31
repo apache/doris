@@ -168,7 +168,7 @@ public class AlterJobV2 implements Writable {
         throw new NotImplementedException();
     }
 
-    public void replay() {
+    public void replay(AlterJobV2 replayedJob) {
         throw new NotImplementedException();
     }
 
