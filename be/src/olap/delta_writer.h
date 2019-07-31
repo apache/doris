@@ -47,6 +47,8 @@ struct WriteRequest {
     PUniqueId load_id;
     bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
+    // slots are in order of tablet's schema
+    std::vector<SlotDescriptor*>* slots;
 };
 
 class DeltaWriter {
@@ -76,7 +78,6 @@ private:
     MemTable* _mem_table;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-    std::vector<uint32_t> _col_ids;
     bool _delta_written_success;
 };
 

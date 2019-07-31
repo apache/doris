@@ -812,7 +812,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            return planner.plan(streamLoadTask.getId());
+            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            return plan;
         } finally {
             db.readUnlock();
         }

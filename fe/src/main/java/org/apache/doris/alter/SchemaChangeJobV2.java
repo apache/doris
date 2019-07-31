@@ -288,9 +288,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     indexSchemaVersionAndHashMap.get(shadowIdxId).second,
                     indexShortKeyMap.get(shadowIdxId));
             tbl.setStorageTypeToIndex(shadowIdxId, TStorageType.COLUMN);
-
-            tbl.rebuildFullSchema();
         }
+
+        tbl.rebuildFullSchema();
     }
 
     /*

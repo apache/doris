@@ -205,16 +205,16 @@ Status TabletsChannel::close(int sender_id, bool* finished,
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params) {
-    std::vector<SlotDescriptor*>* columns = nullptr;
+    std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
-            columns = &index->slots;
+            index_slots = &index->slots;
             schema_hash = index->schema_hash;
             break;
         }
     }
-    if (columns == nullptr) {
+    if (index_slots == nullptr) {
         std::stringstream ss;
         ss << "unknown index id, key=" << _key;
         return Status::InternalError(ss.str());
@@ -229,6 +229,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.load_id = params.id();
         request.need_gen_rollup = params.need_gen_rollup();
         request.tuple_desc = _tuple_desc;
+        request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&request, &writer);
