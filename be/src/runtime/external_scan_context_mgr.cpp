@@ -75,7 +75,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
             // clear the fragment instance's related result queue
             _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
         }
-        _active_contexts.erase(iter);
+        iter = _active_contexts.erase(iter);
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
     }
     return Status::OK();
@@ -89,12 +89,11 @@ void ExternalScanContextMgr::gc_expired_context() {
         for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
             TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
             auto context = iter->second;
+            if (context == nullptr) {
+                iter = _active_contexts.erase(iter);
+                continue;
+            }
             {
-                if (context == nullptr) {
-                    LOG(WARNING) << "gc expired scan context: nullptr";
-                    iter = _active_contexts.erase(iter);
-                    continue;
-                }
                 // This lock maybe should deleted, all right? 
                 // here we do not need lock guard in fact
                 std::lock_guard<std::mutex> l(context->_local_lock);        
