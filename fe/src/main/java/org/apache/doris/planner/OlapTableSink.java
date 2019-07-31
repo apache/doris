@@ -179,8 +179,9 @@ public class OlapTableSink extends DataSink {
         for (Map.Entry<Long, List<Column>> pair : table.getIndexIdToSchema().entrySet()) {
             List<String> columns = Lists.newArrayList();
             columns.addAll(pair.getValue().stream().map(Column::getName).collect(Collectors.toList()));
-            schemaParam.addToIndexes(new TOlapTableIndexSchema(pair.getKey(), columns,
-                    table.getSchemaHashByIndexId(pair.getKey())));
+            TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
+                    table.getSchemaHashByIndexId(pair.getKey()));
+            schemaParam.addToIndexes(indexSchema);
         }
         return schemaParam;
     }

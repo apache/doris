@@ -83,10 +83,13 @@ public class Table extends MetaObject implements Writable {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        this.fullSchema = fullSchema;
-        this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        // must copy the list, it should not be the same object as in indexIdToSchmea
         if (fullSchema != null) {
-            for (Column col : fullSchema) {
+            this.fullSchema = Lists.newArrayList(fullSchema);
+        }
+        this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        if (this.fullSchema != null) {
+            for (Column col : this.fullSchema) {
                 nameToColumn.put(col.getName(), col);
             }
         } else {

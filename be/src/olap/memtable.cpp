@@ -27,12 +27,12 @@
 namespace doris {
 
 MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
-                   std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
+                   std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
     : _schema(schema),
       _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
-      _col_ids(col_ids),
+      _slot_descs(slot_descs),
       _keys_type(keys_type),
       _row_comparator(_schema) {
     _schema_size = _schema->schema_size();
@@ -60,9 +60,9 @@ size_t MemTable::memory_usage() {
 void MemTable::insert(Tuple* tuple) {
     const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
     ContiguousRow row(_schema, _tuple_buf);
-    for (size_t i = 0; i < _col_ids->size(); ++i) {
+    for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
-        const SlotDescriptor* slot = slots[(*_col_ids)[i]];
+        const SlotDescriptor* slot = _slot_descs[i];
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         void* value = tuple->get_slot(slot->tuple_offset());
