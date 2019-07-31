@@ -1163,9 +1163,13 @@ public class ShowExecutor {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-
+                String indexName = showStmt.getIndexName();
                 for (Partition partition : olapTable.getPartitions()) {
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        if (!Strings.isNullOrEmpty(indexName) && !olapTable.getIndexNameById(index.getId()).equalsIgnoreCase(indexName)) {
+                            // only show the specified index
+                            continue;
+                        }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
                         rows.addAll(procDir.fetchResult().getRows());
                     }

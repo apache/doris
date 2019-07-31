@@ -1853,11 +1853,15 @@ show_param ::=
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
-        RESULT = new ShowTabletStmt(null, tabletId);
+        RESULT = new ShowTabletStmt(null, tabletId, null);
     :}
     | KW_TABLET KW_FROM table_name:dbTblName
     {:
-        RESULT = new ShowTabletStmt(dbTblName, -1L);
+        RESULT = new ShowTabletStmt(dbTblName, -1L, null);
+    :}
+    | KW_TABLET KW_FROM table_name:dbTblName KW_ROLLUP ident:rollup
+    {:
+        RESULT = new ShowTabletStmt(dbTblName, -1L, rollup);
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:

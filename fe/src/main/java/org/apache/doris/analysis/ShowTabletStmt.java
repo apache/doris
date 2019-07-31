@@ -36,18 +36,21 @@ public class ShowTabletStmt extends ShowStmt {
     private String dbName;
     private String tableName;
     private long tabletId;
+    private String indexName;
 
     private boolean isShowSingleTablet;
 
-    public ShowTabletStmt(TableName dbTableName, long tabletId) {
+    public ShowTabletStmt(TableName dbTableName, long tabletId, String indexName) {
         if (dbTableName == null) {
             this.dbName = null;
             this.tableName = null;
             this.isShowSingleTablet = true;
+            this.indexName = null;
         } else {
             this.dbName = dbTableName.getDb();
             this.tableName = dbTableName.getTbl();
             this.isShowSingleTablet = false;
+            this.indexName = Strings.emptyToNull(indexName);
         }
         this.tabletId = tabletId;
     }
@@ -66,6 +69,10 @@ public class ShowTabletStmt extends ShowStmt {
 
     public boolean isShowSingleTablet() {
         return isShowSingleTablet;
+    }
+
+    public String getIndexName() {
+        return indexName;
     }
 
     @Override
@@ -93,7 +100,10 @@ public class ShowTabletStmt extends ShowStmt {
         if (isShowSingleTablet) {
             sb.append(tabletId);
         } else {
-            sb.append("`").append(dbName).append("`.`").append(tableName).append("`");
+            sb.append("FROM `").append(dbName).append("`.`").append(tableName).append("`");
+            if (!Strings.isNullOrEmpty(indexName)) {
+                sb.append(" ROLLUP `").append(indexName).append("`");
+            }
         }
         return sb.toString();
     }

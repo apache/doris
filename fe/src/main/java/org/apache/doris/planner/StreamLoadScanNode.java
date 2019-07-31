@@ -130,10 +130,9 @@ public class StreamLoadScanNode extends ScanNode {
         // So that the following process can be unified
         if (streamLoadTask.getColumnExprDescs() == null || streamLoadTask.getColumnExprDescs().isEmpty()) {
             List<Column> columns = dstTable.getBaseSchema();
-            List<ImportColumnDesc> columnDescs = Lists.newArrayList();
             for (Column column : columns) {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                columnDescs.add(columnDesc);
+                LOG.debug("add base column {} to stream load task", column.getName());
                 streamLoadTask.addColumnExprDesc(columnDesc);
             }
         }
@@ -149,6 +148,7 @@ public class StreamLoadScanNode extends ScanNode {
             if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                 String baseColName = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, baseColName));
+                LOG.debug("add shadow column {} to stream load task, base name: {}", column.getName(), baseColName);
                 streamLoadTask.addColumnExprDesc(columnDesc);
             }
         }
@@ -175,6 +175,8 @@ public class StreamLoadScanNode extends ScanNode {
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+
+        LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
 
         // analyze all exprs
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
