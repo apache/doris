@@ -17,6 +17,11 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -52,13 +57,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -317,13 +315,18 @@ public class SingleNodePlanner {
     private void turnOffPreAgg(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         String turnOffReason = null;
         do {
-            if (null == aggInfo) {
-                turnOffReason = "No AggregateInfo";
+            if (!(root instanceof OlapScanNode)) {
+                turnOffReason = "left-deep Node is not OlapScanNode";
                 break;
             }
 
-            if (!(root instanceof OlapScanNode)) {
-                turnOffReason = "left-deep Node is not OlapScanNode";
+            if (((OlapScanNode)root).getForceOpenPreAgg()) {
+                ((OlapScanNode)root).setIsPreAggregation(true, "");
+                return;
+            }
+
+            if (null == aggInfo) {
+                turnOffReason = "No AggregateInfo";
                 break;
             }
 
@@ -394,8 +397,8 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (conjunctSlotIds.contains(slot.getId())) {
-                            turnOffReason = "conjunct on " + slot.getColumn().getName() +
-                                    " which is StorageEngine value column";
+                            turnOffReason = "conjunct on `" + slot.getColumn().getName() +
+                                    "` which is StorageEngine value column";
                             valueColumnValidate = false;
                             break;
                         }
@@ -630,7 +633,7 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
         
-       if (analyzer.hasEmptySpjResultSet()) {
+        if (analyzer.hasEmptySpjResultSet()) {
             final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
@@ -1143,7 +1146,9 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                scanNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
+                scanNode = olapNode;
                 break;
             case MYSQL:
                 scanNode = new MysqlScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());

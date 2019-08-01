@@ -231,6 +231,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
+terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
 terminal String IDENT;
 terminal String NUMERIC_OVERFLOW;
 terminal Long INTEGER_LITERAL;
@@ -338,6 +339,7 @@ nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier union_op;
+nonterminal ArrayList<String> opt_common_hints;
 
 nonterminal ArrayList<PartitionName> opt_partition_name_list, partition_name_list;
 nonterminal PartitionName partition_name;
@@ -2973,9 +2975,24 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_using_partition:parts opt_table_alias:alias
+    table_name:name opt_using_partition:parts opt_table_alias:alias opt_common_hints:common_hints
     {:
-        RESULT = new TableRef(name, alias, parts);
+        RESULT = new TableRef(name, alias, parts, common_hints);
+    :}
+    ;
+
+opt_common_hints ::=
+    COMMENTED_PLAN_HINT_START ident_list:l COMMENTED_PLAN_HINT_END
+    {:
+        RESULT = l;
+    :}
+    | LBRACKET ident_list:l RBRACKET
+    {:
+        RESULT = l;
+    :}
+    |
+    {:
+        RESULT = null;
     :}
     ;
 
