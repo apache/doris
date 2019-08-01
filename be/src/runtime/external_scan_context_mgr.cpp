@@ -69,7 +69,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
         context = iter->second;
         // maybe do not this context-local-lock
         {
-            std::lock_guard<std::mutex> l(context->_local_lock);
+            std::lock_guard<std::mutex> context_lock(context->_local_lock);
             // first cancel the fragment instance, just ignore return status
             _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
             // clear the fragment instance's related result queue
@@ -85,29 +85,31 @@ void ExternalScanContextMgr::gc_expired_context() {
     while (!_is_stop) {
         std::this_thread::sleep_for(std::chrono::seconds(_scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
-        std::lock_guard<std::mutex> l(_lock);
-        for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
-            TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
-            auto context = iter->second;
-            if (context == nullptr) {
-                iter = _active_contexts.erase(iter);
-                continue;
-            }
-            {
-                // This lock maybe should deleted, all right? 
-                // here we do not need lock guard in fact
-                std::lock_guard<std::mutex> l(context->_local_lock);        
-                // being processed or timeout is disabled
-                if (context->last_access_time == -1) {
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
+                TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
+                auto context = iter->second;
+                if (context == nullptr) {
+                    iter = _active_contexts.erase(iter);
                     continue;
                 }
-                // free context if context is idle for context->keep_alive_min
-                if (current_time - context->last_access_time > context->keep_alive_min * 60) {
-                    LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
-                    // must cancel the fragment instance, otherwise return thrift transport TTransportException
-                    _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-                    _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
-                    iter = _active_contexts.erase(iter);
+                {
+                    // This lock maybe should deleted, all right? 
+                    // here we do not need lock guard in fact
+                    std::lock_guard<std::mutex> context_lock(context->_local_lock);        
+                    // being processed or timeout is disabled
+                    if (context->last_access_time == -1) {
+                        continue;
+                    }
+                    // free context if context is idle for context->keep_alive_min
+                    if (current_time - context->last_access_time > context->keep_alive_min * 60) {
+                        LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
+                        // must cancel the fragment instance, otherwise return thrift transport TTransportException
+                        _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
+                        _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
+                        iter = _active_contexts.erase(iter);
+                    }
                 }
             }
         }
