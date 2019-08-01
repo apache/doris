@@ -25,6 +25,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -50,10 +52,12 @@ public class LoadBalancer {
 
     private Map<String, ClusterLoadStatistic> statisticMap;
     private TabletInvertedIndex invertedIndex;
+    private SystemInfoService infoService;
 
     public LoadBalancer(Map<String, ClusterLoadStatistic> statisticMap) {
         this.statisticMap = statisticMap;
         this.invertedIndex = Catalog.getCurrentInvertedIndex();
+        this.infoService = Catalog.getCurrentSystemInfo();
     }
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
@@ -224,12 +228,18 @@ public class LoadBalancer {
         List<Replica> replicas = tabletCtx.getReplicas();
 
         // Check if this tablet has replica on high load backend.
+        // Also create a set to save hosts of this tablet.
+        Set<String> hosts = Sets.newHashSet();
         boolean hasHighReplica = false;
         for (Replica replica : replicas) {
             if (highBe.stream().anyMatch(b -> b.getBeId() == replica.getBackendId())) {
                 hasHighReplica = true;
-                break;
             }
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (be == null) {
+                throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
+            }
+            hosts.add(be.getHost());
         }
         if (!hasHighReplica) {
             throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
@@ -259,6 +269,15 @@ public class LoadBalancer {
         boolean setDest = false;
         for (BackendLoadStatistic beStat : lowBe) {
             if (beStat.isAvailable() && !replicas.stream().anyMatch(r -> r.getBackendId() == beStat.getBeId())) {
+                // check if on same host.
+                Backend lowBackend = infoService.getBackend(beStat.getBeId());
+                if (lowBackend == null) {
+                    continue;
+                }
+                if (hosts.contains(lowBackend.getHost())) {
+                    continue;
+                }
+                
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
