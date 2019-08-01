@@ -41,6 +41,7 @@ add_library(Olap STATIC
     hll.cpp
     in_list_predicate.cpp
     in_stream.cpp
+    key_coder.cpp
     lru_cache.cpp
     memtable.cpp
     merger.cpp
@@ -63,6 +64,7 @@ add_library(Olap STATIC
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
+    short_key_index.cpp
     snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp

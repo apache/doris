@@ -32,6 +32,18 @@ inline uint64 gbswap_64(uint64 host_int) {
 #endif  // bswap_64
 }
 
+inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
+    return static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int >> 64))) |
+        (static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int))) << 64);
+}
+
+// Swap bytes of a 24-bit value.
+inline uint32_t bswap_24(uint32_t x) {
+    return  ((x & 0x0000ffULL) << 16) |
+        ((x & 0x00ff00ULL)) |
+        ((x & 0xff0000ULL) >> 16);
+}
+
 #ifdef IS_LITTLE_ENDIAN
 
 // Definitions for ntohl etc. that don't require us to include
@@ -187,5 +199,146 @@ class LittleEndian {
 #define gntohs(x) ghtons(x)
 #define gntohll(x) ghtonll(x)
 #define ntohll(x) htonll(x)
+
+// Utilities to convert numbers between the current hosts's native byte
+// order and big-endian byte order (same as network byte order)
+//
+// Load/Store methods are alignment safe
+class BigEndian {
+public:
+#ifdef IS_LITTLE_ENDIAN
+
+    static uint16 FromHost16(uint16 x) { return bswap_16(x); }
+    static uint16 ToHost16(uint16 x) { return bswap_16(x); }
+
+    static uint32 FromHost24(uint32 x) { return bswap_24(x); }
+    static uint32 ToHost24(uint32 x) { return bswap_24(x); }
+
+    static uint32 FromHost32(uint32 x) { return bswap_32(x); }
+    static uint32 ToHost32(uint32 x) { return bswap_32(x); }
+
+    static uint64 FromHost64(uint64 x) { return gbswap_64(x); }
+    static uint64 ToHost64(uint64 x) { return gbswap_64(x); }
+
+    static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
+    static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
+
+    static bool IsLittleEndian() { return true; }
+
+#elif defined IS_BIG_ENDIAN
+
+    static uint16 FromHost16(uint16 x) { return x; }
+    static uint16 ToHost16(uint16 x) { return x; }
+
+    static uint32 FromHost24(uint32 x) { return x; }
+    static uint32 ToHost24(uint32 x) { return x; }
+
+    static uint32 FromHost32(uint32 x) { return x; }
+    static uint32 ToHost32(uint32 x) { return x; }
+
+    static uint64 FromHost64(uint64 x) { return x; }
+    static uint64 ToHost64(uint64 x) { return x; }
+
+    static uint128 FromHost128(uint128 x) { return x; }
+    static uint128 ToHost128(uint128 x) { return x; }
+
+    static bool IsLittleEndian() { return false; }
+
+#endif /* ENDIAN */
+    // Functions to do unaligned loads and stores in little-endian order.
+    static uint16 Load16(const void *p) {
+        return ToHost16(UNALIGNED_LOAD16(p));
+    }
+
+    static void Store16(void *p, uint16 v) {
+        UNALIGNED_STORE16(p, FromHost16(v));
+    }
+
+    static uint32 Load32(const void *p) {
+        return ToHost32(UNALIGNED_LOAD32(p));
+    }
+
+    static void Store32(void *p, uint32 v) {
+        UNALIGNED_STORE32(p, FromHost32(v));
+    }
+
+    static uint64 Load64(const void *p) {
+        return ToHost64(UNALIGNED_LOAD64(p));
+    }
+
+    // Build a uint64 from 1-8 bytes.
+    // 8 * len least significant bits are loaded from the memory with
+    // BigEndian order. The 64 - 8 * len most significant bits are
+    // set all to 0.
+    // In latex-friendly words, this function returns:
+    //     $\sum_{i=0}^{len-1} p[i] 256^{i}$, where p[i] is unsigned.
+    //
+    // This function is equivalent with:
+    // uint64 val = 0;
+    // memcpy(&val, p, len);
+    // return ToHost64(val);
+    // TODO(user): write a small benchmark and benchmark the speed
+    // of a memcpy based approach.
+    //
+    // For speed reasons this function does not work for len == 0.
+    // The caller needs to guarantee that 1 <= len <= 8.
+    static uint64 Load64VariableLength(const void * const p, int len) {
+        assert(len >= 1 && len <= 8);
+        uint64 val = Load64(p);
+        uint64 mask = 0;
+        --len;
+        do {
+            mask = (mask << 8) | 0xff;
+            // (--len >= 0) is about 10 % faster than (len--) in some benchmarks.
+        } while (--len >= 0);
+        return val & mask;
+    }
+
+    static void Store64(void *p, uint64 v) {
+        UNALIGNED_STORE64(p, FromHost64(v));
+    }
+
+    static uint128 Load128(const void *p) {
+        return uint128(
+            ToHost64(UNALIGNED_LOAD64(p)),
+            ToHost64(UNALIGNED_LOAD64(reinterpret_cast<const uint64 *>(p) + 1)));
+    }
+
+    static void Store128(void *p, const uint128 v) {
+        UNALIGNED_STORE64(p, FromHost64(Uint128High64(v)));
+        UNALIGNED_STORE64(reinterpret_cast<uint64 *>(p) + 1,
+                          FromHost64(Uint128Low64(v)));
+    }
+
+    // Build a uint128 from 1-16 bytes.
+    // 8 * len least significant bits are loaded from the memory with
+    // BigEndian order. The 128 - 8 * len most significant bits are
+    // set all to 0.
+    static uint128 Load128VariableLength(const void *p, int len) {
+        if (len <= 8) {
+            return uint128(Load64VariableLength(static_cast<const char *>(p)+8,
+                                                len));
+        } else {
+            return uint128(
+                Load64VariableLength(p, len-8),
+                Load64(static_cast<const char *>(p)+8));
+        }
+    }
+
+    // Load & Store in machine's word size.
+    static uword_t LoadUnsignedWord(const void *p) {
+        if (sizeof(uword_t) == 8)
+            return Load64(p);
+        else
+            return Load32(p);
+    }
+
+    static void StoreUnsignedWord(void *p, uword_t v) {
+        if (sizeof(uword_t) == 8)
+            Store64(p, v);
+        else
+            Store32(p, v);
+    }
+};  // BigEndian
 
 #endif  // UTIL_ENDIAN_ENDIAN_H_
