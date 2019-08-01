@@ -88,7 +88,6 @@ void ExternalScanContextMgr::gc_expired_context() {
         {
             std::lock_guard<std::mutex> l(_lock);
             for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
-                TUniqueId fragment_instance_id = iter->second->fragment_instance_id;
                 auto context = iter->second;
                 if (context == nullptr) {
                     iter = _active_contexts.erase(iter);
@@ -106,6 +105,7 @@ void ExternalScanContextMgr::gc_expired_context() {
                     _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
                     iter = _active_contexts.erase(iter);
                 }
+                ++iter;
             }
 
         }
