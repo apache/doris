@@ -217,7 +217,6 @@ public class OlapTableSink extends DataSink {
         switch (partType) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-                partitionParam.setPartition_column(rangePartitionInfo.getPartitionColumns().get(0).getName());
                 for (Column partCol : rangePartitionInfo.getPartitionColumns()) {
                     partitionParam.addToPartition_columns(partCol.getName());
                 }

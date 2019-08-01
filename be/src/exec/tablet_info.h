@@ -119,14 +119,15 @@ public:
             bool lhs_null = lhs->is_null(slot_desc->null_indicator_offset());
             bool rhs_null = rhs->is_null(slot_desc->null_indicator_offset());
             if (lhs_null && rhs_null) { continue; }
-            if (lhs_null || rhs_null) { return !rhs_value; }
+            if (lhs_null || rhs_null) { return !rhs_null; }
 
             auto lhs_value = lhs->get_slot(slot_desc->tuple_offset());
             auto rhs_value = rhs->get_slot(slot_desc->tuple_offset());
             
             int res = RawValue::compare(lhs_value, rhs_value, slot_desc->type());
-            if (res != 0) { return res == -1 }
+            if (res != 0) { return res == -1; }
         }
+        // equal, return false
         return false;
     }
 private:
@@ -159,7 +160,7 @@ public:
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, Tuple** part_key);
 
-    Status _create_partition_key(const TExprNode& t_expr, const Tuple* tuple, SlotDescriptor* slot_desc);
+    Status _create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc);
 
     uint32_t _compute_dist_hash(Tuple* key) const;
 

@@ -183,10 +183,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     value = dateLiteral.toSql();
                 }
             }
-            if (keys.size() - 1 == i) {
-                strBuilder.append("(").append(value).append(")");
-            } else {
-                strBuilder.append("(").append(value).append("), ");
+            strBuilder.append(value);
+
+            if (keys.size() - 1 != i) {
+                strBuilder.append(", ");
             }
             i++;
         }

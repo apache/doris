@@ -272,9 +272,10 @@ Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNo
         RETURN_IF_ERROR(_create_partition_key(t_expr, tuple, _partition_slot_descs[i]));
     }
     *part_key = tuple;
+    return Status::OK();
 }
 
-Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, const Tuple* tuple, SlotDescriptor* slot_desc) {
+Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc) {
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     tuple->set_not_null(slot_desc->null_indicator_offset());
     switch (t_expr.node_type) {

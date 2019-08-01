@@ -405,20 +405,20 @@ public class RangePartitionInfo extends PartitionInfo {
                 // first partition
                 if (!range.lowerEndpoint().isMinValue()) {
                     sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN ").append(range.lowerEndpoint().toSql());
+                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
                     sb.append(",\n");
                 }
             } else {
                 Preconditions.checkNotNull(lastRange);
                 if (!lastRange.upperEndpoint().equals(range.lowerEndpoint())) {
                     sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN ").append(range.lowerEndpoint().toSql());
+                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
                     sb.append(",\n");
                 }
             }
 
-            sb.append("PARTITION ").append(partitionName).append(" VALUES LESS THAN ");
-            sb.append(range.upperEndpoint().toSql());
+            sb.append("PARTITION ").append(partitionName).append(" VALUES LESS THAN (");
+            sb.append(range.upperEndpoint().toSql()).append(")");
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
