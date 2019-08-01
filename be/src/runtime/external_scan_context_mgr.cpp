@@ -94,24 +94,20 @@ void ExternalScanContextMgr::gc_expired_context() {
                     iter = _active_contexts.erase(iter);
                     continue;
                 }
-                {
-                    // This lock maybe should deleted, all right? 
-                    // here we do not need lock guard in fact
-                    std::lock_guard<std::mutex> context_lock(context->_local_lock);        
-                    // being processed or timeout is disabled
-                    if (context->last_access_time == -1) {
-                        continue;
-                    }
-                    // free context if context is idle for context->keep_alive_min
-                    if (current_time - context->last_access_time > context->keep_alive_min * 60) {
-                        LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
-                        // must cancel the fragment instance, otherwise return thrift transport TTransportException
-                        _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-                        _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
-                        iter = _active_contexts.erase(iter);
-                    }
+                // being processed or timeout is disabled
+                if (context->last_access_time == -1) {
+                    continue;
+                }
+                // free context if context is idle for context->keep_alive_min
+                if (current_time - context->last_access_time > context->keep_alive_min * 60) {
+                    LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
+                    // must cancel the fragment instance, otherwise return thrift transport TTransportException
+                    _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
+                    _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
+                    iter = _active_contexts.erase(iter);
                 }
             }
+
         }
     }
 }
