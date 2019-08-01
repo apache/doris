@@ -117,3 +117,21 @@ message FileFooterPB {
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
     optional PagePointerPB key_index_page = 9; // short key index page
 }
+
+message ShortKeyFooterPB {
+    // How many index item in this index.
+    optional uint32 num_items = 1;
+    // The total bytes occupied by the index key
+    optional uint32 key_bytes = 2;
+    // The total bytes occupied by the key offsets
+    optional uint32 offset_bytes = 3;
+    // Segment id which this index is belong to 
+    optional uint32 segment_id = 4;
+    // number rows in each block
+    optional uint32 num_rows_per_block = 5;
+    // How many rows in this segment
+    optional uint32 num_segment_rows = 6;
+    // Total bytes for this segment
+    optional uint32 segment_bytes = 7;
+}
+
