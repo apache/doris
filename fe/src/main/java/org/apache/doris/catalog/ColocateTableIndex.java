@@ -173,17 +173,6 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    // This is for manual recovery.
-    public void addTableToGroup(GroupId groupId, long tableId) {
-        writeLock();
-        try {
-            group2Tables.put(groupId, tableId);
-            table2Group.put(tableId, groupId);
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public void addBackendsPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
         writeLock();
         try {
