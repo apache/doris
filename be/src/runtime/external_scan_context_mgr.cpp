@@ -67,14 +67,14 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
     auto iter = _active_contexts.find(context_id);
     if (iter != _active_contexts.end()) {
         context = iter->second;
-        // maybe do not this context-local-lock
-        {
-            std::lock_guard<std::mutex> context_lock(context->_local_lock);
-            // first cancel the fragment instance, just ignore return status
-            _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-            // clear the fragment instance's related result queue
-            _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
+        if (context == nullptr) {
+            _active_contexts.erase(context_id);
+            Status::OK();
         }
+        // first cancel the fragment instance, just ignore return status
+        _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
+        // clear the fragment instance's related result queue
+        _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
         iter = _active_contexts.erase(iter);
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
     }
