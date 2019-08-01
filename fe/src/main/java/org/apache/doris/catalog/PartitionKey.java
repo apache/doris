@@ -75,8 +75,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
             Type type = Type.fromPrimitiveType(columns.get(i).getDataType());
-            partitionKey.keys.add(
-                    LiteralExpr.createInfinity(type, false));
+            partitionKey.keys.add(LiteralExpr.createInfinity(type, false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -127,8 +126,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return true;
     }
 
-    @Override
     // compare with other PartitionKey. used for partition prune
+    @Override
     public int compareTo(PartitionKey other) {
         int this_key_len = this.keys.size();
         int other_key_len = other.keys.size();
