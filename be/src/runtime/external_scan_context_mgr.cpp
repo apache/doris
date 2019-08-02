@@ -95,6 +95,7 @@ void ExternalScanContextMgr::gc_expired_context() {
                 }
                 // being processed or timeout is disabled
                 if (context->last_access_time == -1) {
+                    ++iter; // advance one entry
                     continue;
                 }
                 // free context if context is idle for context->keep_alive_min
@@ -104,8 +105,9 @@ void ExternalScanContextMgr::gc_expired_context() {
                     _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
                     _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
                     iter = _active_contexts.erase(iter);
+                } else {
+                    ++iter; // advanced
                 }
-                ++iter;
             }
 
         }
