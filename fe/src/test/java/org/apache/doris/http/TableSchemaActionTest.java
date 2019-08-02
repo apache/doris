@@ -19,6 +19,7 @@ package org.apache.doris.http;
 
 import okhttp3.Request;
 import okhttp3.Response;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Assert;
 import org.junit.Test;
@@ -44,10 +45,8 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
         Assert.assertNotNull(respStr);
         JSONObject object = new JSONObject(respStr);
         Assert.assertEquals(200, object.getInt("status"));
-        JSONObject propObject = object.getJSONObject("properties");
+        JSONArray propArray = object.getJSONArray("properties");
         // k1, k2
-        Assert.assertEquals(2, propObject.length());
-        Assert.assertNotNull(propObject.get("k1"));
-        Assert.assertNotNull(propObject.get("k2"));
+        Assert.assertEquals(2, propArray.length());
     }
 }
