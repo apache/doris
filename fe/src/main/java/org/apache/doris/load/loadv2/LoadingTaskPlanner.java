@@ -34,6 +34,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
@@ -54,12 +55,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 public class LoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(LoadingTaskPlanner.class);
 
     // Input params
+    private final long loadJobId;
     private final long txnId;
     private final long dbId;
     private final OlapTable table;
@@ -77,9 +78,10 @@ public class LoadingTaskPlanner {
 
     private int nextNodeId = 0;
 
-    public LoadingTaskPlanner(long txnId, long dbId, OlapTable table,
+    public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
                               boolean strictMode) {
+        this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
         this.table = table;
@@ -88,7 +90,8 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
     }
 
-    public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws UserException {
+    public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
+            throws UserException {
         // Generate tuple descriptor
         List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
@@ -108,7 +111,7 @@ public class LoadingTaskPlanner {
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
                                                      fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(table, brokerDesc, fileGroups, strictMode);
+        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
@@ -117,8 +120,6 @@ public class LoadingTaskPlanner {
         // 2. Olap table sink
         String partitionNames = convertBrokerDescPartitionInfo();
         OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionNames);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         olapTableSink.init(loadId, txnId, dbId);
         olapTableSink.finalize();
 
@@ -198,5 +199,18 @@ public class LoadingTaskPlanner {
             result.add(partition.getName());
         }
         return result;
+    }
+
+    // when retry load by reusing this plan in load process, the load_id should be changed
+    public void updateLoadId(TUniqueId loadId) {
+        for (PlanFragment planFragment : fragments) {
+            if (!(planFragment.getSink() instanceof OlapTableSink)) {
+                continue;
+            }
+            OlapTableSink olapTableSink = (OlapTableSink) planFragment.getSink();
+            olapTableSink.updateLoadId(loadId);
+        }
+
+        LOG.info("update olap table sink's load id to {}, job: {}", DebugUtil.printId(loadId), loadJobId);
     }
 }

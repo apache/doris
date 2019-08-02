@@ -17,6 +17,7 @@
 
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/alpha_rowset.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -95,12 +96,22 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             LOG(WARNING) << "allocate memory for row cursor failed";
             return OLAP_ERR_MALLOC_ERROR;
         }
-        _dst_cursor->init(*(_current_read_context->tablet_schema),
-                          *(_current_read_context->seek_columns));
-        for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
-            _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
-            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
-                                            *(_current_read_context->seek_columns));
+        if (_current_read_context->reader_type == READER_ALTER_TABLE) {
+            // Upon rollup/alter table, seek_columns is nullptr.
+            // Under this circumstance, init RowCursor with all columns.
+            _dst_cursor->init(*(_current_read_context->tablet_schema));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema));
+            }
+        } else {
+            _dst_cursor->init(*(_current_read_context->tablet_schema),
+                              *(_current_read_context->seek_columns));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
+                                                *(_current_read_context->seek_columns));
+            }
         }
     }
     return OLAP_SUCCESS;
@@ -168,7 +179,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
             return status;
         }
         _read_block->get_row(_read_block->pos(), _dst_cursor);
-        _dst_cursor->copy(*row_cursor, _read_block->mem_pool());
+        copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
         _read_block->pos_inc();
         num_rows_in_block++;
     }

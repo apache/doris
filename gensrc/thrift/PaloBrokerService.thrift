@@ -67,7 +67,7 @@ struct TBrokerListResponse {
 struct TBrokerOpenReaderResponse {
     1: required TBrokerOperationStatus opStatus;
     2: optional TBrokerFD fd;
-    3: optional i64 size; //file size
+    3: optional i64 size; // file size(Deprecated)
 }
 
 struct TBrokerReadResponse {

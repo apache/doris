@@ -94,6 +94,9 @@ IntCounter DorisMetrics::txn_exec_plan_total;
 IntCounter DorisMetrics::stream_receive_bytes_total;
 IntCounter DorisMetrics::stream_load_rows_total;
 
+IntCounter DorisMetrics::memtable_flush_total;
+IntCounter DorisMetrics::memtable_flush_duration_us;
+
 // gauges
 IntGauge DorisMetrics::memory_pool_bytes_total;
 IntGauge DorisMetrics::process_thread_num;
@@ -137,6 +140,9 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(query_scan_bytes);
     REGISTER_DORIS_METRIC(query_scan_rows);
     REGISTER_DORIS_METRIC(ranges_processed_total);
+
+    REGISTER_DORIS_METRIC(memtable_flush_total);
+    REGISTER_DORIS_METRIC(memtable_flush_duration_us);
 
     // push request
     _metrics->register_metric(

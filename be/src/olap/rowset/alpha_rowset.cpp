@@ -18,6 +18,7 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/row.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -43,7 +44,6 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
             _is_cumulative_rowset = true;
         }
     }
-    _ref_count = 0;
 }
 
 OLAPStatus AlphaRowset::init() {
@@ -55,7 +55,7 @@ OLAPStatus AlphaRowset::init() {
     return status;
 }
 
-OLAPStatus AlphaRowset::load() {
+OLAPStatus AlphaRowset::load(bool use_cache) {
     // load is depend on init, so that check if init here and do init if not
     if (!is_inited()) {
         OLAPStatus res = init();
@@ -76,7 +76,7 @@ OLAPStatus AlphaRowset::load() {
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
-        OLAPStatus res = segment_group->load();
+        OLAPStatus res = segment_group->load(use_cache);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
                     << "version=" << start_version() << "-"
@@ -116,36 +116,8 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-void AlphaRowset::to_rowset_pb(RowsetMetaPB* rs_meta) {
-    return _rowset_meta->to_rowset_pb(rs_meta);
-}
-
 RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
     return _rowset_meta;
-}
-
-size_t AlphaRowset::data_disk_size() const {
-    return _rowset_meta->total_disk_size();
-}
-
-size_t AlphaRowset::index_disk_size() const {
-    return _rowset_meta->index_disk_size();
-}
-
-bool AlphaRowset::empty() const {
-    return _rowset_meta->empty();
-}
-
-bool AlphaRowset::zero_num_rows() const {
-    return _rowset_meta->num_rows() == 0;
-}
-
-size_t AlphaRowset::num_rows() const {
-    return _rowset_meta->num_rows();
-}
-
-Version AlphaRowset::version() const {
-    return _rowset_meta->version();
 }
 
 void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash version_hash) {
@@ -177,34 +149,6 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
     }
 
     _is_pending_rowset = false;
-}
-
-int64_t AlphaRowset::start_version() const {
-    return _rowset_meta->version().first;
-}
-
-int64_t AlphaRowset::end_version() const {
-    return _rowset_meta->version().second;
-}
-
-VersionHash AlphaRowset::version_hash() const {
-    return _rowset_meta->version_hash();
-}
-
-bool AlphaRowset::in_use() const {
-    return _ref_count > 0;
-}
-
-void AlphaRowset::acquire() {
-    atomic_inc(&_ref_count);
-}
-
-void AlphaRowset::release() {
-    atomic_dec(&_ref_count);
-}
-    
-int64_t AlphaRowset::ref_count() const {
-    return _ref_count;
 }
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
@@ -272,32 +216,8 @@ OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remo
     return OLAP_SUCCESS;
 }
 
-RowsetId AlphaRowset::rowset_id() const {
-    return _rowset_meta->rowset_id();
-}
-
-int64_t AlphaRowset::creation_time() {
-    return _rowset_meta->creation_time();
-}
-
 bool AlphaRowset::is_pending() const {
     return _is_pending_rowset;
-}
-
-PUniqueId AlphaRowset::load_id() const {
-    return _rowset_meta->load_id();
-}
-
-int64_t AlphaRowset::txn_id() const {
-    return _rowset_meta->txn_id();
-}
-
-int64_t AlphaRowset::partition_id() const {
-    return _rowset_meta->partition_id();
-}
-
-bool AlphaRowset::delete_flag() {
-    return _rowset_meta->delete_flag();
 }
 
 OLAPStatus AlphaRowset::split_range(
@@ -368,7 +288,7 @@ OLAPStatus AlphaRowset::split_range(
 
     cur_start_key.attach(entry.data);
     last_start_key.allocate_memory_for_string_type(*_schema);
-    last_start_key.copy_without_pool(cur_start_key);
+    direct_copy_row(&last_start_key, cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->emplace_back(start_key.to_tuple());
 
@@ -390,7 +310,7 @@ OLAPStatus AlphaRowset::split_range(
         if (cur_start_key.cmp(last_start_key) != 0) {
             ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
             ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
-            last_start_key.copy_without_pool(cur_start_key);
+            direct_copy_row(&last_start_key, cur_start_key);
         }
     }
 

@@ -118,6 +118,10 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    public void updateLoadId(TUniqueId newLoadId) {
+        tDataSink.getOlap_table_sink().setLoad_id(newLoadId);
+    }
+
     // must called after tupleDescriptor is computed
     public void finalize() throws UserException {
         TOlapTableSink tSink = tDataSink.getOlap_table_sink();

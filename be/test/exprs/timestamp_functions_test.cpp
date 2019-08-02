@@ -37,6 +37,22 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
     ASSERT_EQ(7, TimestampFunctions::day_of_week(context, tv).val);
 }
 
+TEST_F(TimestampFunctionsTest, time_diff_test) {
+    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    
+    DateTimeValue dt1(20190718120000);
+    dt1.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv1;
+    dt1.to_datetime_val(&tv1);
+    
+    DateTimeValue dt2(20190718130102);
+    dt2.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv2;
+    dt2.to_datetime_val(&tv2);
+    
+    ASSERT_EQ(-3662, TimestampFunctions::time_diff(context, tv1, tv2).val);
+}
+
 }
 
 int main(int argc, char** argv) {

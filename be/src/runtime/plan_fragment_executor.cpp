@@ -55,6 +55,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _closed(false),
       _has_thread_token(false),
       _is_report_success(true),
+      _is_report_on_cancel(true),
       _collect_query_statistics_with_every_batch(false) {
 }
 
@@ -429,7 +430,25 @@ void PlanFragmentExecutor::send_report(bool done) {
         status = _status;
     }
 
+    // If plan is done successfully, but _is_report_success is false,
+    // no need to send report.
     if (!_is_report_success && done && status.ok()) {
+        return;
+    }
+
+    // If both _is_report_success and _is_report_on_cancel are false,
+    // which means no matter query is success or failed, no report is needed.
+    // This may happen when the query limit reached and
+    // a internal cancellation being processed
+    if (!_is_report_success && !_is_report_on_cancel) {
+        return;
+    }
+
+    // If this is a load plan, and it is not finished, and it still running ok,
+    // no need to report it.
+    // This is case for the case that the load plan's _is_report_success is always true,
+    // but we only need the last report when plan is done.
+    if (_runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
         return;
     }
 

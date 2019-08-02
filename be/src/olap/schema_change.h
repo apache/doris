@@ -28,6 +28,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 #include "olap/column_mapping.h"
+#include "olap/row.h"
 
 namespace doris {
 // defined in 'field.h'
@@ -83,7 +84,7 @@ public:
 
 private:
     static bool _row_cursor_comparator(const RowCursor* a, const RowCursor* b) {
-        return a->full_key_cmp(*b) < 0;
+        return compare_row(*a, *b) < 0;
     }
 
     RowBlockAllocator* _row_block_allocator;
@@ -119,7 +120,7 @@ public:
 private:
     struct MergeElement {
         bool operator<(const MergeElement& other) const {
-            return row_cursor->full_key_cmp(*(other.row_cursor)) > 0;
+            return compare_row(*row_cursor, *other.row_cursor) > 0;
         }
 
         const RowBlock* row_block;
@@ -259,7 +260,9 @@ public:
                                       TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset,
                                       RowsetSharedPtr* new_rowset);
-
+    
+    // schema change v2, it will not set alter task in base tablet
+    OLAPStatus process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
 private:
     // 检查schema_change相关的状态:清理"一对"schema_change table间的信息
@@ -271,7 +274,7 @@ private:
                                                    const TAlterTabletReq& request);
 
     OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>& versions_to_be_changed);
+                                           std::vector<Version>* versions_to_be_changed);
 
     struct SchemaChangeParams {
         AlterTabletType alter_tablet_type;
@@ -290,6 +293,10 @@ private:
     OLAPStatus _save_alter_state(AlterTabletState state,
                                  TabletSharedPtr base_tablet,
                                  TabletSharedPtr new_tablet);
+                                
+    OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
+    
+    OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);
 
     static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 

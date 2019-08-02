@@ -13,3 +13,4 @@ SQL 函数
     date-time-functions/index
     spatial-functions/index
     string-functions/index
+    aggregate-functions/index

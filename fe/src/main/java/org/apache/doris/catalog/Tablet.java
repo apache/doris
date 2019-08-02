@@ -383,12 +383,15 @@ public class Tablet extends MetaObject implements Writable {
         int stable = 0;
         int availableInCluster = 0;
         
+        Set<String> hosts = Sets.newHashSet();
         for (Replica replica : replicas) {
-            long backendId = replica.getBackendId();
-            Backend backend = systemInfoService.getBackend(backendId);
+            Backend backend = systemInfoService.getBackend(replica.getBackendId());
             if (backend == null || !backend.isAlive() || replica.getState() == ReplicaState.CLONE
-                    || replica.isBad()) {
-                // this replica is not alive
+                    || replica.isBad() || !hosts.add(backend.getHost())) {
+                // this replica is not alive,
+                // or if this replica is on same host with another replica, we also treat it as 'dead',
+                // so that Tablet Scheduler will create a new replica on different host.
+                // ATTN: Replicas on same host is a bug of previous Doris version, so we fix it by this way.
                 continue;
             }
             alive++;
@@ -422,7 +425,7 @@ public class Tablet extends MetaObject implements Writable {
             // condition explain:
             // 1. alive < replicationNum: replica is missing or bad
             // 2. replicas.size() >= availableBackendsNum: the existing replicas occupies all available backends
-            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be a backend for new replica.
+            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be at least one backend for new replica.
             // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
             return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         } else if (alive < (replicationNum / 2) + 1) {

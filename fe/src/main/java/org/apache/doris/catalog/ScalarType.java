@@ -125,6 +125,8 @@ public class ScalarType extends Type {
                 return DATE;
             case DATETIME:
                 return DATETIME;
+            case TIME:
+                return TIME;
             case DECIMAL:
                 return (ScalarType) createDecimalType();
             case DECIMALV2:
@@ -168,6 +170,8 @@ public class ScalarType extends Type {
                 return DATE;
             case "DATETIME":
                 return DATETIME;
+            case "TIME":
+                return TIME;
             case "DECIMAL":
                 return (ScalarType) createDecimalType();
             case "DECIMALV2":
@@ -630,8 +634,13 @@ public class ScalarType extends Type {
             return t1;
         }
 
-        if (t1.type == PrimitiveType.HLL || t2.type == PrimitiveType.HLL) {
-            return createHllType();
+        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
+        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
+        if (t1IsHLL || t2IsHLL) {
+            if (t1IsHLL && t2IsHLL) {
+                return createHllType();
+            }
+            return INVALID;
         }
 
         if (t1.isStringType() || t2.isStringType()) {
@@ -721,6 +730,7 @@ public class ScalarType extends Type {
             case INT:
                 return 4;
             case BIGINT:
+            case TIME:
                 return 8;
             case LARGEINT:
                 return 16;

@@ -36,14 +36,15 @@ BrokerReader::BrokerReader(
         const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties,
         const std::string& path,
-        int64_t start_offset) :
+        int64_t start_offset,
+        int64_t file_size) :
             _env(env),
             _addresses(broker_addresses),
             _properties(properties),
             _path(path),
             _cur_offset(start_offset),
             _is_fd_valid(false),
-            _file_size(0),
+            _file_size(file_size),
             _addr_idx(0) {
 }
 
@@ -112,18 +113,21 @@ Status BrokerReader::open() {
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
+    // TODO(cmy): The file size is no longer got from openReader() method.
+    // But leave the code here for compatibility.
+    // This will be removed later.
     if (response.__isset.size) {
         _file_size = response.size;
-    } else {
-        _file_size = 0;
     }
+
     _fd = response.fd;
     _is_fd_valid = true;
     return Status::OK();
 }
 
 Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf);
+    DCHECK_NE(*buf_len, 0);
+    RETURN_IF_ERROR(readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf));
     if (*buf_len == 0) {
         *eof = true;
     } else {
@@ -183,7 +187,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
     return Status::OK();
 }
 
-int64_t BrokerReader::size () {
+int64_t BrokerReader::size() {
     return _file_size;
 }
 

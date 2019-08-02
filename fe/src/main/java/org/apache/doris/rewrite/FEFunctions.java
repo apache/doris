@@ -53,6 +53,11 @@ public class FEFunctions {
     /**
      * date and time function
      */
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long timediff = (getTime(first) - getTime(second)) / 1000;
+        return new FloatLiteral((double)timediff, Type.TIME);
+    }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {

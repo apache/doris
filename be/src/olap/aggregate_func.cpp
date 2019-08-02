@@ -19,6 +19,18 @@
 
 namespace doris {
 
+template<typename Traits>
+AggregateInfo::AggregateInfo(const Traits& traits) 
+        : _init_fn(traits.init),
+        _update_fn(traits.update),
+        _merge_fn(traits.merge),
+        _finalize_fn(traits.finalize),
+        _agg_method(traits.agg_method) {
+    if (_merge_fn == nullptr) {
+        _merge_fn = _update_fn;
+    }
+}
+
 struct AggregateFuncMapHash {
     size_t operator()(const std::pair<FieldAggregationMethod, FieldType>& pair) const {
         return (pair.first + 31) ^ pair.second;
@@ -26,22 +38,12 @@ struct AggregateFuncMapHash {
 };
 
 class AggregateFuncResolver {
-DECLARE_SINGLETON(AggregateFuncResolver);
+    DECLARE_SINGLETON(AggregateFuncResolver);
 public:
-    AggregateFunc get_aggregate_func(const FieldAggregationMethod agg_method,
-                                     const FieldType field_type) {
-        auto pair = _aggregate_mapping.find(std::make_pair(agg_method, field_type));
-        if (pair != _aggregate_mapping.end()) {
-            return pair->second;
-        } else {
-            return nullptr;
-        }
-    }
-
-    FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
-                                     const FieldType field_type) {
-        auto pair = _finalize_mapping.find(std::make_pair(agg_method, field_type));
-        if (pair != _finalize_mapping.end()) {
+    const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
+                                            const FieldType field_type) const {
+        auto pair = _infos_mapping.find(std::make_pair(agg_method, field_type));
+        if (pair != _infos_mapping.end()) {
             return pair->second;
         } else {
             return nullptr;
@@ -50,19 +52,13 @@ public:
 
     template<FieldAggregationMethod agg_method, FieldType field_type>
     void add_aggregate_mapping() {
-        _aggregate_mapping.insert(std::make_pair(std::make_pair(agg_method, field_type),
-                         &AggregateFuncTraits<agg_method, field_type>::aggregate));
+        _infos_mapping.emplace(std::make_pair(agg_method, field_type),
+                               new AggregateInfo(AggregateTraits<agg_method, field_type>()));
     }
 
-    template<FieldAggregationMethod agg_method, FieldType field_type>
-    void add_finalize_mapping() {
-        _finalize_mapping.insert(std::make_pair(std::make_pair(agg_method, field_type),
-                         &AggregateFuncTraits<agg_method, field_type>::finalize));
-    }
 private:
     typedef std::pair<FieldAggregationMethod, FieldType> key_t;
-    std::unordered_map<key_t, AggregateFunc, AggregateFuncMapHash> _aggregate_mapping;
-    std::unordered_map<key_t, FinalizeFunc, AggregateFuncMapHash> _finalize_mapping;
+    std::unordered_map<key_t, const AggregateInfo*, AggregateFuncMapHash> _infos_mapping;
 
     DISALLOW_COPY_AND_ASSIGN(AggregateFuncResolver);
 };
@@ -132,22 +128,17 @@ AggregateFuncResolver::AggregateFuncResolver() {
 
     // Hyperloglog Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL>();
-
-
-    // Finalize Function for hyperloglog Function
-    add_finalize_mapping<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL>();
 }
 
-AggregateFuncResolver::~AggregateFuncResolver() {}
-
-AggregateFunc get_aggregate_func(const FieldAggregationMethod agg_method,
-                                 const FieldType field_type) {
-    return AggregateFuncResolver::instance()->get_aggregate_func(agg_method, field_type);
+AggregateFuncResolver::~AggregateFuncResolver() {
+    for (auto& iter : _infos_mapping) {
+        delete iter.second;
+    }
 }
 
-FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
-                                 const FieldType field_type) {
-    return AggregateFuncResolver::instance()->get_finalize_func(agg_method, field_type);
+const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
+                                        const FieldType field_type) {
+    return AggregateFuncResolver::instance()->get_aggregate_info(agg_method, field_type);
 }
 
 } // namespace doris

@@ -622,7 +622,7 @@
             [STATE = ["PENDING"|"ETL"|"LOADING"|"FINISHED"|"CANCELLED"|]]
         ]
         [ORDER BY ...]
-        [LIMIT limit];
+        [LIMIT limit][OFFSET offset];
         
     说明：
         1) 如果不指定 db_name，使用当前默认db
@@ -631,7 +631,8 @@
         4) 如果指定了 STATE，则匹配 LOAD 状态
         5) 可以使用 ORDER BY 对任意列组合进行排序
         6) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
-        7) 如果是使用 broker/mini load，则 URL 列中的连接可以使用以下命令查看：
+        7) 如果指定了 OFFSET，则从偏移量offset开始显示查询结果。默认情况下偏移量为0。
+        8) 如果是使用 broker/mini load，则 URL 列中的连接可以使用以下命令查看：
 
             SHOW LOAD WARNINGS ON 'url'
 
@@ -647,8 +648,12 @@
         
     4. 展示指定 db 的导入任务，指定 label 为 "load_example_db_20140102" ，state 为 "loading", 并按 LoadStartTime 降序排序
         SHOW LOAD FROM example_db WHERE LABEL = "load_example_db_20140102" AND STATE = "loading" ORDER BY LoadStartTime DESC;
+        
+    5. 展示指定 db 的导入任务 并按 LoadStartTime 降序排序,并从偏移量5开始显示10条查询结果
+        SHOW LOAD FROM example_db ORDER BY LoadStartTime DESC limit 5,10;
+        SHOW LOAD FROM example_db ORDER BY LoadStartTime DESC limit 10 offset 5;
 
-    5. 小批量导入是查看导入状态的命令
+    6. 小批量导入是查看导入状态的命令
         curl --location-trusted -u {user}:{passwd} http://{hostname}:{port}/api/{database}/_load_info?label={labelname}
         
 ## keyword

@@ -15,154 +15,116 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_SCHEMA_H
-#define DORIS_BE_SRC_OLAP_SCHEMA_H
+#pragma once
 
 #include <vector>
 
 #include "olap/aggregate_func.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "olap/field.h"
+#include "olap/row_cursor_cell.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
 
-class ColumnSchema {
-public:
-    ColumnSchema(const FieldAggregationMethod& agg, const FieldType& type) {
-        _type_info = get_type_info(type);
-        _aggregate_func = get_aggregate_func(agg, type);
-        _finalize_func = get_finalize_func(agg, type);
-        _size = _type_info->size();
-        _col_offset = 0;
-    }
+class RowBlockRow;
 
-    bool is_null(const char* row) const {
-        bool is_null = *reinterpret_cast<const bool*>(row + _col_offset);
-        return is_null;
-    }
-
-    void set_null(char* row) const {
-        *reinterpret_cast<bool*>(row + _col_offset) = true;
-    }
-
-    void set_not_null(char* row) const {
-        *reinterpret_cast<bool*>(row + _col_offset) = false;
-    }
-
-    void set_col_offset(int offset) {
-        _col_offset = offset;
-    }
-
-    int get_col_offset() const {
-        return _col_offset;
-    }
-
-    int compare(const char* left, const char* right) const {
-        bool l_null = *reinterpret_cast<const bool*>(left + _col_offset);
-        bool r_null = *reinterpret_cast<const bool*>(right + _col_offset);
-        if (l_null != r_null) {
-            return l_null ? -1 : 1;
-        } else {
-            return l_null ? 0 : (_type_info->cmp(left + _col_offset + 1, right + _col_offset + 1));
-        }
-    }
-
-    void aggregate(char* left, const char* right, Arena* arena) const {
-        _aggregate_func(left + _col_offset, right + _col_offset, arena);
-    }
-
-    void finalize(char* data) const {
-        // data of Hyperloglog type will call this function.
-        _finalize_func(data + _col_offset + 1);
-    }
-
-    int size() const {
-        return _size;
-    }
-private:
-    FieldType _type;
-    TypeInfo* _type_info;
-    AggregateFunc _aggregate_func;
-    FinalizeFunc _finalize_func;
-    int _size;
-    int _col_offset;
-};
-
+// The class is used to represent row's format in memory.
+// One row contains some columns, within these columns there may be key columns which
+// must be the first few columns.
+//
+// To compare two rows whose schemas are different, but they are from the same origin
+// we store all column schema maybe accessed here. And default access through column
+// id
 class Schema {
 public:
     Schema(const TabletSchema& schema) {
-        int offset = 0;
-        _num_key_columns = 0;
+        std::vector<Field> cols;
+        size_t num_key_columns = 0;
         for (int i = 0; i < schema.num_columns(); ++i) {
             const TabletColumn& column = schema.column(i);
-            ColumnSchema col_schema(column.aggregation(), column.type());
-            col_schema.set_col_offset(offset);
-            offset += col_schema.size() + 1; // 1 for null byte
+            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
             if (column.is_key()) {
-                _num_key_columns++;
-            }
-            if (column.type() == OLAP_FIELD_TYPE_HLL) {
-                _hll_col_ids.push_back(i);
-            }
-            _cols.push_back(col_schema);
-        }
-    }
-
-    int compare(const char* left , const char* right) const {
-        for (size_t i = 0; i < _num_key_columns; ++i) {
-            int comp = _cols[i].compare(left, right);
-            if (comp != 0) {
-                return comp;
+                num_key_columns++;
             }
         }
-        return 0;
+
+        reset(cols, num_key_columns);
     }
 
-    void aggregate(const char* left, const char* right, Arena* arena) const {
-        for (size_t i = _num_key_columns; i < _cols.size(); ++i) {
-            _cols[i].aggregate(const_cast<char*>(left), right, arena);
+    Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
+        std::vector<Field> cols;
+        size_t num_key_columns = 0;
+        for (int i = 0; i < columns.size(); ++i) {
+            const TabletColumn& column = columns[i];
+            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
+            if (column.is_key()) {
+                num_key_columns++;
+            }
         }
+
+        reset(cols, col_ids, num_key_columns);
     }
 
-    void finalize(const char* data) const {
-        for (int col_id : _hll_col_ids) {
-            _cols[col_id].finalize(const_cast<char*>(data));
-        }
+    Schema(const std::vector<Field>& cols, size_t num_key_columns) {
+        reset(cols, num_key_columns);
     }
 
-    int get_col_offset(int index) const {
-        return _cols[index].get_col_offset();
-    }
-    size_t get_col_size(int index) const {
-        return _cols[index].size();
+    Schema(const Schema&);
+    Schema& operator=(const Schema& other);
+
+    void copy_from(const Schema& other);
+
+    ~Schema();
+
+    void reset(const std::vector<Field>& cols, size_t num_key_columns);
+
+    void reset(const std::vector<Field>& cols,
+               const std::vector<ColumnId>& col_ids,
+               size_t num_key_columns);
+
+    const std::vector<Field*>& columns() const { return _cols; }
+    const Field* column(int idx) const { return _cols[idx]; }
+
+    size_t num_key_columns() const { return _num_key_columns; }
+
+    size_t column_offset(ColumnId cid) const {
+        return _col_offsets[cid];
     }
 
-    bool is_null(int index, const char* row) const {
-        return _cols[index].is_null(row);
+    size_t column_size(ColumnId cid) const {
+        return _cols[cid]->size();
     }
 
-    void set_null(int index, char*row) {
-        _cols[index].set_null(row);
+    size_t index_size(ColumnId cid) const {
+        return _cols[cid]->index_size();
     }
 
-    void set_not_null(int index, char*row) {
-        _cols[index].set_not_null(row);
+    bool is_null(const char* row, int index) const {
+        return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
     }
 
-    size_t schema_size() {
-        size_t size = _cols.size();
-        for (auto col : _cols) {
-            size += col.size();
+    void set_is_null(void* row, uint32_t cid, bool is_null) const {
+        *reinterpret_cast<bool*>((char*)row + _col_offsets[cid]) = is_null;
+    }
+
+    size_t schema_size() const {
+        size_t size = _col_ids.size();
+        for (auto cid : _col_ids) {
+            size += _cols[cid]->size();
         }
         return size;
     }
+
+    size_t num_columns() const { return _cols.size(); }
+    size_t num_column_ids() const { return _col_ids.size(); }
+    const std::vector<ColumnId>& column_ids() const { return _col_ids; }
 private:
-    std::vector<ColumnSchema> _cols;
+    std::vector<Field*> _cols;
+    std::vector<ColumnId> _col_ids;
+    std::vector<size_t> _col_offsets;
     size_t _num_key_columns;
-    std::vector<int> _hll_col_ids;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_SCHEMA_H

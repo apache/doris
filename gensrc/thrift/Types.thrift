@@ -72,7 +72,8 @@ enum TPrimitiveType {
   LARGEINT,
   VARCHAR,
   HLL,
-  DECIMALV2
+  DECIMALV2,
+  TIME
 }
 
 enum TTypeNodeType {
@@ -159,7 +160,8 @@ enum TTaskType {
     CLEAR_TRANSACTION_TASK,
     RECOVER_TABLET,
     STREAM_LOAD,
-    UPDATE_TABLET_META_INFO
+    UPDATE_TABLET_META_INFO,
+    ALTER_TASK
 }
 
 enum TStmtType {

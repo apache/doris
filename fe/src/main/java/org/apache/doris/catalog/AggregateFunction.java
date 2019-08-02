@@ -177,11 +177,11 @@ public class AggregateFunction extends Function {
 
     // Used to create UDAF
     public AggregateFunction(FunctionName fnName, Type[] argTypes,
-                             Type retType, Type intermediateType, String location,
+                             Type retType, boolean hasVarArgs, Type intermediateType, String location,
                              String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
                              String serializeFnSymbol, String finalizeFnSymbol,
                              String getValueFnSymbol, String removeFnSymbol) {
-        super(fnName, argTypes, retType, false);
+        super(fnName, argTypes, retType, hasVarArgs);
         this.setLocation(new HdfsURI(location));
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
@@ -202,6 +202,7 @@ public class AggregateFunction extends Function {
         FunctionName name;
         Type[] argTypes;
         Type retType;
+        boolean hasVarArgs;
         Type intermediateType;
         String objectFile;
         String initFnSymbol;
@@ -232,6 +233,11 @@ public class AggregateFunction extends Function {
 
         public AggregateFunctionBuilder retType(Type type) {
             this.retType = type;
+            return this;
+        }
+
+        public AggregateFunctionBuilder hasVarArgs(boolean hasVarArgs) {
+            this.hasVarArgs = hasVarArgs;
             return this;
         }
 
@@ -281,8 +287,8 @@ public class AggregateFunction extends Function {
         }
 
         public AggregateFunction build() {
-            AggregateFunction fn = new AggregateFunction(name, argTypes, retType, intermediateType, objectFile,
-                    initFnSymbol, updateFnSymbol, mergeFnSymbol,
+            AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
+                    objectFile, initFnSymbol, updateFnSymbol, mergeFnSymbol,
                     serializeFnSymbol, finalizeFnSymbol,
                     getValueFnSymbol, removeFnSymbol);
             fn.setBinaryType(binaryType);

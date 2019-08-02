@@ -76,7 +76,8 @@ public:
     // this batch must belong to a index in one transaction
     // when batch.
     Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                     int64_t* wait_lock_time_ns);
 
     // cancel all tablet stream for 'load_id' load
     // id: stream load's id

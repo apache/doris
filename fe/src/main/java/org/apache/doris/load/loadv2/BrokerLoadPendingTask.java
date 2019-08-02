@@ -53,32 +53,45 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     @Override
     void executeTask() throws UserException {
+        LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
     }
 
     private void getAllFileStatus()
             throws UserException {
+        long start = System.currentTimeMillis();
         for (Map.Entry<Long, List<BrokerFileGroup>> entry : tableToBrokerFileList.entrySet()) {
             long tableId = entry.getKey();
 
             List<List<TBrokerFileStatus>> fileStatusList = Lists.newArrayList();
             List<BrokerFileGroup> fileGroups = entry.getValue();
+            long totalFileSize = 0;
+            int totalFileNum = 0;
+            int groupNum = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
+                long groupFileSize = 0;
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                 for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusList.add(fileStatuses);
-                if (LOG.isDebugEnabled()) {
-                    for (TBrokerFileStatus fstatus : fileStatuses) {
+                for (TBrokerFileStatus fstatus : fileStatuses) {
+                    groupFileSize += fstatus.getSize();
+                    if (LOG.isDebugEnabled()) {
                         LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                          .add("file_status", fstatus)
-                                          .build());
+                                .add("file_status", fstatus).build());
                     }
                 }
+                totalFileSize += groupFileSize;
+                totalFileNum += fileStatuses.size();
+                LOG.info("get {} files in file group {} for table {}. size: {}. job: {}",
+                        fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId());
+                groupNum++;
             }
 
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
+            LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
+                    totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
         }
     }
 }

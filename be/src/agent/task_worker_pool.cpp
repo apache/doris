@@ -45,6 +45,7 @@
 #include "olap/task/engine_clear_alter_task.h"
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_schema_change_task.h"
+#include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_storage_migration_task.h"
 #include "olap/task/engine_publish_version_task.h"
@@ -521,7 +522,6 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
     while (true) {
 #endif
         TAgentTaskRequest agent_task_req;
-        TAlterTabletReq alter_tablet_request;
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
@@ -529,7 +529,6 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
-            alter_tablet_request = agent_task_req.alter_tablet_req;
             worker_pool_this->_tasks.pop_front();
         }
         // Try to register to cgroups_mgr
@@ -551,8 +550,9 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             switch (task_type) {
             case TTaskType::SCHEMA_CHANGE:
             case TTaskType::ROLLUP:
+            case TTaskType::ALTER_TASK:
                 worker_pool_this->_alter_tablet(worker_pool_this,
-                                            alter_tablet_request,
+                                            agent_task_req,
                                             signatrue,
                                             task_type,
                                             &finish_task_request);
@@ -572,7 +572,7 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
 
 void TaskWorkerPool::_alter_tablet(
         TaskWorkerPool* worker_pool_this,
-        const TAlterTabletReq& alter_tablet_request,
+        const TAgentTaskRequest& agent_task_req,
         int64_t signature,
         const TTaskType::type task_type,
         TFinishTaskRequest* finish_task_request) {
@@ -588,6 +588,9 @@ void TaskWorkerPool::_alter_tablet(
     case TTaskType::SCHEMA_CHANGE:
         process_name = "schema change";
         break;
+    case TTaskType::ALTER_TASK:
+        process_name = "alter table";
+        break;
     default:
         std::string task_name;
         EnumToString(TTaskType, task_type, task_name);
@@ -600,9 +603,21 @@ void TaskWorkerPool::_alter_tablet(
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
+    TTabletId new_tablet_id;
+    TSchemaHash new_schema_hash = 0;
     if (status == DORIS_SUCCESS) {
-        EngineSchemaChangeTask engine_task(alter_tablet_request, signature, task_type, &error_msgs, process_name);
-        OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
+        OLAPStatus sc_status = OLAP_SUCCESS;
+        if (task_type == TTaskType::ALTER_TASK) {
+            new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
+            new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
+            EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type, &error_msgs, process_name);
+            sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
+        } else {
+            new_tablet_id = agent_task_req.alter_tablet_req.new_tablet_req.tablet_id;
+            new_schema_hash = agent_task_req.alter_tablet_req.new_tablet_req.tablet_schema.schema_hash;
+            EngineSchemaChangeTask engine_task(agent_task_req.alter_tablet_req, signature, task_type, &error_msgs, process_name);
+            sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
+        }
         if (sc_status != OLAP_SUCCESS) {
             status = DORIS_ERROR;
         } else {
@@ -625,15 +640,15 @@ void TaskWorkerPool::_alter_tablet(
     if (status == DORIS_SUCCESS) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(
-                alter_tablet_request.new_tablet_req.tablet_id,
-                alter_tablet_request.new_tablet_req.tablet_schema.schema_hash,
+                new_tablet_id,
+                new_schema_hash,
                 signature,
                 &tablet_info);
 
         if (status != DORIS_SUCCESS) {
             LOG(WARNING) << process_name<< " success, but get new tablet info failed."
-                         << "tablet_id: " << alter_tablet_request.new_tablet_req.tablet_id
-                         << ", schema_hash: " << alter_tablet_request.new_tablet_req.tablet_schema.schema_hash
+                         << "tablet_id: " << new_tablet_id
+                         << ", schema_hash: " << new_schema_hash
                          << ", signature: " << signature;
         } else {
             finish_tablet_infos.push_back(tablet_info);

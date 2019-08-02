@@ -20,6 +20,7 @@
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -72,7 +73,8 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
+template<typename RowType>
+OLAPStatus AlphaRowsetWriter::_add_row(const RowType& row) {
     if (_writer_state != WRITER_INITED) {
         RETURN_NOT_OK(_init());
     }
@@ -82,29 +84,16 @@ OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
         LOG(WARNING) << error_msg;
         return status;
     }
-    _num_rows_written++;
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
-    if (_writer_state != WRITER_INITED) {
-        RETURN_NOT_OK(_init());
-    }
-    OLAPStatus status = _column_data_writer->write(row, schema);
-    if (status != OLAP_SUCCESS) {
-        std::string error_msg = "add row failed";
-        LOG(WARNING) << error_msg;
-        return status;
-    }
     ++_num_rows_written;
     return OLAP_SUCCESS;
 }
 
+template OLAPStatus AlphaRowsetWriter::_add_row(const RowCursor& row);
+template OLAPStatus AlphaRowsetWriter::_add_row(const ContiguousRow& row);
+
 OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _need_column_data_writer = false;
-    // this api is for LinkedSchemaChange
-    // use create hard link to copy rowset for performance
-    // this is feasible because LinkedSchemaChange is done on the same disk
+    // this api is for clone
     AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
     for (auto& segment_group : alpha_rowset->_segment_groups) {
         RETURN_NOT_OK(_init());
@@ -116,7 +105,10 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
     }
-    LOG(INFO) << "clone add_rowset:" << _num_rows_written;
+    // process delete predicate
+    if (rowset->rowset_meta()->has_delete_predicate()) {
+        _current_rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
+    }
     return OLAP_SUCCESS;
 }
 
@@ -239,7 +231,7 @@ Version AlphaRowsetWriter::version() {
     return _rowset_writer_context.version;
 }
 
-int32_t AlphaRowsetWriter::num_rows() {
+int64_t AlphaRowsetWriter::num_rows() {
     return _num_rows_written;
 }
 
@@ -321,6 +313,7 @@ bool AlphaRowsetWriter::_validate_rowset() {
         LOG(WARNING) << "num_rows between rowset and segment_groups do not match. "
                      << "num_rows of segment_groups:" << num_rows
                      << ", num_rows of rowset:" << _current_rowset_meta->num_rows();
+
         return false;
     }
     return true;

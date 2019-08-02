@@ -97,7 +97,8 @@ private:
 
     bool _already_failed = false;
     bool _has_in_flight_packet = false;
-    int _rpc_timeout_ms = 50000;
+    // this should be set in init() using config
+    int _rpc_timeout_ms = 60000;
     int64_t _next_packet_seq = 0;
 
     std::unique_ptr<RowBatch> _batch;
@@ -142,6 +143,16 @@ private:
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
 };
 
+// The counter of add_batch rpc of a single node
+struct AddBatchCounter {
+    // total execution time of a add_batch rpc
+    int64_t add_batch_execution_time_ns = 0;
+    // lock waiting time in a add_batch rpc
+    int64_t add_batch_wait_lock_time_ns = 0;
+    // number of add_batch call
+    int64_t add_batch_num = 0;
+};
+
 // write data to Olap Table.
 // this class distributed data according to
 class OlapTableSink : public DataSink {
@@ -172,6 +183,18 @@ public:
     // at a time can modify them.
     int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
     int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
+    void update_node_add_batch_counter(int64_t be_id, int64_t add_batch_time_ns, int64_t wait_lock_time_ns) {
+        auto search = _node_add_batch_counter_map.find(be_id);
+        if (search == _node_add_batch_counter_map.end()) {
+            AddBatchCounter new_counter;
+            _node_add_batch_counter_map.emplace(be_id, std::move(new_counter));
+        }
+
+        AddBatchCounter& counter = _node_add_batch_counter_map[be_id];
+        counter.add_batch_execution_time_ns += add_batch_time_ns;
+        counter.add_batch_wait_lock_time_ns += wait_lock_time_ns;
+        counter.add_batch_num += 1;
+    }
 
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
@@ -257,6 +280,9 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_in_flight_packet_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+
+    // BE id -> add_batch method counter
+    std::unordered_map<int64_t, AddBatchCounter> _node_add_batch_counter_map;
 };
 
 }

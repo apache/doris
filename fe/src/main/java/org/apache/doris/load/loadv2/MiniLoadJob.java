@@ -86,7 +86,6 @@ public class MiniLoadJob extends LoadJob {
 
     @Override
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
-
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,

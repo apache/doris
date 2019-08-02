@@ -127,7 +127,7 @@ SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
 
 再看以下查询：
 
-`SELECT * FROM test WHERE k9 IN ("xxx", "yyyy") AND k1 = 10;`
+`SELECT * FROM test WHERE k4 =1 AND k5 > 3;`
 	
 有 k4 以及 k5 的条件，检查 rollup_index3、rollup_index4 的第一列含有 k4，但是 rollup_index3 的第二列含有k5，所以匹配的前缀索引最长。
 
@@ -135,7 +135,7 @@ SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
 |   0:OlapScanNode                                                                                                                                                                                                                                                                                                                                                                                                
 |      TABLE: test                                                                                                                                                                                                                                                                                                                                                                                                  
 |      PREAGGREGATION: OFF. Reason: No AggregateInfo                                                                                                                                                                                                                                                                                                                                                                
-|      PREDICATES: `k4` >= 1, `k5` > 3                                                                                                                                                                                                                                                                                                                                                                              
+|      PREDICATES: `k4` = 1, `k5` > 3                                                                                                                                                                                                                                                                                                                                                                              
 |      partitions=1/1                                                                                                                                                                                                                                                                                                                                                                                               
 |      rollup: rollup_index3                                                                                                                                                                                                                                                                                                                                                                                        
 |      buckets=10/10                                                                                                                                                                                                                                                                                                                                                                                                

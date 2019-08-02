@@ -160,6 +160,7 @@ public class ScalarFunction extends Function {
                     beFn += "_float_val";
                     break;
                 case DOUBLE:
+                case TIME:
                     beFn += "_double_val";
                     break;
                 case CHAR:
