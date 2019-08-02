@@ -204,19 +204,17 @@ Status OlapTablePartitionParam::init() {
         part->id = t_part.id;
 
         if (t_part.__isset.start_key) {
-            // deprecated
+            // deprecated, use start_keys instead
             std::vector<TExprNode> exprs = { t_part.start_key };
             RETURN_IF_ERROR(_create_partition_keys(exprs, &part->start_key));
-        } else {
-            DCHECK(t_part.__isset.start_keys);
+        } else if (t_part.__isset.start_keys)
             RETURN_IF_ERROR(_create_partition_keys(t_part.start_keys, &part->start_key));
         }
         if (t_part.__isset.end_key) {
-            // deprecated
+            // deprecated, use end_keys instead
             std::vector<TExprNode> exprs = { t_part.end_key };
             RETURN_IF_ERROR(_create_partition_keys(exprs, &part->end_key));
-        } else {
-            DCHECK(t_part.__isset.end_keys);
+        } else if (t_part.__isset.end_keys) {
             RETURN_IF_ERROR(_create_partition_keys(t_part.end_keys, &part->end_key));
         }
 
