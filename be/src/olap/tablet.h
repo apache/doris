@@ -29,7 +29,6 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
 #include "olap/tuple.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset_graph.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"

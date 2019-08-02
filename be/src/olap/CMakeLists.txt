@@ -86,6 +86,9 @@ add_library(Olap STATIC
     rowset/segment_v2/encoding_info.cpp
     rowset/segment_v2/ordinal_page_index.cpp
     rowset/segment_v2/binary_dict_page.cpp
+    rowset/segment_v2/segment.cpp
+    rowset/segment_v2/segment_iterator.cpp
+    rowset/segment_v2/segment_writer.cpp
     rowset_factory.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp
