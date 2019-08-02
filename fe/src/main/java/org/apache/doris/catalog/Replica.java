@@ -75,6 +75,16 @@ public class Replica implements Writable {
 
     private boolean bad = false;
 
+    /*
+     * If set to true, with means this replica need to be repaired. explicitly.
+     * This can happen when this replica is created by a balance clone task, and
+     * when task finished, the version of this replica is behind the partition's visible version.
+     * So this replica need a further repair.
+     * If we do not do this, this replica will be treated as version stale, and will be removed,
+     * so that the balance task is failed, which is unexpected.
+     */
+    private boolean needFurtherRepair = false;
+
     public Replica() {
     }
     
@@ -190,6 +200,14 @@ public class Replica implements Writable {
         }
         this.bad = bad;
         return true;
+    }
+
+    public boolean needFurtherRepair() {
+        return needFurtherRepair;
+    }
+
+    public void setNeedFurtherRepair(boolean needFurtherRepair) {
+        this.needFurtherRepair = needFurtherRepair;
     }
 
     // only update data size and row num

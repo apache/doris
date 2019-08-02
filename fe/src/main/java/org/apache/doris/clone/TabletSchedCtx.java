@@ -866,6 +866,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                     reportedTablet.getData_size(), reportedTablet.getRow_count());
             
+            if (this.type == Type.BALANCE) {
+                long partitionVisibleVersion = partition.getVisibleVersion();
+                if (replica.getVersion() < partitionVisibleVersion) {
+                    // see comment 'needFurtherRepair' of Replica for explanation.
+                    // no need to persist this info. If FE restart, just do it again.
+                    replica.setNeedFurtherRepair(true);
+                }
+            }
+
             state = State.FINISHED;
             
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,

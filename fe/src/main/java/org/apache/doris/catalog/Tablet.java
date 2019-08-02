@@ -49,15 +49,16 @@ public class Tablet extends MetaObject implements Writable {
     
     public enum TabletStatus {
         HEALTHY,
-        REPLICA_MISSING, // not enough alive replica num
-        VERSION_INCOMPLETE, // alive replica num is enough, but version is missing
-        REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission)
-        REDUNDANT, // too much replicas
-        REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
+        REPLICA_MISSING, // not enough alive replica num.
+        VERSION_INCOMPLETE, // alive replica num is enough, but version is missing.
+        REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission).
+        REDUNDANT, // too much replicas.
+        REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster.
         FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
                          // at least one replica has to be deleted first to make room for new replica.
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
-        COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant
+        COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
+        NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
     }
 
     private long id;
@@ -383,6 +384,7 @@ public class Tablet extends MetaObject implements Writable {
         int stable = 0;
         int availableInCluster = 0;
         
+        Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
@@ -414,6 +416,10 @@ public class Tablet extends MetaObject implements Writable {
                 continue;
             }
             availableInCluster++;
+
+            if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
+                needFurtherRepairReplica = replica;
+            }
         }
 
         // 1. alive replicas are not enough
@@ -440,6 +446,10 @@ public class Tablet extends MetaObject implements Writable {
         } else if (aliveAndVersionComplete < replicationNum) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
         } else if (aliveAndVersionComplete > replicationNum) {
+            if (needFurtherRepairReplica != null) {
+                return Pair.create(TabletStatus.NEED_FURTHER_REPAIR, TabletSchedCtx.Priority.HIGH);
+            }
+            // we set REDUNDANT as VERY_HIGH, because delete redundant replicas can free the space quickly.
             return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
@@ -454,6 +464,9 @@ public class Tablet extends MetaObject implements Writable {
         if (availableInCluster < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletSchedCtx.Priority.LOW);
         } else if (replicas.size() > replicationNum) {
+            if (needFurtherRepairReplica != null) {
+                return Pair.create(TabletStatus.NEED_FURTHER_REPAIR, TabletSchedCtx.Priority.HIGH);
+            }
             // we set REDUNDANT as VERY_HIGH, because delete redundant replicas can free the space quickly.
             return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
