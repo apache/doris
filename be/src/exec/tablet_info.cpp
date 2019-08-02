@@ -207,7 +207,7 @@ Status OlapTablePartitionParam::init() {
             // deprecated, use start_keys instead
             std::vector<TExprNode> exprs = { t_part.start_key };
             RETURN_IF_ERROR(_create_partition_keys(exprs, &part->start_key));
-        } else if (t_part.__isset.start_keys)
+        } else if (t_part.__isset.start_keys) {
             RETURN_IF_ERROR(_create_partition_keys(t_part.start_keys, &part->start_key));
         }
         if (t_part.__isset.end_key) {

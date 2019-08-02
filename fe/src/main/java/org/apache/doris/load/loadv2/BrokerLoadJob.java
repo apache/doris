@@ -101,7 +101,7 @@ public class BrokerLoadJob extends LoadJob {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
         // check data source info
-        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
+        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions(), EtlJobType.BROKER);
 
         // create job
         try {
