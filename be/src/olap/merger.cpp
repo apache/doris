@@ -98,7 +98,7 @@ OLAPStatus Merger::merge() {
             break;
         }
 
-        if (OLAP_SUCCESS != _output_rs_writer->add_row(&row_cursor)) {
+        if (OLAP_SUCCESS != _output_rs_writer->add_row(row_cursor)) {
             LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
             has_error = true;
             break;

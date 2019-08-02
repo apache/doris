@@ -568,32 +568,16 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
 
     DorisMetrics::cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction(best_tablet);
-    /*
-    OLAPStatus res = cumulative_compaction.init(best_tablet);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_CUMULATIVE_REPEAT_INIT && res != OLAP_ERR_CE_TRY_CE_LOCK_ERROR) {
-            best_tablet->set_last_compaction_failure_time(UnixMillis());
-            if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
-                LOG(WARNING) << "failed to init cumulative compaction"
-                             << ", table=" << best_tablet->full_name()
-                             << ", res=" << res;
-                DorisMetrics::cumulative_compaction_request_failed.increment(1);
-            }
-        }
-        return;
-    }
 
-    res = cumulative_compaction.run();
+    OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::cumulative_compaction_request_failed.increment(1);
         best_tablet->set_last_compaction_failure_time(UnixMillis());
-        LOG(WARNING) << "failed to do cumulative compaction"
+        LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                      << ", table=" << best_tablet->full_name()
                      << ", res=" << res;
         return;
     }
-    */
-    cumulative_compaction.compact();
     best_tablet->set_last_compaction_failure_time(0);
 }
 
@@ -601,27 +585,13 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) { return; }
 
-    DorisMetrics::base_compaction_request_total.increment(1);
-    BaseCompaction base_compaction;
-    OLAPStatus res = base_compaction.init(best_tablet);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_BE_TRY_BE_LOCK_ERROR && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-            DorisMetrics::base_compaction_request_failed.increment(1);
-            best_tablet->set_last_compaction_failure_time(UnixMillis());
-            LOG(WARNING) << "failed to init base compaction"
-                << ", table=" << best_tablet->full_name()
-                << ", res=" << res;
-        }
-        return;
-    }
-
-    res = base_compaction.run();
+    BaseCompaction base_compaction(best_tablet);
+    OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::base_compaction_request_failed.increment(1);
         best_tablet->set_last_compaction_failure_time(UnixMillis());
-        LOG(WARNING) << "failed to init base compaction"
-                     << ", table=" << best_tablet->full_name()
-                     << ", res=" << res;
+        LOG(WARNING) << "failed to init base compaction. res=" << res
+                     << ", table=" << best_tablet->full_name();
         return;
     }
     best_tablet->set_last_compaction_failure_time(0);

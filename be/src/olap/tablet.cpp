@@ -984,4 +984,12 @@ void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetS
     }
 }
 
+void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    for (auto& it : _rs_version_map) {
+        if (it.first.first <= _cumulative_point) {
+            candidate_rowsets->push_back(it.second);
+        }
+    }
+}
+
 }  // namespace doris

@@ -44,9 +44,9 @@ public:
     OLAPStatus merge();
 
     // 获取在做merge过程中累积的行数
-    inline int64_t row_count() { return _row_count; }
-    inline int64_t merged_rows() { return _merged_rows; }
-    inline int64_t filted_rows() { return _filted_rows; }
+    inline int64_t row_count() const { return _row_count; }
+    inline int64_t merged_rows() const { return _merged_rows; }
+    inline int64_t filted_rows() const { return _filted_rows; }
 private:
     TabletSharedPtr _tablet;
     RowsetWriterSharedPtr _output_rs_writer;

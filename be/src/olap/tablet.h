@@ -235,6 +235,7 @@ public:
     TabletInfo get_tablet_info();
 
     void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
     OLAPStatus calcuate_cumulative_point();
 
 private:

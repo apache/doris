@@ -68,9 +68,10 @@ OLAPStatus CumulativeCompaction::compact() {
     // 2. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_cumulative_compaction());
 
+    // 33. set cumulative state to success
     _cumulative_state = CumulativeState::SUCCESS;
     
-    // 3. garbage collect input rowsets after cumulative compaction 
+    // 4. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
     return OLAP_SUCCESS;
@@ -234,7 +235,8 @@ OLAPStatus CumulativeCompaction::construct_output_rowset_writer() {
 
 OLAPStatus CumulativeCompaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr prev_rowset = rowsets.front();
-    for (auto& rowset : rowsets) {
+    for (size_t i = 1; i < rowsets.size(); ++i) {
+        RowsetSharedPtr rowset = rowsets[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
             LOG(WARNING) << "There are missed versions among rowsets. "
                          << "prev_rowset verison=" << prev_rowset->start_version()
