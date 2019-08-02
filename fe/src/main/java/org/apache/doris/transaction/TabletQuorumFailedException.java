@@ -39,6 +39,6 @@ public class TabletQuorumFailedException extends TransactionException {
                             Joiner.on(",").join(errorBackendIdsForTablet)),
               transactionId);
         this.tabletId = tabletId;
-        this.errorBackendIdsForTablet=errorBackendIdsForTablet;
+        this.errorBackendIdsForTablet = errorBackendIdsForTablet;
     }
 }
