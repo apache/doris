@@ -401,9 +401,8 @@ public class GlobalTransactionMgr {
                                              + "while error backends {}",
                                      transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
                                      Joiner.on(",").join(errorBackendIdsForTablet));
-                            throw new TabletQuorumFailedException("Tablet success replica num is less then quorum "
-                                                                          + "replica num",
-                                                                  transactionId, tablet.getId(),
+                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                                                                  successReplicaNum, quorumReplicaNum,
                                                                   errorBackendIdsForTablet);
                         }
                     }
