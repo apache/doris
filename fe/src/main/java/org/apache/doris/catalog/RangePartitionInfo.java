@@ -73,6 +73,7 @@ public class RangePartitionInfo extends PartitionInfo {
         super(PartitionType.RANGE);
         this.partitionColumns = partitionColumns;
         this.idToRange = new HashMap<Long, Range<PartitionKey>>();
+        this.isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
     public List<Column> getPartitionColumns() {
@@ -366,6 +367,8 @@ public class RangePartitionInfo extends PartitionInfo {
             Column column = Column.read(in);
             partitionColumns.add(column);
         }
+
+        this.isMultiColumnPartition = partitionColumns.size() > 1;
 
         counter = in.readInt();
         for (int i = 0; i < counter; i++) {

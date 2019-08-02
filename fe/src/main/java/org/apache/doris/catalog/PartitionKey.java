@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -197,9 +198,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append("types: [");
-        for (PrimitiveType type : types) {
-            builder.append(type.toString());
-        }
+        builder.append(Joiner.on(", ").join(types));
         builder.append("]; ");
 
         builder.append("keys: [");
