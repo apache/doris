@@ -29,6 +29,7 @@
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/types.h"
+#include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -42,33 +43,25 @@ public:
 };
 
 TEST_F(SegmentReaderWriterTest, normal) {
+
+    size_t num_rows_per_block = 10;
+
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
     tablet_schema->_num_columns = 4;
     tablet_schema->_num_key_columns = 3;
     tablet_schema->_num_short_key_columns = 2;
-    tablet_schema->_num_rows_per_row_block = 1024;
-    for (int i = 0; i < tablet_schema->_num_columns; ++i) {
-        TabletColumn column;
-        column._type = OLAP_FIELD_TYPE_INT;
-        column._length = 4;
-        column._index_length = 4;
-        column._is_nullable = true;
-        column._unique_id = i;
-        if (i < tablet_schema->_num_key_columns) {
-            column._is_key = true;
-        } else {
-            column._is_key = false;
-        }
-
-        tablet_schema->_cols.emplace_back(column);
-    }
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(3));
+    tablet_schema->_cols.push_back(create_int_value(4));
 
     // segment write
     std::string dname = "./ut_dir/segment_test";
     FileUtils::create_dir(dname);
 
     SegmentWriterOptions opts;
-    opts.num_rows_per_block = 1024;
+    opts.num_rows_per_block = num_rows_per_block;
 
     std::string fname = dname + "/int_case";
     SegmentWriter writer(fname, 0, tablet_schema, opts);
@@ -79,15 +72,14 @@ TEST_F(SegmentReaderWriterTest, normal) {
     auto olap_st = row.init(*tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, olap_st);
 
-    for (int i = 0; i < 1024; ++i) {
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    for (int i = 0; i < 4096; ++i) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
-            if (j > 2 && ((i + j) % 8) == 0) {
-                cell.set_null();
-            } else {
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = i * 10 + j;
-            }
+            cell.set_not_null();
+            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
         }
         writer.append_row(row);
     }
@@ -97,11 +89,11 @@ TEST_F(SegmentReaderWriterTest, normal) {
     ASSERT_TRUE(st.ok());
     // reader
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, 1024));
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, num_rows_per_block));
         st = segment->open();
         LOG(INFO) << "segment open, msg=" << st.to_string();
         ASSERT_TRUE(st.ok());
-        ASSERT_EQ(1024, segment->num_rows());
+        ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
         // scan all rows
         {
@@ -114,13 +106,13 @@ TEST_F(SegmentReaderWriterTest, normal) {
             ASSERT_TRUE(st.ok());
 
             Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 1024, &arena);
 
-            int left = 1024;
+            int left = 4096;
 
             int rowid = 0;
             while (left > 0)  {
-                int rows_read = left > 100 ? 100 : left;
+                int rows_read = left > 1024 ? 1024 : left;
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
@@ -131,12 +123,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        if (cid > 2 && ((rid + cid) % 8) == 0) {
-                            ASSERT_TRUE(BitmapTest(column_block.null_bitmap(), i));
-                        } else {
-                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
-                            ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
-                        }
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                     }
                 }
                 rowid += rows_read;
@@ -152,9 +140,14 @@ TEST_F(SegmentReaderWriterTest, normal) {
             StorageReadOptions read_opts;
             read_opts.lower_bound.reset(new RowCursor());
             RowCursor* lower_bound = read_opts.lower_bound.get();
-            lower_bound->init(*tablet_schema, 1);
+            lower_bound->init(*tablet_schema, 2);
             {
                 auto cell = lower_bound->cell(0);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = 100;
+            }
+            {
+                auto cell = lower_bound->cell(1);
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = 100;
             }
@@ -179,10 +172,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
             RowBlockV2 block(schema, 100, &arena);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.ok());
-            ASSERT_EQ(10, block.num_rows());
+            ASSERT_EQ(11, block.num_rows());
             auto column_block = block.column_block(0);
-            for (int i = 0; i < 10; ++i) {
-                ASSERT_EQ(110 + i * 10, *(int*)column_block.cell_ptr(i));
+            for (int i = 0; i < 11; ++i) {
+                ASSERT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
             }
         }
         // test seek, key
@@ -200,9 +193,48 @@ TEST_F(SegmentReaderWriterTest, normal) {
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = 10250;
+                *(int*)cell.mutable_cell_ptr() = 40970;
             }
             read_opts.include_lower_bound = false;
+
+            st = iter->init(read_opts);
+            LOG(INFO) << "iterator init msg=" << st.to_string();
+            ASSERT_TRUE(st.ok());
+
+            Arena arena;
+            RowBlockV2 block(schema, 100, &arena);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.ok());
+            ASSERT_EQ(0, block.num_rows());
+        }
+        // test seek, key (-2, -1)
+        {
+            std::unique_ptr<SegmentIterator> iter;
+            st = segment->new_iterator(schema, &iter);
+            ASSERT_TRUE(st.ok());
+
+            StorageReadOptions read_opts;
+
+            // lower bound
+            read_opts.lower_bound.reset(new RowCursor());
+            RowCursor* lower_bound = read_opts.lower_bound.get();
+            lower_bound->init(*tablet_schema, 1);
+            {
+                auto cell = lower_bound->cell(0);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = -2;
+            }
+            read_opts.include_lower_bound = false;
+
+            read_opts.upper_bound.reset(new RowCursor());
+            RowCursor* upper_bound = read_opts.upper_bound.get();
+            upper_bound->init(*tablet_schema, 1);
+            {
+                auto cell = upper_bound->cell(0);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = -1;
+            }
+            read_opts.include_upper_bound = false;
 
             st = iter->init(read_opts);
             LOG(INFO) << "iterator init msg=" << st.to_string();

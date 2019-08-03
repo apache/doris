@@ -33,6 +33,9 @@ using strings::Substitute;
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
 using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, Arena* arena);
 
+// Helper class that is used to encode types of value in memory format
+// into a sorted binary. For example, this class will encode unsigned
+// integer to bit endian format which can compare with memcmp.
 class KeyCoder {
 public:
     template<typename TraitsType>

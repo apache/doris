@@ -77,7 +77,7 @@ void test_integer_encode() {
         }
     }
 
-    {
+    for (auto i = 0; i < 100; ++i) {
         CppType val1 = random();
         CppType val2 = random();
         
@@ -148,7 +148,7 @@ TEST(KeyCoderTest, test_date) {
         }
     }
 
-    {
+    for (auto i = 0; i < 100; ++i) {
         CppType val1 = random();
         CppType val2 = random();
         

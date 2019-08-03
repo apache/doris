@@ -158,9 +158,9 @@ Status Segment::_initial_column_readers() {
     // with an old schema. So we should create a DefaultValueIterator
     // for this column.
     std::unordered_map<uint32_t, uint32_t> unique_id_to_ordinal;
-    for (auto& column_pb : _footer.columns()) {
-        LOG(INFO) << "column_id=" << column_pb.column_id() << ", unique_id=" << column_pb.unique_id();
-        unique_id_to_ordinal.emplace(column_pb.column_id(), column_pb.unique_id());
+    for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
+        auto& column_pb = _footer.columns(ordinal);
+        unique_id_to_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
     // TODO(zc): Lazy init()?
     // There may be too many columns, majority of them would not be used

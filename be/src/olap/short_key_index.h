@@ -27,6 +27,8 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 
+#include "util/debug_util.h"
+
 namespace doris {
 
 // In our system, we have more complicated situation.
@@ -51,19 +53,19 @@ constexpr uint8_t KEY_NULL_LAST_MARKER = 0xFE;
 // Used to represent maximal value for that field
 constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
 
-// Encode one row into binary.
-// We encoded one cell in the format which consists of a marker ahead and encoded content.
-// This function will encode first min(row.columns_ids, num_keys) into key. If function
-// can't find a column's value in row, this will finish this function. If all num_keys
-// columns have been encoded nothing will fill.
+// Encode one row into binary according given num_keys.
+// A cell will be encoded in the format of a marker and encoded content.
+// When function encoding row, if any cell isn't found in row, this function will
+// fill a marker and return. If padding_minimal is true, KEY_MINIMAL_MARKER will
+// be added, if padding_minimal is false, KEY_MAXIMAL_MARKER will be added.
+// If all num_keys are found in row, no marker will be added.
 template<typename RowType, bool null_first = true>
-void encode_key(std::string* buf, const RowType& row,
-                size_t num_keys,
-                bool fill_with_minimal) {
+void encode_key_with_padding(std::string* buf, const RowType& row,
+                             size_t num_keys, bool padding_minimal) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto field = row.schema()->column(cid);
         if (field == nullptr) {
-            if (fill_with_minimal) {
+            if (padding_minimal) {
                 buf->push_back(KEY_MINIMAL_MARKER);
             } else {
                 buf->push_back(KEY_MAXIMAL_MARKER);
@@ -85,12 +87,12 @@ void encode_key(std::string* buf, const RowType& row,
     }
 }
 
+// Encode one row into binary according given num_keys.
 // Client call this function must assure that row contains the first
 // num_keys columns.
 template<typename RowType, bool null_first = true>
 void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
     for (auto cid = 0; cid < num_keys; cid++) {
-        auto field = row.schema()->column(cid);
         auto cell = row.cell(cid);
         if (cell.is_null()) {
             if (null_first) {
@@ -101,7 +103,7 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
             continue;
         }
         buf->push_back(KEY_NORMAL_MARKER);
-        field->encode_ascending(cell.cell_ptr(), buf);
+        row.schema()->column(cid)->encode_ascending(cell.cell_ptr(), buf);
     }
 }
 
@@ -122,6 +124,8 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
 //      ...
 //      builder.add_item(keyN);
 //      builder.finalize(segment_size, num_rows, &slices);
+// NOTE: This is used for BetaRowset and is not compatible with AlphaRowset's
+//       short key index format.
 // TODO(zc):
 // 1. If this can leverage binary page to save key and offset data
 // 2. Extending this to save in a BTree like struct, which can index full key
@@ -144,14 +148,12 @@ private:
     faststring _key_buf;
     faststring _offset_buf;
     std::string _footer_buf;
-    std::vector<uint32_t> _offsets;
 };
 
 class ShortKeyIndexDecoder;
 
 // An Iterator to iterate one short key index.
-// Client can use this class to iterator all items
-// item in this index.
+// Client can use this class to iterator all items in this index.
 class ShortKeyIndexIterator {
 public:
     using iterator_category = std::random_access_iterator_tag;
@@ -218,16 +220,15 @@ public:
     ShortKeyIndexIterator begin() const { return {this, 0}; }
     ShortKeyIndexIterator end() const { return {this, num_items()}; }
 
-    // lower_bound will return a iterator which locates the first item
-    // equal with or larger than given key.
-    // NOTE: This function holds that without common prefix key, the one
-    // who has more length it the bigger one. Two key is the same only
-    // when their length are equal
+    // Return an iterator which locates at the first item who is
+    // equal with or greater than the given key.
+    // NOTE: If one key is the prefix of other key, this funciton thinks
+    // that longer key is greater than the shorter key.
     ShortKeyIndexIterator lower_bound(const Slice& key) const {
         return seek<true>(key);
     }
 
-    // Return the iterator which locates the first item larger than the
+    // Return the iterator which locates the first item greater than the
     // input key.
     ShortKeyIndexIterator upper_bound(const Slice& key) const {
         return seek<false>(key);
@@ -256,7 +257,7 @@ private:
 private:
     Slice _data;
 
-    // All following fields are only valid after pares has been executed successfully
+    // All following fields are only valid after parse has been executed successfully
     segment_v2::ShortKeyFooterPB _footer;
     std::vector<uint32_t> _offsets;
     Slice _key_data;

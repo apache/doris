@@ -75,7 +75,7 @@ Status SegmentIterator::_init_short_key_range() {
         RETURN_IF_ERROR(_lookup_ordinal(
                 *_opts.upper_bound, !_opts.include_upper_bound, num_rows(), &_upper_rowid));
     }
-    if (_opts.lower_bound != nullptr) {
+    if (_upper_rowid > 0 && _opts.lower_bound != nullptr) {
         RETURN_IF_ERROR(_lookup_ordinal(
                 *_opts.lower_bound, _opts.include_lower_bound, _upper_rowid, &_lower_rowid));
     }
@@ -115,14 +115,17 @@ Status SegmentIterator::_prepare_seek() {
 }
 
 Status SegmentIterator::_init_column_iterators() {
+    _cur_rowid = _lower_rowid;
+    if (_cur_rowid >= num_rows()) {
+        return Status::OK();
+    }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_create_column_iterator(cid, &_column_iterators[cid]));
         }
 
-        _column_iterators[cid]->seek_to_ordinal(_lower_rowid);
+        _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
     }
-    _cur_rowid = _lower_rowid;
     return Status::OK();
 }
 
@@ -152,10 +155,11 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
 // Otherwise return error.
 // 1. get [start, end) ordinal through short key index
 // 2. binary search to find exact ordinal that match the input condition
+// Make is_include template to reduce branch
 Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include,
                                         rowid_t upper_bound, rowid_t* rowid) {
     std::string index_key;
-    encode_key(&index_key, key, _segment->num_short_keys(), is_include);
+    encode_key_with_padding(&index_key, key, _segment->num_short_keys(), is_include);
 
     uint32_t start_block_id = 0;
     auto start_iter = _segment->lower_bound(index_key);
@@ -243,6 +247,9 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 Status SegmentIterator::next_batch(RowBlockV2* block) {
     size_t rows_to_read = std::min((rowid_t)block->capacity(), _upper_rowid - _cur_rowid);
     block->resize(rows_to_read);
+    if (rows_to_read == 0) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
     _cur_rowid += rows_to_read;
     return Status::OK();

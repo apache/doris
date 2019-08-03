@@ -49,6 +49,7 @@ private:
     Status _prepare_seek();
     Status _init_column_iterators();
     Status _create_column_iterator(uint32_t cid, ColumnIterator** iter);
+
     Status _lookup_ordinal(const RowCursor& key, bool is_include,
                            rowid_t upper_bound, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);

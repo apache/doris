@@ -47,6 +47,7 @@ Status ShortKeyIndexBuilder::finalize(uint32_t segment_bytes,
     }
 
     put_fixed32_le(&_footer_buf, _footer_buf.size());
+    // TODO(zc): checksum
     uint32_t checksum = 0;
     put_fixed32_le(&_footer_buf, checksum);
 
