@@ -160,7 +160,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
-    cmake -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
+    cmake -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}
