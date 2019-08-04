@@ -553,32 +553,36 @@ public class TabletScheduler extends Daemon {
             throws SchedException {
         if (tabletCtx.getType() == Type.REPAIR) {
             switch (status) {
-                case REPLICA_MISSING:
-                    handleReplicaMissing(tabletCtx, batchTask);
-                    break;
-                case VERSION_INCOMPLETE:
-                    handleReplicaVersionIncomplete(tabletCtx, batchTask);
-                    break;
-                case REPLICA_RELOCATING:
-                    handleReplicaRelocating(tabletCtx, batchTask);
-                    break;
-                case REDUNDANT:
-                    handleRedundantReplica(tabletCtx, false);
-                    break;
-                case FORCE_REDUNDANT:
-                    handleRedundantReplica(tabletCtx, true);
-                    break;
-                case REPLICA_MISSING_IN_CLUSTER:
-                    handleReplicaClusterMigration(tabletCtx, batchTask);
-                    break;
-                case COLOCATE_MISMATCH:
-                    handleColocateMismatch(tabletCtx, batchTask);
-                    break;
-                case COLOCATE_REDUNDANT:
-                    handleColocateRedundant(tabletCtx);
-                    break;
-                default:
-                    break;
+            case REPLICA_MISSING:
+                handleReplicaMissing(tabletCtx, batchTask);
+                break;
+            case VERSION_INCOMPLETE:
+                handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                break;
+            case REPLICA_RELOCATING:
+                handleReplicaRelocating(tabletCtx, batchTask);
+                break;
+            case REDUNDANT:
+                handleRedundantReplica(tabletCtx, false);
+                break;
+            case FORCE_REDUNDANT:
+                handleRedundantReplica(tabletCtx, true);
+                break;
+            case REPLICA_MISSING_IN_CLUSTER:
+                handleReplicaClusterMigration(tabletCtx, batchTask);
+                break;
+            case COLOCATE_MISMATCH:
+                handleColocateMismatch(tabletCtx, batchTask);
+                break;
+            case COLOCATE_REDUNDANT:
+                handleColocateRedundant(tabletCtx);
+                break;
+            case NEED_FURTHER_REPAIR:
+                // same as version incomplete, it prefer to the dest replica which need further repair
+                handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                break;
+            default:
+                break;
             }
         } else {
             // balance
@@ -664,6 +668,15 @@ public class TabletScheduler extends Daemon {
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         stat.counterReplicaRedundantErr.incrementAndGet();
+        
+        long watermarkTxnId = tabletCtx.getTablet().getWatermarkTxnId();
+        if (watermarkTxnId != -1) {
+            if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId, tabletCtx.getDbId())) {
+                throw new SchedException(Status.SCHEDULE_FAILED, "txn before " + watermarkTxnId + " is not finished");
+            }
+            tabletCtx.getTablet().setWatermarkTxnId(-1);
+        }
+        
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)

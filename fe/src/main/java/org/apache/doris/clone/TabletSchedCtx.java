@@ -341,6 +341,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.tablet = tablet;
     }
     
+    public Tablet getTablet() {
+        return tablet;
+    }
+
     // database lock should be held.
     public List<Replica> getReplicas() {
         return tablet.getReplicas();
@@ -520,6 +524,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * 1. replica's last failed version > 0
      * 2. better to choose a replica which has a lower last failed version
      * 3. best to choose a replica if its last success version > last failed version
+     * 4. if these is replica which need further repair, choose that replica.
      * 
      * database lock should be held.
      */
@@ -536,10 +541,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            if (replica.getLastFailedVersion() <= 0 && ((replica.getVersion() == visibleVersion
-                    && replica.getVersionHash() == visibleVersionHash) || replica.getVersion() > visibleVersion)) {
+            if (replica.getLastFailedVersion() <= 0
+                    && ((replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash)
+                            || replica.getVersion() > visibleVersion)) {
                 // skip healthy replica
                 continue;
+            }
+
+            if (replica.needFurtherRepair()) {
+                chosenReplica = replica;
+                break;
             }
             
             if (chosenReplica == null) {
@@ -873,10 +884,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     // no need to persist this info. If FE restart, just do it again.
                     replica.setNeedFurtherRepair(true);
                 }
+                tablet.setWatermarkTxnId(Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+            } else {
+                replica.setNeedFurtherRepair(false);
             }
 
-            state = State.FINISHED;
-            
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
@@ -898,6 +910,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 Catalog.getInstance().getEditLog().logUpdateReplica(info);
             }
 
+            state = State.FINISHED;
             LOG.info("clone finished: {}", this);
         } catch (SchedException e) {
             // if failed to too many times, remove this task

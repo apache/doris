@@ -82,8 +82,14 @@ public class Replica implements Writable {
      * So this replica need a further repair.
      * If we do not do this, this replica will be treated as version stale, and will be removed,
      * so that the balance task is failed, which is unexpected.
+     * 
+     * furtherRepairSetTime set alone with needFurtherRepair.
+     * This is an insurance, in case that further repair task always fail. If 20 min passed
+     * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
      */
     private boolean needFurtherRepair = false;
+    private long furtherRepairSetTime = -1;
+    private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
 
     public Replica() {
     }
@@ -203,11 +209,15 @@ public class Replica implements Writable {
     }
 
     public boolean needFurtherRepair() {
-        return needFurtherRepair;
+        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
+            return true;
+        }
+        return false;
     }
 
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
         this.needFurtherRepair = needFurtherRepair;
+        this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
     // only update data size and row num
