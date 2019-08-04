@@ -866,6 +866,14 @@ public class TabletScheduler extends Daemon {
 
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) throws SchedException {
 
+        /*
+         * Before deleting a replica, we should make sure that there is no running txn on it and no more txns will be on it.
+         * So we do followings:
+         * 1. If replica is loadable, set a watermark txn id on it and set it state as CLONE, but not deleting it this time.
+         *      The CLONE state will ensure that no more txns will be on this replicas.
+         * 2. Wait for any txns before the watermark txn id to be finished. If all are finished, which means this replica is
+         *      safe to be deleted.
+         */
         if (!force && replica.getState().isLoadable() && replica.getWatermarkTxnId() == -1) {
             long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);

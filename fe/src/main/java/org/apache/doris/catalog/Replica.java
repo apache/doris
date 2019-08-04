@@ -37,8 +37,6 @@ public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
 
-    private long watermarkTxnId = -1;
-
     public enum ReplicaState {
         NORMAL,
         ROLLUP,
@@ -96,6 +94,10 @@ public class Replica implements Writable {
     private boolean needFurtherRepair = false;
     private long furtherRepairSetTime = -1;
     private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
+
+    // if this watermarkTxnId is set, which means before deleting a replica,
+    // we should ensure that all txns on this replicas are finished.
+    private long watermarkTxnId = -1;
 
     public Replica() {
     }
