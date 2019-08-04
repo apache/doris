@@ -58,6 +58,7 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
+    private String basePath;
     private boolean isNegative;
     private List<Long> partitionIds;
     private List<String> fileFieldNames;
@@ -82,6 +83,7 @@ public class BrokerFileGroup implements Writable {
 
     public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
+        this.basePath = dataDescription.getBasePath();
         exprColumnMap = dataDescription.getParsedExprMap();
     }
 
@@ -159,6 +161,10 @@ public class BrokerFileGroup implements Writable {
         return fileFormat;
     }
 
+    public String getBasePath() {
+        return basePath;
+    }
+
     public boolean isNegative() {
         return isNegative;
     }
@@ -208,6 +214,7 @@ public class BrokerFileGroup implements Writable {
         sb.append(",valueSeparator=").append(valueSeparator)
                 .append(",lineDelimiter=").append(lineDelimiter)
                 .append(",fileFormat=").append(fileFormat)
+                .append(",basePath=").append(basePath)
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;
@@ -275,6 +282,13 @@ public class BrokerFileGroup implements Writable {
             out.writeBoolean(true);
             Text.writeString(out, fileFormat);
         }
+        // basePath
+        if (basePath == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, basePath);
+        }
     }
 
     @Override
@@ -326,6 +340,12 @@ public class BrokerFileGroup implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
             if (in.readBoolean()) {
                 fileFormat = Text.readString(in);
+            }
+        }
+        // basePath
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
+            if (in.readBoolean()) {
+                basePath = Text.readString(in);
             }
         }
     }
