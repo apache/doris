@@ -60,6 +60,7 @@ public class DataDescription {
     private final List<String> columnNames;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
+    private final String basePath;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -85,6 +86,27 @@ public class DataDescription {
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
         this.fileFormat = null;
+        this.basePath = null;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+    }
+
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
+                           List<String> filePaths,
+                           List<String> columnNames,
+                           ColumnSeparator columnSeparator,
+                           String fileFormat,
+                           String basePath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.columnNames = columnNames;
+        this.columnSeparator = columnSeparator;
+        this.fileFormat = fileFormat;
+        this.basePath = basePath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -97,14 +119,7 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this.tableName = tableName;
-        this.partitionNames = partitionNames;
-        this.filePaths = filePaths;
-        this.columnNames = columnNames;
-        this.columnSeparator = columnSeparator;
-        this.fileFormat = fileFormat;
-        this.isNegative = isNegative;
-        this.columnMappingList = columnMappingList;
+        this(tableName, partitionNames, filePaths, columnNames, columnSeparator, fileFormat, null, isNegative, columnMappingList);
     }
 
     public String getTableName() {
@@ -125,6 +140,10 @@ public class DataDescription {
 
     public String getFileFormat() {
         return fileFormat;
+    }
+
+    public String getBasePath() {
+        return basePath;
     }
 
     public String getColumnSeparator() {

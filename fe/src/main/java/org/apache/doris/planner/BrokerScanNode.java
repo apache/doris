@@ -589,51 +589,55 @@ public class BrokerScanNode extends ScanNode {
         }
     }
 
-    private Map<String, String> parsePartitionedFields(String filePath) {
-        for (BrokerFileGroup fileGroup : fileGroups) {
-            String fileFormat = fileGroup.getFileFormat();
-            if ((fileFormat == null || !fileFormat.toLowerCase().equals("parquet")) || !filePath.endsWith(".parquet")) {
-                continue;
-            }
+    private Map<String, String> parsePartitionedFields(String filePath, BrokerFileGroup fileGroup) {
+        String basePath = fileGroup.getBasePath();
+        if (basePath == null) {
+            // find the default base path
             for (String base : fileGroup.getFilePaths()) {
                 if (base.endsWith("/*")) {
                     base = base.substring(0, base.indexOf("/*"));
                 }
-                if (!filePath.startsWith(base)) {
-                    continue;
+                if (filePath.startsWith(base)) {
+                    basePath = base;
+                    break;
                 }
-                String subPath = filePath.substring(base.length());
-                String[] strings = subPath.split("/");
-                Map<String, String> partitionedFields = new HashMap<>();
-                for (String str : strings) {
-                    if (str == null || str.isEmpty() || !str.contains("=")) {
-                        continue;
-                    }
-                    String[] pair = str.split("=");
-                    if (pair.length != 2) {
-                        continue;
-                    }
-                    Column column = targetTable.getColumn(pair[0]);
-                    if (column == null) {
-                        continue;
-                    }
-                    partitionedFields.put(pair[0], pair[1]);
-                }
-                return partitionedFields;
             }
         }
-        return Collections.emptyMap();
+
+        if (basePath == null || !filePath.startsWith(basePath)) {
+            return Collections.emptyMap();
+        }
+        List<String> fileFieldNames = fileGroup.getFileFieldNames();
+        String subPath = filePath.substring(basePath.length());
+        String[] strings = subPath.split("/");
+        Map<String, String> partitionedFields = new HashMap<>();
+        for (String str : strings) {
+            if (str == null || str.isEmpty() || !str.contains("=")) {
+                continue;
+            }
+            String[] pair = str.split("=");
+            if (pair.length != 2) {
+                continue;
+            }
+            if (!fileFieldNames.contains(pair[0])) {
+                continue;
+            }
+            partitionedFields.put(pair[0], pair[1]);
+        }
+        return partitionedFields;
     }
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
-            String fileFormat,
-            TBrokerScanRangeParams params,
+            ParamCreateContext context,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
         }
+        String fileFormat = context.fileGroup.getFileFormat();
+        TBrokerScanRangeParams params = context.params;
+        BrokerFileGroup fileGroup = context.fileGroup;
 
         TScanRangeLocations curLocations = newLocations(params, brokerDesc.getName());
         long curInstanceBytes = 0;
@@ -647,11 +651,11 @@ public class BrokerScanNode extends ScanNode {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes, fileGroup);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes, fileGroup);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -663,7 +667,7 @@ public class BrokerScanNode extends ScanNode {
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes, fileGroup);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -678,7 +682,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes) {
+            TFileFormatType formatType, long rangeBytes, BrokerFileGroup fileGroup) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);
@@ -687,7 +691,7 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setStart_offset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setFile_size(fileStatus.size);
-        rangeDesc.setPartition_columns(parsePartitionedFields(fileStatus.path));
+        rangeDesc.setPartition_columns(parsePartitionedFields(fileStatus.path, fileGroup));
         return rangeDesc;
     }
 
@@ -706,7 +710,7 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
+            processFileGroup(context, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {
