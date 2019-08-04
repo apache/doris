@@ -884,7 +884,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     // no need to persist this info. If FE restart, just do it again.
                     replica.setNeedFurtherRepair(true);
                 }
-                tablet.setWatermarkTxnId(Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
             } else {
                 replica.setNeedFurtherRepair(false);
             }

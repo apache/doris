@@ -73,8 +73,6 @@ public class Tablet extends MetaObject implements Writable {
     // no need to persist
     private long lastStatusCheckTime = -1;
     
-    private long watermarkTxnId = -1;
-
     public Tablet() {
         this(0L, new ArrayList<Replica>());
     }
@@ -567,13 +565,5 @@ public class Tablet extends MetaObject implements Writable {
 
     public void setLastStatusCheckTime(long lastStatusCheckTime) {
         this.lastStatusCheckTime = lastStatusCheckTime;
-    }
-
-    public void setWatermarkTxnId(long watermarkTxnId) {
-        this.watermarkTxnId = watermarkTxnId;
-    }
-
-    public long getWatermarkTxnId() {
-        return watermarkTxnId;
     }
 }
