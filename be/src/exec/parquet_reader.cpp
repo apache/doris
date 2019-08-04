@@ -397,6 +397,35 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     }
                     break;
                 }
+                case arrow::Type::type::DATE32: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) * 24 * 60 * 60);
+                        tm* local;
+                        local = localtime(&timestamp);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbtyes = (uint32_t)strftime(to, 64, "%Y-%m-%d", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbtyes);
+                    }
+                    break;
+                }
+                case arrow::Type::type::DATE64: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        // convert milliseconds to seconds
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000);
+                        tm* local;
+                        local = localtime(&timestamp);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbtyes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbtyes);
+                    }
+                    break;
+                }
                 default: {
                     // other type not support.
                     std::stringstream str_error;
