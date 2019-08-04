@@ -396,12 +396,14 @@ public class GlobalTransactionMgr {
                             }
                         }
                         if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
-                            // not throw exception here, wait the upper application retry
-                            LOG.info("Tablet [{}] success replica num is {} < quorum replica num {} "
+                            LOG.warn("Failed to commit txn []. "
+                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
                                              + "while error backends {}",
-                                     tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                     transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
                                      Joiner.on(",").join(errorBackendIdsForTablet));
-                            return;
+                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                                                                  successReplicaNum, quorumReplicaNum,
+                                                                  errorBackendIdsForTablet);
                         }
                     }
                 }
