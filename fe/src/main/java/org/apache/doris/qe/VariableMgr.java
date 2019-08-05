@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.sun.tools.javac.code.Attribute;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SysVariableDesc;
