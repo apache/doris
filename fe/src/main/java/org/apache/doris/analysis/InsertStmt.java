@@ -297,7 +297,7 @@ public class InsertStmt extends DdlStmt {
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
-            for (Column col : olapTable.getBaseSchema()) {
+            for (Column col : olapTable.getFullSchema()) {
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
@@ -345,7 +345,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    public void analyzeSubquery(Analyzer analyzer) throws UserException {
+    private void analyzeSubquery(Analyzer analyzer) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         if (targetColumnNames == null) {
@@ -374,6 +374,9 @@ public class InsertStmt extends DdlStmt {
          *      origin targetColumns: (A,B,C), shadow column: __doris_shadow_B
          *      after processing, targetColumns: (A, B, C, __doris_shadow_B),
          *      and origColIdxsForShadowCols has 1 element: "1", which is the index of column B in targetColumns.
+         *      
+         *      If the column which the shadow column related to is not mentioned, then do not add the shadow
+         *      column to targetColumns. They will be filled by null or default value when loading.
          */
         List<Integer> origColIdxsForShadowCols = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
@@ -382,10 +385,10 @@ public class InsertStmt extends DdlStmt {
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
                         origColIdxsForShadowCols.add(i);
+                        targetColumns.add(column);
                         break;
                     }
                 }
-                targetColumns.add(column);
             }
         }
 
@@ -401,7 +404,7 @@ public class InsertStmt extends DdlStmt {
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
         
-        // handle VALUES() or SELECT list
+        // handle VALUES() or SELECT constant list
         if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (selectStmt.getValueList() != null) {
@@ -420,7 +423,7 @@ public class InsertStmt extends DdlStmt {
                     selectStmt.getBaseTblResultExprs().add(selectStmt.getValueList().getFirstRow().get(i));
                 }
             } else {
-                // INSERT INTO SELECT ...
+                // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
                 rows.add(selectStmt.getResultExprs());
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols);
@@ -432,6 +435,7 @@ public class InsertStmt extends DdlStmt {
             }
             isStreaming = true;
         } else {
+            // INSERT INTO SELECT ... FROM tbl
             if (!origColIdxsForShadowCols.isEmpty()) {
                 // extend the result expr by duplicating the related exprs
                 for (Integer idx : origColIdxsForShadowCols) {
@@ -445,6 +449,25 @@ public class InsertStmt extends DdlStmt {
                     Expr expr = queryStmt.getResultExprs().get(i);
                     checkHllCompatibility(column, expr);
                 }
+            }
+        }
+
+        // expand base table ref result exprs in QueryStmt
+        if (!origColIdxsForShadowCols.isEmpty()) {
+            if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
+                }
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            for (Expr expr : queryStmt.getResultExprs()) {
+                LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+            }
+
+            for (Expr expr : queryStmt.getBaseTblResultExprs()) {
+                LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
             }
         }
     }
