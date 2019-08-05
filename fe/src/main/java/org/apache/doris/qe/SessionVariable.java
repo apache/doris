@@ -194,7 +194,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean forwardToMaster = false;
 
     @VariableMgr.VarAttr(name = DISABLE_COST_OPTIMIZATION)
-    private boolean disableCostOptimization = true;
+    private boolean disableCostOptimization = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;

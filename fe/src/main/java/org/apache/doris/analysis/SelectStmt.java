@@ -382,12 +382,12 @@ public class SelectStmt extends QueryStmt {
 
         if (!analyzer.getContext().getSessionVariable().isDisableCostOptimization()) {
             reorderTable(analyzer);
-            if (fromClause_.getTableRefs().size() > 1) {
+            if (fromClause_.getTableRefs().size() > 1 && LOG.isDebugEnabled()) {
                 final StringBuilder logBuilder = new StringBuilder("Tables order:");
                 for (TableRef tableRef : fromClause_.getTableRefs()) {
                     logBuilder.append(" ").append(tableRef.getAlias());
                 }
-                LOG.info(logBuilder.toString());
+                LOG.debug(logBuilder.toString());
             }
         }
         resolveInlineViewRefs(analyzer);
