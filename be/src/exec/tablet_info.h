@@ -125,7 +125,7 @@ public:
             auto rhs_value = rhs->get_slot(slot_desc->tuple_offset());
             
             int res = RawValue::compare(lhs_value, rhs_value, slot_desc->type());
-            if (res != 0) { return res == -1; }
+            if (res != 0) { return res < 0; }
         }
         // equal, return false
         return false;
