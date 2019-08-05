@@ -287,10 +287,6 @@ public class CreateTableStmt extends DdlStmt {
                 }
 
                 RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
-                if (rangePartitionDesc.getPartitionColNames().size() != 1) {
-                    throw new AnalysisException("Only allow partitioned by one column");
-                }
-
                 rangePartitionDesc.analyze(columnDefs, properties);
             }
 

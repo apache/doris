@@ -104,7 +104,8 @@ struct OlapTablePartition {
 
 class OlapTablePartKeyComparator {
 public:
-    OlapTablePartKeyComparator(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) { }
+    OlapTablePartKeyComparator(const std::vector<SlotDescriptor*>& slot_descs) :
+        _slot_descs(slot_descs) { }
     // return true if lhs < rhs
     // 'nullptr' is max value, but 'null' is min value
     bool operator()(const Tuple* lhs, const Tuple* rhs) const {
@@ -114,16 +115,23 @@ public:
             return true;
         }
 
-        bool lhs_null = lhs->is_null(_slot_desc->null_indicator_offset());
-        bool rhs_null = rhs->is_null(_slot_desc->null_indicator_offset());
-        if (lhs_null || rhs_null) { return !rhs_null; }
+        for (auto slot_desc : _slot_descs) {
+            bool lhs_null = lhs->is_null(slot_desc->null_indicator_offset());
+            bool rhs_null = rhs->is_null(slot_desc->null_indicator_offset());
+            if (lhs_null && rhs_null) { continue; }
+            if (lhs_null || rhs_null) { return !rhs_null; }
 
-        auto lhs_value = lhs->get_slot(_slot_desc->tuple_offset());
-        auto rhs_value = rhs->get_slot(_slot_desc->tuple_offset());
-        return RawValue::lt(lhs_value, rhs_value, _slot_desc->type());
+            auto lhs_value = lhs->get_slot(slot_desc->tuple_offset());
+            auto rhs_value = rhs->get_slot(slot_desc->tuple_offset());
+            
+            int res = RawValue::compare(lhs_value, rhs_value, slot_desc->type());
+            if (res != 0) { return res < 0; }
+        }
+        // equal, return false
+        return false;
     }
 private:
-    SlotDescriptor* _slot_desc;
+    std::vector<SlotDescriptor*> _slot_descs;
 };
 
 // store an olap table's tablet information
@@ -150,7 +158,9 @@ public:
     }
     std::string debug_string() const;
 private:
-    Status _create_partition_key(const TExprNode& t_expr, Tuple** part_key);
+    Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, Tuple** part_key);
+
+    Status _create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc);
 
     uint32_t _compute_dist_hash(Tuple* key) const;
 
@@ -160,7 +170,7 @@ private:
             // start_key is nullptr means the lower bound is boundless
             return true;
         }
-        OlapTablePartKeyComparator comparator(_partition_slot_desc);
+        OlapTablePartKeyComparator comparator(_partition_slot_descs);
         return !comparator(key, part->start_key);
     }
 private:
@@ -168,7 +178,7 @@ private:
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;
 
-    SlotDescriptor* _partition_slot_desc;
+    std::vector<SlotDescriptor*> _partition_slot_descs;
     std::vector<SlotDescriptor*> _distributed_slot_descs;
 
     ObjectPool _obj_pool;

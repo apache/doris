@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 
 // Making a pull load job to some tasks
+@Deprecated
 public class PullLoadPendingTask extends LoadPendingTask {
     private static final Logger LOG = LogManager.getLogger(PullLoadPendingTask.class);
 
