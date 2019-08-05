@@ -128,8 +128,8 @@ protected:
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
 
     const TabletSchema* _schema;
-    std::string         _rowset_path;
-    DataDir*            _data_dir;
+    std::string _rowset_path;
+    DataDir* _data_dir;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state
