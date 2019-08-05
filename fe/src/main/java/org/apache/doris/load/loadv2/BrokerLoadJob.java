@@ -374,6 +374,10 @@ public class BrokerLoadJob extends LoadJob {
         }
         db.writeLock();
         try {
+            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("txn_id", transactionId)
+                             .add("msg", "Load job try to commit txn")
+                             .build());
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
@@ -381,7 +385,7 @@ public class BrokerLoadJob extends LoadJob {
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
-                             .add("error_msg", "Failed to commit txn.")
+                             .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                              .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),true);
             return;
