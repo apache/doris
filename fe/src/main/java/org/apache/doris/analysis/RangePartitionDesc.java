@@ -173,9 +173,9 @@ public class RangePartitionDesc extends PartitionDesc {
          * VALUE LESS THEN (80)
          * 
          * key range is:
-         * ( {MIN, MIN, MIN},    {10,  100, 1000} )
-         * [ {10,  100, 500},    {50,  500, ?   } )
-         * [ {50,  500, ?  },    {80,  ?,   ?   } )
+         * ( {MIN, MIN, MIN},     {10,  100, 1000} )
+         * [ {10,  100, 1000},    {50,  500, MIN } )
+         * [ {50,  500, MIN },    {80,  MIN, MIN } )
          */
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
         for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {

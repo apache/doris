@@ -38,6 +38,8 @@ public class PartitionInfo implements Writable {
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> replication num
     protected Map<Long, Short> idToReplicationNum;
+    // true if the partition has multi partition columns
+    protected boolean isMultiColumnPartition = false;
 
     public PartitionInfo() {
         // for persist
@@ -85,6 +87,10 @@ public class PartitionInfo implements Writable {
         PartitionInfo partitionInfo = new PartitionInfo();
         partitionInfo.readFields(in);
         return partitionInfo;
+    }
+
+    public boolean isMultiColumnPartition() {
+        return isMultiColumnPartition;
     }
 
     public String toSql(OlapTable table, List<Long> partitionId) {

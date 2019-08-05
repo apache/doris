@@ -31,8 +31,8 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.TAggregationType;
@@ -51,6 +51,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,6 +60,7 @@ import java.util.Map;
 import java.util.Set;
 
 // This class used to split data read from file to batch
+@Deprecated
 public class DataSplitSink extends DataSink {
     private static final Logger LOG = LogManager.getLogger(Planner.class);
 

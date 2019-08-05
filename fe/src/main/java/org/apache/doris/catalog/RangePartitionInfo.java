@@ -73,6 +73,7 @@ public class RangePartitionInfo extends PartitionInfo {
         super(PartitionType.RANGE);
         this.partitionColumns = partitionColumns;
         this.idToRange = new HashMap<Long, Range<PartitionKey>>();
+        this.isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
     public List<Column> getPartitionColumns() {
@@ -367,6 +368,8 @@ public class RangePartitionInfo extends PartitionInfo {
             partitionColumns.add(column);
         }
 
+        this.isMultiColumnPartition = partitionColumns.size() > 1;
+
         counter = in.readInt();
         for (int i = 0; i < counter; i++) {
             long partitionId = in.readLong();
@@ -405,20 +408,20 @@ public class RangePartitionInfo extends PartitionInfo {
                 // first partition
                 if (!range.lowerEndpoint().isMinValue()) {
                     sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN ").append(range.lowerEndpoint().toSql());
+                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
                     sb.append(",\n");
                 }
             } else {
                 Preconditions.checkNotNull(lastRange);
                 if (!lastRange.upperEndpoint().equals(range.lowerEndpoint())) {
                     sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN ").append(range.lowerEndpoint().toSql());
+                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
                     sb.append(",\n");
                 }
             }
 
-            sb.append("PARTITION ").append(partitionName).append(" VALUES LESS THAN ");
-            sb.append(range.upperEndpoint().toSql());
+            sb.append("PARTITION ").append(partitionName).append(" VALUES LESS THAN (");
+            sb.append(range.upperEndpoint().toSql()).append(")");
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
