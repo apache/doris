@@ -30,7 +30,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
-import java.time.ZoneId;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -157,7 +156,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE)
-    private String timeZone = ZoneId.systemDefault().normalized().toString();
+    private String timeZone = "CST";
 
     // The current time zone
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)

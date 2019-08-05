@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.sun.tools.javac.code.Attribute;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SysVariableDesc;
@@ -216,6 +217,9 @@ public class VariableMgr {
             try {
                 Pattern p = Pattern.compile("^[+-]{1}\\d{2}\\:\\d{2}$");
                 Matcher m = p.matcher(value);
+                if (!value.contains("/") && !value.equals("CST") && !m.matches()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, setVar.getValue().getStringValue());
+                }
                 if (m.matches()) {
                     int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));
                     if (value.charAt(0) == '-' && tz > 1200) {
@@ -228,6 +232,8 @@ public class VariableMgr {
             } catch (DateTimeException ex) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, setVar.getValue().getStringValue());
             }
+        } else {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, "");
         }
     }
 
