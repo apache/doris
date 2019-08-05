@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 
+@Deprecated
 public class PullLoadJobMgr {
     private static final Logger LOG = LogManager.getLogger(PullLoadJobMgr.class);
 

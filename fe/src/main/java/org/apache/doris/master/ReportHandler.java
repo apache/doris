@@ -631,7 +631,7 @@ public class ReportHandler extends Daemon {
         for (Long tabletId : backendTablets.keySet()) {
             TTablet backendTablet = backendTablets.get(tabletId);
             for (TTabletInfo backendTabletInfo : backendTablet.getTablet_infos()) {
-                boolean needDelete = false;
+                boolean needDelete = true;
                 if (!foundTabletsWithValidSchema.contains(tabletId)
                         && isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet is not in meta. try adding it.

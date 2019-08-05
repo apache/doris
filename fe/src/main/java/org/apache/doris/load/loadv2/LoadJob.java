@@ -259,13 +259,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions,
+            EtlJobType jobType) throws DdlException {
         for (DataDescription dataDescription : dataDescriptions) {
             // loadInfo is a temporary param for the method of checkAndCreateSource.
             // <TableId,<PartitionId,<LoadInfoList>>>
             Map<Long, Map<Long, List<Source>>> loadInfo = Maps.newHashMap();
             // only support broker load now
-            Load.checkAndCreateSource(db, dataDescription, loadInfo, false);
+            Load.checkAndCreateSource(db, dataDescription, loadInfo, false, jobType);
         }
     }
 
