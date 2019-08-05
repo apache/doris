@@ -59,7 +59,7 @@ public:
     bool check_path(const std::string& path) override;
 
 private:
-    std::string segment_file_path(const std::string& segment_dir, int segment_id);
+    std::string _segment_file_path(const std::string& segment_dir, int segment_id);
 
     // TODO segment readers member
 };

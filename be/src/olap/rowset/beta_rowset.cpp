@@ -25,11 +25,11 @@
 
 namespace doris {
 
-BetaRowset::BetaRowset(const TabletSchema *schema,
+BetaRowset::BetaRowset(const TabletSchema* schema,
                        string rowset_path,
-                       DataDir *data_dir,
+                       DataDir* data_dir,
                        RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, std::move(rowset_path), data_dir, std::move(rowset_meta)) {
+    : Rowset(schema, std::move(rowset_path), data_dir, std::move(rowset_meta)) {
 }
 
 OLAPStatus BetaRowset::init() {
@@ -57,7 +57,7 @@ OLAPStatus BetaRowset::remove() {
     LOG(INFO) << "begin to remove files in rowset " << unique_id();
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
-        std::string path = segment_file_path(_rowset_path, i);
+        std::string path = _segment_file_path(_rowset_path, i);
         LOG(INFO) << "deleting " << path;
         if (::remove(path.c_str()) != 0) {
             char errmsg[64];
@@ -73,15 +73,15 @@ OLAPStatus BetaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::make_snapshot(const std::string &snapshot_path, std::vector<std::string> *success_links) {
+OLAPStatus BetaRowset::make_snapshot(const std::string& snapshot_path, std::vector<std::string>* success_links) {
     // TODO should we rename this method to `hard_link_files_to` to be more general?
     for (int i = 0; i < num_segments(); ++i) {
-        std::string dst_link_path = segment_file_path(snapshot_path, i);
+        std::string dst_link_path = _segment_file_path(snapshot_path, i);
         if (check_dir_existed(dst_link_path)) {
             LOG(WARNING) << "failed to make snapshot, file already exist: " << dst_link_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
-        std::string src_file_path = segment_file_path(_rowset_path, i);
+        std::string src_file_path = _segment_file_path(_rowset_path, i);
         if (link(src_file_path.c_str(), dst_link_path.c_str()) != 0) {
             LOG(WARNING) << "fail to create hard link. from=" << src_file_path << ", "
                          << "to=" << dst_link_path << ", " << "errno=" << Errno::no();
@@ -92,14 +92,14 @@ OLAPStatus BetaRowset::make_snapshot(const std::string &snapshot_path, std::vect
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::copy_files_to_path(const std::string &dest_path, std::vector<std::string> *success_files) {
+OLAPStatus BetaRowset::copy_files_to_path(const std::string& dest_path, std::vector<std::string>* success_files) {
     for (int i = 0; i < num_segments(); ++i) {
-        std::string dst_path = segment_file_path(dest_path, i);
+        std::string dst_path = _segment_file_path(dest_path, i);
         if (check_dir_existed(dst_path)) {
             LOG(WARNING) << "file already exist: " << dst_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
-        std::string src_path = segment_file_path(_rowset_path, i);
+        std::string src_path = _segment_file_path(_rowset_path, i);
         if (copy_file(src_path, dst_path) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to copy file. from=" << src_path << ", to=" << dst_path
                          << ", errno=" << Errno::no();
@@ -110,15 +110,15 @@ OLAPStatus BetaRowset::copy_files_to_path(const std::string &dest_path, std::vec
     return OLAP_SUCCESS;
 }
 
-bool BetaRowset::check_path(const std::string &path) {
+bool BetaRowset::check_path(const std::string& path) {
     std::set<std::string> valid_paths;
     for (int i = 0; i < num_segments(); ++i) {
-        valid_paths.insert(segment_file_path(_rowset_path, i));
+        valid_paths.insert(_segment_file_path(_rowset_path, i));
     }
     return valid_paths.find(path) != valid_paths.end();
 }
 
-std::string BetaRowset::segment_file_path(const std::string &dir, int segment_id) {
+std::string BetaRowset::_segment_file_path(const std::string& dir, int segment_id) {
     return strings::Substitute("$0/$1_$2.dat", dir, rowset_id(), segment_id);
 }
 
