@@ -10,6 +10,8 @@ INSERT INTO table_name
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
 ```
 
+## description
+
 ## Parameters
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
