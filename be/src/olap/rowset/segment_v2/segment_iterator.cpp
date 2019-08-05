@@ -130,8 +130,7 @@ Status SegmentIterator::_init_column_iterators() {
 }
 
 Status SegmentIterator::_create_column_iterator(uint32_t cid, ColumnIterator** iter) {
-    _segment->new_column_iterator(cid, iter);
-    return Status::OK();
+    return _segment->new_column_iterator(cid, iter);
 }
 
 // Schema of lhs and rhs are different.

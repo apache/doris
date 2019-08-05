@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "common/status.h" // Status
-#include "gen_cpp/segment_v2.pb.h" // SegmentHeaderPB
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/common.h" // rowid_t
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -74,9 +74,8 @@ private:
     uint32_t num_rows_per_block() const { return _num_rows_per_block; }
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
-    Status _parse_magic_and_len(uint64_t offset, uint32_t* length);
+    Status _check_magic(uint64_t offset);
     Status _parse_footer();
-    Status _parse_header();
     Status _parse_index();
     Status _initial_column_readers();
 
@@ -101,7 +100,6 @@ private:
     std::shared_ptr<TabletSchema> _tablet_schema;
     uint32_t _num_rows_per_block;
 
-    SegmentHeaderPB _header;
     SegmentFooterPB _footer;
     std::unique_ptr<RandomAccessFile> _input_file;
     uint64_t _file_size = 0;

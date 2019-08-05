@@ -139,9 +139,6 @@ message ShortKeyFooterPB {
     optional uint32 segment_bytes = 7;
 }
 
-message SegmentHeaderPB {
-}
-
 message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
     repeated ColumnMetaPB columns = 2; // tablet schema
@@ -150,7 +147,7 @@ message SegmentFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
 
     // Short key index's page

@@ -97,33 +97,11 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
     for (auto column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
-    RETURN_IF_ERROR(_write_header());
+    RETURN_IF_ERROR(_write_raw_data({k_segment_magic}));
     RETURN_IF_ERROR(_write_data());
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_short_key_index());
     RETURN_IF_ERROR(_write_footer());
-    return Status::OK();
-}
-
-// write header
-Status SegmentWriter::_write_header() {
-    std::string header_buf;
-    SegmentHeaderPB header;
-    if (!header.SerializeToString(&header_buf)) {
-        return Status::InternalError("failed to serialize segment header");
-    }
-
-    // header length
-    std::string magic_and_len_buf;
-    magic_and_len_buf.append(k_segment_magic);
-    put_fixed32_le(&magic_and_len_buf, header_buf.size());
-
-    // checksum
-    uint8_t checksum_buf[4];
-    // TODO(zc): add checksum
-
-    std::vector<Slice> slices = {magic_and_len_buf, header_buf, {checksum_buf, 4}};
-    RETURN_IF_ERROR(_write_raw_data(slices));
     return Status::OK();
 }
 
@@ -169,16 +147,19 @@ Status SegmentWriter::_write_footer() {
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
     }
-    std::string magic_and_len_buf;
-    magic_and_len_buf.append(k_segment_magic, k_segment_magic_length);
-    put_fixed32_le(&magic_and_len_buf, footer_buf.size());
 
-    char checksum_buf[4];
-    // TODO(zc): compute checsum
-    std::vector<Slice> slices{{checksum_buf, 4}, footer_buf, magic_and_len_buf};
+    std::string footer_info_buf;
+    // put footer's size
+    put_fixed32_le(&footer_info_buf, footer_buf.size());
+    // TODO(zc): compute checksum for footer
+    uint32_t checksum = 0;
+    put_fixed32_le(&footer_info_buf, checksum);
+
+    // I think we don't need to put a tail magic.
+
+    std::vector<Slice> slices{footer_buf, footer_info_buf};
     // write offset and length
     RETURN_IF_ERROR(_write_raw_data(slices));
-    // magic
     return Status::OK();
 }
 

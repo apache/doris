@@ -50,16 +50,19 @@ Segment::~Segment() {
 Status Segment::open() {
     RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
     RETURN_IF_ERROR(_input_file->size(&_file_size));
-    // 24: 2 * magic + 2 * checksum + 2 * footer/header length
-    if (_file_size < 24) {
+
+    // 24: 1 * magic + 1 * checksum + 1 * footer length
+    if (_file_size < 12) {
         return Status::Corruption(
             Substitute("Bad segment, file size is too small, real=$0 vs need=$1",
-                       _file_size, 24));
+                       _file_size, 12));
     }
+
+    // check header's magic
+    RETURN_IF_ERROR(_check_magic(0));
+
     // parse footer to get meta
     RETURN_IF_ERROR(_parse_footer());
-    // parse footer to get meta
-    RETURN_IF_ERROR(_parse_header());
     // parse short key index
     RETURN_IF_ERROR(_parse_index());
     // initial all column reader
@@ -72,70 +75,54 @@ Status Segment::new_iterator(const Schema& schema, std::unique_ptr<SegmentIterat
     return Status::OK();
 }
 
-// read data at offset of input file, and parse data into magic and
-// header/footer's length. currently return header/footer's length
-Status Segment::_parse_magic_and_len(uint64_t offset, uint32_t* length) {
+// Read data at offset of input file, check if the file content match the magic
+Status Segment::_check_magic(uint64_t offset) {
     // read magic and length
-    uint8_t buf[8];
-    Slice slice(buf, 8);
+    uint8_t buf[k_segment_magic_length];
+    Slice slice(buf, k_segment_magic_length);
     RETURN_IF_ERROR(_input_file->read_at(offset, slice));
 
     if (memcmp(slice.data, k_segment_magic, k_segment_magic_length) != 0) {
-        LOG(WARNING) << "Magic don't match, magic=" << std::string((char*)buf, 4);
-        return Status::Corruption("Bad segment, file magic don't match");
+        return Status::Corruption(
+            Substitute("Bad segment, file magic don't match, magic=$0 vs need=$1",
+                       std::string((char*)buf, k_segment_magic_length), k_segment_magic));
     }
-    *length = decode_fixed32_le((uint8_t*)slice.data + 4);
     return Status::OK();
 }
 
 Status Segment::_parse_footer() {
     uint64_t offset = _file_size - 8;
-    uint32_t footer_length = 0;
-    RETURN_IF_ERROR(_parse_magic_and_len(offset, &footer_length));
+    // read footer's length and checksum
+    uint8_t buf[8];
+    Slice slice(buf, 8);
+    RETURN_IF_ERROR(_input_file->read_at(offset, slice));
 
-    // check file size footer + checksum
-    if (offset < footer_length + 4) {
-        LOG(WARNING) << "Segment file is too small, size=" << _file_size << ", footer_size=" << footer_length;
-        return Status::Corruption("Bad segment, file size is too small");
+    uint32_t footer_length = decode_fixed32_le((uint8_t*)slice.data);
+    uint32_t checksum = decode_fixed32_le((uint8_t*)slice.data + 4);
+
+    // check file size footer
+    if (offset < footer_length) {
+        return Status::Corruption(
+            Substitute("Bad segment, file size is too small, file_size=$0 vs footer_size=$1",
+                       _file_size, footer_length));
     }
-    offset -= footer_length + 4;
+    offset -= footer_length;
 
-    uint8_t checksum_buf[4];
     std::string footer_buf;
     footer_buf.resize(footer_length);
+    RETURN_IF_ERROR(_input_file->read_at(offset, footer_buf));
 
-    std::vector<Slice> slices = {{checksum_buf, 4}, {footer_buf.data(), footer_length}};
+    // TODO(zc): check footer's checksum 
+    if (checksum != 0) {
+        return Status::Corruption(
+            Substitute("Bad segment, segment footer checksum not match, real=$0 vs expect=$1",
+                       0, checksum));
+    }
 
-    RETURN_IF_ERROR(_input_file->readv_at(offset, &slices[0], 2));
-
-    // TOOD(zc): check footer's checksum 
     if (!_footer.ParseFromString(footer_buf)) {
         return Status::Corruption("Bad segment, parse footer from PB failed");
     }
 
-    return Status::OK();
-}
-
-Status Segment::_parse_header() {
-    uint64_t offset = 0;
-    uint32_t header_length = 0;
-    RETURN_IF_ERROR(_parse_magic_and_len(offset, &header_length));
-
-    offset += 8;
-    if ((offset + header_length + 4) > _file_size) {
-        LOG(WARNING) << "Segment file is too small, size=" << _file_size << ", header_size=" << header_length;
-        return Status::Corruption("Bad segment, file too small");
-    }
-    std::string header_buf;
-    header_buf.resize(header_length);
-    uint8_t checksum_buf[4];
-    std::vector<Slice> slices{{header_buf.data(), header_length}, {checksum_buf, 4}};
-    RETURN_IF_ERROR(_input_file->readv_at(offset, &slices[0], 2));
-
-    // TODO(zc): check checksum
-    if (!_header.ParseFromString(header_buf)) {
-        return Status::Corruption("Bad segment, parse header from PB failed");
-    }
     return Status::OK();
 }
 

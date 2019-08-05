@@ -24,7 +24,7 @@
 
 #include "common/logging.h" // LOG
 #include "common/status.h" // Status
-#include "gen_cpp/segment_v2.pb.h" // SegmentHeaderPB
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/schema.h"
 
 namespace doris {
@@ -63,7 +63,6 @@ public:
     Status finalize(uint32_t* segment_file_size);
 
 private:
-    Status _write_header();
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_short_key_index();
@@ -77,7 +76,6 @@ private:
     size_t _num_short_keys;
     SegmentWriterOptions _opts;
 
-    SegmentHeaderPB _header;
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
     std::unique_ptr<WritableFile> _output_file;
