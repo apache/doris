@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#this shell splits topics in the same MD file
+#This shell splits topics in the same MD file
 IFS=`echo -en "\n\b"`
 
 ROOTDIR=`dirname "$0"`
