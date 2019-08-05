@@ -127,7 +127,7 @@ public class StreamLoadScanNode extends ScanNode {
         // this means that there are three columns(k1, k2, v1) in source file,
         // and v2 is derived from (k1 + k2)
 
-        // If user does not specify the column expr desc, generate it by using base schema of table.
+        // If user does not specify the column expr descs, generate it by using base schema of table.
         // So that the following process can be unified
         if (streamLoadTask.getColumnExprDescs() == null || streamLoadTask.getColumnExprDescs().isEmpty()) {
             List<Column> columns = dstTable.getBaseSchema();

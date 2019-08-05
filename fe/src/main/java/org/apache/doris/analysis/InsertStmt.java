@@ -361,6 +361,8 @@ public class InsertStmt extends DdlStmt {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         if (targetColumnNames == null) {
+            // the mentioned columns are columns which are visible to user, so here we use
+            // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema()) {
                 mentionedColumns.add(col.getName());
                 targetColumns.add(col);
@@ -379,16 +381,17 @@ public class InsertStmt extends DdlStmt {
         }
 
         /*
-         * When doing schema change, there may be some shadow columns. we should add them add the end of
-         * targetColumns. And use 'origColIdxsForShadowCols' to save the index of column in 'targetColumns'
-         * which the shadow column related to. 
-         * eg:
-         *      origin targetColumns: (A,B,C), shadow column: __doris_shadow_B
-         *      after processing, targetColumns: (A, B, C, __doris_shadow_B),
-         *      and origColIdxsForShadowCols has 1 element: "1", which is the index of column B in targetColumns.
-         *      
-         *      If the column which the shadow column related to is not mentioned, then do not add the shadow
-         *      column to targetColumns. They will be filled by null or default value when loading.
+         * When doing schema change, there may be some shadow columns. we should add
+         * them to the end of targetColumns. And use 'origColIdxsForShadowCols' to save
+         * the index of column in 'targetColumns' which the shadow column related to.
+         * eg: origin targetColumns: (A,B,C), shadow column: __doris_shadow_B after
+         * processing, targetColumns: (A, B, C, __doris_shadow_B), and
+         * origColIdxsForShadowCols has 1 element: "1", which is the index of column B
+         * in targetColumns.
+         * 
+         * Rule A: If the column which the shadow column related to is not mentioned,
+         * then do not add the shadow column to targetColumns. They will be filled by
+         * null or default value when loading.
          */
         List<Integer> origColIdxsForShadowCols = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
@@ -396,6 +399,7 @@ public class InsertStmt extends DdlStmt {
                 String origName = Column.removeNamePrefix(column.getName());
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
+                        // Rule A
                         origColIdxsForShadowCols.add(i);
                         targetColumns.add(column);
                         break;
@@ -469,11 +473,17 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
-        // expand base table ref result exprs in QueryStmt
+        // expand baseTblResultExprs and colLabels in QueryStmt
         if (!origColIdxsForShadowCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
+                }
+            }
+
+            if (queryStmt.getResultExprs().size() != queryStmt.getColLabels().size()) {
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
                 }
             }
         }
@@ -482,9 +492,11 @@ public class InsertStmt extends DdlStmt {
             for (Expr expr : queryStmt.getResultExprs()) {
                 LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
             }
-
             for (Expr expr : queryStmt.getBaseTblResultExprs()) {
                 LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+            }
+            for (String colLabel : queryStmt.getColLabels()) {
+                LOG.debug("final col label: {}", colLabel);
             }
         }
     }
@@ -640,7 +652,7 @@ public class InsertStmt extends DdlStmt {
             exprByName.put(col.getName(), expr);
         }
         // reorder resultExprs in table column order
-        for (Column col : targetTable.getBaseSchema()) {
+        for (Column col : targetTable.getFullSchema()) {
             if (exprByName.containsKey(col.getName())) {
                 resultExprs.add(exprByName.get(col.getName()));
             } else {
