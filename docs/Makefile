@@ -20,17 +20,22 @@
 #
 
 BUILD_DIR = ${CURDIR}/build
+HELP_DIR = ${CURDIR}/contents
 
 all: zip_help
 .PHONY: all
 
 ${BUILD_DIR}:
 	mkdir -p ${BUILD_DIR}
+${HELP_DIR}:
+	mkdir -p ${HELP_DIR}
 
 # build help zip
 HELP_OUTPUT = ${BUILD_DIR}/help-resource.zip
-${HELP_OUTPUT}: help | ${BUILD_DIR}
-	zip -r $@ $<
+${HELP_OUTPUT}: documentation/cn/sql-reference ${BUILD_DIR} ${HELP_DIR}
+	cp -r $</* ${HELP_DIR} && cp script/*.sh ${HELP_DIR}
+	cd ${HELP_DIR} && sh split.sh && sh merge.sh && sh keyword.sh && rm split.sh && rm merge.sh && rm keyword.sh && cd -
+	zip -r $@ contents && rm -rf contents
 .PHONY: zip_help
 zip_help: ${HELP_OUTPUT}
 
