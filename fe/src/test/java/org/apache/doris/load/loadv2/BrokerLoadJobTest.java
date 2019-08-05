@@ -141,7 +141,7 @@ public class BrokerLoadJobTest {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
                                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
-                                             boolean deleteFlag) {
+                                             boolean deleteFlag, EtlJobType jobType) {
             }
         };
 

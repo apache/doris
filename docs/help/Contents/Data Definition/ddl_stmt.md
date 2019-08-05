@@ -139,10 +139,10 @@
     4. partition_desc
         1) Range 分区
         语法：
-            PARTITION BY RANGE (k1)
+            PARTITION BY RANGE (k1, k2, ...)
             (
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1")
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value2")
+            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
             ...
             )
         说明：
@@ -152,6 +152,7 @@
                 TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
             3) 分区为左闭右开区间，首个分区的左边界为做最小值
             4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
+            5) 可以指定一列或多列作为分区列。如果分区值缺省，则会默认填充最小值。
                              
         注意：
             1) 分区一般用于时间维度的数据管理

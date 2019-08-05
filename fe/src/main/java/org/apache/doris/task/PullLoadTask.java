@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.UUID;
 
 // A pull load task is used to process one table of this pull load job.
+@Deprecated
 public class PullLoadTask {
     private static final Logger LOG = LogManager.getLogger(PullLoadTask.class);
     // Input parameter
