@@ -28,7 +28,7 @@ public class FeConstants {
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
-    public static String dpp_version = "3_1_0";
+    public static String dpp_version = "3_2_0";
 
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
