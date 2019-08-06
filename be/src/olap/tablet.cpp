@@ -769,7 +769,9 @@ OLAPStatus Tablet::_calcuate_cumulative_point() {
         }
         if (version.first == version.second) {
             _cumulative_point = version.first;
+            break;
         }
+        prev_version = version.second;
     }
     return OLAP_SUCCESS;
 }
