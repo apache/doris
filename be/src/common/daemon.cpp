@@ -33,7 +33,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/user_function_cache.h"
-#include "runtime/timestamp_value.h"
 #include "exprs/operators.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/like_predicate.h"
@@ -47,9 +46,11 @@
 #include "exprs/timestamp_functions.h"
 #include "exprs/decimal_operators.h"
 #include "exprs/decimalv2_operators.h"
+#include "exprs/time_operators.h"
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
+#include "exprs/timezone_db.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
@@ -261,6 +262,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     TimestampFunctions::init();
     DecimalOperators::init();
     DecimalV2Operators::init();
+    TimeOperators::init();
     UtilityFunctions::init();
     CompoundPredicate::init();
     JsonFunctions::init();

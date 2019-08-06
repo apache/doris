@@ -337,4 +337,3 @@ public class IntLiteral extends LiteralExpr {
         return literal;
     }
 }
-

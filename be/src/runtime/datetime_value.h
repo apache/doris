@@ -22,9 +22,15 @@
 
 #include <iostream>
 #include <cstddef>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/gregorian/gregorian.hpp>
+#include <boost/date_time/time_zone_base.hpp>
+#include <boost/date_time/local_time/local_time.hpp>
+#include <boost/thread/thread.hpp>
 
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "exprs/timezone_db.h"
 
 namespace doris {
 
@@ -332,9 +338,9 @@ public:
     // Add interval 
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
 
-    int unix_timestamp() const;
+    int64_t unix_timestamp(const std::string& timezone) const;
 
-    bool from_unixtime(int64_t);
+    bool from_unixtime(int64_t, const std::string& timezone);
 
     bool operator==(const DateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -435,7 +441,8 @@ public:
     }
 
     int64_t second_diff(const DateTimeValue& rhs) const {
-        return unix_timestamp() - rhs.unix_timestamp();
+        return unix_timestamp(TimezoneDatabase::default_time_zone) 
+            - rhs.unix_timestamp(TimezoneDatabase::default_time_zone);
     }
 
     void set_type(int type);

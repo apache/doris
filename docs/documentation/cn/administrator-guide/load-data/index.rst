@@ -4,6 +4,9 @@
 
 .. toctree::
     :maxdepth: 2
-    :glob:
 
-    *
+    load-manual.md
+    broker-load-manual.md
+    stream-load-manual.md
+    routine-load-manual.md
+    insert-into-manual.md

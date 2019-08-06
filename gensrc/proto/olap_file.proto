@@ -76,25 +76,40 @@ message RowsetMetaPB {
     required int64 rowset_id = 1;
     optional int64 partition_id = 2;
     optional int64 tablet_id = 3;
+    // only for pending rowset
     optional int64 txn_id = 4;
-    optional int32 tablet_schema_hash = 5;  // tablet id and schema hash could find tablet
-    optional RowsetTypePB rowset_type = 6;  // alpha
+    // tablet id and schema hash could find tablet
+    optional int32 tablet_schema_hash = 5;
+    optional RowsetTypePB rowset_type = 6;
     optional RowsetStatePB rowset_state = 7;
-    optional int64 start_version = 8;   // PDelta.start_version
-    optional int64 end_version = 9; // PDelta.end_version
-    optional int64 version_hash = 10; // PDelta.version_hash
-    optional int64 num_rows = 11;   // calculated from segment group
-    optional int64 total_disk_size = 12;   // calculated by index + data
-    optional int64 data_disk_size = 13;   // calculated sum(segmentgroup.data_size)
-    optional int64 index_disk_size = 14;   // calculated sum(segmentgroup.index_size)
-    // column min/max/null flag statistic info
-    repeated ZoneMap zone_maps = 15; // not set, not used currently
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.start_version
+    optional int64 start_version = 8;
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.end_version
+    optional int64 end_version = 9;
+    // only for visible rowset. For alpha rowset, it's the same as PDelta.version_hash
+    optional int64 version_hash = 10;
+    // total number of rows. For alpha rowset, it's calculated from segment group
+    optional int64 num_rows = 11;
+    // calculated by index + data
+    optional int64 total_disk_size = 12;
+    // calculated sum(segmentgroup.data_size)
+    optional int64 data_disk_size = 13;
+    // calculated sum(segmentgroup.index_size)
+    optional int64 index_disk_size = 14;
+    // rowset level column min/max/null statistics, not not used currently
+    repeated ZoneMap zone_maps = 15;
     optional DeletePredicatePB delete_predicate = 16;
-    optional bool empty = 17;   // calculated from segment group
+    // calculated from segment group
+    optional bool empty = 17;
+    // only for pending rowset
     optional PUniqueId load_id = 18;
-    optional bool delete_flag = 19;  // not set, get from olap index header msg?
-    optional int64 creation_time = 20; // PDelta.creation_time
+    // not set, get from olap index header msg?
+    optional bool delete_flag = 19;
+    // For alpha rowset, it's the same as PDelta.creation_time
+    optional int64 creation_time = 20;
     optional PUniqueId tablet_uid = 21;
+    // total number of segments
+    optional int64 num_segments = 22;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
 }

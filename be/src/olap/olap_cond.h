@@ -34,6 +34,7 @@
 namespace doris {
 
 class WrapperField;
+class RowCursorCell;
 
 enum CondOp {
     OP_EQ = 0,      // equal
@@ -71,7 +72,7 @@ public:
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
-    bool eval(char* right) const;
+    bool eval(const RowCursorCell& cell) const;
 
     bool eval(const KeyRange& statistic) const;
     int del_eval(const KeyRange& stat) const;

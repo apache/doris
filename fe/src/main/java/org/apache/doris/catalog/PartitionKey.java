@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -75,8 +76,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
             Type type = Type.fromPrimitiveType(columns.get(i).getDataType());
-            partitionKey.keys.add(
-                    LiteralExpr.createInfinity(type, false));
+            partitionKey.keys.add(LiteralExpr.createInfinity(type, false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -127,8 +127,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return true;
     }
 
-    @Override
     // compare with other PartitionKey. used for partition prune
+    @Override
     public int compareTo(PartitionKey other) {
         int this_key_len = this.keys.size();
         int other_key_len = other.keys.size();
@@ -184,10 +184,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     value = dateLiteral.toSql();
                 }
             }
-            if (keys.size() - 1 == i) {
-                strBuilder.append("(").append(value).append(")");
-            } else {
-                strBuilder.append("(").append(value).append("), ");
+            strBuilder.append(value);
+
+            if (keys.size() - 1 != i) {
+                strBuilder.append(", ");
             }
             i++;
         }
@@ -198,9 +198,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append("types: [");
-        for (PrimitiveType type : types) {
-            builder.append(type.toString());
-        }
+        builder.append(Joiner.on(", ").join(types));
         builder.append("]; ");
 
         builder.append("keys: [");

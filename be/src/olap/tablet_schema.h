@@ -49,6 +49,13 @@ public:
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
+
+    static std::string get_string_by_field_type(FieldType type);
+    static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
+    static FieldType get_field_type_by_string(const std::string& str);
+    static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
+    static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+
 private:
     int32_t _unique_id;
     std::string _col_name;

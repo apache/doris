@@ -306,7 +306,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_DATE:
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
                         return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                     }
 

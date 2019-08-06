@@ -17,16 +17,11 @@
 
 #include "exprs/timestamp_functions.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/date_time/time_zone_base.hpp>
-#include <boost/date_time/local_time/local_time.hpp>
-
 #include "exprs/expr.h"
 #include "exprs/anyval_util.h"
+#include "exprs/timezone_db.h"
 #include "runtime/tuple_row.h"
 #include "runtime/datetime_value.h"
-#include "runtime/timestamp_value.h"
 #include "runtime/runtime_state.h"
 #include "util/path_builder.h"
 #include "runtime/string_value.hpp"
@@ -369,6 +364,7 @@ IntVal TimestampFunctions::to_days(
     return IntVal(ts_value.daynr());
 }
 
+// TODO(dhc): implement this funciton really
 DoubleVal TimestampFunctions::time_diff(
         FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
     if (ts_val1.is_null || ts_val2.is_null) {
@@ -376,7 +372,8 @@ DoubleVal TimestampFunctions::time_diff(
     }
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    int64_t timediff = ts_value1.unix_timestamp() - ts_value2.unix_timestamp();
+    int64_t timediff = ts_value1.unix_timestamp(ctx->impl()->state()->timezone()) 
+        - ts_value2.unix_timestamp(ctx->impl()->state()->timezone());
 
     return DoubleVal(timediff);
 }
@@ -402,9 +399,13 @@ StringVal TimestampFunctions::from_unix(
     if (unix_time.is_null) {
         return StringVal::null();
     }
-    TimestampValue timestamp(unix_time.val);
-    return AnyValUtil::from_string_temp(context,
-            timestamp.to_datetime_string(context->impl()->state()->timezone()));
+    DateTimeValue dtv;
+    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone())) {
+        return StringVal::null();
+    }
+    char buf[64];
+    dtv.to_string(buf);
+    return AnyValUtil::from_string_temp(context, buf);
 }
 
 StringVal TimestampFunctions::from_unix(
@@ -412,12 +413,13 @@ StringVal TimestampFunctions::from_unix(
     if (unix_time.is_null || fmt.is_null) {
         return StringVal::null();
     }
+    DateTimeValue dtv;
+    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone())) {
+        return StringVal::null();
+    }
 
-    TimestampValue timestamp(unix_time.val);
-    DateTimeValue tv;
-    timestamp.to_datetime_value(tv, context->impl()->state()->timezone());
     char buf[128];
-    if (!tv.to_format_string((const char*)fmt.ptr, fmt.len, buf)){
+    if (!dtv.to_format_string((const char*)fmt.ptr, fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(context, buf);
@@ -437,9 +439,7 @@ IntVal TimestampFunctions::to_unix(
             (const char *)fmt.ptr, fmt.len, (const char *)string_val.ptr, string_val.len)) {
         return IntVal::null();
     }
-    TimestampValue ts;
-    ts.from_date_time_value(tv, context->impl()->state()->timezone());
-    return ts.val;
+    return tv.unix_timestamp(context->impl()->state()->timezone());
 }
 
 IntVal TimestampFunctions::to_unix(
@@ -448,46 +448,51 @@ IntVal TimestampFunctions::to_unix(
         return IntVal::null();
     }
     const DateTimeValue &tv = DateTimeValue::from_datetime_val(ts_val);
-    TimestampValue ts;
-    ts.from_date_time_value(tv, context->impl()->state()->timezone());
-    return ts.val;
+    return tv.unix_timestamp(context->impl()->state()->timezone());
 }
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
-    TimestampValue timestamp(context->impl()->state()->timestamp());
+    DateTimeValue dtv;
+    dtv.from_unixtime(context->impl()->state()->timestamp() / 1000, "+00:00");
+
     DateTimeVal return_val;
-    timestamp.to_datetime_val(&return_val);
+    dtv.to_datetime_val(&return_val);
     return return_val;
 }
 
 DateTimeVal TimestampFunctions::now(FunctionContext* context) {
-    TimestampValue ts(context->impl()->state()->timestamp());
+    DateTimeValue dtv;
+    dtv.from_unixtime(context->impl()->state()->timestamp() / 1000,
+                context->impl()->state()->timezone());
+
     DateTimeVal return_val;
-    ts.to_datetime_val(&return_val, context->impl()->state()->timezone());
+    dtv.to_datetime_val(&return_val);
     return return_val;
 }
 
 DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
-    TimestampValue ts(context->impl()->state()->timestamp());
-    DoubleVal return_val;
-    ts.to_time_val(&return_val, context->impl()->state()->timezone());
-    return return_val;
+    DateTimeValue dtv;
+    dtv.from_unixtime(context->impl()->state()->timestamp() / 1000,
+        context->impl()->state()->timezone());
+
+    return dtv.hour() * 3600 + dtv.minute() * 60 + dtv.second();
 }
 
 DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeVal& ts_val,
                                                const StringVal& from_tz, const StringVal& to_tz) {
-    TimezoneDatabase::init();
     if (TimezoneDatabase::find_timezone(std::string((char *)from_tz.ptr, from_tz.len)) == nullptr ||
         TimezoneDatabase::find_timezone(std::string((char *)to_tz.ptr, to_tz.len)) == nullptr
     ) {
         return DateTimeVal::null();
     }
-
     const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
-    TimestampValue ts;
-    ts.from_date_time_value(ts_value, std::string((char *)from_tz.ptr, from_tz.len));
+    int timestamp = ts_value.unix_timestamp(std::string((char *)from_tz.ptr, from_tz.len));
+
+    DateTimeValue ts_value2;
+    ts_value2.from_unixtime(timestamp, std::string((char *)to_tz.ptr, to_tz.len));
+    
     DateTimeVal return_val;
-    ts.to_datetime_val(&return_val, std::string((char *)to_tz.ptr, to_tz.len));
+    ts_value2.to_datetime_val(&return_val);
     return return_val;
 }
 

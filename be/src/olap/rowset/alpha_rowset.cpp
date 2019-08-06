@@ -18,32 +18,16 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/row.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
 
 AlphaRowset::AlphaRowset(const TabletSchema* schema,
-                         const std::string rowset_path,
+                         std::string rowset_path,
                          DataDir* data_dir,
                          RowsetMetaSharedPtr rowset_meta)
-      : _schema(schema),
-        _rowset_path(rowset_path),
-        _data_dir(data_dir),
-        _rowset_meta(rowset_meta),
-        _is_cumulative_rowset(false),
-        _is_pending_rowset(false) {
-    if (!_rowset_meta->has_version()) {
-        _is_pending_rowset = true;
-    }
-    if (!_is_pending_rowset) {
-        Version version = _rowset_meta->version();
-        if (version.first == version.second) {
-            _is_cumulative_rowset = false;
-        } else {
-            _is_cumulative_rowset = true;
-        }
-    }
-    _ref_count = 0;
+    : Rowset(schema, std::move(rowset_path), data_dir, std::move(rowset_meta)) {
 }
 
 OLAPStatus AlphaRowset::init() {
@@ -55,7 +39,7 @@ OLAPStatus AlphaRowset::init() {
     return status;
 }
 
-OLAPStatus AlphaRowset::load() {
+OLAPStatus AlphaRowset::load(bool use_cache) {
     // load is depend on init, so that check if init here and do init if not
     if (!is_inited()) {
         OLAPStatus res = init();
@@ -76,7 +60,7 @@ OLAPStatus AlphaRowset::load() {
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
-        OLAPStatus res = segment_group->load();
+        OLAPStatus res = segment_group->load(use_cache);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
                     << "version=" << start_version() << "-"
@@ -103,68 +87,26 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
 }
 
 OLAPStatus AlphaRowset::remove() {
-    LOG(INFO) << "begin to remove rowset: " << rowset_id();
+    LOG(INFO) << "begin to remove files in rowset " << unique_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
             LOG(WARNING) << "delete segment group files failed."
                          << " tablet id:" << segment_group->get_tablet_id()
                          << ", rowset path:" << segment_group->rowset_path_prefix();
-            return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
+            return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
         }
     }
     return OLAP_SUCCESS;
 }
 
-void AlphaRowset::to_rowset_pb(RowsetMetaPB* rs_meta) {
-    return _rowset_meta->to_rowset_pb(rs_meta);
-}
-
-RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
-    return _rowset_meta;
-}
-
-size_t AlphaRowset::data_disk_size() const {
-    return _rowset_meta->total_disk_size();
-}
-
-size_t AlphaRowset::index_disk_size() const {
-    return _rowset_meta->index_disk_size();
-}
-
-bool AlphaRowset::empty() const {
-    return _rowset_meta->empty();
-}
-
-bool AlphaRowset::zero_num_rows() const {
-    return _rowset_meta->num_rows() == 0;
-}
-
-size_t AlphaRowset::num_rows() const {
-    return _rowset_meta->num_rows();
-}
-
-Version AlphaRowset::version() const {
-    return _rowset_meta->version();
-}
-
-void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash version_hash) {
-    _rowset_meta->set_version(version);
-    _rowset_meta->set_version_hash(version_hash);
-    // set the rowset state to VISIBLE
-    _rowset_meta->set_rowset_state(VISIBLE);
-
-    if (rowset_meta()->has_delete_predicate()) {
-        rowset_meta()->mutable_delete_predicate()->set_version(version.first);
-        return;
-    }
-
+void AlphaRowset::make_visible_extra(Version version,  VersionHash version_hash) {
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     vector<SegmentGroupPB> published_segment_groups;
     alpha_rowset_meta->get_segment_groups(&published_segment_groups);
     int32_t segment_group_idx = 0;
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         segment_group->set_version(version);
         segment_group->set_version_hash(version_hash);
         segment_group->set_pending_finished();
@@ -175,36 +117,6 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
     for (auto& segment_group_meta : published_segment_groups) {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
-
-    _is_pending_rowset = false;
-}
-
-int64_t AlphaRowset::start_version() const {
-    return _rowset_meta->version().first;
-}
-
-int64_t AlphaRowset::end_version() const {
-    return _rowset_meta->version().second;
-}
-
-VersionHash AlphaRowset::version_hash() const {
-    return _rowset_meta->version_hash();
-}
-
-bool AlphaRowset::in_use() const {
-    return _ref_count > 0;
-}
-
-void AlphaRowset::acquire() {
-    atomic_inc(&_ref_count);
-}
-
-void AlphaRowset::release() {
-    atomic_dec(&_ref_count);
-}
-    
-int64_t AlphaRowset::ref_count() const {
-    return _ref_count;
 }
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
@@ -270,34 +182,6 @@ OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remo
         }
     }
     return OLAP_SUCCESS;
-}
-
-RowsetId AlphaRowset::rowset_id() const {
-    return _rowset_meta->rowset_id();
-}
-
-int64_t AlphaRowset::creation_time() {
-    return _rowset_meta->creation_time();
-}
-
-bool AlphaRowset::is_pending() const {
-    return _is_pending_rowset;
-}
-
-PUniqueId AlphaRowset::load_id() const {
-    return _rowset_meta->load_id();
-}
-
-int64_t AlphaRowset::txn_id() const {
-    return _rowset_meta->txn_id();
-}
-
-int64_t AlphaRowset::partition_id() const {
-    return _rowset_meta->partition_id();
-}
-
-bool AlphaRowset::delete_flag() {
-    return _rowset_meta->delete_flag();
 }
 
 OLAPStatus AlphaRowset::split_range(
@@ -368,7 +252,7 @@ OLAPStatus AlphaRowset::split_range(
 
     cur_start_key.attach(entry.data);
     last_start_key.allocate_memory_for_string_type(*_schema);
-    last_start_key.copy_without_pool(cur_start_key);
+    direct_copy_row(&last_start_key, cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->emplace_back(start_key.to_tuple());
 
@@ -390,7 +274,7 @@ OLAPStatus AlphaRowset::split_range(
         if (cur_start_key.cmp(last_start_key) != 0) {
             ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
             ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
-            last_start_key.copy_without_pool(cur_start_key);
+            direct_copy_row(&last_start_key, cur_start_key);
         }
     }
 
@@ -400,7 +284,7 @@ OLAPStatus AlphaRowset::split_range(
 
 bool AlphaRowset::check_path(const std::string& path) {
     std::set<std::string> valid_paths;
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         for (int i = 0; i < segment_group->num_segments(); ++i) {
             std::string data_path = segment_group->construct_data_file_path(i);
             std::string index_path = segment_group->construct_index_file_path(i);
@@ -417,7 +301,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     for (auto& segment_group_meta : segment_group_metas) {
         std::shared_ptr<SegmentGroup> segment_group;
-        if (_is_pending_rowset) {
+        if (_is_pending) {
             segment_group.reset(new SegmentGroup(_rowset_meta->tablet_id(),
                     _rowset_meta->rowset_id(), _schema, _rowset_path, false, segment_group_meta.segment_group_id(),
                     segment_group_meta.num_segments(), true, 
@@ -465,7 +349,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
         }
         _segment_groups.push_back(segment_group);
     }
-    if (_is_cumulative_rowset && _segment_groups.size() > 1) {
+    if (_is_cumulative && _segment_groups.size() > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_groups.size();
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
@@ -513,11 +397,6 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
     return OLAP_SUCCESS;
-}
-
-std::string AlphaRowset::unique_id() {
-    // rowset path + rowset_id is unique for a rowset
-    return _rowset_path + "/" + std::to_string(rowset_id());
 }
 
 }  // namespace doris

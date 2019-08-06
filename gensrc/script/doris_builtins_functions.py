@@ -110,7 +110,7 @@ visible_functions = [
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE'],
     [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
-    [['curtime', 'current_time'], 'DATETIME', [],
+    [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
     [['utc_timestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE'],
@@ -198,7 +198,7 @@ visible_functions = [
     [['datediff'], 'INT', ['DATETIME', 'DATETIME'],
         '_ZN5doris18TimestampFunctions9date_diffEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValES6_'],
-    [['timediff'], 'DATETIME', ['DATETIME', 'DATETIME'],
+    [['timediff'], 'TIME', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions9time_diffEPN9doris_udf'
             '15FunctionContextERKNS1_11DateTimeValES6_'],
 

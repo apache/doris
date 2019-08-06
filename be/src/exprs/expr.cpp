@@ -137,6 +137,7 @@ Expr::Expr(const TypeDescriptor& type) :
 
     case TYPE_FLOAT:
     case TYPE_DOUBLE:
+    case TYPE_TIME:
         _node_type = (TExprNodeType::FLOAT_LITERAL);
         break;
 
@@ -195,6 +196,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
 
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
+        case TYPE_TIME:
             _node_type = (TExprNodeType::FLOAT_LITERAL);
             break;
 
@@ -743,7 +745,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new FloatVal(get_float_val(context, NULL)));
         break;
     }
-    case TYPE_DOUBLE: {
+    case TYPE_DOUBLE:
+    case TYPE_TIME: {
         _constant_val.reset(new DoubleVal(get_double_val(context, NULL)));
         break;
     }

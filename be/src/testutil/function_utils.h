@@ -28,6 +28,7 @@ class RuntimeState;
 class FunctionUtils {
 public:
     FunctionUtils();
+    FunctionUtils(RuntimeState* state);
     ~FunctionUtils();
 
     doris_udf::FunctionContext* get_fn_ctx() {

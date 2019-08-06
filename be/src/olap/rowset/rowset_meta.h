@@ -71,7 +71,7 @@ public:
         return ret;
     }
 
-    int64_t rowset_id() {
+    int64_t rowset_id() const {
         return _rowset_meta_pb.rowset_id();
     }
 
@@ -79,7 +79,7 @@ public:
         _rowset_meta_pb.set_rowset_id(rowset_id);
     }
 
-    int64_t tablet_id() {
+    int64_t tablet_id() const {
         return _rowset_meta_pb.tablet_id();
     }
 
@@ -87,7 +87,7 @@ public:
         _rowset_meta_pb.set_tablet_id(tablet_id);
     }
 
-    TabletUid tablet_uid() {
+    TabletUid tablet_uid() const {
         return _rowset_meta_pb.tablet_uid();
     }
 
@@ -95,7 +95,7 @@ public:
         *(_rowset_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
     }
 
-    int64_t txn_id() {
+    int64_t txn_id() const {
         return _rowset_meta_pb.txn_id();
     }
 
@@ -103,7 +103,7 @@ public:
         _rowset_meta_pb.set_txn_id(txn_id);
     }
 
-    int32_t tablet_schema_hash() {
+    int32_t tablet_schema_hash() const {
         return _rowset_meta_pb.tablet_schema_hash();
     }
 
@@ -111,7 +111,7 @@ public:
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    RowsetTypePB rowset_type() {
+    RowsetTypePB rowset_type() const {
         return _rowset_meta_pb.rowset_type();
     }
 
@@ -119,7 +119,7 @@ public:
         _rowset_meta_pb.set_rowset_type(rowset_type);
     }
 
-    RowsetStatePB rowset_state() {
+    RowsetStatePB rowset_state() const {
         return _rowset_meta_pb.rowset_state();
     }
 
@@ -127,7 +127,7 @@ public:
         _rowset_meta_pb.set_rowset_state(rowset_state);
     }
 
-    Version version() {
+    Version version() const {
         return { _rowset_meta_pb.start_version(),
                  _rowset_meta_pb.end_version() };  
     }
@@ -137,7 +137,7 @@ public:
         _rowset_meta_pb.set_end_version(version.second);
     }
 
-    bool has_version() {
+    bool has_version() const {
         return _rowset_meta_pb.has_start_version()
             &&  _rowset_meta_pb.has_end_version();
     }
@@ -158,7 +158,7 @@ public:
         _rowset_meta_pb.set_end_version(end_version);
     }
     
-    VersionHash version_hash() {
+    VersionHash version_hash() const {
         return _rowset_meta_pb.version_hash();
     }
 
@@ -166,7 +166,7 @@ public:
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    int64_t num_rows() {
+    int64_t num_rows() const {
         return _rowset_meta_pb.num_rows();
     }
 
@@ -174,7 +174,7 @@ public:
         _rowset_meta_pb.set_num_rows(num_rows);
     }
 
-    size_t total_disk_size() {
+    size_t total_disk_size() const {
         return _rowset_meta_pb.total_disk_size();
     }
 
@@ -182,7 +182,7 @@ public:
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    size_t data_disk_size() {
+    size_t data_disk_size() const {
         return _rowset_meta_pb.data_disk_size();
     }
 
@@ -190,7 +190,7 @@ public:
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    size_t index_disk_size() {
+    size_t index_disk_size() const {
         return _rowset_meta_pb.index_disk_size();
     }
 
@@ -216,11 +216,11 @@ public:
         *new_zone_map = zone_map;
     }
 
-    bool has_delete_predicate() {
+    bool has_delete_predicate() const {
         return _rowset_meta_pb.has_delete_predicate();
     }
 
-    const DeletePredicatePB& delete_predicate() {
+    const DeletePredicatePB& delete_predicate() const {
         return _rowset_meta_pb.delete_predicate();
     }
 
@@ -228,12 +228,12 @@ public:
         return _rowset_meta_pb.mutable_delete_predicate();
     }
 
-    void set_delete_predicate(DeletePredicatePB& delete_predicate) {
+    void set_delete_predicate(const DeletePredicatePB& delete_predicate) {
         DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
         *new_delete_condition = delete_predicate;
     }
 
-    bool empty() {
+    bool empty() const {
         return _rowset_meta_pb.empty();
     }
 
@@ -241,7 +241,7 @@ public:
         _rowset_meta_pb.set_empty(empty);
     }
 
-    PUniqueId load_id() {
+    PUniqueId load_id() const {
         return _rowset_meta_pb.load_id();
     }
 
@@ -251,7 +251,7 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
-    bool delete_flag() {
+    bool delete_flag() const {
         return _rowset_meta_pb.delete_flag();
     }
 
@@ -267,7 +267,7 @@ public:
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
-    int64_t partition_id() {
+    int64_t partition_id() const {
         return _rowset_meta_pb.partition_id();
     }
 
@@ -275,7 +275,15 @@ public:
         return _rowset_meta_pb.set_partition_id(partition_id);
     }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) {
+    int64_t num_segments() const {
+        return _rowset_meta_pb.num_segments();
+    }
+
+    void set_num_segments(int64_t num_segments) {
+        _rowset_meta_pb.set_num_segments(num_segments);
+    }
+
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
         *rs_meta_pb = _rowset_meta_pb;
     }
 

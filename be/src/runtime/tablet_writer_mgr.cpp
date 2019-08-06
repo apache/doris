@@ -27,6 +27,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/bitmap.h"
 #include "util/stopwatch.hpp"
 #include "olap/delta_writer.h"
@@ -152,9 +153,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
         auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
         if (st != OLAP_SUCCESS) {
-            LOG(WARNING) << "tablet writer writer failed, tablet_id=" << it->first
-                << ", transaction_id=" << _txn_id;
-            return Status::InternalError("tablet writer write failed");
+            std::stringstream ss;
+            ss << "tablet writer write failed, tablet_id=" << it->first
+                << ", transaction_id=" << _txn_id << ", status=" <<  st;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str() + ", be: " + BackendOptions::get_localhost());
         }
     }
     _next_seqs[params.sender_id()]++;
@@ -171,7 +174,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key;
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -274,11 +277,15 @@ static void dummy_deleter(const CacheKey& key, void* value) {
 
 Status TabletWriterMgr::add_batch(
         const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+        int64_t* wait_lock_time_ns) {
     TabletsChannelKey key(request.id(), request.index_id());
     std::shared_ptr<TabletsChannel> channel;
     {
+        MonotonicStopWatch timer;
+        timer.start();
         std::lock_guard<std::mutex> l(_lock);
+        *wait_lock_time_ns += timer.elapsed_time();
         auto value = _tablets_channels.seek(key);
         if (value == nullptr) {
             auto handle = _lastest_success_channel->lookup(key.to_string());
@@ -306,7 +313,10 @@ Status TabletWriterMgr::add_batch(
                 << ", err_msg=" << st.get_error_msg();
         }
         if (finished) {
+            MonotonicStopWatch timer;
+            timer.start();
             std::lock_guard<std::mutex> l(_lock);
+            *wait_lock_time_ns += timer.elapsed_time();
             _tablets_channels.erase(key);
             if (st.ok()) {
                 auto handle = _lastest_success_channel->insert(

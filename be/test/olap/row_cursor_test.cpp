@@ -19,6 +19,7 @@
 
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema.h"
+#include "olap/row.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/logging.h"
@@ -322,27 +323,6 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23)); 
 }
 
-TEST_F(TestRowCursor, SetMinAndMaxKey) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_init(&tablet_schema);
-
-    RowCursor min_row;
-    OLAPStatus res = min_row.init(tablet_schema);
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(min_row.get_fixed_len(), 126);
-
-    res = min_row.build_min_key();
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    for (size_t i = 0; i < tablet_schema.num_columns(); ++i) {
-        ASSERT_TRUE(min_row.is_min(i));
-    }
-
-    RowCursor max_row;
-    res = max_row.init(tablet_schema);
-    ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(max_row.get_fixed_len(), 126);
-}
-
 TEST_F(TestRowCursor, EqualAndCompare) {
     TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
@@ -366,21 +346,18 @@ TEST_F(TestRowCursor, EqualAndCompare) {
     res = right_eq.init(tablet_schema, col_ids);
     int32_t r_int_eq = 10;
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    ASSERT_TRUE(left.equal(right_eq));
     ASSERT_EQ(left.cmp(right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema, col_ids);
     int32_t r_int_lt = 11;
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_FALSE(left.equal(right_lt));
     ASSERT_LT(left.cmp(right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema, col_ids);
     int32_t r_int_gt = 9;
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_FALSE(left.equal(right_gt));
     ASSERT_GT(left.cmp(right_gt), 0);
 }
 
@@ -446,7 +423,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    ASSERT_EQ(left.full_key_cmp(right_eq), 0);
+    ASSERT_EQ(compare_row(left, right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema);
@@ -454,7 +431,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_LT(left.full_key_cmp(right_lt), 0);
+    ASSERT_LT(compare_row(left, right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema);
@@ -462,7 +439,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_GT(left.full_key_cmp(right_gt), 0);
+    ASSERT_GT(compare_row(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, AggregateWithoutNull) {
@@ -492,8 +469,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    res = row.agg_init(left);
-    ASSERT_EQ(res, OLAP_SUCCESS);
+    init_row_with_others(&row, left);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -510,18 +486,18 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
     right.set_field_content(5, reinterpret_cast<char*>(&r_varchar), _mem_pool.get());
 
-    row.aggregate(right);
+    agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.get_field_content_ptr(2));
+    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
-    double agg_double = *reinterpret_cast<double*>(row.get_field_content_ptr(3));
+    double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
     ASSERT_TRUE(agg_double == r_double);
 
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.get_field_content_ptr(4));
+    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
     ASSERT_TRUE(agg_decimal == r_decimal);
 
-    Slice* agg_varchar = reinterpret_cast<Slice*>(row.get_field_content_ptr(5));
+    Slice* agg_varchar = reinterpret_cast<Slice*>(row.cell_ptr(5));
     ASSERT_EQ(agg_varchar->compare(r_varchar), 0);
 }
 
@@ -550,8 +526,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    res = row.agg_init(left);
-    ASSERT_EQ(res, OLAP_SUCCESS);
+    init_row_with_others(&row, left);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -567,15 +542,15 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
     right.set_null(5);
 
-    row.aggregate(right);
+    agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.get_field_content_ptr(2));
+    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     bool is_null_double = left.is_null(3);
     ASSERT_TRUE(is_null_double);
 
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.get_field_content_ptr(4));
+    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
     ASSERT_TRUE(agg_decimal == r_decimal);
 
     bool is_null_varchar = row.is_null(5);
@@ -585,14 +560,6 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
-    ret = RUN_ALL_TESTS();
-    return ret;
+    return RUN_ALL_TESTS();
 }

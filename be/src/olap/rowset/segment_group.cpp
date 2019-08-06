@@ -276,7 +276,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_zone_maps(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
-    DCHECK(zone_map_fields.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_fields.size() == _schema->num_key_columns());
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -295,7 +295,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
 OLAPStatus SegmentGroup::add_zone_maps(
         std::vector<std::pair<std::string, std::string> > &zone_map_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(zone_map_strings.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_strings.size() == _schema->num_key_columns());
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -313,7 +313,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::load() {
+OLAPStatus SegmentGroup::load(bool use_cache) {
     if (_empty) {
         _index_loaded = true;
         return OLAP_SUCCESS;
@@ -347,7 +347,7 @@ OLAPStatus SegmentGroup::load() {
         
         // get full path for one segment
         std::string path = construct_index_file_path(seg_id);
-        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
+        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block, use_cache))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
             

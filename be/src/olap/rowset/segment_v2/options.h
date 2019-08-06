@@ -17,20 +17,23 @@
 
 #pragma once
 
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
+#include <memory>
 
 namespace doris {
 namespace segment_v2 {
 
-struct PageBuilderOptions {
-    size_t data_page_size = 0;
+class BinaryPlainPageDecoder;
 
-    size_t dict_page_size = 0;
+static const size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
+
+struct PageBuilderOptions {
+    size_t data_page_size = DEFAULT_PAGE_SIZE;
+
+    size_t dict_page_size = DEFAULT_PAGE_SIZE;
 };
 
 struct PageDecoderOptions {
-    PageDecoder* dict_decoder = nullptr;
+    std::shared_ptr<BinaryPlainPageDecoder> dict_decoder = nullptr;
 };
 
 } // namespace segment_v2

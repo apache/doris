@@ -141,7 +141,7 @@ public class BrokerLoadJobTest {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
                                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
-                                             boolean deleteFlag) {
+                                             boolean deleteFlag, EtlJobType jobType) {
             }
         };
 
@@ -191,7 +191,7 @@ public class BrokerLoadJobTest {
     @Test
     public void testExecuteJob(@Mocked MasterTaskExecutor masterTaskExecutor) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
-        brokerLoadJob.executeJob();
+        brokerLoadJob.unprotectedExecuteJob();
 
         Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
         Assert.assertEquals(1, idToTasks.size());

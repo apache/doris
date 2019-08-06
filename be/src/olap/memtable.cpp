@@ -20,6 +20,7 @@
 #include "olap/hll.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/row_cursor.h"
+#include "olap/row.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
@@ -46,9 +47,10 @@ MemTable::~MemTable() {
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema)
     : _schema(schema) {}
 
-int MemTable::RowCursorComparator::operator()
-    (const char* left, const char* right) const {
-    return _schema->compare(left, right);
+int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
+    ContiguousRow lhs_row(_schema, left);
+    ContiguousRow rhs_row(_schema, right);
+    return compare_row(lhs_row, rhs_row);
 }
 
 size_t MemTable::memory_usage() {
@@ -57,21 +59,21 @@ size_t MemTable::memory_usage() {
 
 void MemTable::insert(Tuple* tuple) {
     const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
-    size_t offset = 0;
+    ContiguousRow row(_schema, _tuple_buf);
     for (size_t i = 0; i < _col_ids->size(); ++i) {
+        auto cell = row.cell(i);
         const SlotDescriptor* slot = slots[(*_col_ids)[i]];
-        _schema->set_not_null(i, _tuple_buf);
+        
         if (tuple->is_null(slot->null_indicator_offset())) {
-            _schema->set_null(i, _tuple_buf);
-            offset += _schema->get_col_size(i) + 1;
+            cell.set_null();
             continue;
         }
-        offset += 1;
+        cell.set_not_null();
         TypeDescriptor type = slot->type();
         switch (type.type) {
             case TYPE_CHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(cell.cell_ptr());
                 dest->size = _tablet_schema->column(i).length();
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, src->len);
@@ -80,7 +82,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_VARCHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(cell.cell_ptr());
                 dest->size = src->len;
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, dest->size);
@@ -88,7 +90,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_HLL: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(cell.cell_ptr());
                 dest->size = src->len;
                 bool exist = _skip_list->Contains(_tuple_buf);
                 if (exist) {
@@ -111,36 +113,35 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_DECIMAL: {
                 DecimalValue* decimal_value = tuple->get_decimal_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
+                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(cell.mutable_cell_ptr());
                 storage_decimal_value->integer = decimal_value->int_value();
                 storage_decimal_value->fraction = decimal_value->frac_value();
                 break;
             }
             case TYPE_DECIMALV2: {
                 DecimalV2Value* decimal_value = tuple->get_decimalv2_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
+                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(cell.mutable_cell_ptr());
                 storage_decimal_value->integer = decimal_value->int_value();
                 storage_decimal_value->fraction = decimal_value->frac_value();
                 break;
             }
             case TYPE_DATETIME: {
                 DateTimeValue* datetime_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint64_t* storage_datetime_value = reinterpret_cast<uint64_t*>(_tuple_buf + offset);
+                uint64_t* storage_datetime_value = reinterpret_cast<uint64_t*>(cell.mutable_cell_ptr());
                 *storage_datetime_value = datetime_value->to_olap_datetime();
                 break;
             }
             case TYPE_DATE: {
                 DateTimeValue* date_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint24_t* storage_date_value = reinterpret_cast<uint24_t*>(_tuple_buf + offset);
+                uint24_t* storage_date_value = reinterpret_cast<uint24_t*>(cell.mutable_cell_ptr());
                 *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
                 break;
             }
             default: {
-                memcpy(_tuple_buf + offset, tuple->get_slot(slot->tuple_offset()), _schema->get_col_size(i));
+                memcpy(cell.mutable_cell_ptr(), tuple->get_slot(slot->tuple_offset()), _schema->column_size(i));
                 break;
             }
         }
-        offset = offset + _schema->get_col_size(i);
     }
 
     bool overwritten = false;
@@ -151,14 +152,20 @@ void MemTable::insert(Tuple* tuple) {
 }
 
 OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
-    Table::Iterator it(_skip_list);
-    for (it.SeekToFirst(); it.Valid(); it.Next()) {
-        const char* row = it.key();
-        _schema->finalize(row);
-        RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        Table::Iterator it(_skip_list);
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            char* row = (char*)it.key();
+            ContiguousRow dst_row(_schema, row);
+            agg_finalize_row(&dst_row, _skip_list->arena());
+            RETURN_NOT_OK(rowset_writer->add_row(dst_row));
+        }
+        RETURN_NOT_OK(rowset_writer->flush());
     }
-    
-    RETURN_NOT_OK(rowset_writer->flush());
+    DorisMetrics::memtable_flush_total.increment(1); 
+    DorisMetrics::memtable_flush_duration_us.increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 

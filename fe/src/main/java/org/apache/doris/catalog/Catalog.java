@@ -481,7 +481,7 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor(10);
+        this.loadTaskScheduler = new MasterTaskExecutor(Config.async_load_task_pool_size);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -2871,7 +2871,6 @@ public class Catalog {
             indexIdToStorageType = olapTable.getCopiedIndexIdToStorageType();
             indexIdToSchema = olapTable.getCopiedIndexIdToSchema();
             bfColumns = olapTable.getCopiedBfColumns();
-
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         } finally {
@@ -2894,6 +2893,7 @@ public class Catalog {
             long partitionId = getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                     olapTable.getId(),
+                    olapTable.getBaseIndexId(),
                     partitionId, partitionName,
                     indexIdToShortKeyColumnCount,
                     indexIdToSchemaHash,
@@ -3179,7 +3179,7 @@ public class Catalog {
     }
 
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId,
-                                                 long partitionId, String partitionName,
+                                                 long baseIndexId, long partitionId, String partitionName,
                                                  Map<Long, Short> indexIdToShortKeyColumnCount,
                                                  Map<Long, Integer> indexIdToSchemaHash,
                                                  Map<Long, TStorageType> indexIdToStorageType,
@@ -3193,8 +3193,8 @@ public class Catalog {
                                                  double bfFpp,
                                                  Set<Long> tabletIdSet,
                                                  boolean isRestore) throws DdlException {
-        // create base index first. use table id as base index id
-        long baseIndexId = tableId;
+        // create base index first.
+        Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
 
         // create partition with base index
@@ -3348,6 +3348,10 @@ public class Catalog {
         long tableId = Catalog.getInstance().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo, distributionInfo);
 
+        // set base index id
+        long baseIndexId = getNextId();
+        olapTable.setBaseIndexId(baseIndexId);
+
         // set base index info to table
         // this should be done before create partition.
         // get base index storage type. default is COLUMN
@@ -3358,9 +3362,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-
         Preconditions.checkNotNull(baseIndexStorageType);
-        long baseIndexId = olapTable.getId();
         olapTable.setStorageTypeToIndex(baseIndexId, baseIndexStorageType);
 
         // analyze bloom filter columns
@@ -3467,7 +3469,7 @@ public class Catalog {
                 long partitionId = partitionNameToId.get(partitionName);
                 // create partition
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
-                        olapTable.getId(),
+                        olapTable.getId(), olapTable.getBaseIndexId(),
                         partitionId, partitionName,
                         olapTable.getIndexIdToShortKeyColumnCount(),
                         olapTable.getIndexIdToSchemaHash(),
@@ -3500,7 +3502,7 @@ public class Catalog {
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(entry.getValue());
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
-                            entry.getValue(), entry.getKey(),
+                            olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
                             olapTable.getIndexIdToShortKeyColumnCount(),
                             olapTable.getIndexIdToSchemaHash(),
                             olapTable.getIndexIdToStorageType(),
@@ -3945,7 +3947,7 @@ public class Catalog {
         if (createRollupStmt != null && (table instanceof OlapTable)) {
             OlapTable olapTable = (OlapTable) table;
             for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
-                if (entry.getKey() == olapTable.getId()) {
+                if (entry.getKey() == olapTable.getBaseIndexId()) {
                     continue;
                 }
                 sb = new StringBuilder();
@@ -5936,8 +5938,8 @@ public class Catalog {
                 long oldPartitionId = entry.getValue();
                 long newPartitionId = getNextId();
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(),
-                        db.getId(), copiedTbl.getId(), newPartitionId,
-                        entry.getKey(),
+                        db.getId(), copiedTbl.getId(), copiedTbl.getBaseIndexId(),
+                        newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToShortKeyColumnCount(),
                         copiedTbl.getIndexIdToSchemaHash(),
                         copiedTbl.getIndexIdToStorageType(),

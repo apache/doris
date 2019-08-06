@@ -411,9 +411,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return max;
     }
     
-    // database lock should be held.
+    /*
+     * check if existing replicas are on same BE.
+     * database lock should be held.
+     */
     public boolean containsBE(long beId) {
+        String host = infoService.getBackend(beId).getHost();
         for (Replica replica : tablet.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (be == null) {
+                // BE has been dropped, just return true, so that the caller will not choose this BE.
+                return true;
+            }
+            if (host.equals(be.getHost())) {
+                return true;
+            }
+            // actually there is no need to check BE id anymore, because if hosts are not same, BE ids are
+            // not same either. But for psychological comfort, leave this check here.
             if (replica.getBackendId() == beId) {
                 return true;
             }

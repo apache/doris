@@ -821,7 +821,7 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DOUBLE);
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
     DCHECK(context != NULL);
     if (_scalar_fn_wrapper == NULL) {      
         return interpret_eval<DoubleVal>(context, row);
@@ -870,7 +870,6 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
     DecimalV2Wrapper fn = reinterpret_cast<DecimalV2Wrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
-
 
 std::string ScalarFnCall::debug_string() const {
     std::stringstream out;

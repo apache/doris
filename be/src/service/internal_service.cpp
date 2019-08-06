@@ -102,14 +102,21 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
     _tablet_worker_pool.offer(
         [request, response, done, this] () {
             brpc::ClosureGuard closure_guard(done);
-            auto st = _exec_env->tablet_writer_mgr()->add_batch(*request, response->mutable_tablet_vec());
-            if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
-                    << ", id=" << request->id()
-                    << ", index_id=" << request->index_id()
-                    << ", sender_id=" << request->sender_id();
+            int64_t execution_time_ns = 0;
+            int64_t wait_lock_time_ns = 0;
+            { 
+                SCOPED_RAW_TIMER(&execution_time_ns);
+                auto st = _exec_env->tablet_writer_mgr()->add_batch(*request, response->mutable_tablet_vec(), &wait_lock_time_ns);
+                if (!st.ok()) {
+                    LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
+                        << ", id=" << request->id()
+                        << ", index_id=" << request->index_id()
+                        << ", sender_id=" << request->sender_id();
+                }
+                st.to_protobuf(response->mutable_status());
             }
-            st.to_protobuf(response->mutable_status());
+            response->set_execution_time_us(execution_time_ns / 1000);
+            response->set_wait_lock_time_us(wait_lock_time_ns / 1000);
         });
 }
 
@@ -154,8 +161,15 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
     TUniqueId tid;
     tid.__set_hi(request->finst_id().hi());
     tid.__set_lo(request->finst_id().lo());
-    LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
-    auto st = _exec_env->fragment_mgr()->cancel(tid);
+
+    Status st;
+    if (request->has_cancel_reason())  {
+        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
+        st = _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+    } else {
+        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
+        st = _exec_env->fragment_mgr()->cancel(tid);
+    }
     if (!st.ok()) {
         LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
     }

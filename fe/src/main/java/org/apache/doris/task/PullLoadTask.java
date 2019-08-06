@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.UUID;
 
 // A pull load task is used to process one table of this pull load job.
+@Deprecated
 public class PullLoadTask {
     private static final Logger LOG = LogManager.getLogger(PullLoadTask.class);
     // Input parameter
@@ -109,7 +110,7 @@ public class PullLoadTask {
 
     private long getLeftTimeMs() {
         if (jobDeadlineMs <= 0) {
-            return Config.pull_load_task_default_timeout_second * 1000;
+            return Config.broker_load_default_timeout_second * 1000;
         }
         return jobDeadlineMs - System.currentTimeMillis();
     }

@@ -230,9 +230,8 @@ OLAPStatus ColumnWriter::init() {
 OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    const Field* field = row_cursor->get_field_by_index(_column_id);
     bool is_null = row_cursor->is_null(_column_id);
-    char* buf = field->get_ptr(row_cursor->get_buf());
+    char* buf = row_cursor->cell_ptr(_column_id);
     if (_is_present) {
         res = _is_present->write(is_null);
 
@@ -250,7 +249,7 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
             } else {
-                _bf->add_bytes(buf, field->size());
+                _bf->add_bytes(buf, row_cursor->column_size(_column_id));
             }
         } else {
             _bf->add_bytes(NULL, 0);
@@ -388,8 +387,8 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     // 这样使得修改表的Schema后不影响对已存在的Segment中的数据读取
     column = header->add_column();
     column->set_name(_column.name());
-    column->set_type(FieldInfo::get_string_by_field_type(_column.type()));
-    column->set_aggregation(FieldInfo::get_string_by_aggregation_type(
+    column->set_type(TabletColumn::get_string_by_field_type(_column.type()));
+    column->set_aggregation(TabletColumn::get_string_by_aggregation_type(
             _column.aggregation()));
     column->set_length(_column.length());
     column->set_is_key(_column.is_key());

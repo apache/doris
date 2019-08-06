@@ -166,7 +166,7 @@ OLAPStatus TxnManager::commit_txn(
                     && load_info.rowset != nullptr
                     && load_info.rowset->rowset_id() != rowset_ptr->rowset_id()) {
                     // find a rowset with different rowset id, then it should not happen, just return errors
-                    LOG(WARNING) << "find transaction exists when add to engine."
+                    LOG(WARNING) << "find transaction exists when add to engine. but rowset ids are not same."
                                  << "partition_id: " << key.first
                                  << ", transaction_id: " << key.second
                                  << ", tablet: " << tablet_info.to_string()
@@ -232,7 +232,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
     if (rowset_ptr != nullptr) {
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
-        rowset_ptr->set_version_and_version_hash(version, version_hash);
+        rowset_ptr->make_visible(version, version_hash);
         OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, 
             rowset_ptr->rowset_id(),
             rowset_ptr->rowset_meta().get());

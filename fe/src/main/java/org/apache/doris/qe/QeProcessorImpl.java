@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
@@ -46,6 +47,15 @@ public final class QeProcessorImpl implements QeProcessor {
 
     private QeProcessorImpl() {
         coordinatorMap = Maps.newConcurrentMap();
+    }
+
+    @Override
+    public Coordinator getCoordinator(TUniqueId queryId) {
+        QueryInfo queryInfo = coordinatorMap.get(queryId);
+        if (queryInfo != null) {
+            return queryInfo.getCoord();
+        }
+        return null;
     }
 
     @Override
@@ -94,9 +104,11 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
-    public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) {
-        LOG.info("ReportExecStatus(): fragment_instance_id=" + DebugUtil.printId(params.fragment_instance_id)
-                + ", query id=" + DebugUtil.printId(params.query_id) + " params=" + params);
+    public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
+                DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
+                params.backend_num, beAddr);
+        LOG.debug("params: {}", params);
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {

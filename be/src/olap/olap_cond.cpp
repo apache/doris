@@ -190,39 +190,35 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     return OLAP_SUCCESS;
 }
 
-bool Cond::eval(char* right) const {
-    //通过单列上的单个查询条件对row进行过滤
-    if (right == NULL) {
-        return false;
-    }
-    if (*reinterpret_cast<bool*>(right) && op != OP_IS) {
+bool Cond::eval(const RowCursorCell& cell) const {
+    if (cell.is_null() && op != OP_IS) {
         //任何operand和NULL的运算都是false
         return false;
     }
 
     switch (op) {
     case OP_EQ:
-        return operand_field->cmp(right) == 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) == 0;
     case OP_NE:
-        return operand_field->cmp(right) != 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) != 0;
     case OP_LT:
-        return operand_field->cmp(right) > 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) > 0;
     case OP_LE:
-        return operand_field->cmp(right) >= 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) >= 0;
     case OP_GT:
-        return operand_field->cmp(right) < 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) < 0;
     case OP_GE:
-        return operand_field->cmp(right) <= 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
         for (const WrapperField* field : operand_set) {
-            if (field->cmp(right) == 0) {
+            if (field->field()->compare_cell(*field, cell) == 0) {
                 return true;
             }
         }
         return false;
     }
     case OP_IS: {
-        if (operand_field->is_null() == *reinterpret_cast<bool*>(right)) {
+        if (operand_field->is_null() == cell.is_null()) {
             return true;
         } else {
             return false;
@@ -485,11 +481,10 @@ OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& col
 
 bool CondColumn::eval(const RowCursor& row) const {
     //通过一列上的所有查询条件对单行数据进行过滤
-    Field* field = const_cast<Field*>(row.get_field_by_index(_col_index));
-    char* buf = field->get_field_ptr(row.get_buf());
+    auto cell = row.cell(_col_index);
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
-        if (!each_cond->eval(buf)) {
+        if (!each_cond->eval(cell)) {
             return false;
         }
     }

@@ -53,7 +53,9 @@ enum PrimitiveType {
     TYPE_ARRAY, /* 17 */
     TYPE_MAP, /* 18 */
     TYPE_HLL, /* 19 */
-    TYPE_DECIMALV2  /* 20 */
+    TYPE_DECIMALV2,  /* 20 */
+
+    TYPE_TIME, /* 21 */
 };
 
 inline bool is_enumeration_type(PrimitiveType type) {
@@ -114,6 +116,7 @@ inline int get_byte_size(PrimitiveType type) {
         return 4;
 
     case TYPE_BIGINT:
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return 8;
 
@@ -153,6 +156,7 @@ inline int get_real_byte_size(PrimitiveType type) {
         return 4;
 
     case TYPE_BIGINT:
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return 8;
 

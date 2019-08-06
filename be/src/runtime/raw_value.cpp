@@ -262,6 +262,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         break;
     }
 
+    case TYPE_TIME:
     case TYPE_DOUBLE: {
         *reinterpret_cast<double*>(dst) = *reinterpret_cast<const double*>(value);
         break;

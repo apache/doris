@@ -118,6 +118,10 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    public void updateLoadId(TUniqueId newLoadId) {
+        tDataSink.getOlap_table_sink().setLoad_id(newLoadId);
+    }
+
     // must called after tupleDescriptor is computed
     public void finalize() throws UserException {
         TOlapTableSink tSink = tDataSink.getOlap_table_sink();
@@ -213,12 +217,11 @@ public class OlapTableSink extends DataSink {
         switch (partType) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-                // range partition's only has one column
-                Preconditions.checkArgument(rangePartitionInfo.getPartitionColumns().size() == 1,
-                        "number columns of range partition is not 1, number_columns="
-                                + rangePartitionInfo.getPartitionColumns().size());
-                partitionParam.setPartition_column(rangePartitionInfo.getPartitionColumns().get(0).getName());
+                for (Column partCol : rangePartitionInfo.getPartitionColumns()) {
+                    partitionParam.addToPartition_columns(partCol.getName());
+                }
 
+                int partColNum = rangePartitionInfo.getPartitionColumns().size();
                 DistributionInfo selectedDistInfo = null;
                 for (Partition partition : table.getPartitions()) {
                     if (partitionSet != null && !partitionSet.contains(partition.getName())) {
@@ -227,12 +230,19 @@ public class OlapTableSink extends DataSink {
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
                     Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
+                    // set start keys
                     if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
-                        tPartition.setStart_key(range.lowerEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
+                        for (int i = 0; i < partColNum; i++) {
+                            tPartition.addToStart_keys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                        }
                     }
+                    // set end keys
                     if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
-                        tPartition.setEnd_key(range.upperEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
+                        for (int i = 0; i < partColNum; i++) {
+                            tPartition.addToEnd_keys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                        }
                     }
+                    
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));

@@ -130,10 +130,10 @@ public class GlobalTransactionMgr {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
         
-        if (timeoutSecond > Config.max_stream_load_timeout_second ||
-                timeoutSecond < Config.min_stream_load_timeout_second) {
+        if (timeoutSecond > Config.max_load_timeout_second ||
+                timeoutSecond < Config.min_load_timeout_second) {
             throw new AnalysisException("Invalid timeout. Timeout should between "
-                    + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
+                    + Config.min_load_timeout_second + " and " + Config.max_load_timeout_second
                     + " seconds");
         }
         
@@ -396,12 +396,14 @@ public class GlobalTransactionMgr {
                             }
                         }
                         if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
-                            // not throw exception here, wait the upper application retry
-                            LOG.info("Tablet [{}] success replica num is {} < quorum replica num {} "
+                            LOG.warn("Failed to commit txn []. "
+                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
                                              + "while error backends {}",
-                                     tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                     transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
                                      Joiner.on(",").join(errorBackendIdsForTablet));
-                            return;
+                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                                                                  successReplicaNum, quorumReplicaNum,
+                                                                  errorBackendIdsForTablet);
                         }
                     }
                 }

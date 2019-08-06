@@ -95,6 +95,8 @@ message PTabletWriterAddBatchRequest {
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
     repeated PTabletInfo tablet_vec = 2;
+    optional int64 execution_time_us = 3;
+    optional int64 wait_lock_time_us = 4;
 };
 
 // tablet writer cancel
@@ -114,8 +116,16 @@ message PExecPlanFragmentResult {
     required PStatus status = 1;
 };
 
+enum PPlanFragmentCancelReason {
+    // 0 is reserved
+    LIMIT_REACH = 1;
+    USER_CANCEL = 2;
+    INTERNAL_ERROR = 3;
+};
+
 message PCancelPlanFragmentRequest {
     required PUniqueId finst_id = 1;
+    optional PPlanFragmentCancelReason cancel_reason = 2;
 };
 
 message PCancelPlanFragmentResult {

@@ -212,6 +212,7 @@ public class CatalogTestUtil {
                 distributionInfo);
         table.addPartition(partition);
         table.setIndexSchemaInfo(indexId, testIndex1, columns, 0, testSchemaHash1, (short) 1);
+        table.setBaseIndexId(indexId);
         // db
         Database db = new Database(dbId, testDb1);
         db.createTable(table);

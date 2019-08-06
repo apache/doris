@@ -141,7 +141,9 @@ OLAPStatus StreamIndexReader::_parse_header(FieldType type) {
     _entry_count = header->block_count;
 
     if (_entry_count * _step_size + _start_offset > _buffer_size) {
-        OLAP_LOG_WARNING("invalid header length");
+        LOG(WARNING) << "invalid header length, entry_count=" << _entry_count
+            << ", step_size=" << _step_size << ", start_offset=" << _start_offset
+            << ", buffer_size=" << _buffer_size;
         return OLAP_ERR_FILE_FORMAT_ERROR;
     }
 

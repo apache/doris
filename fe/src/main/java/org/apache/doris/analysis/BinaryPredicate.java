@@ -56,7 +56,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         LE("<=", "le", TExprOpcode.LE),
         GE(">=", "ge", TExprOpcode.GE),
         LT("<", "lt", TExprOpcode.LT),
-        GT(">", "gt", TExprOpcode.GT);
+        GT(">", "gt", TExprOpcode.GT),
+        EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
 
         private final String description;
         private final String name;
@@ -97,6 +98,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LE;
+                case EQ_FOR_NULL:
+                    return this;
             }
             return null;
         }
@@ -115,6 +118,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LT;
+                case EQ_FOR_NULL:
+                    return EQ_FOR_NULL;
                 // case DISTINCT_FROM: return DISTINCT_FROM;
                 // case NOT_DISTINCT: return NOT_DISTINCT;
                 // case NULL_MATCHING_EQ:
@@ -124,7 +129,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public boolean isEquivalence() { return this == EQ; };
+        public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
         public boolean isUnequivalence() { return this == NE; }
     }
@@ -132,7 +137,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-
+    
     // for restoring
     public BinaryPredicate() {
         super();
@@ -172,6 +177,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                     Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                    Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
         }
     }
 
@@ -368,6 +375,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false; 
             return getChild(0);
@@ -507,13 +515,24 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (first instanceof NullLiteral || second instanceof NullLiteral) {
-            return new NullLiteral();
+        final boolean isFirstNull = (first instanceof NullLiteral);
+        final boolean isSecondNull = (second instanceof NullLiteral);
+        if (op == Operator.EQ_FOR_NULL) {
+            if (isFirstNull && isSecondNull) {
+                return new BoolLiteral(true);
+            } else if (isFirstNull || isSecondNull) {
+                return new BoolLiteral(false);
+            }
+        } else  {
+            if (isFirstNull || isSecondNull){
+                return new NullLiteral();
+            }
         }
 
         final int compareResult = first.compareLiteral(second);
         switch(op) {
             case EQ:
+            case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
                 return new BoolLiteral(compareResult == 1 || compareResult == 0);

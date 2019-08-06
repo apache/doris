@@ -84,6 +84,13 @@ public class ShowLoadStmt extends ShowStmt {
         return -1L;
     }
 
+    public long getOffset() {
+        if (limitElement != null && limitElement.hasOffset()) {
+            return limitElement.getOffset();
+        }
+        return -1L;
+    }
+
     public String getLabelValue() {
         return this.labelValue;
     }
@@ -257,6 +264,10 @@ public class ShowLoadStmt extends ShowStmt {
 
         if (getLimit() != -1L) {
             sb.append(" LIMIT ").append(getLimit());
+        }
+
+        if (getOffset() != -1L) {
+            sb.append(" OFFSET ").append(getOffset());
         }
 
         return sb.toString();

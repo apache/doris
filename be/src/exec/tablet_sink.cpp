@@ -78,6 +78,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _add_batch_request.set_index_id(_index_id);
     _add_batch_request.set_sender_id(_parent->_sender_id);
 
+    _rpc_timeout_ms = config::tablet_writer_rpc_timeout_sec * 1000;
     return Status::OK();
 }
 
@@ -205,6 +206,12 @@ Status NodeChannel::_wait_in_flight_packet() {
             << berror(_add_batch_closure->cntl.ErrorCode())
             << ", error_text=" << _add_batch_closure->cntl.ErrorText();
         return Status::InternalError("failed to send batch");
+    }
+
+    if (_add_batch_closure->result.has_execution_time_us()) {
+        _parent->update_node_add_batch_counter(_node_id,
+                _add_batch_closure->result.execution_time_us(),
+                _add_batch_closure->result.wait_lock_time_us());
     }
     return {_add_batch_closure->result.status()};
 }
@@ -588,15 +595,17 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
-    SCOPED_TIMER(_profile->total_time_counter());
     Status status = close_status;
     if (status.ok()) {
+        // only if status is ok can we call this _profile->total_time_counter().
+        // if status is not ok, this sink may not be prepared, so that _profile is null
+        SCOPED_TIMER(_profile->total_time_counter());
         {
             SCOPED_TIMER(_close_timer);
             for (auto channel : _channels) {
                 status = channel->close(state);
                 if (!status.ok()) {
-                    LOG(WARNING) << "close channel failed, load_id=" << _load_id
+                    LOG(WARNING) << "close channel failed, load_id=" << print_id(_load_id)
                         << ", txn_id=" << _txn_id;
                 }
             }
@@ -609,8 +618,19 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_wait_in_flight_packet_timer, _wait_in_flight_packet_ns);
         COUNTER_SET(_serialize_batch_timer, _serialize_batch_ns);
-
         state->update_num_rows_load_filtered(_number_filtered_rows);
+
+        // print log of add batch time of all node, for tracing load performance easily
+        std::stringstream ss;
+        ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
+                << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
+        for (auto const& pair : _node_add_batch_counter_map) {
+            ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_ns / 1000) << ")("
+               << (pair.second.add_batch_wait_lock_time_ns / 1000) << ")("
+               << pair.second.add_batch_num << ")} ";
+        }
+        LOG(INFO) << ss.str();
+
     } else {
         for (auto channel : _channels) {
             channel->cancel();

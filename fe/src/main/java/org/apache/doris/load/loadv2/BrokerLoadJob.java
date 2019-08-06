@@ -39,6 +39,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -56,10 +57,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
- * Step1: BrokerPendingTask will be created on method of executeJob.
+ * Step1: BrokerPendingTask will be created on method of unprotectedExecuteJob.
  * Step2: LoadLoadingTasks will be created by the method of onTaskFinished when BrokerPendingTask is finished.
  * Step3: CommitAndPublicTxn will be called by the method of onTaskFinished when all of LoadLoadingTasks are finished.
  */
@@ -84,7 +86,7 @@ public class BrokerLoadJob extends LoadJob {
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions)
             throws MetaNotFoundException {
         super(dbId, label);
-        this.timeoutSecond = Config.pull_load_task_default_timeout_second;
+        this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
@@ -99,7 +101,7 @@ public class BrokerLoadJob extends LoadJob {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
         // check data source info
-        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
+        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions(), EtlJobType.BROKER);
 
         // create job
         try {
@@ -179,7 +181,7 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    protected void executeJob() {
+    protected void unprotectedExecuteJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
@@ -219,7 +221,7 @@ public class BrokerLoadJob extends LoadJob {
                 return;
             }
             if (loadTask.getRetryTime() <= 0) {
-                executeCancel(failMsg, true);
+                unprotectedExecuteCancel(failMsg, true);
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
@@ -304,7 +306,9 @@ public class BrokerLoadJob extends LoadJob {
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                                                            entry.getValue(), getDeadlineMs(), execMemLimit,
                                                            strictMode, transactionId, this);
-                task.init(attachment.getFileStatusByTable(tableId),
+                UUID uuid = UUID.randomUUID();
+                TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                task.init(loadId, attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
                 idToTasks.put(task.getSignature(), task);
@@ -370,6 +374,10 @@ public class BrokerLoadJob extends LoadJob {
         }
         db.writeLock();
         try {
+            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("txn_id", transactionId)
+                             .add("msg", "Load job try to commit txn")
+                             .build());
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
@@ -377,7 +385,7 @@ public class BrokerLoadJob extends LoadJob {
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
-                             .add("error_msg", "Failed to commit txn.")
+                             .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                              .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),true);
             return;
@@ -414,6 +422,12 @@ public class BrokerLoadJob extends LoadJob {
 
     @Override
     protected void executeReplayOnAborted(TransactionState txnState) {
+        if (txnState.getTxnCommitAttachment() == null) {
+            // The txn attachment maybe null when broker load has been cancelled without attachment.
+            // The end log of broker load has been record but the callback id of txnState hasn't been removed
+            // So the callback of txn is executed when log of txn aborted is replayed.
+            return;
+        }
         unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
     }
 

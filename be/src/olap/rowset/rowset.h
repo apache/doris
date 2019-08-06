@@ -26,31 +26,33 @@
 
 namespace doris {
 
+class DataDir;
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
-
-class RowsetWriter;
 class RowsetReader;
+class TabletSchema;
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    Rowset() : _is_inited(false), _is_loaded(false), _need_delete_file(false) {
-    } 
+    Rowset(const TabletSchema* schema,
+           std::string rowset_path,
+           DataDir* data_dir,
+           RowsetMetaSharedPtr rowset_meta);
 
     virtual ~Rowset() { }
 
     // this api is for init related objects in memory
     virtual OLAPStatus init() = 0;
 
-    virtual bool is_inited() {
+    bool is_inited() const {
         return _is_inited;
     }
 
-    virtual void set_inited(bool inited) {
+    void set_inited(bool inited) {
         _is_inited = inited;
     }
 
-    virtual bool is_loaded() {
+    bool is_loaded() const {
         return _is_loaded;
     }
 
@@ -58,45 +60,45 @@ public:
         _is_loaded= loaded;
     }
 
+    RowsetMetaSharedPtr rowset_meta() const {
+        return _rowset_meta;
+    }
+
+    bool is_pending() const {
+        return _is_pending;
+    }
+
+    // publish rowset to make it visible to read
+    void make_visible(Version version, VersionHash version_hash);
+
+    // helper class to access RowsetMeta
+    int64_t start_version() const { return rowset_meta()->version().first; }
+    int64_t end_version() const { return rowset_meta()->version().second; }
+    VersionHash version_hash() const { return rowset_meta()->version_hash(); }
+    size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
+    size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
+    bool empty() const { return rowset_meta()->empty(); }
+    bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
+    size_t num_rows() const { return rowset_meta()->num_rows(); }
+    Version version() const { return rowset_meta()->version(); }
+    RowsetId rowset_id() const { return rowset_meta()->rowset_id(); }
+    int64_t creation_time() { return rowset_meta()->creation_time(); }
+    PUniqueId load_id() const { return rowset_meta()->load_id(); }
+    int64_t txn_id() const { return rowset_meta()->txn_id(); }
+    int64_t partition_id() const { return rowset_meta()->partition_id(); }
+    // flag for push delete rowset
+    bool delete_flag() const { return rowset_meta()->delete_flag(); }
+    int64_t num_segments() const { return rowset_meta()->num_segments(); }
+    void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
+
     // this api is for lazy loading data
     // always means that there are some io
-    virtual OLAPStatus load() = 0;
+    virtual OLAPStatus load(bool use_cache = true) = 0;
 
     virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
+    // remove all files in this rowset
     virtual OLAPStatus remove() = 0;
-
-    virtual void to_rowset_pb(RowsetMetaPB* rs_meta) = 0;
-
-    virtual RowsetMetaSharedPtr rowset_meta() const = 0;
-
-    virtual size_t data_disk_size() const = 0;
-
-    virtual size_t index_disk_size() const = 0;
-
-    virtual bool empty() const = 0;
-
-    virtual bool zero_num_rows() const = 0;
-
-    virtual size_t num_rows() const = 0;
-
-    virtual Version version() const = 0;
-
-    virtual void set_version_and_version_hash(Version version, VersionHash version_hash) = 0;
-
-    virtual int64_t end_version() const = 0;
-
-    virtual int64_t start_version() const = 0;
-
-    virtual VersionHash version_hash() const = 0;
-
-    virtual bool in_use() const = 0;
-
-    virtual void acquire() = 0;
-
-    virtual void release() = 0;
-    
-    virtual int64_t ref_count() const = 0;
 
     virtual OLAPStatus make_snapshot(const std::string& snapshot_path,
                                      std::vector<std::string>* success_links) = 0;
@@ -105,40 +107,37 @@ public:
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
-    virtual RowsetId rowset_id() const = 0;
-
-    virtual int64_t creation_time() = 0;
-
-    virtual bool is_pending() const = 0;
-
-    virtual PUniqueId load_id() const = 0;
-
-    virtual int64_t txn_id() const = 0;
-
-    virtual int64_t partition_id() const = 0;
-    
-    // flag for push delete rowset
-    virtual bool delete_flag() = 0;
-
+    // return whether `path` is one of the files in this rowset
     virtual bool check_path(const std::string& path) = 0;
 
-    virtual std::string unique_id() = 0;
+    // return an unique identifier string for this rowset
+    std::string unique_id() const {
+        return _rowset_path + "/" + std::to_string(rowset_id());
+    }
 
-    bool need_delete_file() {
+    bool need_delete_file() const {
         return _need_delete_file;
     }
 
-    void set_need_delete_file(bool need_delete_file) {
-        if (_need_delete_file == true) {
-            return;
-        }
-        _need_delete_file = need_delete_file;
+    void set_need_delete_file() {
+        _need_delete_file = true;
     }
 
-private:
-    bool _is_inited;
-    bool _is_loaded;
-    bool _need_delete_file;
+protected:
+    // allow subclass to add custom logic when rowset is being published
+    virtual void make_visible_extra(Version version, VersionHash version_hash) {}
+
+    const TabletSchema* _schema;
+    std::string _rowset_path;
+    DataDir* _data_dir;
+    RowsetMetaSharedPtr _rowset_meta;
+    // init in constructor
+    bool _is_pending;    // rowset is pending iff it's not in visible state
+    bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
+
+    bool _is_inited = false;
+    bool _is_loaded = false;
+    bool _need_delete_file = false;
 };
 
 } // namespace doris

@@ -36,7 +36,7 @@ public abstract class LoadTask extends MasterTask {
     protected FailMsg failMsg = new FailMsg();
     protected int retryTime = 1;
 
-    public LoadTask(LoadTaskCallback callback){
+    public LoadTask(LoadTaskCallback callback) {
         this.signature = Catalog.getCurrentCatalog().getNextId();
         this.callback = callback;
     }
@@ -73,6 +73,7 @@ public abstract class LoadTask extends MasterTask {
         return retryTime;
     }
 
+    // Derived class may need to override this.
     public void updateRetryInfo() {
         this.retryTime--;
         this.signature = Catalog.getCurrentCatalog().getNextId();
