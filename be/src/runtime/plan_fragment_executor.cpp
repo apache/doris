@@ -76,7 +76,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     _runtime_state.reset(new RuntimeState(
-            request, request.query_options, request.query_globals.now_string, _exec_env));
+            request, request.query_options, request.query_globals, _exec_env));
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);

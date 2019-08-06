@@ -100,6 +100,7 @@ set(RUNTIME_FILES
   routine_load/data_consumer_pool.cpp
   routine_load/routine_load_task_executor.cpp
   small_file_mgr.cpp
+  timestamp_value.cpp
 )
 
 if (WITH_MYSQL)

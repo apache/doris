@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "timestamp_functions.h"
+#include "runtime/timestamp_value.h"
 
 namespace doris {
 const char* TimezoneDatabase::_s_timezone_database_str =
