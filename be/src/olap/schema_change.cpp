@@ -32,6 +32,8 @@
 #include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/alpha_rowset_writer.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -566,6 +568,8 @@ bool RowBlockMerger::merge(
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
+    MemTracker mem_tracker;
+    MemPool mem_pool(&mem_tracker);
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
         goto MERGE_ERR;
@@ -577,9 +581,8 @@ bool RowBlockMerger::merge(
     // memory during init procedure. So, copying content
     // in row_cursor to rowblock is necessary
     // That's not very memory-efficient!
-
     while (_heap.size() > 0) {
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), rowset_writer->mem_pool());
+        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), &mem_pool);
 
         init_row_with_others(&row_cursor, *(_heap.top().row_cursor));
 
@@ -695,10 +698,15 @@ SchemaChangeDirectly::~SchemaChangeDirectly() {
     SAFE_DELETE(_dst_cursor);
 }
 
-bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
+bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer,
+                                            RowBlock* row_block,
+                                            MemPool* mem_pool) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         row_block->get_row(i, _src_cursor);
-        copy_row(_dst_cursor, *_src_cursor, rowset_writer->mem_pool());
+        // we don't use a local MemPool because before flush(), AlphaRowsetWriter may reference to object allocated
+        // inside MemPool. Note that BetaRowsetWriter doesn't have this problem, it always copies the entire row data in
+        // add_row(). So if AlphaRowsetWriter were fixed to not rely on data in MemPool, local MemPool could be used.
+        copy_row(_dst_cursor, *_src_cursor, mem_pool);
         if (OLAP_SUCCESS != rowset_writer->add_row(*_dst_cursor)) {
             LOG(WARNING) << "fail to attach writer";
             return false;
@@ -771,6 +779,8 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             << "block_row_number=" << new_tablet->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = nullptr;
+    MemTracker mem_tracker;
+    MemPool mem_pool(&mem_tracker);
 
     // Reset filtered_rows and merged_rows statistic
     reset_merged_rows();
@@ -811,7 +821,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
         add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(rowset_writer, new_row_block)) {
+        if (!_write_row_block(rowset_writer, new_row_block, &mem_pool)) {
             LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;

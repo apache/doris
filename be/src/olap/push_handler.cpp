@@ -29,6 +29,8 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 using std::list;
 using std::map;
@@ -355,11 +357,13 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         }
 
         // 5. Read data from raw file and write into SegmentGroup of cur_tablet
+        MemTracker mem_tracker;
+        MemPool mem_pool(&mem_tracker);
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&row, rowset_writer->mem_pool());
+                res = reader->next(&row, &mem_pool);
                 if (OLAP_SUCCESS != res) {
                     LOG(WARNING) << "read next row failed."
                         << " res=" << res << " read_rows=" << num_rows;

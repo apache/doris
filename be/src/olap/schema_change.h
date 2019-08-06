@@ -39,6 +39,8 @@ class Tablet;
 class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
+// defined in 'mem_pool.h'
+class MemPool;
 
 class RowBlockChanger {
 public:
@@ -163,7 +165,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(RowsetWriterSharedPtr rowset_builder, RowBlock* row_block);
+    bool _write_row_block(RowsetWriterSharedPtr rowset_builder, RowBlock* row_block, MemPool* mem_pool);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };

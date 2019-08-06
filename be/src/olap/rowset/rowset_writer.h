@@ -21,7 +21,6 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "gen_cpp/types.pb.h"
-#include "runtime/mem_pool.h"
 #include "olap/column_mapping.h"
 
 namespace doris {
@@ -37,6 +36,8 @@ public:
 
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
+    // Note that `row` may reference to other memory objects (such as the actual slice data) that are not necessarily
+    // get copied inside add_row. It is the caller's responsibilities to ensure those objects are alive before flush().
     virtual OLAPStatus add_row(const RowCursor& row) = 0;
     virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
@@ -49,16 +50,11 @@ public:
     // get a rowset
     virtual RowsetSharedPtr build() = 0;
 
-    // TODO(hkp): this interface should be optimized!
-    virtual MemPool* mem_pool() = 0;
-
     virtual Version version() = 0;
 
     virtual int64_t num_rows() = 0;
 
     virtual RowsetId rowset_id() = 0;
-
-    virtual OLAPStatus garbage_collection() = 0;
 
     virtual DataDir* data_dir() = 0;
 };
