@@ -1,19 +1,19 @@
 # SHOW FUNCTION
 ## description
-
-查看数据库下所有的自定义函数。如果用户指定了数据库，那么查看对应数据库的，否则直接查询当前会话所在数据库
-
-需要对这个数据库拥有 `SHOW` 权限
-
- Syntax
+### Syntax
 
 ```
 SHOW FUNCTION [FROM db]
 ```
 
- Parameters
+### Parameters
 
 > `db`: 要查询的数据库名字
+
+
+查看数据库下所有的自定义函数。如果用户指定了数据库，那么查看对应数据库的，否则直接查询当前会话所在数据库
+
+需要对这个数据库拥有 `SHOW` 权限
 
 ## example
 

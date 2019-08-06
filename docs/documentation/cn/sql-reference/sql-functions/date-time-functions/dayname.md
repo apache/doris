@@ -1,13 +1,13 @@
 # dayname
 ## description
+### Syntax
+
+`VARCHAR DAYNAME(DATE)`
+
 
 返回日期对应的日期名字
 
 参数为Date或者Datetime类型
-
- Syntax
-
-`VARCHAR DAYNAME(DATE)`
 
 ## example
 

@@ -1,11 +1,11 @@
 # `ST_Distance_Sphere`
 ## description
-
-计算地球两点之间的球面距离，单位为 米。传入的参数分别为X点的经度，X点的纬度，Y点的经度，Y点的纬度。
-
- Syntax
+### Syntax
 
 `DOUBLE ST_Distance_Sphere(DOUBLE x_lng, DOUBLE x_lat, DOUBLE y_lng, DOUBLE x_lat)`
+
+
+计算地球两点之间的球面距离，单位为 米。传入的参数分别为X点的经度，X点的纬度，Y点的经度，Y点的纬度。
 
 ## example
 

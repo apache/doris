@@ -1,11 +1,11 @@
 # strright
 ## description
-
-它返回具有指定长度的字符串的右边部分
-
- Syntax
+### Syntax
 
 `VARCHAR strright(VARCHAR str)`
+
+
+它返回具有指定长度的字符串的右边部分
 
 ## example
 

@@ -1,13 +1,13 @@
 # dayofyear
 ## description
+### Syntax
+
+`INT DAYOFYEAR(DATETIME date)`
+
 
 获得日期中对应当年中的哪一天。
 
 参数为Date或者Datetime类型
-
- Syntax
-
-`INT DAYOFYEAR(DATETIME date)`
 
 ## example
 

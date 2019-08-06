@@ -1,7 +1,6 @@
 # INSERT
 ## description
-
- Syntax
+### Syntax
 
 ```
 INSERT INTO table_name
@@ -11,7 +10,7 @@ INSERT INTO table_name
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
 ```
 
- Parameters
+### Parameters
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 > 
@@ -28,7 +27,7 @@ INSERT INTO table_name
 > hint: 用于指示 `INSERT` 执行行为的一些指示符。`streaming` 和 默认的非 `streaming` 方式均会使用同步方式完成 `INSERT` 语句执行
 >       非 `streaming` 方式在执行完成后会返回一个 label 方便用户通过 `SHOW LOAD` 查询导入的状态
 
- Note
+### Note
 
 当前执行 `INSERT` 语句时，对于有不符合目标表格式的数据，默认的行为是过滤，比如字符串超长等。但是对于有要求数据不能够被过滤的业务场景，可以通过设置会话变量 `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。
 

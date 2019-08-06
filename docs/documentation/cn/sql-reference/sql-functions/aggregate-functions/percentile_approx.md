@@ -1,13 +1,13 @@
 # PERCENTILE_APPROX
 ## description
+### Syntax
+
+`PERCENTILE_APPROX(expr, DOUBLE p)`
+
 
 返回第p个百分位点的近似值，p的值介于0到1之间
 
 该函数使用固定大小的内存，因此对于高基数的列可以使用更少的内存，可用于计算tp99等统计值
-
- Syntax
-
-`PERCENTILE_APPROX(expr, DOUBLE p)`
 
 ## example
 ```

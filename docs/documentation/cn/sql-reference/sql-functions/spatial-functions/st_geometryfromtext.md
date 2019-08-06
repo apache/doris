@@ -1,11 +1,11 @@
 # `ST_GeometryFromText`,`ST_GeomFromText`
 ## description
-
-将一个WKT（Well Known Text）转化为对应的内存的几何形式
-
- Syntax
+### Syntax
 
 `GEOMETRY ST_GeometryFromText(VARCHAR wkt)`
+
+
+将一个WKT（Well Known Text）转化为对应的内存的几何形式
 
 ## example
 

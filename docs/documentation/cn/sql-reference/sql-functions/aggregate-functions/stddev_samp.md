@@ -1,11 +1,11 @@
 # STDDEV_SAMP
 ## description
-
-返回expr表达式的样本标准差
-
- Syntax
+### Syntax
 
 `STDDEV_SAMP(expr)`
+
+
+返回expr表达式的样本标准差
 
 ## example
 ```

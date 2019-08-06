@@ -1,15 +1,15 @@
 # datediff
 ## description
+### Syntax
+
+`DATETIME DATEDIFF(DATETIME expr1,DATETIME expr2)`
+
 
 计算expr1 - expr2，结果精确到天。
 
 expr1 和 expr2 参数是合法的日期或日期/时间表达式。
 
 注释：只有值的日期部分参与计算。
-
- Syntax
-
-`DATETIME DATEDIFF(DATETIME expr1,DATETIME expr2)`
 
 ## example
 

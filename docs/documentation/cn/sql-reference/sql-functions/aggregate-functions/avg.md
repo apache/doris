@@ -1,13 +1,13 @@
 # AVG
 ## description
+### Syntax
+
+`AVG([DISTINCT] expr)`
+
 
 用于返回选中字段的平均值
 
 可选字段DISTINCT参数可以用来返回去重平均值
-
- Syntax
-
-`AVG([DISTINCT] expr)`
 
 ## example
 

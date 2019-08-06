@@ -1,13 +1,13 @@
 # to_days
 ## description
+### Syntax
+
+`INT TO_DAYS(DATETIME date)`
+
 
 返回date距离0000-01-01的天数
 
 参数为Date或者Datetime类型
-
- Syntax
-
-`INT TO_DAYS(DATETIME date)`
 
 ## example
 

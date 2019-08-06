@@ -1,23 +1,23 @@
 # CAST
 ## description
-
-将 input 转成 指定的 type 
-
 ## description
-
-将当前列 input 转换为 BIGINT 类型
-
- Syntax
+### Syntax
 
 ```
 cast (input as type)
 ```
 
- BIGINT type 
+### BIGINT type 
 
- Syntax
+### Syntax
 
 ``` cast (input as BIGINT) ```
+
+
+将 input 转成 指定的 type 
+
+
+将当前列 input 转换为 BIGINT 类型
 
 ## example
 

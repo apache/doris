@@ -1,13 +1,13 @@
 # str_to_date
 ## description
+### Syntax
+
+`DATETIME STR_TO_DATE(VARCHAR str, VARCHAR format)`
+
 
 通过format指定的方式将str转化为DATE类型，如果转化结果不对返回NULL
 
 支持的format格式与date_format一致
-
- Syntax
-
-`DATETIME STR_TO_DATE(VARCHAR str, VARCHAR format)`
 
 ## example
 

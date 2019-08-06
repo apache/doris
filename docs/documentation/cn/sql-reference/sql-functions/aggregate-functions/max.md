@@ -1,11 +1,11 @@
 # MAX
 ## description
-
-返回expr表达式的最大值
-
- Syntax
+### Syntax
 
 `MAX(expr)`
+
+
+返回expr表达式的最大值
 
 ## example
 ```

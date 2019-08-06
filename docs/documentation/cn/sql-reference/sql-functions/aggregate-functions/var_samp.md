@@ -1,11 +1,11 @@
 # VAR_SAMP,VARIANCE_SAMP
 ## description
-
-返回expr表达式的样本方差
-
- Syntax
+### Syntax
 
 `VAR_SAMP(expr)`
+
+
+返回expr表达式的样本方差
 
 ## example
 ```

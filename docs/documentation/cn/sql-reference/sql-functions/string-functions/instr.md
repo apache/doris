@@ -1,11 +1,11 @@
 # instr
 ## description
-
-返回 substr 在 str 中第一次出现的位置（从1开始计数）。如果 substr 不在 str 中出现，则返回0。
-
- Syntax
+### Syntax
 
 `INT instr(VARCHAR str, VARCHAR substr)`
+
+
+返回 substr 在 str 中第一次出现的位置（从1开始计数）。如果 substr 不在 str 中出现，则返回0。
 
 ## example
 

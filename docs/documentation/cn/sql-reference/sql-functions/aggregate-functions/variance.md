@@ -1,11 +1,11 @@
 # VARIANCE,VAR_POP,VARIANCE_POP
 ## description
-
-返回expr表达式的方差
-
- Syntax
+### Syntax
 
 `VARIANCE(expr)`
+
+
+返回expr表达式的方差
 
 ## example
 ```

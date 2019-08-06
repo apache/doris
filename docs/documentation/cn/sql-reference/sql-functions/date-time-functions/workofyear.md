@@ -1,14 +1,14 @@
 # weekofyear
 ## description
+### Syntax
+
+`INT WEEKOFYEAR(DATETIME date)`
+
 
 
 获得一年中的第几周
 
 参数为Date或者Datetime类型
-
- Syntax
-
-`INT WEEKOFYEAR(DATETIME date)`
 
 ## example
 

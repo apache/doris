@@ -1,11 +1,11 @@
 # STDDEV,STDDEV_POP
 ## description
-
-返回expr表达式的标准差
-
- Syntax
+### Syntax
 
 `STDDEV(expr)`
+
+
+返回expr表达式的标准差
 
 ## example
 ```

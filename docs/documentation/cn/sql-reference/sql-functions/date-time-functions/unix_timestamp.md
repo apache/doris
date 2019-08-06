@@ -1,15 +1,15 @@
 # unix_timestamp
 ## description
+### Syntax
+
+`INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
+
 
 将Date或者Datetime类型转化为unix时间戳 
 
 如果没有参数，则是将当前的时间转化为时间戳
 
 参数需要是Date或者Datetime类型
-
- Syntax
-
-`INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
 
 ## example
 

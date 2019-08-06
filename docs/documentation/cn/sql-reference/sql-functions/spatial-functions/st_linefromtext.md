@@ -1,11 +1,11 @@
 # `ST_LineFromText`,`ST_LineStringFromText`
 ## description
-
-将一个WKT（Well Known Text）转化为一个Line形式的内存表现形式
-
- Syntax
+### Syntax
 
 `GEOMETRY ST_LineFromText(VARCHAR wkt)`
+
+
+将一个WKT（Well Known Text）转化为一个Line形式的内存表现形式
 
 ## example
 

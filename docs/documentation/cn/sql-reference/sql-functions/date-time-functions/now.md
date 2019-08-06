@@ -1,11 +1,11 @@
 # now
 ## description
-
-获得当前的时间，以Datetime类型返回
-
- Syntax
+### Syntax
 
 `DATETIME NOW()`
+
+
+获得当前的时间，以Datetime类型返回
 
 ## example
 

@@ -1,11 +1,11 @@
 # `ST_Y`
 ## description
-
-当point是一个合法的POINT类型时，返回对应的Y坐标值
-
- Syntax
+### Syntax
 
 `DOUBLE ST_Y(POINT point)`
+
+
+当point是一个合法的POINT类型时，返回对应的Y坐标值
 
 ## example
 

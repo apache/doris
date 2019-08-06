@@ -1,11 +1,11 @@
 # lcase
 ## description
-
-与`lower`一致
-
- Syntax
+### Syntax
 
 `INT lcase(VARCHAR str)`
+
+
+与`lower`一致
 
 ##keyword
 LCASE,LCASE

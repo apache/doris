@@ -1,11 +1,11 @@
 # SUM
 ## description
-
-用于返回选中字段所有值的和
-
- Syntax
+### Syntax
 
 `SUM(expr)`
+
+
+用于返回选中字段所有值的和
 
 ## example
 ```

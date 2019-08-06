@@ -1,11 +1,11 @@
 # COUNT
 ## description
-
-用于返回满足要求的行的数目
-
- Syntax
+### Syntax
 
 `COUNT([DISTINCT] expr)`
+
+
+用于返回满足要求的行的数目
 
 ## example
 

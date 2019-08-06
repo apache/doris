@@ -1,5 +1,9 @@
 # from_unixtime
 ## description
+### Syntax
+
+`DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
+
 
 将unix时间戳转化位对应的time格式，返回的格式由string_format指定
 
@@ -10,10 +14,6 @@
 目前string_format只支持两种类型的格式：yyyy-MM-dd，yyyy-MM-dd HH:mm:ss
 
 其余string_format格式是非法的，返回NULL
-
- Syntax
-
-`DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
 
 ## example
 

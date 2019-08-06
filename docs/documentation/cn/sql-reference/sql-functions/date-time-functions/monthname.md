@@ -1,13 +1,13 @@
 # monthname
 ## description
+### Syntax
+
+`VARCHAR MONTHNAME(DATE)`
+
 
 返回日期对应的月份名字
 
 参数为Date或者Datetime类型
-
- Syntax
-
-`VARCHAR MONTHNAME(DATE)`
 
 ## example
 

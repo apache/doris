@@ -1,11 +1,11 @@
 # COUNT_DISTINCT
 ## description
-
-用于返回满足要求的行的数目，或者非NULL行的数目
-
- Syntax
+### Syntax
 
 `COUNT_DISTINCT(expr)`
+
+
+用于返回满足要求的行的数目，或者非NULL行的数目
 
 ## example
 

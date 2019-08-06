@@ -1,11 +1,11 @@
 # MIN
 ## description
-
-返回expr表达式的最小值
-
- Syntax
+### Syntax
 
 `MIN(expr)`
+
+
+返回expr表达式的最小值
 
 ## example
 ```

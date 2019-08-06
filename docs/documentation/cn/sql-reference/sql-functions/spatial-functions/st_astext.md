@@ -1,11 +1,11 @@
 # `ST_AsText`,`ST_AsWKT`
 ## description
-
-将一个几何图形转化为WKT（Well Known Text）的表示形式
-
- Syntax
+### Syntax
 
 `VARCHAR ST_AsText(GEOMETRY geo)`
+
+
+将一个几何图形转化为WKT（Well Known Text）的表示形式
 
 ## example
 

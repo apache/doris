@@ -133,7 +133,13 @@ public class MarkDownParser {
             if (!lines.get(nextToRead).startsWith("#")) {
                 sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
-            } else {
+            }
+            // Ignore head at level 3 or bigger
+            else if (lines.get(nextToRead).startsWith("###")) {
+                sb.append(lines.get(nextToRead).replaceAll("#","")).append('\n');
+                nextToRead++;
+            } 
+            else {
                 break;
             }
         }
