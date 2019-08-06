@@ -1012,7 +1012,9 @@ OLAPStatus TabletManager::start_trash_sweep() {
     do {
         sleep(1);
         clean_num = 0;
-        ReadLock rlock(&_tablet_map_lock);
+        // should get write lock here, because it will remove tablet from shut_down_tablets
+        // and get tablet will access shut_down_tablets
+        WriteLock wlock(&_tablet_map_lock);
         auto it = _shutdown_tablets.begin();
         for (; it != _shutdown_tablets.end();) { 
             // check if the meta has the tablet info and its state is shutdown
