@@ -35,11 +35,13 @@ add_library(Rowset STATIC
     run_length_integer_writer.cpp
     segment_reader.cpp
     segment_writer.cpp
+    rowset.cpp
     rowset_id_generator.cpp
     rowset_meta_manager.cpp
     alpha_rowset.cpp
     alpha_rowset_reader.cpp
     alpha_rowset_writer.cpp
     alpha_rowset_meta.cpp
+    beta_rowset.cpp
     rowset_id_generator.cpp
 )
