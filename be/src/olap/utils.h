@@ -192,17 +192,28 @@ private:
 class MutexLock {
 public:
     // wait until obtain the lock
-    explicit MutexLock(Mutex* mutex) : _mutex(mutex) {
-        _mutex->lock();
+    explicit MutexLock(Mutex* mutex, bool try_lock = false)
+        : _mutex(mutex), _locked(false) {
+        if (try_lock) {
+            _locked = (_mutex->trylock() == OLAP_SUCCESS);
+        } else {
+            _mutex->lock();
+            _locked = true;
+        }
     }
+
     // unlock is called after
     ~MutexLock() {
-        _mutex->unlock();
+        if (_locked) {
+            _mutex->unlock();
+        }
     }
+
+    inline bool own_lock() const { return _locked; }
 
 private:
     Mutex* _mutex;
-
+    bool _locked;
     DISALLOW_COPY_AND_ASSIGN(MutexLock);
 };
 
@@ -248,25 +259,25 @@ private:
 class ReadLock {
 public:
     explicit ReadLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), locked(false) {
+            : _mutex(mutex), _locked(false) {
         if (try_lock) {
-            locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
+            _locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
         } else {
             this->_mutex->rdlock();
-            locked = true;
+            _locked = true;
         }
     }
     ~ReadLock() { 
-        if (locked) {
+        if (_locked) {
             this->_mutex->unlock(); 
         }
     }
 
-    bool own_lock() { return locked; }
+    bool own_lock() { return _locked; }
 
 private:
     RWMutex* _mutex;
-    bool locked;
+    bool _locked;
     DISALLOW_COPY_AND_ASSIGN(ReadLock);
 };
 
@@ -278,25 +289,25 @@ private:
 class WriteLock {
 public:
     explicit WriteLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), locked(false) {
+            : _mutex(mutex), _locked(false) {
         if (try_lock) {
-            locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
+            _locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
         } else {
             this->_mutex->wrlock();
-            locked = true;
+            _locked = true;
         }
     }
     ~WriteLock() { 
-        if (locked) {
+        if (_locked) {
             this->_mutex->unlock();
         } 
     }
 
-    bool own_lock() { return locked; }
+    bool own_lock() { return _locked; }
 
 private:
     RWMutex* _mutex;
-    bool locked;
+    bool _locked;
     DISALLOW_COPY_AND_ASSIGN(WriteLock);
 };
 

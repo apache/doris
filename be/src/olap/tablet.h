@@ -165,14 +165,14 @@ public:
     inline Mutex* get_push_lock() { return &_ingest_lock; }
 
     // base lock
-    inline bool try_base_compaction_lock() { return _base_lock.trylock() == OLAP_SUCCESS; }
     inline void obtain_base_compaction_lock() { _base_lock.lock(); }
     inline void release_base_compaction_lock() { _base_lock.unlock(); }
+    inline Mutex* get_base_lock() { return &_base_lock; }
 
     // cumulative lock
-    inline bool try_cumulative_lock() { return (OLAP_SUCCESS == _cumulative_lock.trylock()); }
     inline void obtain_cumulative_lock() { _cumulative_lock.lock(); }
     inline void release_cumulative_lock() { _cumulative_lock.unlock(); }
+    inline Mutex* get_cumulative_lock() { return &_cumulative_lock; }
 
     inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
 
@@ -236,11 +236,11 @@ public:
 
     void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
-    OLAPStatus calcuate_cumulative_point();
 
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
+    OLAPStatus _calcuate_cumulative_point();
 
 private:
     TabletState _state;
