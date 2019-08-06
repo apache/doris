@@ -1,14 +1,13 @@
 # lower
-
-## Syntax
-
-`INT lower(VARCHAR str)`
-
-## Description
+## description
 
 将参数中所有的字符串都转换成小写
 
-## Examples
+ Syntax
+
+`INT lower(VARCHAR str)`
+
+## example
 
 ```
 mysql> SELECT lower("AbC123");
@@ -18,3 +17,5 @@ mysql> SELECT lower("AbC123");
 | abc123          |
 +-----------------+
 ```
+##keyword
+LOWER,LOWER

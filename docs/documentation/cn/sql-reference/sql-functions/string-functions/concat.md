@@ -1,14 +1,13 @@
 # concat
-
-## Syntax
-
-`VARCHAR concat(VARCHAR,...)`
-
-## Description
+## description
 
 将多个字符串连接起来, 如果参数中任意一个值是 NULL，那么返回的结果就是 NULL
 
-## Examples
+ Syntax
+
+`VARCHAR concat(VARCHAR,...)`
+
+## example
 
 ```
 mysql> select concat("a", "b");
@@ -32,3 +31,5 @@ mysql> select concat("a", null, "c");
 | NULL                   |
 +------------------------+
 ```
+##keyword
+CONCAT,CONCAT

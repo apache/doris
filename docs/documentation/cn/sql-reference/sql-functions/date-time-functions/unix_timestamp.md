@@ -1,10 +1,5 @@
 # unix_timestamp
-
-## Syntax
-
-`INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
-
-## Description
+## description
 
 将Date或者Datetime类型转化为unix时间戳 
 
@@ -12,7 +7,11 @@
 
 参数需要是Date或者Datetime类型
 
-## Examples
+ Syntax
+
+`INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
+
+## example
 
 ```
 mysql> select unix_timestamp();
@@ -28,4 +27,5 @@ mysql> select unix_timestamp('2007-11-30 10:30:19');
 +---------------------------------------+
 |                            1196389819 |
 +---------------------------------------+
-```
+##keyword
+UNIX_TIMESTAMP,UNIX,TIMESTAMP

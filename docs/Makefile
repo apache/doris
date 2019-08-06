@@ -33,8 +33,7 @@ ${HELP_DIR}:
 # build help zip
 HELP_OUTPUT = ${BUILD_DIR}/help-resource.zip
 ${HELP_OUTPUT}: documentation/cn/sql-reference ${BUILD_DIR} ${HELP_DIR}
-	cp -r $</* ${HELP_DIR} && cp script/*.sh ${HELP_DIR}
-	cd ${HELP_DIR} && sh split.sh && sh merge.sh && sh keyword.sh && rm split.sh && rm merge.sh && rm keyword.sh && cd -
+	cp -r $</* ${HELP_DIR}
 	zip -r $@ contents && rm -rf contents
 .PHONY: zip_help
 zip_help: ${HELP_OUTPUT}

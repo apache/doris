@@ -1,14 +1,13 @@
 # MAX
-
-## Syntax
-
-`MAX(expr)`
-
-## Description
+## description
 
 返回expr表达式的最大值
 
-## Examples
+ Syntax
+
+`MAX(expr)`
+
+## example
 ```
 MySQL > select max(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -17,3 +16,5 @@ MySQL > select max(scan_rows) from log_statis group by datetime;
 |          4671587 |
 +------------------+
 ```
+##keyword
+MAX,MAX

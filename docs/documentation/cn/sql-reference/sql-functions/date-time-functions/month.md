@@ -1,16 +1,15 @@
 # month
-
-## Syntax
-
-`INT MONTH(DATETIME date)`
-
-## Description
+## description
 
 返回时间类型中的月份信息，范围是1, 12
 
 参数为Date或者Datetime类型
 
-## Examples
+ Syntax
+
+`INT MONTH(DATETIME date)`
+
+## example
 
 ```
 mysql> select month('1987-01-01');
@@ -19,4 +18,5 @@ mysql> select month('1987-01-01');
 +-----------------------------+
 |                           1 |
 +-----------------------------+
-```
+##keyword
+MONTH,MONTH

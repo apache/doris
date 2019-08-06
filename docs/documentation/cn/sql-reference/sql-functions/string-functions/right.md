@@ -1,14 +1,13 @@
 # right
-
-## Syntax
-
-`VARCHAR right(VARCHAR str)`
-
-## Description
+## description
 
 它返回具有指定长度的字符串的右边部分
 
-## Examples
+ Syntax
+
+`VARCHAR right(VARCHAR str)`
+
+## example
 
 ```
 mysql> select right("Hello doris",5);
@@ -18,3 +17,5 @@ mysql> select right("Hello doris",5);
 | doris                   |
 +-------------------------+
 ```
+##keyword
+RIGHT,RIGHT

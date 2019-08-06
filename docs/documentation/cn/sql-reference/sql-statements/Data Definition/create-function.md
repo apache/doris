@@ -1,6 +1,11 @@
 # CREATE FUNCTION
+## description
 
-## Syntax
+此语句创建一个自定义函数。执行此命令需要用户拥有 `ADMIN` 权限。
+
+如果 `function_name` 中包含了数据库名字，那么这个自定义函数会创建在对应的数据库中，否则这个函数将会创建在当前会话所在的数据库。新函数的名字与参数不能够与当前命名空间中已存在的函数相同，否则会创建失败。但是只有名字相同，参数不同是能够创建成功的。
+
+ Syntax
 
 ```
 CREATE [AGGREGATE] FUNCTION function_name
@@ -10,13 +15,7 @@ CREATE [AGGREGATE] FUNCTION function_name
     [PROPERTIES ("key" = "value" [, ...]) ]
 ```
 
-## Description
-
-此语句创建一个自定义函数。执行此命令需要用户拥有 `ADMIN` 权限。
-
-如果 `function_name` 中包含了数据库名字，那么这个自定义函数会创建在对应的数据库中，否则这个函数将会创建在当前会话所在的数据库。新函数的名字与参数不能够与当前命名空间中已存在的函数相同，否则会创建失败。但是只有名字相同，参数不同是能够创建成功的。
-
-## Parameters
+ Parameters
 
 > `AGGREGATE`: 如果有此项，表示的是创建的函数是一个聚合函数，否则创建的是一个标量函数。
 >
@@ -46,7 +45,7 @@ CREATE [AGGREGATE] FUNCTION function_name
 >
 >           "md5": 函数动态链接库的MD5值，用于校验下载的内容是否正确。此选项是可选项
 
-## Examples
+## example
 
 1. 创建一个自定义标量函数
 
@@ -68,3 +67,5 @@ CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
     "object_file"="http://host:port/libudasample.so"
 );
 ```
+##keyword
+CREATE,FUNCTION,CREATE,FUNCTION

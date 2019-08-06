@@ -1,14 +1,13 @@
 # `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
-
-## Syntax
-
-`GEOMETRY ST_Polygon(VARCHAR wkt)`
-
-## Description
+## description
 
 将一个WKT（Well Known Text）转化为对应的多边形内存形式
 
-## Examples
+ Syntax
+
+`GEOMETRY ST_Polygon(VARCHAR wkt)`
+
+## example
 
 ```
 mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
@@ -18,3 +17,5 @@ mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
 | POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
 +------------------------------------------------------------------+
 ```
+##keyword
+ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,ST,POLYFROMTEXT,ST,POLYGONFROMTEXT

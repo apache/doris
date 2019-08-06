@@ -1,6 +1,7 @@
 # INSERT
+## description
 
-## Syntax
+ Syntax
 
 ```
 INSERT INTO table_name
@@ -10,9 +11,7 @@ INSERT INTO table_name
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
 ```
 
-## description
-
-## Parameters
+ Parameters
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 > 
@@ -29,11 +28,11 @@ INSERT INTO table_name
 > hint: 用于指示 `INSERT` 执行行为的一些指示符。`streaming` 和 默认的非 `streaming` 方式均会使用同步方式完成 `INSERT` 语句执行
 >       非 `streaming` 方式在执行完成后会返回一个 label 方便用户通过 `SHOW LOAD` 查询导入的状态
 
-## Note
+ Note
 
 当前执行 `INSERT` 语句时，对于有不符合目标表格式的数据，默认的行为是过滤，比如字符串超长等。但是对于有要求数据不能够被过滤的业务场景，可以通过设置会话变量 `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。
 
-## Examples
+## example
 
 `test` 表包含两个列`c1`, `c2`。
 
@@ -78,3 +77,5 @@ INSERT INTO test (c1, c2) SELECT * from test2
 异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的*执行效率是一样*的。
 
 由于Doris之前的导入方式都是异步导入方式，为了兼容旧有的使用习惯，不加 streaming 的 `INSERT` 语句依旧会返回一个 label，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的状态。
+##keyword
+INSERT,INSERT

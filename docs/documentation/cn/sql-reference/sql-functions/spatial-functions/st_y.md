@@ -1,14 +1,13 @@
 # `ST_Y`
-
-## Syntax
-
-`DOUBLE ST_Y(POINT point)`
-
-## Description
+## description
 
 当point是一个合法的POINT类型时，返回对应的Y坐标值
 
-## Examples
+ Syntax
+
+`DOUBLE ST_Y(POINT point)`
+
+## example
 
 ```
 mysql> SELECT ST_Y(ST_Point(24.7, 56.7));
@@ -18,3 +17,5 @@ mysql> SELECT ST_Y(ST_Point(24.7, 56.7));
 |                       56.7 |
 +----------------------------+
 ```
+##keyword
+ST_Y,ST,Y
