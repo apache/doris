@@ -104,24 +104,31 @@ struct CppTypeTraits {
 
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_BOOL> {
     using CppType = bool;
+    using UnsignedCppType = bool;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_TINYINT> {
     using CppType = int8_t;
+    using UnsignedCppType = uint8_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_SMALLINT> {
     using CppType = int16_t;
+    using UnsignedCppType = uint16_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_INT> {
     using CppType = int32_t;
+    using UnsignedCppType = uint32_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_INT> {
     using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_BIGINT> {
     using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
     using CppType = int128_t;
+    using UnsignedCppType = unsigned int128_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_FLOAT> {
     using CppType = float;
@@ -131,12 +138,15 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_DOUBLE> {
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
     using CppType = decimal12_t;
+    using UnsignedCppType = decimal12_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_DATE> {
     using CppType = uint24_t;
+    using UnsignedCppType = uint24_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_DATETIME> {
     using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_CHAR> {
     using CppType = Slice;

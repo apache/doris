@@ -26,6 +26,7 @@
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "olap/key_coder.h"
 #include "olap/utils.h"
 #include "olap/row_cursor_cell.h"
 #include "runtime/mem_pool.h"
@@ -57,12 +58,14 @@ public:
     Field(const TabletColumn& column)
         : _type_info(get_type_info(column.type())),
         _agg_info(get_aggregate_info(column.aggregation(), column.type())),
+        _key_coder(get_key_coder(column.type())),
         _index_size(column.index_length()),
         _is_nullable(column.is_nullable()) { }
 
     Field(FieldType type)
         : _type_info(get_type_info(type)),
         _agg_info(get_aggregate_info(OLAP_FIELD_AGGREGATION_NONE, type)),
+        _key_coder(get_key_coder(type)),
         _index_size(_type_info->size()),
         _is_nullable(true) {
     }
@@ -70,6 +73,7 @@ public:
     Field(const FieldAggregationMethod& agg, const FieldType& type, bool is_nullable)
         : _type_info(get_type_info(type)),
         _agg_info(get_aggregate_info(agg, type)),
+        _key_coder(get_key_coder(type)),
         _index_size(-1),
         _is_nullable(is_nullable) {
     }
@@ -77,6 +81,7 @@ public:
     Field(const FieldAggregationMethod& agg, const FieldType& type, size_t index_size, bool is_nullable)
         : _type_info(get_type_info(type)),
         _agg_info(get_aggregate_info(agg, type)),
+        _key_coder(get_key_coder(type)),
         _index_size(index_size),
         _is_nullable(is_nullable) {
     }
@@ -233,10 +238,19 @@ public:
     FieldType type() const { return _type_info->type(); }
     const TypeInfo* type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
+
+    void encode_ascending(const void* value, std::string* buf) const {
+        _key_coder->encode_ascending(value, _index_size, buf);
+    }
+    
+    Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, Arena* arena) const {
+        return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, arena);
+    }
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
     const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
+    const KeyCoder* _key_coder;
     uint16_t _index_size;
     bool _is_nullable;
 };

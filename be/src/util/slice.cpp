@@ -15,25 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
-#define DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
+#include "util/slice.h"
+
+#include "util/faststring.h"
 
 namespace doris {
 
-class WrapperField;
+// NOTE(zc): we define this function here to make compile work.
+Slice::Slice(const faststring& s) : // NOLINT(runtime/explicit)
+    data((char*)(s.data())), size(s.size()) { }
 
-struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(nullptr) {}
-    virtual ~ColumnMapping() {}
-
-    // <0: use default value
-    // >=0: use origin column
-    int32_t ref_column;
-    // normally for default value. stores values for filters
-    WrapperField* default_value;
-};
-
-typedef std::vector<ColumnMapping> SchemaMapping;
-
-}  // namespace doris
-#endif // DORIS_BE_SRC_COLUMN_MAPPING_H
+}
