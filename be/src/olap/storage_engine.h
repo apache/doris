@@ -43,7 +43,6 @@
 #include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
-#include "olap/rowset/segment_group.h"
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
@@ -299,7 +298,6 @@ private:
 
     static StorageEngine* _s_instance;
 
-    std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
     Mutex _gc_mutex;
 

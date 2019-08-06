@@ -28,7 +28,6 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 #include "olap/column_mapping.h"
-#include "olap/row.h"
 
 namespace doris {
 // defined in 'field.h'
@@ -74,23 +73,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
 
-class RowBlockAllocator;
-class RowBlockSorter {
-public:
-    explicit RowBlockSorter(RowBlockAllocator* allocator);
-    virtual ~RowBlockSorter();
-
-    bool sort(RowBlock** row_block);
-
-private:
-    static bool _row_cursor_comparator(const RowCursor* a, const RowCursor* b) {
-        return compare_row(*a, *b) < 0;
-    }
-
-    RowBlockAllocator* _row_block_allocator;
-    RowBlock* _swap_row_block;
-};
-
 class RowBlockAllocator {
 public:
     RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
@@ -105,34 +87,6 @@ private:
     size_t _memory_allocated;
     size_t _row_len;
     size_t _memory_limitation;
-};
-
-class RowBlockMerger {
-public:
-    explicit RowBlockMerger(TabletSharedPtr tablet);
-    virtual ~RowBlockMerger();
-
-    bool merge(
-            const std::vector<RowBlock*>& row_block_arr,
-            RowsetWriterSharedPtr rowset_writer,
-            uint64_t* merged_rows);
-
-private:
-    struct MergeElement {
-        bool operator<(const MergeElement& other) const {
-            return compare_row(*row_cursor, *other.row_cursor) > 0;
-        }
-
-        const RowBlock* row_block;
-        RowCursor* row_cursor;
-        uint32_t row_block_index;
-    };
-
-    bool _make_heap(const std::vector<RowBlock*>& row_block_arr);
-    bool _pop_heap();
-
-    TabletSharedPtr _tablet;
-    std::priority_queue<MergeElement> _heap;
 };
 
 class SchemaChange {

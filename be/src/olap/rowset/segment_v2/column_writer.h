@@ -58,6 +58,18 @@ public:
     ~ColumnWriter();
 
     Status init();
+    
+    template<typename CellType>
+    Status append(const CellType& cell) {
+        if (_is_nullable) {
+            uint8_t nullmap = 0;
+            BitmapChange(&nullmap, 0, cell.is_null());
+            return append_nullable(&nullmap, cell.cell_ptr(), 1);
+        } else {
+            return append(cell.cell_ptr(), 1);
+        }
+    }
+
     // Now we only support append one by one, we should support append
     // multi rows in one call
     Status append(bool is_null, void* data) {
