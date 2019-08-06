@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -41,13 +42,14 @@ import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.apache.doris.qe.VariableMgr.timeZoneAliasMap;
-
 // TODO(dhc) add nanosecond timer for coordinator's root profile
 public class TimeUtils {
     private static final Logger LOG = LogManager.getLogger(TimeUtils.class);
 
     private static final TimeZone TIME_ZONE;
+
+    // set CST to +08:00 instead of America/Chicago
+    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of("CST", "Asia/Shanghai");
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
@@ -63,6 +65,8 @@ public class TimeUtils {
                     + "[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
                     + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|(1[0-9])|(2[0-8]))))))"
                     + "(\\s(((0?[0-9])|([1][0-9])|([2][0-3]))\\:([0-5]?[0-9])((\\s)|(\\:([0-5]?[0-9])))))?$");
+    
+    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]{1}\\d{2}\\:\\d{2}$");
 
     public static Date MIN_DATE = null;
     public static Date MAX_DATE = null;
@@ -217,13 +221,13 @@ public class TimeUtils {
     public static void checkTimeZoneValid(String value) throws DdlException {
         try {
             // match offset type, such as +08:00, -07:00
-            Pattern p = Pattern.compile("^[+-]{1}\\d{2}\\:\\d{2}$");
-            Matcher m = p.matcher(value);
+            Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
-            if (!value.contains("/") && !value.equals("CST") && !m.matches()) {
+            boolean match = matcher.matches();
+            if (!value.contains("/") && !value.equals("CST") && !match) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
-            if (m.matches()) {
+            if (match) {
                 // timezone offsets around the world extended from -12:00 to +14:00
                 int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));
                 if (value.charAt(0) == '-' && tz > 1200) {
