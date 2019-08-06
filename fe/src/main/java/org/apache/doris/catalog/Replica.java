@@ -41,7 +41,8 @@ public class Replica implements Writable {
         NORMAL,
         ROLLUP,
         SCHEMA_CHANGE,
-        CLONE;
+        CLONE,
+        DECOMMISSION; // replica is ready to be deleted
 
         public boolean isLoadable() {
             return this == ReplicaState.NORMAL || this == ReplicaState.SCHEMA_CHANGE;

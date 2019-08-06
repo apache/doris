@@ -389,6 +389,7 @@ public class Tablet extends MetaObject implements Writable {
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
             if (backend == null || !backend.isAlive() || replica.getState() == ReplicaState.CLONE
+                    || replica.getState() == ReplicaState.DECOMMISSION
                     || replica.isBad() || !hosts.add(backend.getHost())) {
                 // this replica is not alive,
                 // or if this replica is on same host with another replica, we also treat it as 'dead',

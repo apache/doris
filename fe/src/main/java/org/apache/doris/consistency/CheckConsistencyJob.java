@@ -23,11 +23,11 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -172,7 +172,8 @@ public class CheckConsistencyJob {
             long maxDataSize = 0;
             for (Replica replica : tablet.getReplicas()) {
                 // 1. if state is CLONE, do not send task at this time
-                if (replica.getState() == ReplicaState.CLONE) {
+                if (replica.getState() == ReplicaState.CLONE
+                        || replica.getState() == ReplicaState.DECOMMISSION) {
                     continue;
                 }
 

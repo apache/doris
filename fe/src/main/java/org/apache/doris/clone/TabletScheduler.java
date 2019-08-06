@@ -660,7 +660,7 @@ public class TabletScheduler extends Daemon {
      *  1. backend has been dropped
      *  2. replica is bad
      *  3. backend is not available
-     *  4. replica's state is CLONE
+     *  4. replica's state is CLONE or DECOMMISSION
      *  5. replica's last failed version > 0
      *  6. replica with lower version
      *  7. replica not in right cluster
@@ -672,7 +672,7 @@ public class TabletScheduler extends Daemon {
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)
-                || deleteCloneReplica(tabletCtx, force)
+                || deleteCloneOrDecommissionReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
@@ -721,10 +721,10 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteCloneReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+    private boolean deleteCloneOrDecommissionReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
-            if (replica.getState() == ReplicaState.CLONE) {
-                deleteReplicaInternal(tabletCtx, replica, "clone state", force);
+            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.DECOMMISSION) {
+                deleteReplicaInternal(tabletCtx, replica, replica.getState() + " state", force);
                 return true;
             }
         }
@@ -869,17 +869,17 @@ public class TabletScheduler extends Daemon {
         /*
          * Before deleting a replica, we should make sure that there is no running txn on it and no more txns will be on it.
          * So we do followings:
-         * 1. If replica is loadable, set a watermark txn id on it and set it state as CLONE, but not deleting it this time.
-         *      The CLONE state will ensure that no more txns will be on this replicas.
+         * 1. If replica is loadable, set a watermark txn id on it and set it state as DECOMMISSION, but not deleting it this time.
+         *      The DECOMMISSION state will ensure that no more txns will be on this replicas.
          * 2. Wait for any txns before the watermark txn id to be finished. If all are finished, which means this replica is
          *      safe to be deleted.
          */
         if (!force && replica.getState().isLoadable() && replica.getWatermarkTxnId() == -1) {
             long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
-            replica.setState(ReplicaState.CLONE);
+            replica.setState(ReplicaState.DECOMMISSION);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
-        } else if (replica.getState() == ReplicaState.CLONE && replica.getWatermarkTxnId() != -1) {
+        } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
             if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId, tabletCtx.getDbId())) {
                 throw new SchedException(Status.SCHEDULE_FAILED, "wait txn before " + watermarkTxnId + " to be finished");
