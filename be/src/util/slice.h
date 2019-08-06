@@ -29,6 +29,8 @@
 
 namespace doris {
 
+class faststring;
+
 /// @brief A wrapper around externally allocated data.
 ///
 /// Slice is a simple structure containing a pointer into some external
@@ -66,6 +68,8 @@ public:
     /// Create a slice that refers to the contents of the given string.
     Slice(const std::string& s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s.data())), size(s.size()) { }
+    
+    Slice(const faststring& s);
 
     /// Create a slice that refers to a C-string s[0,strlen(s)-1].
     Slice(const char* s) : // NOLINT(runtime/explicit)

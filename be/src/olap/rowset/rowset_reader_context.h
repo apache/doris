@@ -18,16 +18,16 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
-#include "olap/schema.h"
 #include "olap/column_predicate.h"
-#include "olap/row_cursor.h"
-#include "olap/row_block.h"
 #include "olap/lru_cache.h"
-#include "olap/olap_cond.h"
-#include "olap/delete_handler.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RowCursor;
+class Conditions;
+class DeleteHandler;
+class TabletSchema;
 
 struct RowsetReaderContext {
     RowsetReaderContext() : reader_type(READER_QUERY),

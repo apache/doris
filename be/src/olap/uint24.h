@@ -36,10 +36,17 @@ public:
         data[2] = value.data[2];
     }
 
-    uint24_t(const int32_t& value) {
+    uint24_t(const uint32_t& value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);
+    }
+
+    uint24_t& operator=(const uint32_t& value) {
+        data[0] = static_cast<uint8_t>(value);
+        data[1] = static_cast<uint8_t>(value >> 8);
+        data[2] = static_cast<uint8_t>(value >> 16);
+        return *this;
     }
 
     uint24_t& operator+=(const uint24_t& value) {
@@ -47,8 +54,8 @@ public:
         return *this;
     }
 
-    operator int() const {
-        int value = static_cast<uint8_t>(data[0]);
+    operator uint32_t() const {
+        uint32_t value = static_cast<uint8_t>(data[0]);
         value += (static_cast<uint32_t>(static_cast<uint8_t>(data[1]))) << 8;
         value += (static_cast<uint32_t>(static_cast<uint8_t>(data[2]))) << 16;
         return value;
