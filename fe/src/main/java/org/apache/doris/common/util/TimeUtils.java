@@ -17,24 +17,32 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static org.apache.doris.qe.VariableMgr.timeZoneAliasMap;
 
 // TODO(dhc) add nanosecond timer for coordinator's root profile
 public class TimeUtils {
@@ -204,5 +212,30 @@ public class TimeUtils {
             return -1;
         }
         return d.getTime();
+    }
+
+    // Check if the time zone_value is valid
+    public static void checkTimeZoneValid(String value) throws DdlException {
+        try {
+            // match offset type, such as +08:00, -07:00
+            Pattern p = Pattern.compile("^[+-]{1}\\d{2}\\:\\d{2}$");
+            Matcher m = p.matcher(value);
+            // it supports offset and region timezone type, "CST" use here is compatibility purposes.
+            if (!value.contains("/") && !value.equals("CST") && !m.matches()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+            }
+            if (m.matches()) {
+                // timezone offsets around the world extended from -12:00 to +14:00
+                int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));
+                if (value.charAt(0) == '-' && tz > 1200) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+                } else if (value.charAt(0) == '+' && tz > 1400) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+                }
+            }
+            ZoneId.of(value, timeZoneAliasMap);
+        } catch (DateTimeException ex) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+        }
     }
 }
