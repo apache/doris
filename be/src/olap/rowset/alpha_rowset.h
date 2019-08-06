@@ -36,8 +36,11 @@ using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
 
 class AlphaRowset : public Rowset {
 public:
-    AlphaRowset(const TabletSchema* schema, const std::string rowset_path,
-                DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
+    AlphaRowset(const TabletSchema* schema,
+                std::string rowset_path,
+                DataDir* data_dir,
+                RowsetMetaSharedPtr rowset_meta);
+
     virtual ~AlphaRowset() {}
 
     static bool is_valid_rowset_path(std::string path);
@@ -52,10 +55,6 @@ public:
 
     OLAPStatus remove() override;
 
-    RowsetMetaSharedPtr rowset_meta() const override;
-
-    void set_version_and_version_hash(Version version, VersionHash version_hash) override;
-
     OLAPStatus make_snapshot(const std::string& snapshot_path,
                              std::vector<std::string>* success_links) override;
     OLAPStatus copy_files_to_path(const std::string& dest_path,
@@ -69,8 +68,6 @@ public:
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
 
-    bool is_pending() const override;
-
     OLAPStatus split_range(
             const RowCursor& start_key,
             const RowCursor& end_key,
@@ -83,11 +80,9 @@ public:
     // info by using segment's info
     OLAPStatus reset_sizeinfo();
 
-    std::string unique_id() override;
-
-    const std::string& rowset_path() const {
-        return _rowset_path;
-    }
+protected:
+    // add custom logic when rowset is published
+    void make_visible_extra(Version version, VersionHash version_hash) override;
 
 private:
     OLAPStatus _init_segment_groups();
@@ -97,13 +92,8 @@ private:
 private:
     friend class AlphaRowsetWriter;
     friend class AlphaRowsetReader;
-    const TabletSchema* _schema;
-    std::string _rowset_path;
-    DataDir* _data_dir;
-    RowsetMetaSharedPtr _rowset_meta;
+
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
-    bool _is_cumulative_rowset;
-    bool _is_pending_rowset;
 };
 
 } // namespace doris
