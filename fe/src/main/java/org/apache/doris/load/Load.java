@@ -718,8 +718,7 @@ public class Load {
             // eg:
             // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = B);
-            List<Column> fullSchema = table.getFullSchema();
-            for (Column column : fullSchema) {
+            for (Column column : table.getFullSchema()) {
                 if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                     if (assignColumnToFunction == null) {
                         assignColumnToFunction = Maps.newHashMap();
@@ -738,11 +737,11 @@ public class Load {
                 columnToFunction = Maps.newHashMap();
                 for (Entry<String, Pair<String, List<String>>> entry : assignColumnToFunction.entrySet()) {
                     String mappingColumnName = entry.getKey();
-                    if (table.getColumn(mappingColumnName) == null) {
+                    Column mappingColumn = table.getColumn(mappingColumnName);
+                    if (mappingColumn == null) {
                         throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
                     }
 
-                    Column mappingColumn = table.getColumn(mappingColumnName);
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
