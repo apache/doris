@@ -631,19 +631,22 @@ public class ReportHandler extends Daemon {
         for (Long tabletId : backendTablets.keySet()) {
             TTablet backendTablet = backendTablets.get(tabletId);
             for (TTabletInfo backendTabletInfo : backendTablet.getTablet_infos()) {
-                boolean needDelete = true;
-                if (!foundTabletsWithValidSchema.contains(tabletId)
-                        && isBackendReplicaHealthy(backendTabletInfo)) {
-                    // if this tablet is not in meta. try adding it.
-                    // if add failed. delete this tablet from backend.
-                    try {
-                        addReplica(tabletId, backendTabletInfo, backendId);
-                        // update counter
-                        needDelete = false;
-                        ++addToMetaCounter;
-                    } catch (MetaNotFoundException e) {
-                        LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
-                                 tabletId, backendId, e.getMessage());
+                boolean needDelete = false;
+                if (!foundTabletsWithValidSchema.contains(tabletId)) {
+                    if (isBackendReplicaHealthy(backendTabletInfo)) {
+                        // if this tablet is not in meta. try adding it.
+                        // if add failed. delete this tablet from backend.
+                        try {
+                            addReplica(tabletId, backendTabletInfo, backendId);
+                            // update counter
+                            needDelete = false;
+                            ++addToMetaCounter;
+                        } catch (MetaNotFoundException e) {
+                            LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
+                                    tabletId, backendId, e.getMessage());
+                            needDelete = true;
+                        }
+                    } else {
                         needDelete = true;
                     }
                 }
