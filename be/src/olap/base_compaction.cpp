@@ -357,8 +357,8 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     //          ReaderParams的delete_handler
     //       2. 如果包含删除条件，则不使用MassiveMerger，使用Merger
     //       3. 如果不包含删除条件，则可以使用MassiveMerger
-    uint64_t merged_rows = 0;
-    uint64_t filted_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
 
     Merger merger(_tablet, _rs_writer, READER_BASE_COMPACTION);

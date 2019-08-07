@@ -150,6 +150,8 @@ OLAPStatus Tablet::init_once() {
         _inc_rs_version_map[version] = rowset;
     }
 
+    RETURN_NOT_OK(calcuate_cumulative_point());
+
     return res;
 }
 
@@ -670,6 +672,17 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
     return OLAP_SUCCESS;
 }
 
+void Tablet::compute_version_hash_from_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets, VersionHash* version_hash) const {
+    DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
+    int64_t v_hash  = 0;
+    for (auto& rowset : rowsets) {
+        v_hash ^= rowset->version_hash();
+    }
+    *version_hash = v_hash;
+}
+
+
 void Tablet::calc_missed_versions(int64_t spec_version,
                                   vector<Version>* missed_versions) {
     ReadLock rdlock(&_meta_lock);
@@ -733,6 +746,32 @@ OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, Versio
     }
     *version = max_continuous_version;
     *v_hash = max_continuous_version_hash;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Tablet::calcuate_cumulative_point() {
+    ReadLock rdlock(&_meta_lock);
+    std::list<Version> existing_versions;
+    for (auto& rs : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(rs->version());
+    }
+
+    // sort the existing versions in ascending order
+    existing_versions.sort([](const Version& a, const Version& b) {
+        // simple because 2 versions are certainly not overlapping
+        return a.first < b.first;
+    });
+
+    _cumulative_point = -1;
+    int64_t prev_version = -1;
+    for (const Version& version : existing_versions) {
+        if (version.first > prev_version + 1) {
+            break;
+        }
+        if (version.first == version.second) {
+            _cumulative_point = version.first;
+        }
+    }
     return OLAP_SUCCESS;
 }
 
@@ -935,6 +974,14 @@ OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
 
 TabletInfo Tablet::get_tablet_info() {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
+}
+
+void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    for (auto& it : _rs_version_map) {
+        if (it.first.first > _cumulative_point) {
+            candidate_rowsets->push_back(it.second);
+        }
+    }
 }
 
 }  // namespace doris

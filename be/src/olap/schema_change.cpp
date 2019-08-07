@@ -1108,8 +1108,8 @@ bool SchemaChangeWithSorting::_external_sorting(
         TabletSharedPtr new_tablet) {
     Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
 
-    uint64_t merged_rows = 0;
-    uint64_t filtered_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t filtered_rows = 0;
     vector<RowsetReaderSharedPtr> rs_readers;
     for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
             it != src_rowsets.end(); ++it) {

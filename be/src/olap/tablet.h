@@ -182,6 +182,8 @@ public:
     const uint32_t calc_base_compaction_score() const;
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
+    void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
+                                           VersionHash* version_hash) const;
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
@@ -232,6 +234,9 @@ public:
 
     TabletInfo get_tablet_info();
 
+    void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    OLAPStatus calcuate_cumulative_point();
+
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
@@ -257,6 +262,7 @@ private:
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 
+    int64_t _cumulative_point;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
@@ -315,11 +321,11 @@ inline void Tablet::set_creation_time(int64_t creation_time) {
 }
 
 inline const int64_t Tablet::cumulative_layer_point() const {
-    return _tablet_meta->cumulative_layer_point();
+    return _cumulative_point;
 }
 
 void inline Tablet::set_cumulative_layer_point(const int64_t new_point) {
-    return _tablet_meta->set_cumulative_layer_point(new_point);
+    _cumulative_point = new_point;
 }
 
 inline bool Tablet::equal(int64_t tablet_id, int32_t schema_hash) {

@@ -567,7 +567,8 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
     if (best_tablet == nullptr) { return; }
 
     DorisMetrics::cumulative_compaction_request_total.increment(1);
-    CumulativeCompaction cumulative_compaction;
+    CumulativeCompaction cumulative_compaction(best_tablet);
+    /*
     OLAPStatus res = cumulative_compaction.init(best_tablet);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_CUMULATIVE_REPEAT_INIT && res != OLAP_ERR_CE_TRY_CE_LOCK_ERROR) {
@@ -591,6 +592,8 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
                      << ", res=" << res;
         return;
     }
+    */
+    cumulative_compaction.compact();
     best_tablet->set_last_compaction_failure_time(0);
 }
 
