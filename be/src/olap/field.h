@@ -378,7 +378,7 @@ public:
 
 class BitmapAggField: public Field {
 public:
-    explicit BitmapAggField(const TabletColumn& column):Field(column) {
+    explicit BitmapAggField(const TabletColumn& column) : Field(column) {
     }
 
     //bitmap storage data always not null
