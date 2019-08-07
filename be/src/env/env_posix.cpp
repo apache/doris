@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/uio.h>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
