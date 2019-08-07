@@ -103,7 +103,7 @@ public class EsStateStore extends Daemon {
                 }
                 esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
-                LOG.error("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
             }
         }
     }

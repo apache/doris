@@ -121,7 +121,7 @@ public class EsRestClient {
             }
             nextNode = selectNextNode();
             if (!nextNode) {
-                LOG.error("try all nodes [{}],no other nodes left", nodes);
+                LOG.warn("try all nodes [{}],no other nodes left", nodes);
             }
         } while (nextNode);
         return null;
