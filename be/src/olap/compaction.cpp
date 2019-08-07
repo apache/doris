@@ -44,8 +44,8 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.data_dir = _tablet->data_dir();
-    context.version = _compaction_version;
-    context.version_hash = _compaction_version_hash;
+    context.version = _output_version;
+    context.version_hash = _output_version_hash;
 
     _output_rs_writer.reset(new (std::nothrow)AlphaRowsetWriter());
     RETURN_NOT_OK(_output_rs_writer->init(context));
@@ -73,8 +73,8 @@ OLAPStatus Compaction::modify_rowsets() {
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to replace data sources. res" << res
                    << ", tablet=" << _tablet->full_name()
-                   << ", compaction__version=" << _compaction_version.first
-                   << "-" << _compaction_version.second;
+                   << ", compaction__version=" << _output_version.first
+                   << "-" << _output_version.second;
         return res;
     }
 
@@ -82,8 +82,8 @@ OLAPStatus Compaction::modify_rowsets() {
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet meta. res=" << res
                    << ", tablet=" << _tablet->full_name()
-                   << ", compaction_version=" << _compaction_version.first
-                   << "-" << _compaction_version.second;
+                   << ", compaction_version=" << _output_version.first
+                   << "-" << _output_version.second;
         return OLAP_ERR_BE_SAVE_HEADER_ERROR;
     }
 

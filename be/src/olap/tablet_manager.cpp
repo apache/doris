@@ -301,6 +301,11 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         LOG(WARNING) << "fail to create tablet. res=" << res;
     }
 
+    // call calculate_cumulative_point() manually.
+    // If not, cumulative_point will set to minus one
+    // when init tablet during create tablet.
+    RETURN_NOT_OK(tablet->calculate_cumulative_point());
+
     LOG(INFO) << "finish to process create tablet. res=" << res;
     return res;
 } // create_tablet
@@ -745,14 +750,14 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             }
 
             if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                MutexLock lock(table_ptr->get_cumulative_lock());
+                MutexLock lock(table_ptr->get_cumulative_lock(), TRY_LOCK);
                 if (!lock.own_lock()) {
                     continue;
                 }
             }
 
             if (compaction_type == CompactionType::BASE_COMPACTION) {
-                MutexLock lock(table_ptr->get_base_lock());
+                MutexLock lock(table_ptr->get_base_lock(), TRY_LOCK);
                 if (!lock.own_lock()) {
                     continue;
                 }

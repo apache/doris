@@ -150,7 +150,7 @@ OLAPStatus Tablet::init_once() {
         _inc_rs_version_map[version] = rowset;
     }
 
-    RETURN_NOT_OK(_calcuate_cumulative_point());
+    RETURN_NOT_OK(calculate_cumulative_point());
 
     return res;
 }
@@ -749,7 +749,8 @@ OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, Versio
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::_calcuate_cumulative_point() {
+OLAPStatus Tablet::calculate_cumulative_point() {
+    ReadLock rdlock(&_meta_lock);
     std::list<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
@@ -772,6 +773,7 @@ OLAPStatus Tablet::_calcuate_cumulative_point() {
             break;
         }
         prev_version = version.second;
+        _cumulative_point = version.second + 1;
     }
     return OLAP_SUCCESS;
 }
@@ -978,6 +980,7 @@ TabletInfo Tablet::get_tablet_info() {
 }
 
 void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
         if (it.first.first >= _cumulative_point
             && it.first.first == it.first.second) {
@@ -987,6 +990,7 @@ void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetS
 }
 
 void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
         if (it.first.first < _cumulative_point) {
             candidate_rowsets->push_back(it.second);

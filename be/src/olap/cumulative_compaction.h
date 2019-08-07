@@ -33,8 +33,6 @@ public:
     
 private:
     int64_t _cumulative_rowset_size_threshold;
-    Version _cumulative_version;
-    VersionHash _cumulative_version_hash;
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };

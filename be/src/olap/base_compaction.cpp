@@ -54,7 +54,7 @@ OLAPStatus BaseCompaction::compact() {
 OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candicate_rowsets_to_base_compaction(&_input_rowsets);
-    if (_input_rowsets.size() == 0 || _input_rowsets.size() == 1) {
+    if (_input_rowsets.size() <= 1) {
         LOG(INFO) << "There is no enough rowsets to cumulative compaction."
                   << ", the size of rowsets to compact=" << _input_rowsets.size()
                   << ", cumulative_point=" << _tablet->cumulative_layer_point();
@@ -124,8 +124,8 @@ OLAPStatus BaseCompaction::do_compaction() {
     OlapStopWatch watch;
 
     // 1. prepare cumulative_version and cumulative_version
-    _base_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_base_version_hash);
+    _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
+    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -137,16 +137,16 @@ OLAPStatus BaseCompaction::do_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do base compaction. res=" << res
                      << ", tablet=" << _tablet->full_name()
-                     << ", version=" << _base_version.first
-                     << "-" << _base_version.second;
+                     << ", output_version=" << _output_version.first
+                     << "-" << _output_version.second;
         return OLAP_ERR_BE_MERGE_ERROR;
     }
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << _output_rs_writer->version().first
-                     << "-" << _output_rs_writer->version().second;
+                     << ", output_version=" << _output_version.first
+                     << "-" << _output_version.second;
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -155,6 +155,12 @@ OLAPStatus BaseCompaction::do_compaction() {
 
     // 4. modify rowsets in memory
     RETURN_NOT_OK(modify_rowsets());
+
+    LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
+              << ", output_version=" << _output_version.first
+              << "-" << _output_version.second
+              << ". elapsed time of doing base compaction"
+              << ", time=" << watch.get_elapse_second() << "s";
 
     return OLAP_SUCCESS;
 }

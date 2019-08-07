@@ -77,8 +77,8 @@ protected:
     };
     CompactionState _state;
 
-    Version _compaction_version;
-    VersionHash _compaction_version_hash;
+    Version _output_version;
+    VersionHash _output_version_hash;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

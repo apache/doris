@@ -37,9 +37,6 @@ public:
     OLAPStatus do_compaction() override;
 
 private:
-    Version _base_version;
-    VersionHash _base_version_hash;
-
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 

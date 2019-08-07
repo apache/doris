@@ -58,7 +58,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
-    if (candidate_rowsets.size() == 0 || candidate_rowsets.size() == 1) {
+    if (candidate_rowsets.size() <= 1) {
         LOG(INFO) << "There is no enough rowsets to cumulative compaction."
                   << ", the size of rowsets to compact=" << candidate_rowsets.size()
                   << ", cumulative_point=" << _tablet->cumulative_layer_point();
@@ -69,7 +69,11 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
 
     std::vector<RowsetSharedPtr> transient_rowsets;
-    for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
+    for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
+        // VersionHash will calculated from chosen rowsets.
+        // If ultimate singleton rowset is chosen, VersionHash
+        // will be different from the value recorded in FE.
+        // So the ultimate singleton rowset is revserved.
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
             if (transient_rowsets.size() > config::cumulative_compaction_num_singleton_deltas) {
@@ -91,10 +95,10 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // There are no rowsets choosed to do cumulative compaction.
         // Under this circumstance, cumulative_point should be set.
         // Otherwise, the next round will not choose rowsets. 
-        _tablet->set_cumulative_layer_point(candidate_rowsets.back()->end_version() + 1);
+        _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
     }
 
-    if (_input_rowsets.size() == 1 || _input_rowsets.size() == 0) {
+    if (_input_rowsets.size() <= 1) {
         LOG(INFO) << "There is no enough rowsets to cumulative compaction."
                   << ", the size of rowsets to compact=" << candidate_rowsets.size()
                   << ", cumulative_point=" << _tablet->cumulative_layer_point();
@@ -116,9 +120,9 @@ OLAPStatus CumulativeCompaction::do_compaction() {
     OlapStopWatch watch;
 
     // 1. prepare cumulative_version and cumulative_version
-    _cumulative_version = Version(_input_rowsets.front()->start_version(),
-                                  _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_cumulative_version_hash);
+    _output_version = Version(_input_rowsets.front()->start_version(),
+                              _input_rowsets.back()->end_version());
+    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
 
@@ -127,18 +131,18 @@ OLAPStatus CumulativeCompaction::do_compaction() {
     // 2. merge input rowsets to output rowset
     OLAPStatus res = merger.merge();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to do cumulative merge."
-                     << " tablet=" << _tablet->full_name()
-                     << ", cumulative_version=" << _cumulative_version.first
-                     << "-" << _cumulative_version.second;
+        LOG(WARNING) << "failed to do cumulative merge. res=" << res
+                     << ", tablet=" << _tablet->full_name()
+                     << ", output_version=" << _output_version.first
+                     << "-" << _output_version.second;
         return res;
     }
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << _output_rs_writer->version().first << "-"
-                     << _output_rs_writer->version().second;
+        LOG(WARNING) << "rowset writer build failed."
+                     << " output_version=" << _output_version.first
+                     << "-" << _output_version.second;
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -148,6 +152,12 @@ OLAPStatus CumulativeCompaction::do_compaction() {
 
     // 4. modify rowsets in memory
     RETURN_NOT_OK(modify_rowsets());
+
+    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _tablet->full_name()
+              << ", output_version=" << _output_version.first
+              << "-" << _output_version.second
+              << ". elapsed time of doing cumulative compaction"
+              << ", time=" << watch.get_elapse_second() << "s";
 
     return OLAP_SUCCESS;
 }

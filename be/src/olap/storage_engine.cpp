@@ -585,6 +585,7 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) { return; }
 
+    DorisMetrics::base_compaction_request_total.increment(1);
     BaseCompaction base_compaction(best_tablet);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
