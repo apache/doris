@@ -5,4 +5,4 @@
     打印的形式是'YYYY-MM-DD HH:MM:SS'
 
 ##keyword
-DATETIME,DATETIME
+DATETIME

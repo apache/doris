@@ -12,4 +12,4 @@
         -> '2003-12-31'
 
 ##keyword
-DATE,DATE
+DATE

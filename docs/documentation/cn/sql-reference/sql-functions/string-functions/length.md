@@ -25,4 +25,4 @@ mysql> select length("中国");
 +------------------+
 ```
 ##keyword
-LENGTH,LENGTH
+LENGTH

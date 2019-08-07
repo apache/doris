@@ -4,4 +4,4 @@
     4字节浮点数
 
 ##keyword
-FLOAT,FLOAT
+FLOAT

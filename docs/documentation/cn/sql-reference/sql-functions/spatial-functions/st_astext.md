@@ -18,4 +18,4 @@ mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
 +---------------------------------+
 ```
 ##keyword
-ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ST,ASWKT
+ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ASWKT

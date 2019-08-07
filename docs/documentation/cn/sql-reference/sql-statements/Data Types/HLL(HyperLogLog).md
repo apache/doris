@@ -6,4 +6,4 @@
     并且HLL列只能通过配套的hll_union_agg、hll_raw_agg、hll_cardinality、hll_hash进行查询或使用
 
 ##keyword
-HLL(HYPERLOGLOG),HLL(HYPERLOGLOG)
+HLL(HYPERLOGLOG),HLL,HYPERLOGLOG

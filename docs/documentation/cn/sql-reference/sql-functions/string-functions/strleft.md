@@ -18,4 +18,4 @@ mysql> select strleft("Hello doris",5);
 +------------------------+
 ```
 ##keyword
-STRLEFT,STRLEFT
+STRLEFT

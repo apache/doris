@@ -32,4 +32,4 @@ mysql> SELECT LOCATE('bar', 'foobarbar', 5);
 +-------------------------------+
 ```
 ##keyword
-LOCATE,LOCATE
+LOCATE

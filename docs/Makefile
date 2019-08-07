@@ -20,7 +20,7 @@
 #
 
 BUILD_DIR = ${CURDIR}/build
-HELP_DIR = ${CURDIR}/build/contents
+HELP_DIR = ${BUILD_DIR}/contents
 
 all: zip_help
 .PHONY: all
@@ -34,7 +34,7 @@ ${HELP_DIR}:
 HELP_OUTPUT = ${BUILD_DIR}/help-resource.zip
 ${HELP_OUTPUT}: documentation/cn/sql-reference ${BUILD_DIR} ${HELP_DIR}
 	cp -r $</* ${HELP_DIR}
-	zip -r $@ contents && rm -rf contents
+	cd ${BUILD_DIR} && zip -r $@ contents && cd -
 .PHONY: zip_help
 zip_help: ${HELP_OUTPUT}
 

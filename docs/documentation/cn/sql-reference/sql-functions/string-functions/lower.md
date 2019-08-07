@@ -18,4 +18,4 @@ mysql> SELECT lower("AbC123");
 +-----------------+
 ```
 ##keyword
-LOWER,LOWER
+LOWER

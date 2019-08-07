@@ -34,4 +34,4 @@ Intermediate Type: NULL
 2 rows in set (0.00 sec)
 ```
 ##keyword
-SHOW,FUNCTION,SHOW,FUNCTION
+SHOW,FUNCTION

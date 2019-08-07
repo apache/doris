@@ -17,4 +17,4 @@ MySQL > select max(scan_rows) from log_statis group by datetime;
 +------------------+
 ```
 ##keyword
-MAX,MAX
+MAX

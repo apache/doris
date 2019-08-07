@@ -32,4 +32,4 @@ MySQL > select count(distinct datetime) from log_statis group by datetime;
 +-------------------------------+
 ```
 ##keyword
-COUNT,COUNT
+COUNT

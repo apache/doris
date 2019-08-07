@@ -25,4 +25,4 @@ mysql> SELECT lpad("hi", 1, "xy");
 +---------------------+
 ```
 ##keyword
-LPAD,LPAD
+LPAD

@@ -25,4 +25,4 @@ mysql> select ascii('234');
 +--------------+
 ```
 ##keyword
-ASCII,ASCII
+ASCII

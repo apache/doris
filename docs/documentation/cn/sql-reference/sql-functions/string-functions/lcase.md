@@ -8,4 +8,4 @@
 与`lower`一致
 
 ##keyword
-LCASE,LCASE
+LCASE

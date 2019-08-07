@@ -1,6 +1,5 @@
 # CAST
 ## description
-## description
 ### Syntax
 
 ```
@@ -9,7 +8,7 @@ cast (input as type)
 
 ### BIGINT type 
 
-### Syntax
+### Syntax(BIGINT)
 
 ``` cast (input as BIGINT) ```
 
@@ -54,4 +53,4 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 1 row in set (0.00 sec)
 ```
 ##keyword
-CAST,CAST
+CAST

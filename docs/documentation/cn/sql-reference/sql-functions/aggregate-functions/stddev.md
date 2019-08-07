@@ -24,4 +24,4 @@ MySQL > select stddev_pop(scan_rows) from log_statis group by datetime;
 +-------------------------+
 ```
 ##keyword
-STDDEV,STDDEV_POP,STDDEV,STDDEV,POP
+STDDEV,STDDEV_POP,POP

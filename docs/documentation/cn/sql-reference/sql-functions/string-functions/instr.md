@@ -25,4 +25,4 @@ mysql> select instr("abc", "d");
 +-------------------+
 ```
 ##keyword
-INSTR,INSTR
+INSTR

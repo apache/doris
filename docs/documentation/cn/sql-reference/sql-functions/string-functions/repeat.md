@@ -25,4 +25,4 @@ mysql> SELECT repeat("a", -1);
 +-----------------+
 ```
 ##keyword
-REPEAT,REPEAT
+REPEAT,

@@ -18,4 +18,4 @@ mysql> SELECT ltrim('   ab d');
 +------------------+
 ```
 ##keyword
-LTRIM,LTRIM
+LTRIM

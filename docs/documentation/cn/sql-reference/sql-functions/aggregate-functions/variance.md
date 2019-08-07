@@ -23,4 +23,4 @@ MySQL > select var_pop(scan_rows) from log_statis group by datetime;
 |   5.6230744719006163 |
 +----------------------+
 ##keyword
-VARIANCE,VAR_POP,VARIANCE_POP,VARIANCE,VAR,POP,VARIANCE,POP
+VARIANCE,VAR_POP,VARIANCE_POP,VAR,POP

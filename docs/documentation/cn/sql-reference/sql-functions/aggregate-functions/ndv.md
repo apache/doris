@@ -19,4 +19,4 @@ MySQL > select ndv(query_id) from log_statis group by datetime;
 +-----------------+
 ```
 ##keyword
-NDV,NDV
+NDV

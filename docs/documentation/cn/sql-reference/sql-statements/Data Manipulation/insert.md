@@ -77,4 +77,4 @@ INSERT INTO test (c1, c2) SELECT * from test2
 
 由于Doris之前的导入方式都是异步导入方式，为了兼容旧有的使用习惯，不加 streaming 的 `INSERT` 语句依旧会返回一个 label，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的状态。
 ##keyword
-INSERT,INSERT
+INSERT

@@ -32,4 +32,4 @@ mysql> select concat("a", null, "c");
 +------------------------+
 ```
 ##keyword
-CONCAT,CONCAT
+CONCAT

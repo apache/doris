@@ -18,4 +18,4 @@ mysql> select strright("Hello doris",5);
 +-------------------------+
 ```
 ##keyword
-STRRIGHT,STRRIGHT
+STRRIGHT

@@ -19,4 +19,4 @@ mysql> select dayofweek('2019-06-25');
 |                                3 |
 +----------------------------------+
 ##keyword
-DAYOFWEEK,DAYOFWEEK
+DAYOFWEEK

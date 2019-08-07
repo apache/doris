@@ -17,4 +17,4 @@ MySQL > select sum(scan_rows) from log_statis group by datetime;
 +------------------+
 ```
 ##keyword
-SUM,SUM
+SUM

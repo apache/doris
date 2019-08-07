@@ -18,4 +18,4 @@ mysql> select right("Hello doris",5);
 +-------------------------+
 ```
 ##keyword
-RIGHT,RIGHT
+RIGHT

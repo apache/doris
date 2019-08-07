@@ -363,4 +363,4 @@
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
      
 ## keyword
-    BROKER LOAD
+    BROKER,LOAD

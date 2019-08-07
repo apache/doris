@@ -5,4 +5,4 @@
     M的范围是[1,27], D的范围[1, 9], 另外，M必须要大于等于D的取值。默认的D取值为0
 
 ##keyword
-DECIMAL,DECIMAL
+DECIMAL
