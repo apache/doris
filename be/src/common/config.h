@@ -225,6 +225,9 @@ namespace config {
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
 
+    // Cache for stoage page size
+    CONF_String(storage_page_cache_limit, "20G");
+
     // be policy
     CONF_Int64(base_compaction_start_hour, "20");
     CONF_Int64(base_compaction_end_hour, "7");

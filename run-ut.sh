@@ -255,6 +255,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/generic_iterators_test
 ${DORIS_TEST_BINARY_DIR}/olap/aggregate_func_test
 ${DORIS_TEST_BINARY_DIR}/olap/short_key_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
+${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
