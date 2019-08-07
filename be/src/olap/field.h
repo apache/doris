@@ -331,7 +331,7 @@ public:
     explicit CharField(const TabletColumn& column):Field(column) {
     }
 
-    //the char field is especial, which need the _length info when consume raw data
+    // the char field is especial, which need the _length info when consume raw data
     void init(char* dest, void* value, Arena* arena)  {
         const StringValue* src = reinterpret_cast<StringValue*>(value);
         auto* dest_slice = (Slice*)(dest);
