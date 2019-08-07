@@ -132,8 +132,6 @@ public class BrokerLoadJobTest {
                 result = olapTable;
                 dataDescription.getPartitionNames();
                 result = null;
-                dataDescription.getColumnNames();
-                result = null;
                 database.getId();
                 result = dbId;
             }
