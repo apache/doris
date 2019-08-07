@@ -143,7 +143,7 @@ Status ParquetScanner::open_next_reader() {
         }
         _cur_file_reader = new ParquetReaderWrap(file_reader.release());
         Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs);
-        if(status.is_end_of_file()) {
+        if (status.is_end_of_file()) {
             continue;
         } else {
             return status;
