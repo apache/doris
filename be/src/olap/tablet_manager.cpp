@@ -200,6 +200,10 @@ OLAPStatus TabletManager::_add_tablet_to_map(TTabletId tablet_id, SchemaHash sch
     }
     _tablet_map[tablet_id].table_arr.push_back(tablet);
     _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
+
+    // add the tablet id to partition map
+    _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
+
     VLOG(3) << "add tablet to map successfully" 
             << " tablet_id = " << tablet_id
             << " schema_hash = " << schema_hash;   
@@ -598,6 +602,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
                     it != _tablet_map[tablet_id].table_arr.end();) {
                 if ((*it)->equal(tablet_id, schema_hash)) {
                     it = _tablet_map[tablet_id].table_arr.erase(it);
+                    _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
+                    if (_partition_tablet_map[(*it)->partition_id()].empty()) {
+                        _partition_tablet_map.erase((*it)->partition_id());
+                    } 
                 } else {
                     ++it;
                 }
@@ -1322,6 +1330,10 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
             it != _tablet_map[tablet_id].table_arr.end();) {
         if ((*it)->equal(tablet_id, schema_hash)) {
             TabletSharedPtr tablet = *it;
+            _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
+            if (_partition_tablet_map[(*it)->partition_id()].empty()) {
+                _partition_tablet_map.erase((*it)->partition_id());
+            } 
             it = _tablet_map[tablet_id].table_arr.erase(it);
             if (!keep_files) {
                 // drop tablet will update tablet meta, should lock
