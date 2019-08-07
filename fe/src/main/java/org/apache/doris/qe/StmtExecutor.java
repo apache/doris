@@ -74,6 +74,8 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -612,12 +614,6 @@ public class StmtExecutor {
             if (!coord.getExecStatus().ok()) {
                 String errMsg = coord.getExecStatus().getErrorMsg();
                 LOG.warn("insert failed: {}", errMsg);
-
-                // hide host info
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
                 ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
 
@@ -627,8 +623,11 @@ public class StmtExecutor {
                 Map<String, String> counters = coord.getLoadCounters();
                 String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
                 if (strValue != null && Long.valueOf(strValue) > 0) {
-                    throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                    context.getState().setError("Insert has filtered data in strict mode, tracking_url="
                             + coord.getTrackingUrl());
+                    return;
+                    // throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                    // + coord.getTrackingUrl());
                 }
             }
 
@@ -663,9 +662,13 @@ public class StmtExecutor {
             }
 
             if (!Config.using_old_load_usage_pattern) {
-                // if not using old usage pattern, the exception will be thrown to user directly without
-                // a label
-                throw t;
+                // if not using old usage pattern, the exception will be thrown to user directly without a label
+                StringBuilder sb = new StringBuilder(t.getMessage());
+                if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                    sb.append(". url: " + coord.getTrackingUrl());
+                }
+                context.getState().setError(sb.toString());
+                return;
             }
 
             /*
@@ -685,7 +688,8 @@ public class StmtExecutor {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        throwable == null ? "" : throwable.getMessage()
+                        throwable == null ? "" : throwable.getMessage(),
+                        coord.getTrackingUrl()
                 );
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
@@ -696,7 +700,16 @@ public class StmtExecutor {
 
             // set to OK, which means the insert load job is successfully submitted.
             // and user can check the job's status by label.
-            context.getState().setOk("{'label':'" + uuid.toString() + "'}");
+            Map<String, String> res = Maps.newHashMap();
+            res.put("label", uuid.toString());
+            if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                res.put("url", coord.getTrackingUrl());
+            }
+            GsonBuilder gsonBuilder = new GsonBuilder();
+            gsonBuilder.disableHtmlEscaping();
+            Gson gson = gsonBuilder.create();
+
+            context.getState().setOk(gson.toJson(res));
         } else {
             // just return OK without label, which means this job is successfully done
             context.getState().setOk();
