@@ -1,14 +1,13 @@
 # MIN
-
-## Syntax
+## description
+### Syntax
 
 `MIN(expr)`
 
-## Description
 
 返回expr表达式的最小值
 
-## Examples
+## example
 ```
 MySQL > select min(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -17,3 +16,5 @@ MySQL > select min(scan_rows) from log_statis group by datetime;
 |                0 |
 +------------------+
 ```
+##keyword
+MIN

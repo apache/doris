@@ -1,10 +1,9 @@
 # get_json_string
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR get_json_string(VARCHAR json_str, VARCHAR json_path)
 
-## Description
 
 解析并获取 json 字符串内指定路径的字符串内容。
 其中 json_path 必须以 $ 符号作为开头，使用 . 作为路径分割符。如果路径中包含 . ，则可以使用双引号包围。
@@ -12,7 +11,7 @@
 path 的内容不能包含 ", [ 和 ]。
 如果 json_string 格式不对，或 json_path 格式不对，或无法找到匹配项，则返回 NULL。
 
-## Examples
+## example
 
 1. 获取 key 为 "k1" 的 value
 
@@ -55,3 +54,5 @@ mysql> SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4
 | ["v1","v3","v4"]                                                                |
 +---------------------------------------------------------------------------------+
 ```
+##keyword
+GET_JSON_STRING,GET,JSON,STRING

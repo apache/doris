@@ -1,14 +1,13 @@
 # ltrim
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR ltrim(VARCHAR str)`
 
-## Description
 
 将参数 str 中从开始部分连续出现的空格去掉
 
-## Examples
+## example
 
 ```
 mysql> SELECT ltrim('   ab d');
@@ -18,3 +17,5 @@ mysql> SELECT ltrim('   ab d');
 | ab d             |
 +------------------+
 ```
+##keyword
+LTRIM

@@ -1,14 +1,13 @@
 # left
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR left(VARCHAR str)`
 
-## Description
 
 它返回具有指定长度的字符串的左边部分
 
-## Examples
+## example
 
 ```
 mysql> select left("Hello doris",5);
@@ -18,3 +17,5 @@ mysql> select left("Hello doris",5);
 | Hello                  |
 +------------------------+
 ```
+##keyword
+LEFT

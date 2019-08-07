@@ -1,14 +1,13 @@
 # VAR_SAMP,VARIANCE_SAMP
-
-## Syntax
+## description
+### Syntax
 
 `VAR_SAMP(expr)`
 
-## Description
 
 返回expr表达式的样本方差
 
-## Examples
+## example
 ```
 MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 +-----------------------+
@@ -16,4 +15,5 @@ MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 +-----------------------+
 |    5.6227132145741789 |
 +-----------------------+
-```
+##keyword
+VAR_SAMP,VARIANCE_SAMP,VAR,SAMP,VARIANCE

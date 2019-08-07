@@ -1,10 +1,9 @@
 # date_format
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR DATE_FORMAT(DATETIME date, VARCHAR format)`
 
-## Description
 
 将日期类型按照format的类型转化位字符串，
 当前支持最大128字节的字符串，如果返回值长度超过128，则返回NULL
@@ -75,7 +74,7 @@ date 参数是合法的日期。format 规定日期/时间的输出格式。
                            
 %y | 年，2 位                                    
 
-## Examples
+## example
 
 ```
 mysql> select date_format('2009-10-04 22:23:00', '%W %M %Y');
@@ -120,3 +119,5 @@ mysql> select date_format('2006-06-01', '%d');
 | 01                                       |
 +------------------------------------------+
 ```
+##keyword
+DATE_FORMAT,DATE,FORMAT

@@ -1,10 +1,9 @@
 # date_sub
-
-## Syntax
+## description
+### Syntax
 
 `INT DATE_SUB(DATETIME date,INTERVAL expr type)`
 
-## Description
 
 从日期减去指定的时间间隔
 
@@ -14,7 +13,7 @@ expr 参数是您希望添加的时间间隔。
 
 type 参数可以是下列值：YEAR, MONTH, DAY, HOUR, MINUTE, SECOND
 
-## Examples
+## example
 
 ```
 mysql> select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY);
@@ -23,4 +22,5 @@ mysql> select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY);
 +-------------------------------------------------+
 | 2010-11-28 23:59:59                             |
 +-------------------------------------------------+
-```
+##keyword
+DATE_SUB,DATE,SUB
