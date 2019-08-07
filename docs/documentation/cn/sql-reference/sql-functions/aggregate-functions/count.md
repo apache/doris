@@ -1,14 +1,13 @@
 # COUNT
-
-## Syntax
+## description
+### Syntax
 
 `COUNT([DISTINCT] expr)`
 
-## Description
 
 用于返回满足要求的行的数目
 
-## Examples
+## example
 
 ```
 MySQL > select count(*) from log_statis group by datetime;
@@ -32,3 +31,5 @@ MySQL > select count(distinct datetime) from log_statis group by datetime;
 |                       71045   |
 +-------------------------------+
 ```
+##keyword
+COUNT

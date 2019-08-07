@@ -1,16 +1,15 @@
 # to_days
-
-## Syntax
+## description
+### Syntax
 
 `INT TO_DAYS(DATETIME date)`
 
-## Description
 
 返回date距离0000-01-01的天数
 
 参数为Date或者Datetime类型
 
-## Examples
+## example
 
 ```
 mysql> select to_days('2007-10-07');
@@ -19,4 +18,5 @@ mysql> select to_days('2007-10-07');
 +-----------------------+
 |                733321 |
 +-----------------------+
-```
+##keyword
+TO_DAYS,TO,DAYS
