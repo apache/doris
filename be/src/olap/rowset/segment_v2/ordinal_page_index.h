@@ -75,6 +75,7 @@ public:
     inline bool valid() const;
     inline void next();
     inline rowid_t rowid() const;
+    inline int32_t cur_idx() const;
     inline const PagePointer& page() const;
 private:
     OrdinalPageIndex* _index;
@@ -97,6 +98,19 @@ public:
     }
     OrdinalPageIndexIterator end() {
         return OrdinalPageIndexIterator(this, _num_pages);
+	}
+	rowid_t get_first_row_id(int page_index) const {
+        return _rowids[page_index];
+    }
+
+    rowid_t get_last_row_id(int page_index, size_t column_row_count) const {
+        int next_page_index = page_index + 1;
+        return (next_page_index >= _num_pages) ?
+                column_row_count : get_first_row_id(next_page_index) - 1;
+    }
+
+    int32_t num_pages() const {
+        return _num_pages;
     }
 
 private:
@@ -124,6 +138,10 @@ inline void OrdinalPageIndexIterator::next() {
 
 inline rowid_t OrdinalPageIndexIterator::rowid() const {
     return _index->_rowids[_cur_idx];
+}
+
+int32_t OrdinalPageIndexIterator::cur_idx() const {
+    return _cur_idx;
 }
 
 inline const PagePointer& OrdinalPageIndexIterator::page() const {

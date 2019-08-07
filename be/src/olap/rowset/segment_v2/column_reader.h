@@ -25,6 +25,7 @@
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 
 namespace doris {
 
@@ -74,8 +75,18 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
     const TypeInfo* type_info() const { return _type_info; }
 
+    const OrdinalPageIndex* get_ordinal_index() const {
+        return _ordinal_index.get();
+    }
+
+    const ColumnZoneMap* get_zone_map() const {
+        return _column_zone_map.get();
+    }
+
 private:
     Status _init_ordinal_index();
+
+    Status _init_column_zone_map();
 
 private:
     // input param
@@ -91,6 +102,9 @@ private:
 
     // get page pointer from index
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
+
+    // column zone map info
+    std::unique_ptr<ColumnZoneMap> _column_zone_map;
 };
 
 // Base iterator to read one column data

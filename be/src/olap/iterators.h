@@ -26,24 +26,29 @@ namespace doris {
 class RowCursor;
 class RowBlockV2;
 class Schema;
+class Conditions;
 
 struct StorageReadOptions {
     // lower_bound defines the smallest key at which iterator will
     // return data.
     // If lower_bound is null, won't return
-    std::shared_ptr<RowCursor> lower_bound;
+    std::shared_ptr<RowCursor> lower_bound = nullptr;
 
     // If include_lower_bound is true, data equal with lower_bound will
     // be read
-    bool include_lower_bound;
+    bool include_lower_bound = false;
 
     // upper_bound defines the extend upto which the iterator can return
     // data.
-    std::shared_ptr<RowCursor> upper_bound;
+    std::shared_ptr<RowCursor> upper_bound = nullptr;
 
     // If include_upper_bound is true, data equal with upper_bound will
     // be read
-    bool include_upper_bound;
+    bool include_upper_bound = false;
+
+    // reader's column predicates
+    // used to filter data by zone map/bloom filter/second index
+    Conditions* conditions = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one

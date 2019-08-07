@@ -25,6 +25,7 @@
 #include "util/slice.h" // for slice
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
 
 namespace doris {
 
@@ -41,6 +42,7 @@ struct ColumnWriterOptions {
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
+    bool need_zone_map = false;
 };
 
 class EncodingInfo;
@@ -91,6 +93,7 @@ public:
     // write all data into file
     Status write_data();
     Status write_ordinal_index();
+    Status write_zone_map();
     void write_meta(ColumnMetaPB* meta);
 
 private:
@@ -130,11 +133,15 @@ private:
 
     Status _write_data_page(Page* page);
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
+    void _reset_page_zone_map();
+
 private:
     ColumnWriterOptions _opts;
     const TypeInfo* _type_info = nullptr;
     bool _is_nullable;
     WritableFile* _output_file = nullptr;
+    WrapperField* _page_min_value = nullptr;
+    WrapperField* _page_max_value = nullptr;
 
     // cached generated pages,
     PageHead _pages;
@@ -147,8 +154,10 @@ private:
     std::unique_ptr<PageBuilder> _page_builder;
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
     std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builer;
+    std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
 
     PagePointer _ordinal_index_pp;
+    PagePointer _zone_map_pp;
     uint64_t _written_size = 0;
 };
 

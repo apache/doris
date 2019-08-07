@@ -74,7 +74,9 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
         : _opts(opts),
         _type_info(typeinfo),
         _is_nullable(is_nullable),
-        _output_file(output_file) {
+        _output_file(output_file),
+        _page_min_value(nullptr),
+        _page_max_value(nullptr) {
 }
 
 ColumnWriter::~ColumnWriter() {
@@ -85,6 +87,8 @@ ColumnWriter::~ColumnWriter() {
         delete page;
         page = next_page;
     }
+    delete _page_min_value;
+    delete _page_max_value;
 }
 
 Status ColumnWriter::init() {
@@ -110,12 +114,21 @@ Status ColumnWriter::init() {
     if (_is_nullable) {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
     }
+    if (_opts.need_zone_map) {
+        _column_zone_map_builder.reset(new ColumnZoneMapBuilder());
+        _page_min_value = WrapperField::create_by_type(_type_info->type());
+        _page_max_value = WrapperField::create_by_type(_type_info->type());
+        _reset_page_zone_map();
+    }
     return Status::OK();
 }
 
 Status ColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
+    if (_opts.need_zone_map && !_page_min_value->is_null()) {
+        _page_min_value->set_null();
+    }
     return Status::OK();
 }
 
@@ -128,6 +141,7 @@ Status ColumnWriter::append(const void* data, size_t num_rows) {
 // to next data should be written
 Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
+    const char* start_ptr = reinterpret_cast<const char*>(*ptr);
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(_page_builder->add(*ptr, &num_written));
@@ -143,7 +157,19 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         }
 
         // TODO(zc): update statistics for this page
-
+        if (_opts.need_zone_map) {
+            for (int i = 0; i < num_written; ++i) {
+                if (!_page_min_value->is_null()
+                        && _page_min_value->field()->compare(_page_min_value->cell_ptr(), start_ptr) > 0) {
+                    _page_min_value->copy(start_ptr);
+                }
+                if (_page_max_value->is_null()
+                        || _page_max_value->field()->compare(_page_max_value->cell_ptr(), start_ptr) < 0) {
+                    _page_max_value->copy(start_ptr);
+                }
+                start_ptr += _type_info->size();
+            }
+        }
         if (is_page_full) {
             RETURN_IF_ERROR(_finish_current_page());
         }
@@ -161,6 +187,9 @@ Status ColumnWriter::append_nullable(
         if (is_null) {
             _null_bitmap_builder->add_run(true, this_run);
             _next_rowid += this_run;
+            if (_opts.need_zone_map && !_page_min_value->is_null()) {
+                _page_min_value->set_null();
+            }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
         }
@@ -190,12 +219,24 @@ Status ColumnWriter::write_ordinal_index() {
     return _write_physical_page(&slices, &_ordinal_index_pp);
 }
 
+Status ColumnWriter::write_zone_map() {
+    if (_opts.need_zone_map) {
+        Slice data = _column_zone_map_builder->finish();
+        std::vector<Slice> slices{data};
+        return _write_physical_page(&slices, &_zone_map_pp);
+    }
+    return Status::OK();
+}
+
 void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_type(_type_info->type());
     meta->set_encoding(_opts.encoding_type);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
+    if (_opts.need_zone_map) {
+        _zone_map_pp.to_proto(meta->mutable_zone_map_page());
+    }
 }
 
 // write a page into file and update ordinal index
@@ -285,8 +326,21 @@ Status ColumnWriter::_finish_current_page() {
     _last_first_rowid = _next_rowid;
 
     _push_back_page(page);
+    if (_opts.need_zone_map) {
+        ZoneMap page_zone_map;
+        page_zone_map.set_min_value(_page_min_value->serialize());
+        page_zone_map.set_max_value(_page_max_value->serialize());
+        page_zone_map.set_is_null(_page_min_value->is_null() && _page_max_value->is_null());
+        _column_zone_map_builder->append_entry(page_zone_map);
+        _reset_page_zone_map();
+    }
 
     return Status::OK();
+}
+
+void ColumnWriter::_reset_page_zone_map() {
+    _page_min_value->set_to_max();
+    _page_max_value->set_null();
 }
 
 }

@@ -25,6 +25,10 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/iterators.h"
 #include "olap/schema.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
+#include "olap/rowset/segment_v2/column_zone_map.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h"
+#include "olap/olap_cond.h"
 #include "util/arena.h"
 
 namespace doris {
@@ -47,6 +51,12 @@ public:
 private:
     Status _init_short_key_range();
     Status _prepare_seek();
+    Status _init_row_ranges();
+    Status _get_row_ranges_from_zone_map();
+    Status _get_filtered_pages(FieldType type, const ColumnZoneMap* column_zone_map,
+        CondColumn* cond_column, std::vector<uint32_t>* page_indexes);
+    Status _calculate_row_ranges(const OrdinalPageIndex* ordinal_index,
+            const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
     Status _init_column_iterators();
     Status _create_column_iterator(uint32_t cid, ColumnIterator** iter);
 
@@ -64,6 +74,9 @@ private:
     Schema _schema;
 
     StorageReadOptions _opts;
+
+    // row ranges to scan
+    RowRanges _row_ranges;
 
     // Only used when init is called, help to finish seek_and_peek.
     // Data will be saved in this batch

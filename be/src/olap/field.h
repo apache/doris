@@ -45,13 +45,7 @@ public:
     }
 
     static Field* create_by_type(const FieldType& type) {
-        // TODO(zc): To be compatible with old version, we should return nullptr for
-        // CHAR, VARCHAR, HLL. Because ColumnStatistics depend on this function return nullptr
-        if (type == OLAP_FIELD_TYPE_CHAR ||
-            type == OLAP_FIELD_TYPE_VARCHAR ||
-            type == OLAP_FIELD_TYPE_HLL) {
-            return nullptr;
-        }
+        // create by type
         return new Field(type);
     }
 
@@ -208,6 +202,11 @@ public:
     // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
     inline void shallow_copy_content(char* dst, const char* src) const {
         _type_info->shallow_copy(dst, src);
+    }
+
+    // copy filed content from src to dest without nullbyte
+    inline void copy_content(char* dest, const char* src, Arena* arena) const {
+        _type_info->copy_with_arena(dest, src, arena);
     }
 
     // Copy srouce content to destination in index format.

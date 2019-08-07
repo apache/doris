@@ -93,6 +93,8 @@ Status ColumnReader::init() {
 
     RETURN_IF_ERROR(_init_ordinal_index());
 
+    RETURN_IF_ERROR(_init_column_zone_map());
+
     return Status::OK();
 }
 
@@ -165,6 +167,20 @@ Status ColumnReader::_init_ordinal_index() {
     _ordinal_index.reset(new OrdinalPageIndex(ph.data()));
     RETURN_IF_ERROR(_ordinal_index->load());
 
+    return Status::OK();
+}
+
+// initialize column zone map
+Status ColumnReader::_init_column_zone_map() {
+    if (_meta.has_zone_map_page()) {
+        PagePointer pp = _meta.zone_map_page();
+        PageHandle ph;
+        RETURN_IF_ERROR(read_page(pp, &ph));
+        _column_zone_map.reset(new ColumnZoneMap(ph.data()));
+        RETURN_IF_ERROR(_column_zone_map->load());
+    } else {
+        _column_zone_map.reset(nullptr);
+    }
     return Status::OK();
 }
 
@@ -294,7 +310,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 column_view.set_null_bits(nrows_to_read, false);
             }
 
-            // set null bits to
             _page->offset_in_page += nrows_to_read;
             column_view.advance(nrows_to_read);
             _current_rowid += nrows_to_read;

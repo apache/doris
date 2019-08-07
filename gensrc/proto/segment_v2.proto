@@ -86,6 +86,8 @@ message ColumnMetaPB {
     optional bool is_nullable = 6;
     // ordinal index page
     optional PagePointerPB ordinal_index_page = 7;
+    // zone map page
+    optional PagePointerPB zone_map_page = 8;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
