@@ -20,7 +20,7 @@
 #
 
 BUILD_DIR = ${CURDIR}/build
-HELP_DIR = ${CURDIR}/contents
+HELP_DIR = ${CURDIR}/build/contents
 
 all: zip_help
 .PHONY: all
