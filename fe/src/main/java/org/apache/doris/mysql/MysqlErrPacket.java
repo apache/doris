@@ -57,8 +57,7 @@ public class MysqlErrPacket extends MysqlPacket {
         if (errorMessage == null || errorMessage.isEmpty()) {
             // NOTICE: if write "" or "\0", the client will be show "Query OK"
             // SO we need write no-empty string
-            LOG.info("get empty error msg");
-            serializer.writeEofString(" ");
+            serializer.writeEofString("Unknown error");
         } else {
             serializer.writeEofString(errorMessage);
         }

@@ -626,8 +626,6 @@ public class StmtExecutor {
                     context.getState().setError("Insert has filtered data in strict mode, tracking_url="
                             + coord.getTrackingUrl());
                     return;
-                    // throw new UserException("Insert has filtered data in strict mode, tracking_url="
-                    // + coord.getTrackingUrl());
                 }
             }
 
