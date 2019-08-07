@@ -153,7 +153,7 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
             case TYPE_DATETIME: {
                 result->cols[i].__isset.long_vals = true;
                 const DateTimeValue* time_val = (const DateTimeValue*)(item);
-                result->cols[i].long_vals.push_back(time_val->to_olap_datetime());
+                result->cols[i].long_vals.push_back(time_val->unix_timestamp());
                 break;
             }
             case TYPE_VARCHAR:
