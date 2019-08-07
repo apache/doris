@@ -55,6 +55,9 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
         _file_metadata = _reader->parquet_reader()->metadata();
         // initial members
         _total_groups = _file_metadata->num_row_groups();
+        if (_total_groups == 0) {
+            return Status::EndOfFile("Empty Parquet File");
+        }
         _rows_of_group = _file_metadata->RowGroup(0)->num_rows();
 
         // map
