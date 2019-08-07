@@ -342,7 +342,7 @@ public:
     }
 
     size_t get_variable_len() const override {
-        return  _length;
+        return _length;
     }
 
     void allocate_memory(Slice* slice, char* variable_ptr, Arena* arena) const override {
