@@ -55,11 +55,11 @@ public:
     }
 
 private:
-    bool is_too_old(time_t cur_time, const std::string& label_dir);
+    bool is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours);
     void clean_one_path(const std::string& path);
     void clean_error_log();
     void clean();
-    void process_path(time_t now, const std::string& path);
+    void process_path(time_t now, const std::string& path, int64_t reserve_hours);
 
     static void* cleaner(void* param);
 

@@ -103,10 +103,25 @@ public final class FeMetaVersion {
 
     // UDF
     public static final int VERSION_47 = 47;
-    // TODO(ml):VERSION_ROUTINE_LOAD add extra in transaction state for routine load
 
     // replica schema hash
     public static final int VERSION_48 = 48;
     // routine load job
     public static final int VERSION_49 = 49;
+    // load job v2 for broker load
+    public static final int VERSION_50 = 50;
+    // kafka custom properties
+    public static final int VERSION_51 = 51;
+    // small files
+    public static final int VERSION_52 = 52;
+    // Support exec_mem_limit in ExportJob
+    public static final int VERSION_53 = 53;
+    // support strict mode, change timeout to long, and record txn id in load job
+    public static final int VERSION_54 = 54;
+    // modify colocation join
+    public static final int VERSION_55 = 55;
+    // persist auth info in load job
+    public static final int VERSION_56 = 56;
+    // for base index using different id
+    public static final int VERSION_57 = 57;
 }

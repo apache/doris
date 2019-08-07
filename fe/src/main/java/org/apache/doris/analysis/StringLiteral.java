@@ -41,6 +41,8 @@ public class StringLiteral extends LiteralExpr {
     private String value;
     
     public StringLiteral() {
+        super();
+        type = Type.VARCHAR;
     }
 
     public StringLiteral(String value) {
@@ -66,7 +68,7 @@ public class StringLiteral extends LiteralExpr {
             return 1;
         }
 
-        // compare string with utf-8 byte array, same with DM,BE,OLAPENGINE
+        // compare string with utf-8 byte array, same with DM,BE,StorageEngine
         byte[] thisBytes = null;
         byte[] otherBytes = null;
         try {

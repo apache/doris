@@ -18,17 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -87,27 +81,8 @@ public class RevokeStmt extends DdlStmt {
             throw new AnalysisException("No privileges in revoke statement.");
         }
 
-        // can not revoke NODE_PRIV from any user
-        for (PaloPrivilege paloPrivilege : privileges) {
-            if (paloPrivilege == PaloPrivilege.NODE_PRIV) {
-                throw new AnalysisException("Can not revoke NODE_PRIV from any users or roles");
-            }
-        }
-
-        // ADMIN_PRIV and GRANT_PRIV can only be revoked as global
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
-            for (PaloPrivilege paloPrivilege : privileges) {
-                if (paloPrivilege == PaloPrivilege.ADMIN_PRIV || paloPrivilege == PaloPrivilege.GRANT_PRIV) {
-                    throw new AnalysisException(
-                            "Can not revoke ADMIN_PRIV or GRANT_PRIV from specified database or table. Only support from *.*");
-                }
-            }
-        }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "REVOKE");
-        }
+        // Revoke operation obey the same rule as Grant operation. reuse the same method
+        GrantStmt.checkPrivileges(analyzer, privileges, role, tblPattern);
     }
 
     @Override

@@ -21,7 +21,6 @@
 #include <string>
 #include <errno.h>
 #include <algorithm>
-#include <lzo/lzo1x.h>
 
 #include "gen_cpp/PaloInternalService_types.h"
 #include "olap_scanner.h"
@@ -44,14 +43,14 @@ Status EngineMetaReader::get_hints(
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
     std::string err;
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
+    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
         tablet_id, schema_hash, true, &err);
-    if (table.get() == NULL) {
+    if (table == nullptr) {
         std::stringstream ss;
         ss << "failed to get tablet: " << tablet_id << "with schema hash: "
             << schema_hash << ", reason: " << err;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
@@ -71,7 +70,7 @@ Status EngineMetaReader::get_hints(
                                  block_row_count, &range);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
-            return Status("fail to show hints");
+            return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
         have_valid_range = true;
@@ -82,7 +81,7 @@ Status EngineMetaReader::get_hints(
         auto res = table->split_range({}, {}, block_row_count, &range);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
-            return Status("fail to show hints");
+            return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
     }
@@ -111,7 +110,7 @@ Status EngineMetaReader::get_hints(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 } // namespace doris

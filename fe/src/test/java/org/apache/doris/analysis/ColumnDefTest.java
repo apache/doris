@@ -17,14 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
 
 public class ColumnDefTest {
     private TypeDef intCol;
@@ -50,14 +51,14 @@ public class ColumnDefTest {
         Assert.assertNull(column.getDefaultValue());
 
         // default
-        column = new ColumnDef("col", intCol, true, null, false, "10", "");
+        column = new ColumnDef("col", intCol, true, null, false, new DefaultValue(true, "10"), "");
         column.analyze(true);
         Assert.assertNull(column.getAggregateType());
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals("`col` int(11) NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
 
         // agg
-        column = new ColumnDef("col", floatCol, false, AggregateType.SUM, false, "10", "");
+        column = new ColumnDef("col", floatCol, false, AggregateType.SUM, false, new DefaultValue(true, "10"), "");
         column.analyze(true);
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals(AggregateType.SUM, column.getAggregateType());
@@ -73,7 +74,7 @@ public class ColumnDefTest {
 
     @Test(expected = AnalysisException.class)
     public void testStrSum() throws AnalysisException {
-        ColumnDef column = new ColumnDef("col", stringCol, false, AggregateType.SUM, true, null, "");
+        ColumnDef column = new ColumnDef("col", stringCol, false, AggregateType.SUM, true, DefaultValue.NOT_SET, "");
         column.analyze(true);
     }
 

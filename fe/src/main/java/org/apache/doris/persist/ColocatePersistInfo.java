@@ -17,7 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -29,39 +34,38 @@ import java.util.List;
  * PersistInfo for ColocateTableIndex
  */
 public class ColocatePersistInfo implements Writable {
+    private GroupId groupId;
     private long tableId;
-    private long groupId;
-    private long dbId;
-    private List<List<Long>> backendsPerBucketSeq;
+    private List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
 
     public ColocatePersistInfo() {
 
     }
 
-    public static ColocatePersistInfo CreateForAddTable(long tableId, long groupId, long dbId, List<List<Long>> backendsPerBucketSeq) {
-        return new ColocatePersistInfo(tableId, groupId, dbId, backendsPerBucketSeq);
+    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId, List<List<Long>> backendsPerBucketSeq) {
+        return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 
-    public static ColocatePersistInfo CreateForBackendsPerBucketSeq(long groupId, List<List<Long>> backendsPerBucketSeq) {
-        return new ColocatePersistInfo(-1L, groupId, -1L, backendsPerBucketSeq);
+    public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
+            List<List<Long>> backendsPerBucketSeq) {
+        return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
     }
 
-    public static ColocatePersistInfo CreateForMarkBalancing(long groupId) {
-        return new ColocatePersistInfo(-1L, groupId, -1L, new ArrayList<>());
+    public static ColocatePersistInfo createForMarkUnstable(GroupId groupId) {
+        return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
     }
 
-    public static ColocatePersistInfo CreateForMarkStable(long groupId) {
-        return new ColocatePersistInfo(-1L, groupId, -1L, new ArrayList<>());
+    public static ColocatePersistInfo createForMarkStable(GroupId groupId) {
+        return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
     }
 
-    public static ColocatePersistInfo CreateForRemoveTable(long tableId) {
-        return new ColocatePersistInfo(tableId, -1L, -1L, new ArrayList<>());
+    public static ColocatePersistInfo createForRemoveTable(long tableId) {
+        return new ColocatePersistInfo(new GroupId(-1, -1), tableId, new ArrayList<>());
     }
 
-    public ColocatePersistInfo(long tableId, long groupId, long dbId, List<List<Long>> backendsPerBucketSeq) {
-        this.tableId = tableId;
+    private ColocatePersistInfo(GroupId groupId, long tableId, List<List<Long>> backendsPerBucketSeq) {
         this.groupId = groupId;
-        this.dbId = dbId;
+        this.tableId = tableId;
         this.backendsPerBucketSeq = backendsPerBucketSeq;
     }
 
@@ -69,39 +73,20 @@ public class ColocatePersistInfo implements Writable {
         return tableId;
     }
 
-    public void setTableId(long tableId) {
-        this.tableId = tableId;
-    }
-
-    public long getGroupId() {
+    public GroupId getGroupId() {
         return groupId;
-    }
-
-    public void setGroupId(long groupId) {
-        this.groupId = groupId;
-    }
-
-    public long getDbId() {
-        return dbId;
-    }
-
-    public void setDbId(long dbId) {
-        this.dbId = dbId;
     }
 
     public List<List<Long>> getBackendsPerBucketSeq() {
         return backendsPerBucketSeq;
     }
 
-    public void setBackendsPerBucketSeq(List<List<Long>> backendsPerBucketSeq) {
-        this.backendsPerBucketSeq = backendsPerBucketSeq;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(tableId);
-        out.writeLong(groupId);
-        out.writeLong(dbId);
+        groupId.write(out);
+        // out.writeLong(groupId);
+        // out.writeLong(dbId);
         int size = backendsPerBucketSeq.size();
         out.writeInt(size);
         for (List<Long> beList : backendsPerBucketSeq) {
@@ -115,8 +100,13 @@ public class ColocatePersistInfo implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
-        groupId = in.readLong();
-        dbId = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
+            long grpId = in.readLong();
+            long dbId = in.readLong();
+            groupId = new GroupId(dbId, grpId);
+        } else {
+            groupId = GroupId.read(in);
+        }
 
         int size = in.readInt();
         backendsPerBucketSeq = new ArrayList<>();
@@ -143,8 +133,7 @@ public class ColocatePersistInfo implements Writable {
         ColocatePersistInfo info = (ColocatePersistInfo) obj;
 
         return tableId == info.tableId
-                && groupId == info.groupId
-                && dbId == info.dbId
+                && groupId.equals(info.groupId)
                 && backendsPerBucketSeq.equals(info.backendsPerBucketSeq);
     }
 
@@ -153,7 +142,6 @@ public class ColocatePersistInfo implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("table id: ").append(tableId);
         sb.append(" group id: ").append(groupId);
-        sb.append(" db id: ").append(dbId);
         sb.append(" backendsPerBucketSeq: ").append(backendsPerBucketSeq);
         return sb.toString();
     }

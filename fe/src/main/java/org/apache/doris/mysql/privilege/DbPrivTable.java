@@ -32,6 +32,10 @@ import java.io.IOException;
 public class DbPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(DbPrivTable.class);
 
+    /*
+     * Return first priv which match the user@host on db.* The returned priv will be
+     * saved in 'savedPrivs'.
+     */
     public void getPrivs(String host, String db, String user, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
@@ -60,6 +64,28 @@ public class DbPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
+    }
+
+    /*
+     * Check if user@host has specified privilege on any database
+     */
+    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+        for (PrivEntry entry : entries) {
+            DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
+            // check host
+            if (!dbPrivEntry.isAnyHost() && !dbPrivEntry.getHostPattern().match(host)) {
+                continue;
+            }
+            // check user
+            if (!dbPrivEntry.isAnyUser() && !dbPrivEntry.getUserPattern().match(user)) {
+                continue;
+            }
+            // check priv
+            if (dbPrivEntry.privSet.satisfy(wanted)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {

@@ -369,6 +369,7 @@ public:
             reinterpret_cast<doris_udf::FloatVal*>(dst)->val = 
                 *reinterpret_cast<const float*>(slot);
             return;
+        case TYPE_TIME:
         case TYPE_DOUBLE:
             reinterpret_cast<doris_udf::DoubleVal*>(dst)->val = 
                 *reinterpret_cast<const double*>(slot);

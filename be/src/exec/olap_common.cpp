@@ -67,12 +67,12 @@ Status OlapScanKeys::get_key_range(std::vector<OlapScanRange>* key_range) {
         key_range->push_back(range);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DorisScanRange::init() {
     if (!_scan_range.__isset.partition_column_ranges) {
-        return Status::OK;
+        return Status::OK();
     }
 
     const std::vector<TKeyRange>& partition_column_ranges
@@ -166,7 +166,7 @@ Status DorisScanRange::init() {
         break;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int DorisScanRange::has_intersection(const std::string column_name,

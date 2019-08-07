@@ -39,7 +39,7 @@ import java.util.regex.Pattern;
 
 import javax.activation.MimetypesFileTypeMap;
 
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
@@ -166,7 +166,7 @@ public class StaticResourceAction extends WebBaseAction {
 
         // Cache validation
         String ifModifiedSince = request.getRequest()
-                .headers().get(HttpHeaders.Names.IF_MODIFIED_SINCE);
+                .headers().get(HttpHeaderNames.IF_MODIFIED_SINCE.toString());
         if (!Strings.isNullOrEmpty(ifModifiedSince)) {
             SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
             Date ifModifiedSinceDate;
@@ -187,10 +187,10 @@ public class StaticResourceAction extends WebBaseAction {
             }
         }
 
-        response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, getContentType(resourceAbsolutePath));
+        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), getContentType(resourceAbsolutePath));
         setDateAndCacheHeaders(response, resFile);
 
-        writeFileResponse(request, response, HttpResponseStatus.OK, resFile);
+        writeObjectResponse(request, response, HttpResponseStatus.OK, resFile, resFile.getName(), false);
     }
 
 
@@ -206,14 +206,13 @@ public class StaticResourceAction extends WebBaseAction {
 
         // Date header
         Calendar time = new GregorianCalendar();
-        response.updateHeader(HttpHeaders.Names.DATE, dateFormatter.format(time.getTime()));
+        response.updateHeader(HttpHeaderNames.DATE.toString(), dateFormatter.format(time.getTime()));
 
         // Add cache headers
         time.add(Calendar.SECOND, HTTP_CACHE_SECONDS);
-        response.updateHeader(HttpHeaders.Names.EXPIRES, dateFormatter.format(time.getTime()));
-        response.updateHeader(HttpHeaders.Names.CACHE_CONTROL, "private, max-age=" + HTTP_CACHE_SECONDS);
-        response.updateHeader(
-                HttpHeaders.Names.LAST_MODIFIED,
+        response.updateHeader(HttpHeaderNames.EXPIRES.toString(), dateFormatter.format(time.getTime()));
+        response.updateHeader(HttpHeaderNames.CACHE_CONTROL.toString(), "private, max-age=" + HTTP_CACHE_SECONDS);
+        response.updateHeader(HttpHeaderNames.LAST_MODIFIED.toString(),
                 dateFormatter.format(new Date(fileToCache.lastModified())));
     }
 

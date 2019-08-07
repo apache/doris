@@ -15,222 +15,296 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
-#define DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
+#pragma once
 
-#include "olap/field_info.h"
 #include "olap/hll.h"
 #include "olap/types.h"
+#include "olap/row_cursor_cell.h"
 #include "util/arena.h"
 
 namespace doris {
 
-using AggregateFunc = void (*)(char* left, const char* right, Arena* arena);
-using FinalizeFunc = void (*)(char* data);
+using AggeInitFunc = void (*)(char* dst, Arena* arena);
+using AggUpdateFunc = void (*)(RowCursorCell* dst, const RowCursorCell& src, Arena* arena);
+using AggFinalizeFunc = void (*)(char* data, Arena* arena);
 
-template<FieldAggregationMethod agg_method,
-        FieldType field_type> struct AggregateFuncTraits {};
+// This class contains information about aggregate operation.
+class AggregateInfo {
+public:
+    // Init function will initialize aggregation execute environment in dst.
+    // For example: for sum, we just initial dst to 0. For HLL column, it will
+    // allocate and init context used to compute HLL.
+    //
+    // Memory Note: For plain memory can be allocated from arena, whose lifetime
+    // will last util finalize function is called. Memory allocated from heap should
+    // be freed in finalize functioin to avoid memory leak.
+    inline void init(void* dst, Arena* arena) const {
+        _init_fn((char*)dst, arena);
+    }
 
-template<FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
-    static void aggregate(char* left, const char* right, Arena* arena) {}
+    // Actually do the aggregate operation. dst is the context which is initialized
+    // by init function, src is the current value which is to be aggregated.
+    // For example: For sum, dst is the current sum, and src is the next value which
+    // will be added to sum.
+    // This function usually is used when load function.
+    //
+    // Memory Note: Same with init function.
+    inline void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) const {
+        _update_fn(dst, src, arena);
+    }
+
+    // Merge aggregated intermediate data. Data stored in engine is aggregated,
+    // because storage has done some aggregate when loading or compaction.
+    // So this function is often used in read operation.
+    // 
+    // Memory Note: Same with init function.
+    inline void merge(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) const {
+        _merge_fn(dst, src, arena);
+    }
+
+    // Finalize function convert intermediate context into final format. For example:
+    // For HLL type, finalize function will serialize the aggregate context into a slice.
+    // For input src points to the context, and when function is finished, result will be
+    // saved in src.
+    //
+    // Memory Note: All heap memory allocated in init and update function should be freed
+    // before this function return. Memory allocated from arena will be still available
+    // and will be freed by client.
+    inline void finalize(void* src, Arena* arena) const {
+        _finalize_fn((char*)src, arena);
+    }
+
+    FieldAggregationMethod agg_method() const { return _agg_method; }
+
+private:
+    void (*_init_fn)(char* dst, Arena* arena);
+    AggUpdateFunc _update_fn = nullptr;
+    AggUpdateFunc _merge_fn = nullptr;
+    void (*_finalize_fn)(char* dst, Arena* arena);
+
+    friend class AggregateFuncResolver;
+
+    template<typename Traits>
+    AggregateInfo(const Traits& traits);
+
+    FieldAggregationMethod _agg_method;
+};
+
+struct BaseAggregateFuncs {
+    // Default init function will set to null
+    static void init(char* dst, Arena* arena) {
+        *reinterpret_cast<bool*>(dst) = true;
+    }
+
+    // Default update do nothing.
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+    }
+
+    // For most aggregate method, its merge and update are same. If merge
+    // is same with update, keep merge nullptr to avoid duplicate code.
+    // AggregateInfo constructor will set merge function to update function
+    // when merge is nullptr.
+    AggUpdateFunc merge = nullptr;
+
+    // Default finalize do nothing.
+    static void finalize(char* src, Arena* arena) {
+    }
+};
+
+template<FieldAggregationMethod agg_method, FieldType field_type>
+struct AggregateFuncTraits : public BaseAggregateFuncs {
 };
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, field_type> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<field_type>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (l_null) {
-            return;
-        } else if (r_null) {
-            *reinterpret_cast<bool*>(left) = true;
-        } else {
-            CppType* l_val = reinterpret_cast<CppType*>(left + 1);
-            const CppType* r_val = reinterpret_cast<const CppType*>(right + 1);
-            if (*r_val < *l_val) { *l_val = *r_val; }
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, field_type> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<field_type>::CppType CppType;
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+        CppType* dst_val = reinterpret_cast<CppType*>(dst->mutable_cell_ptr());
+        const CppType* src_val = reinterpret_cast<const CppType*>(src.cell_ptr());
+        if (dst_null || *src_val < *dst_val) {
+            dst->set_is_null(false);
+            *dst_val = *src_val;
         }
     }
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (l_null) {
-            return;
-        } else if (r_null) {
-            *reinterpret_cast<bool*>(left) = true;
-        } else {
-            CppType l_val, r_val;
-            memcpy(&l_val, left + 1, sizeof(CppType));
-            memcpy(&r_val, right + 1, sizeof(CppType));
-            if (r_val < l_val) {
-                memcpy(left + 1, right + 1, sizeof(CppType));
-            }
-        }
-    }
-};
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
 
-template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<field_type>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (r_null) {
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+        if (dst_null) {
+            dst->set_is_null(false);
+            memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
             return;
         }
 
-        CppType* l_val = reinterpret_cast<CppType*>(left + 1);
-        const CppType* r_val = reinterpret_cast<const CppType*>(right + 1);
-        if (l_null) {
-            *reinterpret_cast<bool*>(left) = false;
-            *l_val = *r_val;
-        } else {
-            if (*r_val > *l_val) { *l_val = *r_val; }
-        }
-    }
-};
-
-template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (r_null) {
-            return;
-        }
-
-        if (l_null) {
-            *reinterpret_cast<bool*>(left) = false;
-            memcpy(left + 1, right + 1, sizeof(CppType));
-        } else {
-            CppType l_val, r_val;
-            memcpy(&l_val, left + 1, sizeof(CppType));
-            memcpy(&r_val, right + 1, sizeof(CppType));
-            if (r_val > l_val) {
-                memcpy(left + 1, right + 1, sizeof(CppType));
-            }
-        }
-    }
-};
-
-template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, field_type> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<field_type>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (r_null) {
-            return;
-        }
-
-        CppType* l_val = reinterpret_cast<CppType*>(left + 1);
-        const CppType* r_val = reinterpret_cast<const CppType*>(right + 1);
-        if (l_null) {
-            *reinterpret_cast<bool*>(left) = false;
-            *l_val = *r_val;
-        } else {
-            *l_val += *r_val;
-        }
-    }
-};
-
-template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_LARGEINT> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        if (r_null) {
-            return;
-        }
-
-        if (l_null) {
-            *reinterpret_cast<bool*>(left) = false;
-            memcpy(left + 1, right + 1, sizeof(CppType));
-        } else {
-            CppType l_val, r_val;
-            memcpy(&l_val, left + 1, sizeof(CppType));
-            memcpy(&r_val, right + 1, sizeof(CppType));
-            l_val += r_val;
-            memcpy(left + 1, &l_val, sizeof(CppType));
+        CppType dst_val, src_val;
+        memcpy(&dst_val, dst->cell_ptr(), sizeof(CppType));
+        memcpy(&src_val, src.cell_ptr(), sizeof(CppType));
+        if (src_val < dst_val) {
+            dst->set_is_null(false);
+            memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
         }
     }
 };
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, field_type> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<field_type>::CppType CppType;
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        *reinterpret_cast<bool*>(left) = r_null;
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
-        if (!r_null) {
-            CppType* l_val = reinterpret_cast<CppType*>(left + 1);
-            const CppType* r_val = reinterpret_cast<const CppType*>(right + 1);
-            *l_val = *r_val;
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+        CppType* dst_val = reinterpret_cast<CppType*>(dst->mutable_cell_ptr());
+        const CppType* src_val = reinterpret_cast<const CppType*>(src.cell_ptr());
+        if (dst_null || *src_val > *dst_val) {
+            dst->set_is_null(false);
+            *dst_val = *src_val;
         }
     }
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_LARGEINT> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        *reinterpret_cast<bool*>(left) = r_null;
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
 
-        if (!r_null) {
-            memcpy(left + 1, right + 1, sizeof(CppType));
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+        CppType dst_val, src_val;
+        memcpy(&dst_val, dst->cell_ptr(), sizeof(CppType));
+        memcpy(&src_val, src.cell_ptr(), sizeof(CppType));
+        if (dst_null || src_val > dst_val) {
+            dst->set_is_null(false);
+            memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
+        }
+    }
+};
+
+template <FieldType field_type>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, field_type> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<field_type>::CppType CppType;
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        if (src_null) {
+            return;
+        }
+
+        CppType* dst_val = reinterpret_cast<CppType*>(dst->mutable_cell_ptr());
+        bool dst_null = dst->is_null();
+        if (dst_null) {
+            dst->set_is_null(false);
+            *dst_val = *reinterpret_cast<const CppType*>(src.cell_ptr());
+        } else {
+            *dst_val += *reinterpret_cast<const CppType*>(src.cell_ptr());
         }
     }
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        bool l_null = *reinterpret_cast<bool*>(left);
-        bool r_null = *reinterpret_cast<const bool*>(right);
-        *reinterpret_cast<bool*>(left) = r_null;
-        if (!r_null) {
-            Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
-            const Slice* r_slice = reinterpret_cast<const Slice*>(right + 1);
-            if (arena == nullptr || (!l_null && l_slice->size >= r_slice->size)) {
-                memory_copy(l_slice->data, r_slice->data, r_slice->size);
-                l_slice->size = r_slice->size;
-            } else {
-                l_slice->data = arena->Allocate(r_slice->size);
-                memory_copy(l_slice->data, r_slice->data, r_slice->size);
-                l_slice->size = r_slice->size;
-            }
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_LARGEINT> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        if (src_null) {
+            return;
+        }
+
+        bool dst_null = dst->is_null();
+        if (dst_null) {
+            dst->set_is_null(false);
+            memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
+        } else {
+            CppType dst_val, src_val;
+            memcpy(&dst_val, dst->cell_ptr(), sizeof(CppType));
+            memcpy(&src_val, src.cell_ptr(), sizeof(CppType));
+            dst_val += src_val;
+            memcpy(dst->mutable_cell_ptr(), &dst_val, sizeof(CppType));
+        }
+    }
+};
+
+template <FieldType field_type>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, field_type> : public BaseAggregateFuncs {
+    typedef typename FieldTypeTraits<field_type>::CppType CppType;
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        dst->set_is_null(src_null);
+        if (!src_null) {
+            memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
         }
     }
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        //same with char aggregate
-        AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE,
-                OLAP_FIELD_TYPE_CHAR>::aggregate(left, right, arena);
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR> : public BaseAggregateFuncs {
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool dst_null = dst->is_null();
+        bool src_null = src.is_null();
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+
+        Slice* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        const Slice* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        if (arena == nullptr || (!dst_null && dst_slice->size >= src_slice->size)) {
+            memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+            dst_slice->size = src_slice->size;
+        } else {
+            dst_slice->data = arena->Allocate(src_slice->size);
+            memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+            dst_slice->size = src_slice->size;
+        }
     }
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
-    static void aggregate(char* left, const char* right, Arena* arena) {
-        Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR>
+    : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR> {
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> : public BaseAggregateFuncs {
+    static void init(char* dst, Arena* arena) {
+        // TODO(zc): refactor HLL implementation
+        *reinterpret_cast<bool*>(dst) = false;
+        Slice* slice = reinterpret_cast<Slice*>(dst + 1);
+        size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
+        HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
+        HllSetHelper::init_context(context);
+        context->has_value = true;
+    }
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        Slice* l_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
         size_t hll_ptr = *(size_t*)(l_slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
-        HllSetHelper::fill_set(right + 1, context);
+        HllSetHelper::fill_set((const char*)src.cell_ptr(), context);
     }
-    static void finalize(char* data) {
+
+    static void finalize(char* data, Arena* arena) {
         Slice* slice = reinterpret_cast<Slice*>(data);
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
@@ -269,11 +343,12 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
     }
 };
 
-extern AggregateFunc get_aggregate_func(const FieldAggregationMethod agg_method,
+template<FieldAggregationMethod aggMethod, FieldType fieldType>
+struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType> {
+    static const FieldAggregationMethod agg_method = aggMethod;
+    static const FieldType type = fieldType;
+};
+
+const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
                                         const FieldType field_type);
-extern FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
-                                      const FieldType field_type);
-
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H

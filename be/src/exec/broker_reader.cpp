@@ -36,14 +36,15 @@ BrokerReader::BrokerReader(
         const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties,
         const std::string& path,
-        int64_t start_offset) :
+        int64_t start_offset,
+        int64_t file_size) :
             _env(env),
             _addresses(broker_addresses),
             _properties(properties),
             _path(path),
             _cur_offset(start_offset),
             _is_fd_valid(false),
-            _eof(false),
+            _file_size(file_size),
             _addr_idx(0) {
 }
 
@@ -94,6 +95,7 @@ Status BrokerReader::open() {
         try {
             client->openReader(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
+            usleep(1000 * 1000);
             RETURN_IF_ERROR(client.reopen());
             client->openReader(response, request);
         }
@@ -101,7 +103,7 @@ Status BrokerReader::open() {
         std::stringstream ss;
         ss << "Open broker reader failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
@@ -109,26 +111,38 @@ Status BrokerReader::open() {
         ss << "Open broker reader failed, broker:" << broker_addr 
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
+    }
+    // TODO(cmy): The file size is no longer got from openReader() method.
+    // But leave the code here for compatibility.
+    // This will be removed later.
+    if (response.__isset.size) {
+        _file_size = response.size;
     }
 
     _fd = response.fd;
     _is_fd_valid = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    if (_eof) {
+    DCHECK_NE(*buf_len, 0);
+    RETURN_IF_ERROR(readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf));
+    if (*buf_len == 0) {
         *eof = true;
-        return Status::OK;
+    } else {
+        *eof = false;
     }
-    
+    return Status::OK();
+}
+
+Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     const TNetworkAddress& broker_addr = _addresses[_addr_idx];
     TBrokerPReadRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
     request.__set_fd(_fd);
-    request.__set_offset(_cur_offset);
-    request.__set_length(*buf_len);
+    request.__set_offset(position);
+    request.__set_length(nbytes);
 
     TBrokerReadResponse response;
     try {
@@ -143,6 +157,7 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
         try {
             client->pread(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
+            usleep(1000 * 1000);
             RETURN_IF_ERROR(client.reopen());
             LOG(INFO) << "retry reading from broker: " << broker_addr << ". reason: " << e.what();
             client->pread(response, request);
@@ -151,27 +166,43 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
         std::stringstream ss;
         ss << "Read from broker failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
         // read the end of broker's file
-        *eof = _eof = true;
-        return Status::OK;
+        *bytes_read = 0;
+        return Status::OK();
     } else if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
-        ss << "Read from broker failed, broker:" << broker_addr 
+        ss << "Read from broker failed, broker:" << broker_addr
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    *buf_len = response.data.size();
-    memcpy(buf, response.data.data(), *buf_len);
-    _cur_offset += *buf_len; 
-    *eof = false;
+    *bytes_read = response.data.size();
+    memcpy(out, response.data.data(), *bytes_read);
+    _cur_offset = position + *bytes_read;
+    return Status::OK();
+}
 
-    return Status::OK;
+int64_t BrokerReader::size() {
+    return _file_size;
+}
+
+Status BrokerReader::seek(int64_t position) {
+    _cur_offset = position;
+    return Status::OK();
+}
+
+Status BrokerReader::tell(int64_t* position) {
+    *position = _cur_offset;
+    return Status::OK();
+}
+
+bool BrokerReader::closed() {
+    return !_is_fd_valid; //return true iff closed
 }
 
 void BrokerReader::close() {
@@ -197,6 +228,7 @@ void BrokerReader::close() {
         try {
             client->closeReader(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
+            usleep(1000 * 1000);
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Close broker reader failed. broker=" << broker_addr

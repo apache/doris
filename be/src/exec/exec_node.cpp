@@ -171,7 +171,7 @@ void ExecNode::push_down_predicate(
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(
         Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::prepare(RuntimeState* state) {
@@ -199,7 +199,7 @@ Status ExecNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::open(RuntimeState* state) {
@@ -213,7 +213,7 @@ Status ExecNode::reset(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->reset(state));
     }   
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
@@ -221,12 +221,12 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     for (auto child_node : _children) {
         child_node->collect_query_statistics(statistics);
     } 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
-        return Status::OK;
+        return Status::OK();
     }
     _is_closed = true;
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
@@ -236,10 +236,13 @@ Status ExecNode::close(RuntimeState* state) {
     }
 
     Status result;
-
     for (int i = 0; i < _children.size(); ++i) {
-        result.add_error(_children[i]->close(state));
+        auto st = _children[i]->close(state);
+        if (result.ok() && !st.ok()) {
+            result = st;
+        }
     }
+
     Expr::close(_conjunct_ctxs, state);
 
     if (expr_mem_pool() != nullptr) {
@@ -281,7 +284,7 @@ Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan&
                             const DescriptorTbl& descs, ExecNode** root) {
     if (plan.nodes.size() == 0) {
         *root = NULL;
-        return Status::OK;
+        return Status::OK();
     }
 
     int node_idx = 0;
@@ -289,11 +292,11 @@ Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan&
 
     if (node_idx + 1 != plan.nodes.size()) {
         // TODO: print thrift msg for diagnostic purposes.
-        return Status(
+        return Status::InternalError(
                    "Plan tree only partially reconstructed. Not all thrift nodes were used.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::create_tree_helper(
@@ -307,7 +310,7 @@ Status ExecNode::create_tree_helper(
     // propagate error case
     if (*node_idx >= tnodes.size()) {
         // TODO: print thrift msg
-        return Status("Failed to reconstruct plan tree from thrift.");
+        return Status::InternalError("Failed to reconstruct plan tree from thrift.");
     }
     const TPlanNode& tnode = tnodes[*node_idx];
 
@@ -330,7 +333,7 @@ Status ExecNode::create_tree_helper(
         // this means we have been given a bad tree and must fail
         if (*node_idx >= tnodes.size()) {
             // TODO: print thrift msg
-            return Status("Failed to reconstruct plan tree from thrift.");
+            return Status::InternalError("Failed to reconstruct plan tree from thrift.");
         }
     }
 
@@ -346,7 +349,7 @@ Status ExecNode::create_tree_helper(
         node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), false, NULL);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
@@ -357,27 +360,31 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     switch (tnode.node_type) {
     case TPlanNodeType::CSV_SCAN_NODE:
         *node = pool->add(new CsvScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::MYSQL_SCAN_NODE:
+#ifdef DORIS_WITH_MYSQL
         *node = pool->add(new MysqlScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
+#else
+        return Status::InternalError("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
 
     case TPlanNodeType::ES_SCAN_NODE:
         *node = pool->add(new EsScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
         *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::SCHEMA_SCAN_NODE:
         *node = pool->add(new SchemaScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         *node = pool->add(new OlapScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
         if (config::enable_partitioned_aggregation) {
@@ -387,38 +394,38 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         } else {
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
-        return Status::OK;
+        return Status::OK();
 
         /*case TPlanNodeType::PRE_AGGREGATION_NODE:
           *node = pool->add(new PreAggregationNode(pool, tnode, descs));
-          return Status::OK;*/
+          return Status::OK();*/
     case TPlanNodeType::HASH_JOIN_NODE:
         *node = pool->add(new HashJoinNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:
         *node = pool->add(new CrossJoinNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::MERGE_JOIN_NODE:
         *node = pool->add(new MergeJoinNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::EMPTY_SET_NODE:
         *node = pool->add(new EmptySetNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::EXCHANGE_NODE:
         *node = pool->add(new ExchangeNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::SELECT_NODE:
         *node = pool->add(new SelectNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::OLAP_REWRITE_NODE:
         *node = pool->add(new OlapRewriteNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::SORT_NODE:
         if (tnode.sort_node.use_top_n) {
@@ -427,22 +434,22 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new SpillSortNode(pool, tnode, descs));
         }
 
-        return Status::OK;
+        return Status::OK();
     case TPlanNodeType::ANALYTIC_EVAL_NODE:
         *node = pool->add(new AnalyticEvalNode(pool, tnode, descs));
         break;
 
     case TPlanNodeType::MERGE_NODE:
         *node = pool->add(new MergeNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::UNION_NODE:
         *node = pool->add(new UnionNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     default:
         map<int, const char*>::const_iterator i =
@@ -454,10 +461,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         }
 
         error_msg << str << " not implemented";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExecNode::set_debug_options(
@@ -534,11 +541,11 @@ Status ExecNode::exec_debug_action(TExecNodePhase::type phase) {
     DCHECK(phase != TExecNodePhase::INVALID);
 
     if (_debug_phase != phase) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (_debug_action == TDebugAction::FAIL) {
-        return Status(TStatusCode::INTERNAL_ERROR, "Debug Action: FAIL");
+        return Status::InternalError("Debug Action: FAIL");
     }
 
     if (_debug_action == TDebugAction::WAIT) {
@@ -547,7 +554,7 @@ Status ExecNode::exec_debug_action(TExecNodePhase::type phase) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // Codegen for EvalConjuncts.  The generated signature is
@@ -673,7 +680,7 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
         ss << "Spillable buffer size for node " << _id << " of " << _resource_profile.spillable_buffer_size
            << "bytes is less than the minimum buffer pool buffer size of "
            <<  buffer_pool->min_buffer_len() << "bytes";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }   
  
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
@@ -693,7 +700,7 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
                RETURN_IF_ERROR(EnableDenyReservationDebugAction());
     } 
 */  
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecNode::release_unused_reservation() {
@@ -709,11 +716,11 @@ Status ExecNode::enable_deny_reservation_debug_action() {
       debug_action_param_.c_str(), debug_action_param_.size(), &parse_result);
   if (parse_result != StringParser::PARSE_SUCCESS || probability < 0.0
       || probability > 1.0) {
-    return Status(Substitute(
+    return Status::InternalError(Substitute(
         "Invalid SET_DENY_RESERVATION_PROBABILITY param: '$0'", debug_action_param_));
   }
   _buffer_pool_client.SetDebugDenyIncreaseReservation(probability);
-  return Status::OK();
+  return Status::OK()();
 }
 */
 

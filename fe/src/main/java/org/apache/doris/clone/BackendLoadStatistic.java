@@ -408,4 +408,11 @@ public class BackendLoadStatistic {
         info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
         return info;
     }
+
+    public boolean canFitInColocate(long totalReplicaSize) {
+        long afterUsedCap = totalUsedCapacityMap.values().stream().reduce(0L, Long::sum) + totalReplicaSize;
+        long totalCap = totalCapacityMap.values().stream().reduce(0L, Long::sum);
+        double afterRatio = (double) afterUsedCap / totalCap;
+        return afterRatio < 0.9;
+    }
 }

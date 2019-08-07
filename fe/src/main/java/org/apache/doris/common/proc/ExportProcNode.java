@@ -24,18 +24,15 @@ import org.apache.doris.load.ExportMgr;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 
 // TODO(lingbin): think if need a sub node to show unfinished instances
 public class ExportProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("State").add("Progress")
-            .add("TaskInfo").add("ErrorMsg")
-            .add("CreateTime") .add("StartTime").add("FinishTime")
-            .add("Path")
+            .add("TaskInfo").add("Path")
+            .add("CreateTime").add("StartTime").add("FinishTime")
+            .add("Timeout").add("ErrorMsg")
             .build();
 
     // label and state column index of result
@@ -60,20 +57,8 @@ public class ExportProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        LinkedList<List<Comparable>> jobInfos = exportMgr.getExportJobInfosByIdOrState(db.getId(), 0, null, null);
-        int counter = 0;
-        Iterator<List<Comparable>> iterator = jobInfos.descendingIterator();
-        while (iterator.hasNext()) {
-            List<Comparable> infoStr = iterator.next();
-            List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
-            for (Comparable element : infoStr) {
-                oneInfo.add(element.toString());
-            }
-            result.addRow(oneInfo);
-            if (++counter >= LIMIT) {
-                break;
-            }
-        }
+        List<List<String>> jobInfos = exportMgr.getExportJobInfosByIdOrState(db.getId(), 0, null, null, LIMIT);
+        result.setRows(jobInfos);
         return result;
     }
 

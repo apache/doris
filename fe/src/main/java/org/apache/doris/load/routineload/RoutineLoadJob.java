@@ -46,6 +46,7 @@ import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -544,7 +545,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
 
-    public void initPlanner() throws UserException {
+    // call before first scheduling
+    // derived class can override this.
+    public void prepare() throws UserException {
+        initPlanner();
+    }
+
+    private void initPlanner() throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromRoutineLoadJob(this);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -553,7 +560,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), streamLoadTask);
     }
 
-    public TExecPlanFragmentParams plan() throws UserException {
+    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -561,7 +568,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         db.readLock();
         try {
-            return planner.plan();
+            return planner.plan(loadId);
         } finally {
             db.readUnlock();
         }
@@ -614,13 +621,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 switch (transactionStatus) {
                     case COMMITTED:
                         throw new TransactionException("txn " + txnState.getTransactionId()
-                                                               + " could not be " + transactionStatus
-                                                               + " while task " + txnState.getLabel() + " has been aborted.");
-                    case ABORTED:
-                        // reset attachment in txn state
-                        // txn will be aborted normal but without attachment
-                        // task will not be update when attachment is null
-                        txnState.setTxnCommitAttachment(null);
+                                                       + " could not be " + transactionStatus
+                                                       + " while task " + txnState.getLabel() + " has been aborted.");
+                    default:
                         break;
                 }
             }
@@ -679,13 +682,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         long taskBeId = -1L;
         try {
             if (txnOperated) {
-                if (txnState.getTxnCommitAttachment() == null) {
-                    // this is a task which already has been aborted by fe
-                    return;
-                }
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
+                if (!routineLoadTaskInfoOptional.isPresent()) {
+                    // task will not be update when task has been aborted by fe
+                    return;
+                }
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
                 // step1: job state will be changed depending on txnStatusChangeReasonString
@@ -702,8 +705,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
                             case OFFSET_OUT_OF_RANGE:
+                            case PAUSE:
                                 updateState(JobState.PAUSED, "be " + taskBeId + " abort task "
-                                        + "with reason " + txnStatusChangeReason.toString(), false /* not replay */);
+                                        + "with reason: " + txnStatusChangeReasonString, false /* not replay */);
                                 return;
                             default:
                                 break;
@@ -979,6 +983,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
             row.add(jobPropertiesToJsonString());
             row.add(dataSourcePropertiesJsonToString());
+            row.add(customPropertiesJsonToString());
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             switch (state) {
@@ -1042,6 +1047,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     abstract String dataSourcePropertiesJsonToString();
+
+    abstract String customPropertiesJsonToString();
 
 
     public boolean needRemove() {

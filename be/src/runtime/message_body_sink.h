@@ -32,7 +32,7 @@ public:
     }
     // called when all data has been append
     virtual Status finish() {
-        return Status::OK;
+        return Status::OK();
     }
     // called when read HTTP failed
     virtual void cancel() { }

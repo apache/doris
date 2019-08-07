@@ -36,11 +36,14 @@ public class FailMsg implements Writable {
     }
     
     private CancelType cancelType;
-    private String msg;
+    private String msg = "";
 
     public FailMsg() {
         this.cancelType = CancelType.UNKNOWN;
-        this.msg = "";
+    }
+
+    public FailMsg(CancelType cancelType) {
+        this.cancelType = cancelType;
     }
     
     public FailMsg(CancelType cancelType, String msg) {

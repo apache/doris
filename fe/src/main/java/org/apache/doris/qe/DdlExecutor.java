@@ -32,6 +32,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -43,6 +44,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -66,8 +68,8 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.load.LoadJob.EtlJobType;
-import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.Load;
 
 /**
  * Created by zhaochun on 14/11/10.
@@ -109,15 +111,14 @@ public class DdlExecutor {
             } else {
                 if (Config.disable_hadoop_load) {
                     throw new DdlException("Load job by hadoop cluster is disabled."
-                            + " Try use broker load. See 'help broker load;'");
+                            + " Try using broker load. See 'help broker load;'");
                 }
                 jobType = EtlJobType.HADOOP;
             }
-            // TODO(ml): WIP
-            if (loadStmt.getVersion().equals(LoadManager.VERSION)) {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
+            if (loadStmt.getVersion().equals(Load.VERSION) || loadStmt.getBrokerDesc() == null) {
+                catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
-                catalog.getLoadInstance().addLoadJob(loadStmt, jobType, System.currentTimeMillis());
+                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
@@ -192,8 +193,13 @@ public class DdlExecutor {
             catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             catalog.setConfig((AdminSetConfigStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateFileStmt) {
+            catalog.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropFileStmt) {
+            catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
+
         }
     }
 }

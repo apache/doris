@@ -21,17 +21,20 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
-add_library(Util STATIC
+set(UTIL_FILES
   arena.cpp
   bfd_parser.cpp
   bitmap.cpp
   codec.cpp
+  coding.cpp
   compress.cpp
   cpu_info.cpp
+  date_func.cpp
   dynamic_util.cpp
   debug_util.cpp
   decompress.cpp
   disk_info.cpp
+  errno.cpp
   hash_util.hpp
   json_util.cpp
   doris_metrics.cpp
@@ -62,7 +65,6 @@ add_library(Util STATIC
   spinlock.cc
   filesystem_util.cc
   load_error_hub.cpp
-  mysql_load_error_hub.cpp
   broker_load_error_hub.cpp
   null_load_error_hub.cpp
   time.cpp
@@ -75,17 +77,17 @@ add_library(Util STATIC
   string_util.cpp
   md5.cpp
   frontend_helper.cpp
+  faststring.cc
+  slice.cpp
 )
 
-#ADD_BE_TEST(integer-array-test)
-#ADD_BE_TEST(runtime-profile-test)
-#ADD_BE_TEST(benchmark-test)
-#ADD_BE_TEST(decompress-test)
-#ADD_BE_TEST(metrics-test)
-#ADD_BE_TEST(debug-util-test)
-#ADD_BE_TEST(url-coding-test)
-#ADD_BE_TEST(thrift-util-test)
-#ADD_BE_TEST(bit-util-test)
-#ADD_BE_TEST(rle-test)
-##ADD_BE_TEST(perf-counters-test)
-##ADD_BE_TEST(es-scan-reader-test)
+if (WITH_MYSQL)
+    set(UTIL_FILES ${UTIL_FILES}
+        mysql_load_error_hub.cpp
+        )
+endif()
+
+add_library(Util STATIC
+    ${UTIL_FILES}
+)
+

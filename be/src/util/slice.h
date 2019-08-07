@@ -29,6 +29,8 @@
 
 namespace doris {
 
+class faststring;
+
 /// @brief A wrapper around externally allocated data.
 ///
 /// Slice is a simple structure containing a pointer into some external
@@ -66,27 +68,27 @@ public:
     /// Create a slice that refers to the contents of the given string.
     Slice(const std::string& s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s.data())), size(s.size()) { }
+    
+    Slice(const faststring& s);
 
     /// Create a slice that refers to a C-string s[0,strlen(s)-1].
     Slice(const char* s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s)), size(strlen(s)) { }
 
-    /*
     /// @return A pointer to the beginning of the referenced data.
-    const char* data() const { return data; }
+    const char* get_data() const { return data; }
 
     /// @return A mutable pointer to the beginning of the referenced data.
     char* mutable_data() { return const_cast<char*>(data); }
 
     /// @return The length (in bytes) of the referenced data.
-    size_t size() const { return size; }
-    */
+    size_t get_size() const { return size; }
 
     /// @return @c true iff the length of the referenced data is zero.
     bool empty() const { return size == 0; }
 
     /// @return the n-th byte in the referenced data.
-    const char operator[](size_t n) const {
+    const char& operator[](size_t n) const {
         assert(n < size);
         return data[n];
     }

@@ -54,6 +54,10 @@ public class Tablet extends MetaObject implements Writable {
         REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission)
         REDUNDANT, // too much replicas
         REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
+        FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
+                         // at least one replica has to be deleted first to make room for new replica.
+        COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
+        COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant
     }
 
     private long id;
@@ -371,19 +375,23 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, long visibleVersionHash, int replicationNum) {
+            long visibleVersion, long visibleVersionHash, int replicationNum,
+            int availableBackendsNum) {
 
         int alive = 0;
         int aliveAndVersionComplete = 0;
         int stable = 0;
         int availableInCluster = 0;
-
+        
+        Set<String> hosts = Sets.newHashSet();
         for (Replica replica : replicas) {
-            long backendId = replica.getBackendId();
-            Backend backend = systemInfoService.getBackend(backendId);
+            Backend backend = systemInfoService.getBackend(replica.getBackendId());
             if (backend == null || !backend.isAlive() || replica.getState() == ReplicaState.CLONE
-                    || replica.isBad()) {
-                // this replica is not alive
+                    || replica.isBad() || !hosts.add(backend.getHost())) {
+                // this replica is not alive,
+                // or if this replica is on same host with another replica, we also treat it as 'dead',
+                // so that Tablet Scheduler will create a new replica on different host.
+                // ATTN: Replicas on same host is a bug of previous Doris version, so we fix it by this way.
                 continue;
             }
             alive++;
@@ -409,7 +417,18 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        if (alive < (replicationNum / 2) + 1) {
+        if (alive < replicationNum && replicas.size() >= availableBackendsNum
+                && availableBackendsNum >= replicationNum && replicationNum > 1) {
+            // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
+            // so there can be available backend for us to create a new replica.
+            // And if there is only one replica, we will not handle it(maybe need human interference)
+            // condition explain:
+            // 1. alive < replicationNum: replica is missing or bad
+            // 2. replicas.size() >= availableBackendsNum: the existing replicas occupies all available backends
+            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be at least one backend for new replica.
+            // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
+            return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
+        } else if (alive < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.HIGH);
         } else if (alive < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.NORMAL);
@@ -441,6 +460,56 @@ public class Tablet extends MetaObject implements Writable {
 
         // 5. healthy
         return Pair.create(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
+    }
+
+    /*
+     * Check colocate table's tablet health
+     * 1. Mismatch:
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,5
+     *      
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2
+     *      
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,4,5
+     *      
+     * 2. Version incomplete:
+     *      backend matched, but some replica's version is incomplete
+     *      
+     * 3. Redundant:
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,3,4
+     *      
+     * No need to check if backend is available. We consider all backends in 'backendsSet' are available,
+     * If not, unavailable backends will be relocated by CalocateTableBalancer first.
+     */
+    public TabletStatus getColocateHealthStatus(long visibleVersion, long visibleVersionHash,
+            int replicationNum, Set<Long> backendsSet) {
+
+        // 1. check if replicas' backends are mismatch
+        Set<Long> replicaBackendIds = getBackendIds();
+        for (Long backendId : backendsSet) {
+            if (!replicaBackendIds.contains(backendId)) {
+                return TabletStatus.COLOCATE_MISMATCH;
+            }
+        }
+
+        // 2. check version completeness
+        for (Replica replica : replicas) {
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
+                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+                // this replica is alive but version incomplete
+                return TabletStatus.VERSION_INCOMPLETE;
+            }
+        }
+
+        // 3. check redundant
+        if (replicas.size() > replicationNum) {
+            return TabletStatus.COLOCATE_REDUNDANT;
+        }
+
+        return TabletStatus.HEALTHY;
     }
 
     /*

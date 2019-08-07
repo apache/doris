@@ -95,7 +95,7 @@ Status KuduScanNode::prepare(RuntimeState* state) {
 
   _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-  return Status::OK;
+  return Status::OK();
 }
 
 
@@ -107,7 +107,7 @@ Status KuduScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_r
         _scan_tokens.push_back(params.scan_range.kudu_scan_token);
     }
     // COUNTER_SET(kudu_remote_tokens_, num_remote_tokens);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status KuduScanNode::open(RuntimeState* state) {
@@ -142,7 +142,7 @@ Status KuduScanNode::open(RuntimeState* state) {
   // thread_avail_cb_id_ = state->resource_pool()->AddThreadAvailableCb(
   //    bind<void>(mem_fn(&KuduScanNode::thread_available_cb), this, _1));
   thread_available_cb(state->resource_pool());
-  return Status::OK;
+  return Status::OK();
 }
 
 Status KuduScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -155,7 +155,7 @@ Status KuduScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
   if (reached_limit() || _scan_tokens.empty()) {
     *eos = true;
-    return Status::OK;
+    return Status::OK();
   }
 
   *eos = false;
@@ -191,7 +191,7 @@ Status KuduScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
 Status KuduScanNode::close(RuntimeState* state) {
   if (is_closed()) {
-    return Status::OK;
+    return Status::OK();
   }
   SCOPED_TIMER(_runtime_profile->total_time_counter());
   // PeriodicCounterUpdater::StopRateCounter(total_throughput_counter());
@@ -212,7 +212,7 @@ Status KuduScanNode::close(RuntimeState* state) {
   _materialized_row_batches->Cleanup();
   ExecNode::close(state);
 
-  return Status::OK;
+  return Status::OK();
 }
 
 void KuduScanNode::debug_string(int indentation_level, stringstream* out) const {
@@ -277,7 +277,7 @@ Status KuduScanNode::process_scan_token(KuduScanner* scanner, const string& scan
     }
   }
   if (eos) scan_ranges_complete_counter()->update(1);
-  return Status::OK;
+  return Status::OK();
 }
 
 void KuduScanNode::run_scanner_thread(KuduScanNode *scanNode, const string& name, const string* initial_token)  {

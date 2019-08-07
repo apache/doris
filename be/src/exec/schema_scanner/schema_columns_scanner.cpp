@@ -62,7 +62,7 @@ SchemaColumnsScanner::~SchemaColumnsScanner() {
 
 Status SchemaColumnsScanner::start(RuntimeState *state) {
     if (!_is_init) {
-        return Status("schema columns scanner not inited.");
+        return Status::InternalError("schema columns scanner not inited.");
     }
     // get all database
     TGetDbsParams db_params;
@@ -77,10 +77,10 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
@@ -313,7 +313,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         }
     }
     _column_index++;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaColumnsScanner::get_new_desc() {
@@ -331,11 +331,11 @@ Status SchemaColumnsScanner::get_new_desc() {
         RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip),
                 _param->port, desc_params, &_desc_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
     _column_index = 0;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaColumnsScanner::get_new_table() {
@@ -355,18 +355,18 @@ Status SchemaColumnsScanner::get_new_table() {
         RETURN_IF_ERROR(SchemaHelper::get_table_names(*(_param->ip),
                 _param->port, table_params, &_table_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
     _table_index = 0;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaColumnsScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
     if (!_is_init) {
-        return Status("use this class before inited.");
+        return Status::InternalError("use this class before inited.");
     }
     if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status("input parameter is NULL.");
+        return Status::InternalError("input parameter is NULL.");
     }
     while (_column_index >= _desc_result.columns.size()) {
         if (_table_index >= _table_result.tables.size()) {
@@ -374,7 +374,7 @@ Status SchemaColumnsScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos
                 RETURN_IF_ERROR(get_new_table());
             } else {
                 *eos = true;
-                return Status::OK;
+                return Status::OK();
             }
         } else {
             RETURN_IF_ERROR(get_new_desc());

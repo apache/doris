@@ -22,11 +22,12 @@
 #include <utility>
 
 #include "common/object_pool.h"
-#include "exec/olap_table_info.h"
+#include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/bitmap.h"
 #include "util/stopwatch.hpp"
 #include "olap/delta_writer.h"
@@ -102,8 +103,9 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     std::lock_guard<std::mutex> l(_lock);
     if (_opened) {
         // Normal case, already open by other sender
-        return Status::OK;
+        return Status::OK();
     }
+    LOG(INFO) << "open tablets channel: " << _key;
     _txn_id = params.txn_id();
     _index_id = params.index_id();
     _schema = new OlapTableSchemaParam();
@@ -119,7 +121,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     
     _opened = true;
     _last_updated_time = time(nullptr);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
@@ -131,11 +133,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     if (params.packet_seq() < next_seq) {
         LOG(INFO) << "packet has already recept before, expect_seq=" << next_seq
             << ", recept_seq=" << params.packet_seq();
-        return Status::OK;
+        return Status::OK();
     } else if (params.packet_seq() > next_seq) {
         LOG(WARNING) << "lost data packet, expect_seq=" << next_seq
             << ", recept_seq=" << params.packet_seq();
-        return Status("lost data packet");
+        return Status::InternalError("lost data packet");
     }
 
     RowBatch row_batch(*_row_desc, params.row_batch(), &_mem_tracker);
@@ -147,18 +149,20 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         if (it == std::end(_tablet_writers)) {
             std::stringstream ss;
             ss << "unknown tablet to append data, tablet=" << tablet_id;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
         if (st != OLAP_SUCCESS) {
-            LOG(WARNING) << "tablet writer writer failed, tablet_id=" << it->first
-                << ", transaction_id=" << _txn_id;
-            return Status("tablet writer write failed");
+            std::stringstream ss;
+            ss << "tablet writer write failed, tablet_id=" << it->first
+                << ", transaction_id=" << _txn_id << ", status=" <<  st;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str() + ", be: " + BackendOptions::get_localhost());
         }
     }
     _next_seqs[params.sender_id()]++;
     _last_updated_time = time(nullptr);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TabletsChannel::close(int sender_id, bool* finished,
@@ -170,6 +174,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -184,7 +189,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
                 if (st != OLAP_SUCCESS) {
                     LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
                         << ", transaction_id=" << _txn_id;
-                    _close_status = Status("close tablet writer failed");
+                    _close_status = Status::InternalError("close tablet writer failed");
                     return _close_status;
                 }
             } else {
@@ -196,7 +201,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
             }
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params) {
@@ -212,14 +217,14 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
     if (columns == nullptr) {
         std::stringstream ss;
         ss << "unknown index id, key=" << _key;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     for (auto& tablet : params.tablets()) {
         WriteRequest request;
         request.tablet_id = tablet.tablet_id();
         request.schema_hash = schema_hash;
         request.write_type = LOAD;
-        request.transaction_id = _txn_id;
+        request.txn_id = _txn_id;
         request.partition_id = tablet.partition_id();
         request.load_id = params.id();
         request.need_gen_rollup = params.need_gen_rollup();
@@ -229,15 +234,15 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "open delta writer failed, tablet_id=" << tablet.tablet_id()
-                << ", transaction_id=" << _txn_id
+                << ", txn_id=" << _txn_id
                 << ", partition_id=" << tablet.partition_id()
                 << ", status=" << st;
-            return Status("open tablet writer failed");
+            return Status::InternalError("open tablet writer failed");
         }
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }
     DCHECK(_tablet_writers.size() == params.tablets_size());
-    return Status::OK;
+    return Status::OK();
 }
 
 TabletWriterMgr::TabletWriterMgr(ExecEnv* exec_env) :_exec_env(exec_env) {
@@ -264,7 +269,7 @@ Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
         }
     }
     RETURN_IF_ERROR(channel->open(params));
-    return Status::OK;
+    return Status::OK();
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {
@@ -272,22 +277,26 @@ static void dummy_deleter(const CacheKey& key, void* value) {
 
 Status TabletWriterMgr::add_batch(
         const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+        int64_t* wait_lock_time_ns) {
     TabletsChannelKey key(request.id(), request.index_id());
     std::shared_ptr<TabletsChannel> channel;
     {
+        MonotonicStopWatch timer;
+        timer.start();
         std::lock_guard<std::mutex> l(_lock);
+        *wait_lock_time_ns += timer.elapsed_time();
         auto value = _tablets_channels.seek(key);
         if (value == nullptr) {
             auto handle = _lastest_success_channel->lookup(key.to_string());
             // success only when eos be true
             if (handle != nullptr && request.has_eos() && request.eos()) {
                 _lastest_success_channel->release(handle);
-                return Status::OK;
+                return Status::OK();
             }
             std::stringstream ss;
             ss << "TabletWriter add batch with unknown id, key=" << key;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         channel = *value;
     }
@@ -304,7 +313,10 @@ Status TabletWriterMgr::add_batch(
                 << ", err_msg=" << st.get_error_msg();
         }
         if (finished) {
+            MonotonicStopWatch timer;
+            timer.start();
             std::lock_guard<std::mutex> l(_lock);
+            *wait_lock_time_ns += timer.elapsed_time();
             _tablets_channels.erase(key);
             if (st.ok()) {
                 auto handle = _lastest_success_channel->insert(
@@ -322,7 +334,7 @@ Status TabletWriterMgr::cancel(const PTabletWriterCancelRequest& params) {
         std::lock_guard<std::mutex> l(_lock);
         _tablets_channels.erase(key);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TabletWriterMgr::start_bg_worker() {
@@ -339,7 +351,7 @@ Status TabletWriterMgr::start_bg_worker() {
             }
         });
     _tablets_channel_clean_thread.detach();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TabletWriterMgr::_start_tablets_channel_clean() {
@@ -361,7 +373,7 @@ Status TabletWriterMgr::_start_tablets_channel_clean() {
             LOG(INFO) << "erase timeout tablets channel: " << key;
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string TabletsChannelKey::to_string() const {

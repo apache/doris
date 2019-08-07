@@ -23,7 +23,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 
-add_library(Runtime STATIC
+set(RUNTIME_FILES
   broker_mgr.cpp
   buffered_block_mgr.cpp
   buffered_tuple_stream.cpp
@@ -66,8 +66,6 @@ add_library(Runtime STATIC
   dpp_sink.cpp
   etl_job_mgr.cpp
   load_path_mgr.cpp
-  mysql_table_writer.cpp
-  mysql_table_sink.cpp
   types.cpp
   tmp_file_mgr.cc
   disk_io_mgr.cc
@@ -101,28 +99,16 @@ add_library(Runtime STATIC
   routine_load/data_consumer_group.cpp
   routine_load/data_consumer_pool.cpp
   routine_load/routine_load_task_executor.cpp
+  small_file_mgr.cpp
 )
 
-# This test runs forever so should not be part of 'make test'
-#add_executable(disk_io_mgr_stress_test disk_io_mgr_stress_test.cpp)
-#target_link_libraries(disk_io_mgr_stress_test ${IMPALA_TEST_LINK_LIBS})
+if (WITH_MYSQL)
+    set(RUNTIME_FILES ${RUNTIME_FILES}
+        mysql_table_writer.cpp
+        mysql_table_sink.cpp
+        )
+endif()
 
-#ADD_BE_TEST(sorter_test)
-#ADD_BE_TEST(buffered_tuple_stream_test)
-#ADD_BE_TEST(result_writer_test)
-#ADD_BE_TEST(buffer_control_block_test)
-#ADD_BE_TEST(result_buffer_mgr_test)
-#ADD_BE_TEST(result_receiver_test)
-#ADD_BE_TEST(result_sink_test)
-#ADD_BE_TEST(mem_pool_test)
-#ADD_BE_TEST(free_list_test)
-#ADD_BE_TEST(string_buffer_test)
-#ADD_BE_TEST(data_stream_test)
-#ADD_BE_TEST(timestamp_test)
-#ADD_BE_TEST(disk_io_mgr_test)
-#ADD_BE_TEST(parallel_executor_test)
-#ADD_BE_TEST(datetime_value_test)
-#ADD_BE_TEST(decimal_value_test)
-#ADD_BE_TEST(decimalv2_value_test)
-#ADD_BE_TEST(string_value_test)
-#ADD_BE_TEST(thread_resource_mgr_test)
+add_library(Runtime STATIC
+    ${RUNTIME_FILES}
+    )

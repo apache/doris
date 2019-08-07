@@ -33,17 +33,52 @@
 
 namespace doris {
 
+Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
+        const PKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids) {
+    DCHECK(request.has_kafka_info());
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    ctx.load_type = TLoadType::ROUTINE_LOAD;
+    ctx.load_src_type = TLoadSourceType::KAFKA;
+    ctx.label = "NaN";
+
+    // convert PKafkaInfo to TKafkaLoadInfo
+    TKafkaLoadInfo t_info;
+    t_info.brokers = request.kafka_info().brokers();
+    t_info.topic = request.kafka_info().topic();
+    std::map<std::string, std::string> properties;
+    for (int i = 0; i < request.kafka_info().properties_size(); ++i) {
+        const PStringPair& pair = request.kafka_info().properties(i);
+        properties.emplace(pair.key(), pair.val());
+    }
+    t_info.__set_properties(std::move(properties));
+
+    ctx.kafka_info = new KafkaLoadInfo(t_info);
+    ctx.need_rollback = false;
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids); 
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock); 
     if (_task_map.find(task.id) != _task_map.end()) {
         // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
-        return Status::OK;
+        return Status::OK();
     }
 
-    if (_thread_pool.get_queue_size() > 100) {
+    // the max queue size of thread pool is 100, here we use 80 as a very conservative limit
+    if (_thread_pool.get_queue_size() >= 80) {
         LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
-        return Status("too many tasks");
+        return Status::InternalError("too many tasks");
     }
 
     // create the context
@@ -84,7 +119,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         default:
             LOG(WARNING) << "unknown load source type: " << task.type;
             delete ctx;
-            return Status("unknown load source type");
+            return Status::InternalError("unknown load source type");
     }
 
     VLOG(1) << "receive a new routine load task: " << ctx->brief();
@@ -113,11 +148,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         if (ctx->unref()) {
             delete ctx;
         }
-        return Status("failed to submit routine load task");
+        return Status::InternalError("failed to submit routine load task");
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
                   << ", current tasks num: " << _task_map.size();
-        return Status::OK;
+        return Status::OK();
     }
 }
 
@@ -158,7 +193,7 @@ void RoutineLoadTaskExecutor::exec_task(
         default: {
             std::stringstream ss;
             ss << "unknown routine load task type: " << ctx->load_type;
-            err_handler(ctx, Status::CANCELLED, ss.str());
+            err_handler(ctx, Status::Cancelled("Cancelled"), ss.str());
             cb(ctx);
             return;
         }
@@ -230,7 +265,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             }
 
             if (eof) {
-                ctx->promise.set_value(Status::OK);
+                ctx->promise.set_value(Status::OK());
                 break;
             }
 
@@ -246,7 +281,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
 
     std::thread t1(mock_consumer);
     t1.detach();
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end namespace

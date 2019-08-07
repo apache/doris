@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.load.LoadJob.EtlJobType;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -74,7 +74,7 @@ public class MultiLoadMgr {
             lock.writeLock().unlock();
         }
         // Register to Load after put into map.
-        Catalog.getInstance().getLoadInstance().registerMiniLabel(fullDbName, label, System.currentTimeMillis());
+        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromMultiStart(fullDbName, label);
     }
 
     public void load(TMiniLoadRequest request) throws DdlException {

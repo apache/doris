@@ -57,6 +57,9 @@ public abstract class RoutineLoadTaskInfo {
     // the be id of this task
     protected long beId = -1L;
 
+    // last time this task being scheduled by RoutineLoadTaskScheduler
+    protected long lastScheduledTime = -1;
+
     public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName) {
         this.id = id;
         this.jobId = jobId;
@@ -111,6 +114,14 @@ public abstract class RoutineLoadTaskInfo {
 
     public boolean isRunning() {
         return executeStartTimeMs > 0;
+    }
+
+    public long getLastScheduledTime() {
+        return lastScheduledTime;
+    }
+
+    public void setLastScheduledTime(long lastScheduledTime) {
+        this.lastScheduledTime = lastScheduledTime;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;

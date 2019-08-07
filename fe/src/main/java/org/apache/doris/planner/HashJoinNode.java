@@ -28,17 +28,18 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -59,6 +60,7 @@ public class HashJoinNode extends PlanNode {
     private boolean isPushDown;
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
+    private String colocateReason = ""; // if can not do colocate join, set reason here
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Pair<Expr, Expr>> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
@@ -116,15 +118,16 @@ public class HashJoinNode extends PlanNode {
         return isColocate;
     }
 
-    public void setColocate(boolean colocate) {
+    public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
+        colocateReason = reason;
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
 
-        // Set smap to the combined childrens' smaps and apply that to all conjuncts_.
+        // Set smap to the combined children's smaps and apply that to all conjuncts_.
         createDefaultSmap(analyzer);
 
         computeStats(analyzer);
@@ -274,6 +277,9 @@ public class HashJoinNode extends PlanNode {
         StringBuilder output = new StringBuilder().append(
           detailPrefix + "join op: " + joinOp.toString() + distrModeStr + "\n").append(
           detailPrefix + "hash predicates:\n");
+
+        output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
+
         for (Pair<Expr, Expr> entry : eqJoinConjuncts) {
             output.append(detailPrefix + "  " +
               entry.first.toSql() + " = " + entry.second.toSql() + "\n");

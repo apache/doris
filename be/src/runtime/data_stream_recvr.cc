@@ -157,12 +157,12 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     _current_batch.reset();
     *next_batch = NULL;
     if (_is_cancelled) {
-        return Status::CANCELLED;
+        return Status::Cancelled("Cancelled");
     }
 
     if (_batch_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
-        return Status::OK;
+        return Status::OK();
     }
 
     _received_first_batch = true;
@@ -182,7 +182,7 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
         _pending_closures.pop_front();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void DataStreamRecvr::SenderQueue::add_batch(
@@ -336,7 +336,7 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
                 bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], _1));
     }
     RETURN_IF_ERROR(_merger->prepare(input_batch_suppliers));
-    return Status::OK;
+    return Status::OK();
 }
 
 void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {

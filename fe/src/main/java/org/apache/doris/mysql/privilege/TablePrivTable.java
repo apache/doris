@@ -30,6 +30,10 @@ import java.io.IOException;
  */
 public class TablePrivTable extends PrivTable {
 
+    /*
+     * Return first priv which match the user@host on db.tbl The returned priv will
+     * be saved in 'savedPrivs'.
+     */
     public void getPrivs(String host, String db, String user, String tbl, PrivBitSet savedPrivs) {
         TablePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
@@ -64,6 +68,28 @@ public class TablePrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
+    }
+
+    /*
+     * Check if user@host has specified privilege on any table
+     */
+    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+        for (PrivEntry entry : entries) {
+            TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
+            // check host
+            if (!tblPrivEntry.isAnyHost() && !tblPrivEntry.getHostPattern().match(host)) {
+                continue;
+            }
+            // check user
+            if (!tblPrivEntry.isAnyUser() && !tblPrivEntry.getUserPattern().match(user)) {
+                continue;
+            }
+            // check priv
+            if (tblPrivEntry.privSet.satisfy(wanted)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean hasPrivsOfDb(String host, String db, String user) {

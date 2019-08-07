@@ -139,11 +139,10 @@ LZ4_SOURCE=lz4-1.7.5
 LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
-# BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
-BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
-BZIP_NAME=bzip2-1.0.6.tar.gz
-BZIP_SOURCE=bzip2-1.0.6
-BZIP_MD5SUM="00b516f4704d4a7cb50a1d97e6e8e15b"
+BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
+BZIP_NAME=bzip2-1.0.8.tar.gz
+BZIP_SOURCE=bzip2-1.0.8
+BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
 LZO2_DOWNLOAD="http://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
@@ -194,10 +193,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/v0.9.0.tar.gz"
-BRPC_NAME=incubator-brpc-0.9.0.tar.gz
-BRPC_SOURCE=incubator-brpc-0.9.0
-BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.5.tar.gz"
+BRPC_NAME=incubator-brpc-0.9.5.tar.gz
+BRPC_SOURCE=incubator-brpc-0.9.5
+BRPC_MD5SUM="c9f46e4c97a9cd5f836ba2c6c56978dd"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -241,6 +240,24 @@ ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
 ARROW_SOURCE=arrow-apache-arrow-0.13.0
 ARROW_MD5SUM="de9e00e43df0b5fae2ed92f6491cb10b"
 
+# S2
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
+S2_NAME=s2geometry-0.9.0.tar.gz
+S2_SOURCE=s2geometry-0.9.0
+S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+
+# BITSHUFFLE
+BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
+BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
+BITSHUFFLE_SOURCE=bitshuffle-0.3.5
+BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
+
+# CROARINGBITMAP
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.2.60.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-0.2.60
+CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW BROTLI DOUBLE_CONVERSION URIPARSER ZSTD"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW BROTLI DOUBLE_CONVERSION URIPARSER ZSTD S2 BITSHUFFLE CROARINGBITMAP"
 

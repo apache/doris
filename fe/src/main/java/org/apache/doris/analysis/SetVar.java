@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -26,40 +27,49 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-
-import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 // change one variable.
 public class SetVar {
+    private static final Logger LOG = LogManager.getLogger(SetVar.class);
+
     private String variable;
-    private LiteralExpr value;
+    private Expr value;
     private SetType type;
+    private LiteralExpr result;
+
+    public SetVar() {
+    }
+
+    public SetVar(SetType type, String variable, Expr value) {
+        this.type = type;
+        this.variable = variable;
+        this.value = value;
+        if (value instanceof LiteralExpr) {
+            this.result = (LiteralExpr)value;
+        }
+    }
+
+    public SetVar(String variable, Expr value) {
+        this.type = SetType.DEFAULT;
+        this.variable = variable;
+        this.value = value;
+        if (value instanceof LiteralExpr) {
+            this.result = (LiteralExpr)value;
+        }
+    }
 
     public String getVariable() {
         return variable;
     }
 
     public LiteralExpr getValue() {
-        return value;
+        return result;
     }
 
     public SetType getType() {
         return type;
-    }
-
-    public SetVar() {
-    }
-
-    public SetVar(SetType type, String variable, LiteralExpr value) {
-        this.type = type;
-        this.variable = variable;
-        this.value = value;
-    }
-
-    public SetVar(String variable, LiteralExpr value) {
-        this.type = SetType.DEFAULT;
-        this.variable = variable;
-        this.value = value;
     }
 
     public void setType(SetType type) {
@@ -71,23 +81,36 @@ public class SetVar {
         if (type == null) {
             type = SetType.DEFAULT;
         }
+
         if (Strings.isNullOrEmpty(variable)) {
             throw new AnalysisException("No variable name in set statement.");
         }
+
         if (type == SetType.GLOBAL) {
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                    "ADMIN");
+                        "ADMIN");
             }
         }
+
         if (value == null) {
             return;
-        } else {
-            value.analyze(analyzer);
         }
+
+        value.analyze(analyzer);
+        if (!value.isConstant()) {
+            throw new AnalysisException("Set statement does't support non-constant expr.");
+        }
+
+        final Expr literalExpr = value.getResultValue();
+        if (!(literalExpr instanceof LiteralExpr)) {
+            throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
+        }
+ 
+        result = (LiteralExpr)literalExpr;
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
-            if (value != null && !UserResource.isValidGroup(value.getStringValue())) {
+            if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
                 throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
             }
         }

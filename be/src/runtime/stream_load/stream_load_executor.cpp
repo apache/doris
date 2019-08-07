@@ -47,6 +47,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     // submit this params
 #ifndef BE_TEST
     ctx->ref();
+    LOG(INFO) << "begin to execute job:" << ctx->label 
+              << " with txn id:" << ctx->txn_id
+              << " with query id:" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
         ctx->put_result.params,
         [ctx] (PlanFragmentExecutor* executor) {
@@ -61,10 +64,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 int64_t num_selected_rows =
                     ctx->number_total_rows - ctx->number_unselected_rows;
                 if ((0.0 + ctx->number_filtered_rows) / num_selected_rows > ctx->max_filter_ratio) {
-                    status = Status("too many filtered rows");
+                    status = Status::InternalError("too many filtered rows");
                 }
                 else if(ctx->number_loaded_rows == 0){
-                    status = Status("all partitions have no load data");
+                    status = Status::InternalError("all partitions have no load data");
                 }
                 if (ctx->number_filtered_rows > 0 &&
                     !executor->runtime_state()->get_error_log_file_path().empty()) {
@@ -108,7 +111,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 #else
     ctx->promise.set_value(k_stream_load_plan_status);
 #endif
-    return Status::OK;
+    return Status::OK();
 }
 
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
@@ -122,6 +125,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     request.label = ctx->label;
     // set timestamp
     request.__set_timestamp(GetCurrentTimeMicros());
+    if (ctx->timeout_second != -1) {
+        request.__set_timeout(ctx->timeout_second);
+    }
 
     TLoadTxnBeginResult result;
 #ifndef BE_TEST
@@ -142,7 +148,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     ctx->txn_id = result.txnId;
     ctx->need_rollback = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
@@ -185,7 +191,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     }
     // commit success, set need_rollback to false
     ctx->need_rollback = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
@@ -223,17 +229,29 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 }
 
 bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attach) {
-    if (ctx->load_type != TLoadType::ROUTINE_LOAD) {
-        // currently, only routine load need to set attachment
+    if (ctx->load_type != TLoadType::ROUTINE_LOAD && ctx->load_type != TLoadType::MINI_LOAD) {
+        // currently, only routine load and mini load need to be set attachment
         return false;
     }
+    switch(ctx->load_type) {
+        case TLoadType::MINI_LOAD: {
+            attach->loadType = TLoadType::MINI_LOAD;
+            
+            TMiniLoadTxnCommitAttachment ml_attach;
+            ml_attach.loadedRows = ctx->number_loaded_rows;
+            ml_attach.filteredRows = ctx->number_filtered_rows;
+            if (!ctx->error_url.empty()) {
+                ml_attach.__set_errorLogUrl(ctx->error_url);
+            }
 
-    switch(ctx->load_src_type) {
-        case TLoadSourceType::KAFKA: {
+            attach->mlTxnCommitAttachment = std::move(ml_attach);
+            attach->__isset.mlTxnCommitAttachment = true;
+            break;
+        }
+        case TLoadType::ROUTINE_LOAD: {
             attach->loadType = TLoadType::ROUTINE_LOAD;
-
+            
             TRLTaskTxnCommitAttachment rl_attach;
-            rl_attach.loadSourceType = TLoadSourceType::KAFKA;
             rl_attach.jobId = ctx->job_id;
             rl_attach.id = ctx->id.to_thrift();
             rl_attach.__set_loadedRows(ctx->number_loaded_rows);
@@ -242,26 +260,33 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             rl_attach.__set_receivedBytes(ctx->receive_bytes);
             rl_attach.__set_loadedBytes(ctx->loaded_bytes);
             rl_attach.__set_loadCostMs(ctx->load_cost_nanos / 1000 / 1000);
+            
+            attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
+            attach->__isset.rlTaskTxnCommitAttachment = true;
+            break;
+        }
+        default:
+            // unknown load type, should not happend
+            return false;
+    }
+
+    switch(ctx->load_src_type) {
+        case TLoadSourceType::KAFKA: {
+            TRLTaskTxnCommitAttachment &rl_attach = attach->rlTaskTxnCommitAttachment;
+            rl_attach.loadSourceType = TLoadSourceType::KAFKA;
 
             TKafkaRLTaskProgress kafka_progress;
             kafka_progress.partitionCmtOffset = std::move(ctx->kafka_info->cmt_offset);
+
             rl_attach.kafkaRLTaskProgress = std::move(kafka_progress);
             rl_attach.__isset.kafkaRLTaskProgress = true;
-
             if (!ctx->error_url.empty()) {
                 rl_attach.__set_errorLogUrl(ctx->error_url);
             }
-
-            attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
-            attach->__isset.rlTaskTxnCommitAttachment = true;           
-
             return true;
         }
-        case TLoadSourceType::RAW:
-            return false;
         default:
-            // unknown type, should not happend
-            return false;
+            return true;
     }
     return false;
 }

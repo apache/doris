@@ -33,6 +33,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -126,13 +127,13 @@ public class GlobalTransactionMgr {
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
-            throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
+            throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
         
-        if (timeoutSecond > Config.max_stream_load_timeout_second ||
-                timeoutSecond < Config.min_stream_load_timeout_second) {
+        if (timeoutSecond > Config.max_load_timeout_second ||
+                timeoutSecond < Config.min_load_timeout_second) {
             throw new AnalysisException("Invalid timeout. Timeout should between "
-                    + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
+                    + Config.min_load_timeout_second + " and " + Config.max_load_timeout_second
                     + " seconds");
         }
         
@@ -241,12 +242,8 @@ public class GlobalTransactionMgr {
         }
         
         LOG.debug("try to commit transaction: {}", transactionId);
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
-            throw new TransactionCommitFailedException("all partitions have no load data");
-        }
-        
         // 1. check status
-        // the caller method already own db lock, we not obtain db lock here
+        // the caller method already own db lock, we do not obtain db lock here
         Database db = catalog.getDb(dbId);
         if (null == db) {
             throw new MetaNotFoundException("could not find db [" + dbId + "]");
@@ -256,6 +253,7 @@ public class GlobalTransactionMgr {
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             throw new TransactionCommitFailedException(transactionState.getReason());
         }
+
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             return;
         }
@@ -263,6 +261,10 @@ public class GlobalTransactionMgr {
             return;
         }
         
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+        }
+
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -281,6 +283,11 @@ public class GlobalTransactionMgr {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
+            }
+
+            if (tbl.getState() == OlapTableState.RESTORE) {
+                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
+                        + "Can not load into it");
             }
 
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
@@ -317,6 +324,25 @@ public class GlobalTransactionMgr {
                     rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
                     rollingUpIndex = rollupJob.getRollupIndex(partition.getId());
                 }
+                
+                if (table.getState() == OlapTableState.ROLLUP || table.getState() == OlapTableState.SCHEMA_CHANGE) {
+                    /*
+                     * This is just a optimization that do our best to not let publish version tasks
+                     * timeout if table is under rollup or schema change. Because with a short
+                     * timeout, a replica's publish version task is more likely to fail. And if
+                     * quorum replicas of a tablet fail to publish, the alter job will fail.
+                     * 
+                     * If the table is not under rollup or schema change, the failure of a replica's
+                     * publish version task has a minor effect because the replica can be repaired
+                     * by tablet repair process very soon. But the tablet repair process will not
+                     * repair rollup replicas.
+                     * 
+                     * This a kind of best-effort-optimization, if FE restart after commit and
+                     * before publish, this 'prolong' information will be lost.
+                     */
+                    transactionState.prolongPublishTimeout();
+                }
+                
                 // the rolling up index should also be taken care
                 // if the rollup index failed during load, then set its last failed version
                 // if rollup task finished, it should compare version and last failed version,
@@ -333,12 +359,14 @@ public class GlobalTransactionMgr {
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
                         Set<Long> commitBackends = tabletToBackends.get(tabletId);
+                        // save the error replica ids for current tablet
+                        // this param is used for log
+                        Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
-                                                                                   + tabletId + "], backend ["
-                                                                                   + tabletBackend + "]");
+                                        + tabletId + "], backend [" + tabletBackend + "]");
                             }
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet, the commit backends maybe null
                             // if the commit backends is null, set all replicas as error replicas
@@ -357,20 +385,25 @@ public class GlobalTransactionMgr {
                                         LOG.info("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]",
                                                  replica, rollupJob);
                                         rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                           tabletId, replica.getId(), replica.getBackendId());
+                                                tabletId, replica.getId(), replica.getBackendId());
                                     }
                                 }
                             } else {
+                                errorBackendIdsForTablet.add(tabletBackend);
                                 errorReplicaIds.add(replica.getId());
                                 // not remove rollup task here, because the commit maybe failed
                                 // remove rollup task when commit successfully
                             }
                         }
                         if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
-                            // not throw exception here, wait the upper application retry
-                            LOG.info("Index [{}] success replica num is {} < quorum replica num {}",
-                                     index, successReplicaNum, quorumReplicaNum);
-                            return;
+                            LOG.warn("Failed to commit txn []. "
+                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
+                                             + "while error backends {}",
+                                     transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                     Joiner.on(",").join(errorBackendIdsForTablet));
+                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                                                                  successReplicaNum, quorumReplicaNum,
+                                                                  errorBackendIdsForTablet);
                         }
                     }
                 }
@@ -480,8 +513,7 @@ public class GlobalTransactionMgr {
         boolean txnOperated = false;
         writeLock();
         try {
-            unprotectAbortTransaction(transactionId, reason);
-            txnOperated = true;
+            txnOperated = unprotectAbortTransaction(transactionId, reason);
         } finally {
             writeUnlock();
             transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
@@ -733,8 +765,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.info("txn is still running: {}, checking end txn id: {}",
-                            entry.getValue(), endTransactionId);
+                    LOG.info("find a running txn with txn_id={}, less than schema change txn_id {}", 
+                            entry.getKey(), endTransactionId);
                     return false;
                 }
             }
@@ -919,14 +951,14 @@ public class GlobalTransactionMgr {
         }
     }
 
-    private void unprotectAbortTransaction(long transactionId, String reason)
+    private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            return;
+            return false;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -939,6 +971,7 @@ public class GlobalTransactionMgr {
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
         }
+        return true;
     }
     
     // for replay idToTransactionState

@@ -149,13 +149,13 @@ Status BufferedTupleStream2::init(int node_id, RuntimeProfile* profile, bool pin
     if (!pinned) {
         RETURN_IF_ERROR(unpin_stream());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::switch_to_io_buffers(bool* got_buffer) {
     if (!_use_small_buffers) {
         *got_buffer = (_write_block != NULL);
-        return Status::OK;
+        return Status::OK();
     }
     _use_small_buffers = false;
     Status status = new_block_for_write(_block_mgr->max_block_size(), got_buffer);
@@ -199,12 +199,12 @@ Status BufferedTupleStream2::unpin_block(BufferedBlockMgr2::Block* block) {
     SCOPED_TIMER(_unpin_timer);
     DCHECK(block->is_pinned());
     if (!block->is_max_size()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(block->unpin());
     --_num_pinned;
     DCHECK_EQ(_num_pinned, num_pinned(_blocks));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_block) {
@@ -215,7 +215,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
         error_msg << "Cannot process row that is bigger than the IO size (row_size="
                 << PrettyPrinter::print(min_size, TUnit::BYTES)
                 << "). To run this query, increase the IO size (--read_size option).";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     BufferedBlockMgr2::Block* unpin_block = _write_block;
@@ -238,7 +238,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
         if (block_len == _block_mgr->max_block_size()) {
             // Do not switch to IO-buffers automatically. Do not get a buffer.
             *got_block = false;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
@@ -252,7 +252,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
 
     if (!*got_block) {
         DCHECK(unpin_block == NULL);
-        return Status::OK;
+        return Status::OK();
     }
 
     if (unpin_block != NULL) {
@@ -279,7 +279,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
         ++_num_small_blocks;
     }
     _total_byte_size += block_len;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::next_block_for_read() {
@@ -349,13 +349,13 @@ Status BufferedTupleStream2::next_block_for_read() {
         _read_ptr = (*_read_block)->buffer() + _null_indicators_read_block;
     }
     DCHECK_EQ(_num_pinned, num_pinned(_blocks)) << debug_string();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buffer) {
     DCHECK(!_closed);
     if (_blocks.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (!_read_write && _write_block != NULL) {
@@ -377,7 +377,7 @@ Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buf
             if (!current_pinned) {
                 DCHECK(got_buffer != NULL) << "Should have reserved enough blocks";
                 *got_buffer = false;
-                return Status::OK;
+                return Status::OK();
             }
             ++_num_pinned;
             DCHECK_EQ(_num_pinned, num_pinned(_blocks));
@@ -399,7 +399,7 @@ Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buf
     if (got_buffer != NULL) {
         *got_buffer = true;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
@@ -409,7 +409,7 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
         // If we can't get all the blocks, don't try at all.
         if (!_block_mgr->try_acquire_tmp_reservation(_block_mgr_client, blocks_unpinned())) {
             *pinned = false;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
@@ -425,7 +425,7 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
         if (!*pinned) {
             VLOG_QUERY << "Should have been reserved." << std::endl
                 << _block_mgr->debug_string(_block_mgr_client);
-            return Status::OK;
+            return Status::OK();
         }
         ++_num_pinned;
         DCHECK_EQ(_num_pinned, num_pinned(_blocks));
@@ -442,7 +442,7 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
     }
     *pinned = true;
     _pinned = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::unpin_stream(bool all) {
@@ -463,7 +463,7 @@ Status BufferedTupleStream2::unpin_stream(bool all) {
         _write_block = NULL;
     }
     _pinned = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 int BufferedTupleStream2::compute_num_null_indicator_bytes(int block_size) const {
@@ -484,7 +484,7 @@ int BufferedTupleStream2::compute_num_null_indicator_bytes(int block_size) const
 Status BufferedTupleStream2::get_rows(scoped_ptr<RowBatch>* batch, bool* got_rows) {
     RETURN_IF_ERROR(pin_stream(false, got_rows));
     if (!*got_rows) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(prepare_for_read(false));
     batch->reset(
@@ -496,7 +496,7 @@ Status BufferedTupleStream2::get_rows(scoped_ptr<RowBatch>* batch, bool* got_row
     while (!eos) {
         RETURN_IF_ERROR(get_next(batch->get(), &eos));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::get_next(RowBatch* batch, bool* eos,
@@ -515,7 +515,7 @@ Status BufferedTupleStream2::get_next_internal(
     DCHECK(batch->row_desc().equals(_desc));
     *eos = (_rows_returned == _num_rows);
     if (*eos) {
-        return Status::OK;
+        return Status::OK();
     }
     DCHECK_GE(_null_indicators_read_block, 0);
 
@@ -648,7 +648,7 @@ Status BufferedTupleStream2::get_next_internal(
         batch->mark_need_to_return();
     }
     DCHECK_EQ(indices->size(), i);
-    return Status::OK;
+    return Status::OK();
 }
 
 void BufferedTupleStream2::read_strings(const vector<SlotDescriptor*>& string_slots,

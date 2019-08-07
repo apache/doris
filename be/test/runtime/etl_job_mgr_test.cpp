@@ -27,7 +27,7 @@ namespace doris {
 // Mock fragment mgr
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        FinishCallback cb) {
-    return Status::OK;
+    return Status::OK();
 }
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
@@ -69,7 +69,7 @@ TEST_F(EtlJobMgrTest, NormalCase) {
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -127,7 +127,7 @@ TEST_F(EtlJobMgrTest, RunAfterSuccess) {
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -162,7 +162,7 @@ TEST_F(EtlJobMgrTest, RunAfterFail) {
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_TRUE(mgr.finish_job(id, Status::THRIFT_RPC_ERROR, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -216,7 +216,7 @@ TEST_F(EtlJobMgrTest, FinishUnknowJob) {
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_FALSE(mgr.finish_job(id, Status::THRIFT_RPC_ERROR, job_result).ok());
+    ASSERT_FALSE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);

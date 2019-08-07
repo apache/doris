@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -35,7 +36,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
@@ -47,7 +48,6 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.PartitionColumnFilter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
@@ -75,6 +75,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -103,6 +105,7 @@ public class ExportJob implements Writable {
     private String exportPath;
     private String columnSeparator;
     private String lineDelimiter;
+    private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
 
     private TableName tableName;
@@ -129,13 +132,11 @@ public class ExportJob implements Writable {
     private Analyzer analyzer;
     private Table exportTable;
 
-    // be_address => (tablet_id => Coordinator)
-    // private Map<TNetworkAddress, Pair<Long, Coordinator>> coordMap = Maps.newHashMap();
-
     private List<Coordinator> coordList = Lists.newArrayList();
 
     private AtomicInteger nextId = new AtomicInteger(0);
 
+    // when set to true, means this job instance is created by replay thread(FE restarted or master changed)
     private boolean isReplayed = false;
 
     private Thread doExportingThread;
@@ -166,21 +167,19 @@ public class ExportJob implements Writable {
         this.id = jobId;
     }
 
-    public void setJob(ExportStmt stmt) throws Exception {
+    public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
         Database db = Catalog.getInstance().getDb(dbName);
-        Preconditions.checkNotNull(db);
-        this.dbId = db.getId();
-
-        Table table = db.getTable(stmt.getTblName().getTbl());
-        this.tableId = table.getId();
-        this.tableName = stmt.getTblName();
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist");
+        }
 
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
 
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
+        this.properties = stmt.getProperties();
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -188,25 +187,88 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        genExecFragment();
+        db.readLock();
+        try {
+            this.dbId = db.getId();
+            this.exportTable = db.getTable(stmt.getTblName().getTbl());
+            if (exportTable == null) {
+                throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
+            }
+            this.tableId = exportTable.getId();
+            this.tableName = stmt.getTblName();
+            genExecFragment();
+        } finally {
+            db.readUnlock();
+        }
 
         this.sql = stmt.toSql();
     }
 
-    public void genExecFragment() throws Exception {
-        Database db = Catalog.getInstance().getDb(dbId);
-        db.readLock();
+    private void genExecFragment() throws UserException {
+        registerToDesc();
+        String tmpExportPathStr = getExportPath() + "/__doris_export_tmp_" + id + "/";
         try {
-            exportTable = db.getTable(tableId);
-
-            registerToDesc();
-            exportSink = new ExportSink(
-                    getExportPath() + "/tmp/", getColumnSeparator(),
-                    getLineDelimiter(), brokerDesc);
-            plan();
-        } finally {
-            db.readUnlock();
+            URI uri = new URI(tmpExportPathStr);
+            tmpExportPathStr = uri.normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new DdlException("Invalid export path: " + getExportPath());
         }
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        plan();
+    }
+
+    private void registerToDesc() {
+        TableRef ref = new TableRef(tableName, null, partitions);
+        BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        exportTupleDesc = desc.createTupleDescriptor();
+        exportTupleDesc.setTable(exportTable);
+        exportTupleDesc.setRef(tableRef);
+        for (Column col : exportTable.getBaseSchema()) {
+            SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+            slot.setIsMaterialized(true);
+            slot.setColumn(col);
+            slot.setIsNullable(col.isAllowNull());
+        }
+        desc.computeMemLayout();
+    }
+
+    private void plan() throws UserException {
+        List<PlanFragment> fragments = Lists.newArrayList();
+        List<ScanNode> scanNodes = Lists.newArrayList();
+
+        ScanNode scanNode = genScanNode();
+        tabletLocations = scanNode.getScanRangeLocations(0);
+        if (tabletLocations == null) {
+            // not olap scan node
+            PlanFragment fragment = genPlanFragment(exportTable.getType(), scanNode);
+            scanNodes.add(scanNode);
+            fragments.add(fragment);
+        } else {
+            for (TScanRangeLocations tablet : tabletLocations) {
+                List<TScanRangeLocation> locations = tablet.getLocations();
+                Collections.shuffle(locations);
+                tablet.setLocations(locations.subList(0, 1));
+            }
+
+            int size = tabletLocations.size();
+            int tabletNum = getTabletNumberPerTask();
+            for (int i = 0; i < size; i += tabletNum) {
+                OlapScanNode olapScanNode = null;
+                if (i + tabletNum <= size) {
+                    olapScanNode = genOlapScanNodeByLocation(tabletLocations.subList(i, i + tabletNum));
+                } else {
+                    olapScanNode = genOlapScanNodeByLocation(tabletLocations.subList(i, size));
+                }
+                PlanFragment fragment = genPlanFragment(exportTable.getType(), olapScanNode);
+
+                fragments.add(fragment);
+                scanNodes.add(olapScanNode);
+            }
+            LOG.info("total {} tablets of export job {}, and assign them to {} coordinators",
+                    size, id, fragments.size());
+        }
+
+        genCoordinators(fragments, scanNodes);
     }
 
     private ScanNode genScanNode() throws UserException {
@@ -214,9 +276,8 @@ public class ExportJob implements Writable {
         switch (exportTable.getType()) {
             case OLAP:
                 scanNode = new OlapScanNode(new PlanNodeId(0), exportTupleDesc, "OlapScanNodeForExport");
-                Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
-                ((OlapScanNode) scanNode).setColumnFilters(columnFilters);
-                ((OlapScanNode) scanNode).setIsPreAggregation(false, "Export");
+                ((OlapScanNode) scanNode).setColumnFilters(Maps.newHashMap());
+                ((OlapScanNode) scanNode).setIsPreAggregation(false, "This an export operation");
                 ((OlapScanNode) scanNode).setCanTurnOnPreAggr(false);
                 break;
             case MYSQL:
@@ -284,9 +345,7 @@ public class ExportJob implements Writable {
         return outputExprs;
     }
 
-    private List<Coordinator> genCoordinators(List<PlanFragment> fragments, List<ScanNode> nodes) {
-        List<Coordinator> coords = Lists.newArrayList();
-
+    private void genCoordinators(List<PlanFragment> fragments, List<ScanNode> nodes) {
         UUID uuid = UUID.randomUUID();
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);
@@ -294,68 +353,10 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
-            coords.add(coord);
+            coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
-
-        return coords;
-    }
-
-    private void plan() throws Exception {
-        List<PlanFragment> fragments = Lists.newArrayList();
-        List<ScanNode> scanNodes = Lists.newArrayList();
-
-        // TODO(lingbin): should we construct TabletInfos(include version, id...) manually?
-        ScanNode scanNode = genScanNode();
-        tabletLocations = scanNode.getScanRangeLocations(0);
-        if (tabletLocations == null) {
-            // not olap scan node
-            PlanFragment fragment = genPlanFragment(exportTable.getType(), scanNode);
-            scanNodes.add(scanNode);
-            fragments.add(fragment);
-        } else {
-            for (TScanRangeLocations tablet : tabletLocations) {
-                List<TScanRangeLocation> locations = tablet.getLocations();
-                Collections.shuffle(locations);
-                tablet.setLocations(locations.subList(0, 1));
-            }
-
-            int size = tabletLocations.size();
-            int tabletNum = Config.export_parallel_tablet_num;
-            for (int i = 0; i < size; i += tabletNum) {
-                OlapScanNode olapScanNode = null;
-                if (i + tabletNum <= size) {
-                    olapScanNode = genOlapScanNodeByLocation(tabletLocations.subList(i, i + tabletNum));
-                } else {
-                    olapScanNode = genOlapScanNodeByLocation(tabletLocations.subList(i, size));
-                }
-                PlanFragment fragment = genPlanFragment(exportTable.getType(), olapScanNode);
-
-                fragments.add(fragment);
-                scanNodes.add(olapScanNode);
-            }
-        }
-
-        genCoordinators(fragments, scanNodes);
-    }
-
-    private void registerToDesc() {
-        TableRef ref = new TableRef(tableName, null, partitions);
-        BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
-        exportTupleDesc = desc.createTupleDescriptor();
-        exportTupleDesc.setTable(exportTable);
-        exportTupleDesc.setRef(tableRef);
-        for (Column col : exportTable.getBaseSchema()) {
-            SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
-            slot.setIsMaterialized(true);
-            slot.setColumn(col);
-            if (col.isAllowNull()) {
-                slot.setIsNullable(true);
-            } else {
-                slot.setIsNullable(false);
-            }
-        }
-        desc.computeMemLayout();
+        LOG.info("create {} coordintors for export job: {}", coordList.size(), id);
     }
 
     public long getId() {
@@ -392,6 +393,18 @@ public class ExportJob implements Writable {
 
     public String getLineDelimiter() {
         return this.lineDelimiter;
+    }
+
+    public long getExecMemLimit() {
+        return Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
+    }
+
+    public int getTimeoutSecond() {
+        return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+    }
+
+    public int getTabletNumberPerTask() {
+        return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
     }
 
     public List<String> getPartitions() {
@@ -469,7 +482,9 @@ public class ExportJob implements Writable {
 
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
         releaseSnapshotPaths();
-        failMsg = new ExportFailMsg(type, msg);
+        if (msg != null) {
+            failMsg = new ExportFailMsg(type, msg);
+        }
         updateState(ExportJob.JobState.CANCELLED, false);
     }
 
@@ -553,6 +568,11 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            Text.writeString(out, property.getKey());
+            Text.writeString(out, property.getValue());
+        }
 
         // partitions
         boolean hasPartition = (partitions != null);
@@ -594,6 +614,15 @@ public class ExportJob implements Writable {
         exportPath = Text.readString(in);
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
+            int count = in.readInt();
+            for (int i = 0; i < count; i++) {
+                String propertyKey = Text.readString(in);
+                String propertyValue = Text.readString(in);
+                this.properties.put(propertyKey, propertyValue);
+            }
+        }
 
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {

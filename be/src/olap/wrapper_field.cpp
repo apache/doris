@@ -19,30 +19,28 @@
 
 namespace doris {
 
-WrapperField* WrapperField::create(const FieldInfo& info, uint32_t len) {
+WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
-        (info.type == OLAP_FIELD_TYPE_CHAR 
-            || info.type == OLAP_FIELD_TYPE_VARCHAR 
-            || info.type == OLAP_FIELD_TYPE_HLL);
+        (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL);
     if (is_string_type && len > OLAP_STRING_MAX_LENGTH) {
         OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].",
                         len, OLAP_STRING_MAX_LENGTH);
         return nullptr;
     }
 
-    Field* rep = Field::create(info);
+    Field* rep = Field::create(column);
     if (rep == nullptr) {
         return nullptr;
     }
 
     size_t variable_len = 0;
-    if (info.type == OLAP_FIELD_TYPE_CHAR) {
-        variable_len = std::max(len, info.length);
-    } else if (info.type == OLAP_FIELD_TYPE_VARCHAR || info.type == OLAP_FIELD_TYPE_HLL) {
+    if (column.type() == OLAP_FIELD_TYPE_CHAR) {
+        variable_len = std::max(len, (uint32_t)(column.length()));
+    } else if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
         variable_len = std::max(len,
-                static_cast<uint32_t>(info.length - sizeof(StringLengthType)));
+                static_cast<uint32_t>(column.length() - sizeof(StringLengthType)));
     } else {
-        variable_len = info.length;
+        variable_len = column.length();
     }
 
     WrapperField* wrapper = new WrapperField(rep, variable_len, is_string_type);
@@ -68,13 +66,12 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     _field_buf = new char[_length];
     memset(_field_buf, 0, _length);
     _owned_buf = _field_buf;
-    _is_null = _field_buf;
-    _buf = _field_buf + 1;
+    char* buf = _field_buf + 1;
 
     if (_is_string_type) {
-        Slice* slice = reinterpret_cast<Slice*>(_buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = variable_len;
-        slice->data = _buf + fixed_len;
+        slice->data = buf + fixed_len;
     }
 }
 

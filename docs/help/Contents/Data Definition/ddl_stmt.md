@@ -82,7 +82,8 @@
         agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
                             SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)
                             该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
-        是否允许为NULL: 默认允许为NULL，导入时用\N来表示
+
+        是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
 
     2. ENGINE 类型
         默认为 olap。可选 mysql, broker
@@ -138,10 +139,10 @@
     4. partition_desc
         1) Range 分区
         语法：
-            PARTITION BY RANGE (k1)
+            PARTITION BY RANGE (k1, k2, ...)
             (
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1")
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value2")
+            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
             ...
             )
         说明：
@@ -151,6 +152,7 @@
                 TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
             3) 分区为左闭右开区间，首个分区的左边界为做最小值
             4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
+            5) 可以指定一列或多列作为分区列。如果分区值缺省，则会默认填充最小值。
                              
         注意：
             1) 分区一般用于时间维度的数据管理
@@ -595,9 +597,9 @@
         ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 
     11. 修改表的 bloom filter 列
-        ALTER TABLE example_db.my_table set ("bloom_filter_columns"="k1,k2,k3");
+        ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
 
-       也可以合并到上面的 schema change 操作中
+        也可以合并到上面的 schema change 操作中（注意多子句的语法有少许区别）
         ALTER TABLE example_db.my_table
         DROP COLUMN col2
         PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
@@ -889,8 +891,8 @@
         FROM `example_repo`
         ON
         (
-            `backup_tbl` PARTITION (`p1`, `p2`) AS `backup_tbl2`,
-            `backup_tbl2`
+            `backup_tbl` PARTITION (`p1`, `p2`),
+            `backup_tbl2` AS `new_tbl`
         )
         PROPERTIES
         (

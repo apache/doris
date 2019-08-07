@@ -85,7 +85,7 @@ public class MetaBaseAction extends WebBaseAction {
         response.updateHeader(CONTENT_DISPOSITION, "attachment; filename=" + file.getName());
         response.updateHeader(MetaHelper.X_IMAGE_SIZE, String.valueOf(file.length()));
 
-        writeFileResponse(request, response, HttpResponseStatus.OK, file);
+        writeObjectResponse(request, response, HttpResponseStatus.OK, file, file.getName(), true);
         return;
     }
 

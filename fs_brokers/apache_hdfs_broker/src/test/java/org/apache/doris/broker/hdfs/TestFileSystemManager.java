@@ -17,10 +17,10 @@
 
 package org.apache.doris.broker.hdfs;
 
+import junit.framework.TestCase;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
-
 import org.junit.Test;
 
 import java.io.IOException;
@@ -28,8 +28,6 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import junit.framework.TestCase;
 
 public class TestFileSystemManager extends TestCase {
 

@@ -89,7 +89,11 @@ public:
 private:
     template <class T> friend class ClientCache;
     // Private constructor so that only ClientCache can instantiate this class.
-    ClientCacheHelper() : _metrics_enabled(false) { }
+    ClientCacheHelper() : _metrics_enabled(false), _max_cache_size_per_host(-1) { }
+
+    ClientCacheHelper(int max_cache_size_per_host):
+        _metrics_enabled(false),
+        _max_cache_size_per_host(max_cache_size_per_host) { }
 
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
@@ -107,6 +111,9 @@ private:
 
     // MetricRegistry
     bool _metrics_enabled;
+
+    // max connections per host in this cache, -1 means unlimited
+    int _max_cache_size_per_host;
 
     // Number of clients 'checked-out' from the cache
     std::unique_ptr<IntGauge> _used_clients;
@@ -196,6 +203,12 @@ public:
                 boost::mem_fn(&ClientCache::make_client), this, _1, _2);
     }
 
+    ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
+        _client_factory =
+            boost::bind<ThriftClientImpl*>(
+                boost::mem_fn(&ClientCache::make_client), this, _1, _2);
+    }
+
     // Close all clients connected to the supplied address, (e.g., in
     // case of failure) so that on their next use they will have to be
     // Reopen'ed.
@@ -234,7 +247,7 @@ private:
 
     // Obtains a pointer to a Thrift interface object (of type T),
     // backed by a live transport which is already open. Returns
-    // Status::OK unless there was an error opening the transport.
+    // Status::OK() unless there was an error opening the transport.
     Status get_client(const TNetworkAddress& hostport, T** iface, int timeout_ms) {
         return _client_cache_helper.get_client(hostport, _client_factory,
                                               reinterpret_cast<void**>(iface), timeout_ms);

@@ -32,10 +32,10 @@ Status ThriftClientImpl::open() {
         std::stringstream msg;
         msg << "Couldn't open transport for " << ipaddress() << ":" << port()
             << "(" << e.what() << ")";
-        return Status(TStatusCode::THRIFT_RPC_ERROR, msg.str(), false);
+        return Status::ThriftRpcError(msg.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
@@ -70,7 +70,7 @@ Status ThriftClientImpl::close() {
         _transport->close();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }

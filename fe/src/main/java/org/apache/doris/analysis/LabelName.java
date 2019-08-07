@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
@@ -59,7 +61,7 @@ public class LabelName implements Writable {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(dbName)) {
             if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
-                throw new AnalysisException("No database when load data.");
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
             dbName = analyzer.getDefaultDb();
         }

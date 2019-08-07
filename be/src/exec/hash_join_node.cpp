@@ -77,7 +77,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         Expr::create_expr_trees(_pool, tnode.hash_join_node.other_join_conjuncts,
                               &_other_join_conjunct_ctxs));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HashJoinNode::prepare(RuntimeState* state) {
@@ -143,7 +143,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     if (state->codegen_level() > 0) {
         if (_join_op == TJoinOp::LEFT_ANTI_JOIN) {
-            return Status::OK;
+            return Status::OK();
         }
         LlvmCodeGen* codegen = NULL;
         RETURN_IF_ERROR(state->get_codegen(&codegen));
@@ -151,7 +151,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         // Codegen for hashing rows
         Function* hash_fn = _hash_tbl->codegen_hash_current_row(state);
         if (hash_fn == NULL) {
-            return Status::OK;
+            return Status::OK();
         }
 
         // Codegen for build path
@@ -174,12 +174,12 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
@@ -253,7 +253,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
@@ -299,7 +299,7 @@ Status HashJoinNode::open(RuntimeState* state) {
             _probe_batch_pos = 0;
             _hash_tbl_iterator = _hash_tbl->begin();
             _eos = true;
-            return Status::OK;
+            return Status::OK();
         }
 
         if (_hash_tbl->size() > 1024) {
@@ -401,7 +401,7 @@ Status HashJoinNode::open(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
@@ -411,7 +411,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // These cases are simpler and use a more efficient processing loop
@@ -419,7 +419,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             || _join_op == TJoinOp::RIGHT_ANTI_JOIN)) {
         if (_eos) {
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
 
         return left_join_get_next(state, out_batch, eos);
@@ -513,7 +513,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
                 if (out_batch->is_full() || reached_limit()) {
                     *eos = reached_limit();
-                    return Status::OK;
+                    return Status::OK();
                 }
             }
         }
@@ -534,7 +534,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
                 if (out_batch->is_full() || reached_limit()) {
                     *eos = reached_limit();
-                    return Status::OK;
+                    return Status::OK();
                 }
             }
         }
@@ -545,7 +545,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             _probe_batch_pos = 0;
 
             if (out_batch->is_full() || out_batch->at_resource_limit()) {
-                return Status::OK;
+                return Status::OK();
             }
 
             // get new probe batch
@@ -566,7 +566,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
                         }
 
                         if (out_batch->is_full() || out_batch->at_resource_limit()) {
-                            return Status::OK;
+                            return Status::OK();
                         }
 
                         continue;
@@ -633,7 +633,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
                 if (reached_limit()) {
                     *eos = true;
-                    return Status::OK;
+                    return Status::OK();
                 }
             }
             _hash_tbl_iterator.next<false>();
@@ -645,7 +645,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
         *eos = !_hash_tbl_iterator.has_next();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HashJoinNode::left_join_get_next(RuntimeState* state,
@@ -700,7 +700,7 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {

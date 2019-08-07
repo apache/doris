@@ -145,6 +145,7 @@ static void append_any_val_type(
     case TYPE_FLOAT:
         append_mangled_token("FloatVal", s);
         break;
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         append_mangled_token("DoubleVal", s);
         break;

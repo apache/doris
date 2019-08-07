@@ -27,8 +27,8 @@
 #include <sys/vfs.h>
 #include "boost/filesystem.hpp"
 #include "common/logging.h"
-#include "olap/store.h"
-#include "olap/olap_engine.h"
+#include "olap/data_dir.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 
@@ -188,7 +188,7 @@ AgentStatus CgroupsMgr::_config_disk_throttle(std::string user_name,
     }
    
     // add olap engine data path here
-    auto stores = OLAPEngine::get_instance()->get_stores();
+    auto stores = StorageEngine::instance()->get_stores();
     // buld load data path, it is alreay in data path
     // _exec_env->load_path_mgr()->get_load_data_path(&data_paths);
    

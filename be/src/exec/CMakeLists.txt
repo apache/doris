@@ -31,6 +31,7 @@ set(EXEC_FILES
     blocking_join_node.cpp
     broker_scan_node.cpp
     broker_reader.cpp
+    base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
     data_sink.cpp
@@ -55,11 +56,9 @@ set(EXEC_FILES
     olap_scanner.cpp
     olap_meta_reader.cpp
     olap_common.cpp
-    olap_table_info.cpp
-    olap_table_sink.cpp
+    tablet_info.cpp
+    tablet_sink.cpp
     plain_text_line_reader.cpp
-    mysql_scan_node.cpp
-    mysql_scanner.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
     es_scan_node.cpp
@@ -93,7 +92,23 @@ set(EXEC_FILES
     new_partitioned_aggregation_node_ir.cc
     local_file_writer.cpp
     broker_writer.cpp
+    parquet_scanner.cpp
+    parquet_reader.cpp
 )
+
+if (WITH_MYSQL)
+    set(EXEC_FILES
+        ${EXEC_FILES}
+        mysql_scan_node.cpp
+        mysql_scanner.cpp
+        )
+endif()
+
+if (WITH_LZO)
+    set(EXEC_FILES ${EXEC_FILES}
+        lzo_decompressor.cpp 
+    )
+endif()
 
 if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
     set(EXEC_FILES ${EXEC_FILES}
@@ -106,30 +121,3 @@ endif()
 add_library(Exec STATIC
     ${EXEC_FILES}
 )
-
-# TODO: why is this test disabled?
-#ADD_BE_TEST(es/es_query_builder_test)
-#ADD_BE_TEST(es/es_scan_reader_test)
-#ADD_BE_TEST(new_olap_scan_node_test)
-#ADD_BE_TEST(pre_aggregation_node_test)
-#ADD_BE_TEST(hash_table_test)
-#ADD_BE_TEST(olap_scanner_test)
-#ADD_BE_TEST(olap_meta_reader_test)
-#ADD_BE_TEST(olap_common_test)
-#ADD_BE_TEST(olap_scan_node_test)
-#ADD_BE_TEST(mysql_scan_node_test)
-#ADD_BE_TEST(mysql_scanner_test)
-#ADD_BE_TEST(schema_scan_node_test)
-#ADD_BE_TEST(schema_scanner_test)
-##ADD_BE_TEST(set_executor_test)
-#ADD_BE_TEST(schema_scanner/schema_authors_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_columns_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_create_table_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_open_tables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_schemata_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_table_names_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_tables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_variables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_engines_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_collations_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_charsets_scanner_test)

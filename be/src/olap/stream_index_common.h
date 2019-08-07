@@ -53,18 +53,20 @@ public:
     OLAPStatus init(const FieldType& type, bool null_supported);
     // 只是reset最大和最小值，将最小值设置为MAX，将最大值设置为MIN。
     void reset();
-    // 增加一个值，根据传入值调整最大最小值
-    inline void add(char* buf) {
+
+    template<typename CellType>
+    inline void add(const CellType& cell) {
         if (_ignored) {
             return;
         }
-        if (_maximum->cmp(buf) < 0) {
-            _maximum->copy(buf);
+        if (_maximum->field()->compare_cell(*_maximum, cell) < 0) {
+            _maximum->field()->direct_copy(_maximum, cell);
         }
-        if (_minimum->cmp(buf) > 0) {
-            _minimum->copy(buf);
+        if (_minimum->field()->compare_cell(*_minimum, cell) > 0) {
+            _minimum->field()->direct_copy(_minimum, cell);
         }
     }
+
     // 合并，将另一个统计信息和入当前统计中
     void merge(ColumnStatistics* other);
     // 返回最大最小值“输出时”占用的内存，而“不是?

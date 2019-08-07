@@ -216,40 +216,7 @@ public class EsStateStoreTest {
         assertEquals("index2", esIndexState2.getIndexName());
         assertEquals(6, esIndexState2.getShardRoutings().size());
     }
-    
-    /**
-     * test node without thrift info, parse without error, but es index state is empty
-     * @throws AnalysisException 
-     */
-    @Test
-    public void testParseUnPartitionedWithoutThriftInfo() throws AnalysisException {
-        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                                            .getDb(CatalogTestUtil.testDb1)
-                                            .getTable(CatalogTestUtil.testUnPartitionedEsTableId1);
-        boolean hasException = false;
-        EsTableState esTableState = null;
-        try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr5, esTable);
-        } catch (Exception e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        assertFalse(hasException);
-        assertNotNull(esTableState);
-        
-        // check 
-        assertEquals(0, esTableState.getPartitionedIndexStates().size());
-        assertEquals(2, esTableState.getUnPartitionedIndexStates().size());
-        
-        // check index with no partition desc
-        EsIndexState esIndexState1 = esTableState.getUnPartitionedIndexStates().get("index1");
-        assertEquals("index1", esIndexState1.getIndexName());
-        EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
-        assertEquals("index2", esIndexState2.getIndexName());
-        assertEquals(6, esIndexState2.getShardRoutings().size());
-        
-        assertEquals(0, esIndexState1.getShardRoutings().get(1).size());
-    }
+
     
     /**
      * partitioned es table schema: k1(date), k2(int), v(double)

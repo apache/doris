@@ -165,6 +165,14 @@ IntVal TimestampFunctions::month(
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
+IntVal TimestampFunctions::day_of_week(
+        FunctionContext* context, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+}
 
 IntVal TimestampFunctions::day_of_month(
         FunctionContext* context, const DateTimeVal& ts_val) {
@@ -232,6 +240,18 @@ DateTimeVal TimestampFunctions::curtime(FunctionContext* context) {
     now.cast_to_time();
     DateTimeVal return_val;
     now.to_datetime_val(&return_val);
+    return return_val;
+}
+
+DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
+    TimeInterval interval;
+    // TODO(liuhy): we only support Beijing Timezone, so minus 28800
+    interval.second = -28800;
+    DateTimeValue dtv = *(context->impl()->state()->now());
+    dtv.date_add_interval(interval, SECOND);
+    
+    DateTimeVal return_val;
+    dtv.to_datetime_val(&return_val);
     return return_val;
 }
 
@@ -443,18 +463,16 @@ IntVal TimestampFunctions::to_days(
 }
 
 // TODO(dhc): implement this funciton really
-DateTimeVal TimestampFunctions::time_diff(
+DoubleVal TimestampFunctions::time_diff(
         FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
     if (ts_val1.is_null || ts_val2.is_null) {
-        return DateTimeVal::null();
+        return DoubleVal::null();
     }
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    DateTimeValue ts = ts_value1 - ts_value2;
-    ts.cast_to_time();
-    DateTimeVal result;
-    ts.to_datetime_val(&result);
-    return result;
+    int64_t timediff = ts_value1.unix_timestamp() - ts_value2.unix_timestamp();
+
+    return DoubleVal(timediff);
 }
 
 IntVal TimestampFunctions::date_diff(

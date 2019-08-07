@@ -1,4 +1,4 @@
-# USER DEFINED FUNCTION
+# User Define Function
 
 用户可以通过UDF机制来扩展Doris的能力。通过这篇文档，用户能够创建自己的UDF。
 
@@ -48,13 +48,19 @@
 |Varchar|StringVal|
 |Decimal|DecimalVal|
 
-### 修改CMakeLists.txt
+## 编译UDF函数
 
-在`be/src/udf_samples/CMakeLists.txt`增加对应的动态库创建描述，类似于`add_library(udfsample SHARED udf_sample.cpp)`。这个描述增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
+### 编译Doris
+
+在Doris根目录下执行`sh build.sh`就会在`output/udf/`生成对应`headers|libs`
+
+### 编写CMakeLists.txt
+
+基于上一步生成的`headers|libs`，用户可以使用`CMakeLists`等工具引入该依赖；在`CMakeLists`中，可以通过向`CMAKE_CXX_FLAGS`添加`-I|L`分别指定`headers|libs`路径；然后使用`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)`增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
 
 ### 执行编译
 
-在最外部执行`sh build.sh`就可以生成对应的动态库。生成的动态库的位置，位于`be/build/src/udf_samples/`下。比如`udfsample`就会生成一个文件位于`be/build/src/udf_samples/libudfsample.so`。
+在该目录下创建一个`build`目录并在`build`下执行`cmake ../`生成`Makefile`，并执行`make`就会生成对应动态库。
 
 ## 创建UDF函数
 

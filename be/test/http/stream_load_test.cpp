@@ -74,7 +74,7 @@ public:
         k_stream_load_commit_result = TLoadTxnCommitResult();
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
-        k_stream_load_plan_status = Status::OK;
+        k_stream_load_plan_status = Status::OK();
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
@@ -183,7 +183,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
 
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status= Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_put_result.status);
     action.on_header(&request);
     action.handle(&request);
@@ -203,7 +203,7 @@ TEST_F(StreamLoadActionTest, commit_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_commit_result.status);
     action.on_header(&request);
     action.handle(&request);
@@ -223,7 +223,7 @@ TEST_F(StreamLoadActionTest, begin_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_begin_result.status);
     action.on_header(&request);
     action.handle(&request);
@@ -260,7 +260,7 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    k_stream_load_plan_status = Status("TestFail");
+    k_stream_load_plan_status = Status::InternalError("TestFail");
     action.on_header(&request);
     action.handle(&request);
 

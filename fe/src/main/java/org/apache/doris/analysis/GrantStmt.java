@@ -37,8 +37,6 @@ import com.google.common.base.Strings;
 import java.util.List;
 
 // GRANT STMT
-// grant privilege to some user, this is an administrator operation.
-//
 // GRANT privilege [, privilege] ON db.tbl TO user [ROLE 'role'];
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
@@ -83,7 +81,8 @@ public class GrantStmt extends DdlStmt {
         if (userIdent != null) {
             userIdent.analyze(analyzer.getClusterName());
         } else {
-            FeNameFormat.checkUserName(role);
+            FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         tblPattern.analyze(analyzer.getClusterName());
@@ -92,32 +91,51 @@ public class GrantStmt extends DdlStmt {
             throw new AnalysisException("No privileges in grant statement.");
         }
 
-        // can not grant NODE_PRIV to any other user(root has NODE_PRIV, no need to grant)
-        for (PaloPrivilege paloPrivilege : privileges) {
-            if (paloPrivilege == PaloPrivilege.NODE_PRIV) {
-                throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
-            }
+        checkPrivileges(analyzer, privileges, role, tblPattern);
+    }
+
+    /*
+     * Rules:
+     * 1. Can not grant/revoke NODE_PRIV to/from any other user.
+     * 2. ADMIN_PRIV can only be granted/revoked on GLOBAL level
+     * 3. Privileges can not be granted/revoked to/from ADMIN and OPERATOR role
+     * 4. Only user with GLOBAL level's GRANT_PRIV can grant/revoke privileges to/from roles.
+     * 5.1 User should has GLOBAL level GRANT_PRIV
+     * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
+     */
+    public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
+            String role, TablePattern tblPattern) throws AnalysisException {
+        // Rule 1
+        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
+            throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
         }
 
-        // ADMIN_PRIV and GRANT_PRIV can only be granted as global
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
-            for (PaloPrivilege paloPrivilege : privileges) {
-                if (paloPrivilege == PaloPrivilege.ADMIN_PRIV || paloPrivilege == PaloPrivilege.GRANT_PRIV) {
-                    throw new AnalysisException(
-                            "Can not grant ADMIN_PRIV or GRANT_PRIV to specified database or table. Only support to *.*");
-                }
-            }
+        // Rule 2
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
+            throw new AnalysisException("ADMIN_PRIV privilege can only be granted on *.*");
         }
 
         if (role != null) {
-            // can not grant to admin or operator role
-            FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
-        }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "GRANT");
+            // Rule 3 and 4
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+            }
+        } else {
+            // Rule 5.1 and 5.2
+            if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
+                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            } else {
+                // table level
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            }
         }
     }
 

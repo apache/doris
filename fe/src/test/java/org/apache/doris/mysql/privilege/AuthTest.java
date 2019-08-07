@@ -146,16 +146,16 @@ public class AuthTest {
         // 1. create cmy@%
         UserIdentity userIdentity = new UserIdentity("cmy", "%");
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
-        CreateUserStmt userStmt = new CreateUserStmt(false, userDesc, null);
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
@@ -169,16 +169,16 @@ public class AuthTest {
         // 3. create another user: zhangsan@"192.%"
         userIdentity = new UserIdentity("zhangsan", "192.%");
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
@@ -193,9 +193,9 @@ public class AuthTest {
         // 4.1 check if we can create same user
         userIdentity = new UserIdentity("zhangsan", "192.%");
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
@@ -203,7 +203,7 @@ public class AuthTest {
 
         boolean hasException = false;
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             e.printStackTrace();
             hasException = true;
@@ -213,16 +213,16 @@ public class AuthTest {
         // 4.2 check if we can create same user name with different host
         userIdentity = new UserIdentity("zhangsan", "172.18.1.1");
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
@@ -232,15 +232,15 @@ public class AuthTest {
         // 5. create a user with domain [palo.domain]
         userIdentity = new UserIdentity("zhangsan", "palo.domain1", true);
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
@@ -259,9 +259,9 @@ public class AuthTest {
         // 7. add duplicated user@['palo.domain1']
         userIdentity = new UserIdentity("zhangsan", "palo.domain1", true);
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
@@ -269,7 +269,7 @@ public class AuthTest {
 
         hasException = false;
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             e.printStackTrace();
             hasException = true;
@@ -279,16 +279,16 @@ public class AuthTest {
         // 8. add another user@['palo.domain2']
         userIdentity = new UserIdentity("lisi", "palo.domain2", true);
         userDesc = new UserDesc(userIdentity, "123456", true);
-        userStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();
@@ -757,7 +757,7 @@ public class AuthTest {
         Assert.assertTrue(hasException);
 
         // 24. create role
-        roleStmt = new CreateRoleStmt("rolo1");
+        roleStmt = new CreateRoleStmt("role1");
         try {
             roleStmt.analyze(analyzer);
         } catch (UserException e1) {
@@ -808,9 +808,9 @@ public class AuthTest {
         // 27. create user and set it as role1
         userIdentity = new UserIdentity("wangwu", "%");
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, "role1");
+        createUserStmt = new CreateUserStmt(false, userDesc, "role1");
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
@@ -820,8 +820,9 @@ public class AuthTest {
                                             SystemInfoService.DEFAULT_CLUSTER + ":wangwu",
                                             PrivPredicate.DROP));
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
+            e.printStackTrace();
             Assert.fail();
         }
         Assert.assertTrue(auth.checkDbPriv("10.17.2.1", SystemInfoService.DEFAULT_CLUSTER + ":db4",
@@ -831,16 +832,16 @@ public class AuthTest {
         // 28. create user@domain and set it as role1
         userIdentity = new UserIdentity("chenliu", "palo.domain2", true);
         userDesc = new UserDesc(userIdentity, "12345", true);
-        userStmt = new CreateUserStmt(false, userDesc, "role1");
+        createUserStmt = new CreateUserStmt(false, userDesc, "role1");
         try {
-            userStmt.analyze(analyzer);
+            createUserStmt.analyze(analyzer);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            auth.createUser(userStmt);
+            auth.createUser(createUserStmt);
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();

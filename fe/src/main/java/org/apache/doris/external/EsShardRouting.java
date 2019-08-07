@@ -18,6 +18,7 @@
 package org.apache.doris.external;
 
 
+import org.apache.commons.lang.StringUtils;
 import org.json.JSONObject;
 
 import org.apache.doris.thrift.TNetworkAddress;
@@ -46,8 +47,12 @@ public class EsShardRouting {
         JSONObject nodeInfo = nodesMap.getJSONObject(nodeId);
         String[] transportAddr = nodeInfo.getString("transport_address").split(":");
         // get thrift port from node info
-        String thriftPort = nodeInfo.getJSONObject("attributes").getString("thrift_port");
-        TNetworkAddress addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(thriftPort));
+        String thriftPort = nodeInfo.getJSONObject("attributes").optString("thrift_port");
+        // In http transport mode, should ignore thrift_port, set address to null
+        TNetworkAddress addr = null;
+        if (!StringUtils.isEmpty(thriftPort)) {
+            addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(thriftPort));
+        }
         boolean isPrimary = shardInfo.getBoolean("primary");
         return new EsShardRouting(indexName, Integer.valueOf(shardKey),
                 isPrimary, addr, nodeId);

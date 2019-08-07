@@ -2,7 +2,7 @@
 ## description
 
     Broker load 通过随 Palo 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
-    不同的数据源需要部署不同的 broker 进程。可以通过 show broker 命令查看已经部署的 broker。
+    可以通过 show broker 命令查看已经部署的 broker。
     目前支持以下4种数据源：
 
     1. Baidu HDFS：百度内部的 hdfs，仅限于百度内部使用。
@@ -38,6 +38,7 @@
             INTO TABLE `table_name`
             [PARTITION (p1, p2)]
             [COLUMNS TERMINATED BY "column_separator"]
+            [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
     
@@ -61,6 +62,10 @@
             如果是不可见字符，则需要加\\x作为前缀，使用十六进制来表示分隔符。
             如hive文件的分隔符\x01，指定为"\\x01"
             
+            file_type：
+
+            用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
+ 
             column_list：
 
             用于指定导入文件中的列和 table 中的列的对应关系。
@@ -74,13 +79,14 @@
             目前支持的函数有：
 
                 strftime(fmt, column) 日期转换函数
-                    fmt: 日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
+                    fmt: 日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
                         如果没有column_list，则按照palo表的列顺序默认输入文件的列。
+                        注意：数字型的时间戳单位为秒。
 
                 time_format(output_fmt, input_fmt, column) 日期格式转化
-                    output_fmt: 转化后的日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
-                    input_fmt: 转化前column列的日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
+                    output_fmt: 转化后的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
+                    input_fmt: 转化前column列的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为input_fmt格式的日期字符串。
                         如果没有column_list，则按照palo表的列顺序默认输入文件的列。
 
@@ -104,7 +110,7 @@
 
     3. broker_name
 
-        所使用的 broker 名称，可以通过 show broker 命令查看。不同的数据源需使用对应的 broker。
+        所使用的 broker 名称，可以通过 show broker 命令查看。
 
     4. broker_properties
 
@@ -155,6 +161,7 @@
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         exec_mem_limit:   设置导入使用的内存上限。默认为2G，单位字节。这里是指单个 BE 节点的内存上限。
                           一个导入可能分布于多个BE。我们假设 1GB 数据在单个节点处理需要最大5GB内存。那么假设1GB文件分布在2个节点处理，那么理论上，每个节点需要内存为2.5GB。则该参数可以设置为 2684354560，即2.5GB
+	strict mode：     是否对数据进行严格限制。默认为true。
 
     5. 导入数据格式样例
 
@@ -298,8 +305,8 @@
         COLUMNS TERMINATED BY ","
         (tmp_k1, tmp_k2, tmp_k3, k6, v1)
         SET (
-          k1 = strftime("%Y-%m-%d %H:%M:%S", tmp_k1),
-          k2 = time_format("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", tmp_k2),
+          k1 = strftime("%Y-%m-%d %H:%i:%S", tmp_k1),
+          k2 = time_format("%Y-%m-%d %H:%i:%S", "%Y-%m-%d", tmp_k2),
           k3 = alignment_timestamp("day", tmp_k3), 
           k4 = default_value("1"), 
           k5 = md5sum(tmp_k1, tmp_k2, tmp_k3),
@@ -345,5 +352,15 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
+     8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "parquet"
+        (k1, k2, k3)
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+     
 ## keyword
     BROKER LOAD

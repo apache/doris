@@ -67,9 +67,9 @@ void init_mock() {
     db_num = 0;
     table_num = 0;
     desc_num = 0;
-    s_db_result = Status::OK;
-    s_table_result = Status::OK;
-    s_desc_result = Status::OK;
+    s_db_result = Status::OK();
+    s_table_result = Status::OK();
+    s_desc_result = Status::OK();
 }
 
 class SchemaColumnsScannerTest : public testing::Test {
@@ -166,7 +166,7 @@ TEST_F(SchemaColumnsScannerTest, table_fail) {
     ASSERT_TRUE(status.ok());
     Tuple *tuple = (Tuple *)g_tuple_buf;
     bool eos = false;
-    s_table_result = Status("get table failed");
+    s_table_result = Status::InternalError("get table failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
     ASSERT_FALSE(status.ok());
 }
@@ -183,7 +183,7 @@ TEST_F(SchemaColumnsScannerTest, desc_fail) {
     ASSERT_TRUE(status.ok());
     Tuple *tuple = (Tuple *)g_tuple_buf;
     bool eos = false;
-    s_desc_result = Status("get desc failed");
+    s_desc_result = Status::InternalError("get desc failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
     ASSERT_FALSE(status.ok());
 }
@@ -195,7 +195,7 @@ TEST_F(SchemaColumnsScannerTest, start_fail) {
     SchemaColumnsScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    s_db_result = Status("get db failed.");
+    s_db_result = Status::InternalError("get db failed.");
     status = scanner.start((RuntimeState *)1);
     ASSERT_FALSE(status.ok());
 }

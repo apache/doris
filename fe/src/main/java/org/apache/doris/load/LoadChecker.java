@@ -32,7 +32,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
-import org.apache.doris.load.LoadJob.EtlJobType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -52,10 +51,12 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -293,6 +294,10 @@ public class LoadChecker extends Daemon {
         
         long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
                                                     : Config.load_straggler_wait_second * 1000;
+        Set<Long> unfinisheTablets = Sets.newHashSet();
+        unfinisheTablets.addAll(jobTotalTablets);
+        unfinisheTablets.removeAll(job.getQuorumTablets());
+        job.setUnfinishedTablets(unfinisheTablets);
         if (job.getQuorumTablets().containsAll(jobTotalTablets)) {
             // commit the job to transaction manager and not care about the result
             // if could not commit successfully and commit again until job is timeout
@@ -329,6 +334,8 @@ public class LoadChecker extends Daemon {
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
             globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+        } catch (TabletQuorumFailedException e) {
+            // wait the upper application retry
         } catch (UserException e) {
             LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
                     transactionState.getTransactionId(), job, e);

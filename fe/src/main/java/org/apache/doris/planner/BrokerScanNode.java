@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -33,6 +32,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -108,9 +108,12 @@ public class BrokerScanNode extends ScanNode {
     private long bytesPerInstance;
 
     // Parameters need to process
+    private long loadJobId = -1; // -1 means this scan node is not for a load job
+    private long txnId = -1;
     private Table targetTable;
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
+    private boolean strictMode;
 
     private List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
@@ -179,12 +182,27 @@ public class BrokerScanNode extends ScanNode {
         return desc.getTable() == null;
     }
 
+    @Deprecated
     public void setLoadInfo(Table targetTable,
                             BrokerDesc brokerDesc,
                             List<BrokerFileGroup> fileGroups) {
         this.targetTable = targetTable;
         this.brokerDesc = brokerDesc;
         this.fileGroups = fileGroups;
+    }
+
+    public void setLoadInfo(long loadJobId,
+                            long txnId,
+                            Table targetTable,
+                            BrokerDesc brokerDesc,
+                            List<BrokerFileGroup> fileGroups,
+                            boolean strictMode) {
+        this.loadJobId = loadJobId;
+        this.txnId = txnId;
+        this.targetTable = targetTable;
+        this.brokerDesc = brokerDesc;
+        this.fileGroups = fileGroups;
+        this.strictMode = strictMode;
     }
 
     private void createPartitionInfos() throws AnalysisException {
@@ -313,6 +331,7 @@ public class BrokerScanNode extends ScanNode {
         BrokerFileGroup fileGroup = context.fileGroup;
         params.setColumn_separator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
         params.setLine_delimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setStrict_mode(strictMode);
 
         // Parse partition information
         List<Long> partitionIds = fileGroup.getPartitionIds();
@@ -357,6 +376,7 @@ public class BrokerScanNode extends ScanNode {
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
             slotDesc.setIsNullable(false);
+            slotDesc.setColumn(new Column(fieldName, PrimitiveType.VARCHAR));
             slotDescByName.put(fieldName, slotDesc);
 
             params.addToSrc_slot_ids(slotDesc.getId().asInt());
@@ -367,6 +387,7 @@ public class BrokerScanNode extends ScanNode {
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
+        Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         // Analyze expr map
         if (exprMap != null) {
             for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
@@ -402,6 +423,7 @@ public class BrokerScanNode extends ScanNode {
             if (expr == null) {
                 SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
+                    destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
                     // If dest is allow null, we set source to nullable
                     if (destSlotDesc.getColumn().isAllowNull()) {
                         srcSlotDesc.setIsNullable(true);
@@ -416,7 +438,7 @@ public class BrokerScanNode extends ScanNode {
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new UserException("Unknown slot ref("
-                                    + destSlotDesc.getColumn().getName() + ") in source file");
+                                                            + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
                 }
@@ -429,7 +451,9 @@ public class BrokerScanNode extends ScanNode {
             expr = castToSlot(destSlotDesc, expr);
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
+        context.params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
         context.params.setDest_tuple_id(desc.getId().asInt());
+        context.params.setStrict_mode(strictMode);
         // Need re compute memory layout after set some slot descriptor to nullable
         context.tupleDescriptor.computeMemLayout();
     }
@@ -450,7 +474,6 @@ public class BrokerScanNode extends ScanNode {
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        // TODO(zc):
         int numBroker = Math.min(3, numBe);
         for (int i = 0; i < numBroker; ++i) {
             FsBroker broker = null;
@@ -524,7 +547,7 @@ public class BrokerScanNode extends ScanNode {
         numInstances = Math.max(1, numInstances);
 
         bytesPerInstance = totalBytes / numInstances + 1;
-        
+
         if (bytesPerInstance > Config.max_bytes_per_broker_scanner) {
             throw new UserException(
                     "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
@@ -544,9 +567,15 @@ public class BrokerScanNode extends ScanNode {
         Collections.shuffle(backends, random);
     }
 
-    private TFileFormatType formatType(String path) {
+    private TFileFormatType formatType(String fileFormat, String path) {
+        if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        }
+
         String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".gz")) {
+        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.endsWith(".gz")) {
             return TFileFormatType.FORMAT_CSV_GZ;
         } else if (lowerCasePath.endsWith(".bz2")) {
             return TFileFormatType.FORMAT_CSV_BZ2;
@@ -576,32 +605,17 @@ public class BrokerScanNode extends ScanNode {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            TFileFormatType formatType = formatType(fileStatus.path);
+            TFileFormatType formatType = formatType(fileFormat, fileStatus.path);
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset = 0;
                     i++;
                 }
@@ -612,15 +626,8 @@ public class BrokerScanNode extends ScanNode {
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                rangeDesc.setFormat_type(formatType);
-                rangeDesc.setPath(fileStatus.path);
-                rangeDesc.setSplittable(fileStatus.isSplitable);
-                rangeDesc.setStart_offset(curFileOffset);
-                rangeDesc.setSize(leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
                 i++;
@@ -631,6 +638,19 @@ public class BrokerScanNode extends ScanNode {
         if (brokerScanRange(curLocations).isSetRanges()) {
             locationsList.add(curLocations);
         }
+    }
+
+    private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
+            TFileFormatType formatType, long rangeBytes) {
+        TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
+        rangeDesc.setFile_type(TFileType.FILE_BROKER);
+        rangeDesc.setFormat_type(formatType);
+        rangeDesc.setPath(fileStatus.path);
+        rangeDesc.setSplittable(fileStatus.isSplitable);
+        rangeDesc.setStart_offset(curFileOffset);
+        rangeDesc.setSize(rangeBytes);
+        rangeDesc.setFile_size(fileStatus.size);
+        return rangeDesc;
     }
 
     @Override
@@ -654,6 +674,12 @@ public class BrokerScanNode extends ScanNode {
             for (TScanRangeLocations locations : locationsList) {
                 LOG.debug("Scan range is {}", locations);
             }
+        }
+
+        if (loadJobId != -1) {
+            LOG.info("broker load job {} with txn {} has {} scan range: {}",
+                    loadJobId, txnId, locationsList.size(),
+                    locationsList.stream().map(loc -> loc.locations.get(0).backend_id).toArray());
         }
     }
 
@@ -692,4 +718,5 @@ public class BrokerScanNode extends ScanNode {
         }
         return output.toString();
     }
+
 }

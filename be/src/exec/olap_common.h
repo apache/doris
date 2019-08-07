@@ -318,11 +318,11 @@ ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, 
 template<class T>
 Status ColumnValueRange<T>::add_fixed_value(T value) {
     if (INVALID_TYPE == _column_type) {
-        return Status("AddFixedValue failed, Invalid type");
+        return Status::InternalError("AddFixedValue failed, Invalid type");
     }
 
     _fixed_values.insert(value);
-    return Status::OK;
+    return Status::OK();
 }
 
 template<class T>
@@ -434,7 +434,7 @@ void ColumnValueRange<T>::convert_to_range_value() {
 template<class T>
 Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
     if (INVALID_TYPE == _column_type) {
-        return Status("AddRange failed, Invalid type");
+        return Status::InternalError("AddRange failed, Invalid type");
     }
 
     if (is_fixed_value_range()) {
@@ -468,7 +468,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
 
         default: {
-            return Status("AddRangefail! Unsupport SQLFilterOp.");
+            return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
         }
         }
 
@@ -515,7 +515,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
             }
 
             default: {
-                return Status("AddRangefail! Unsupport SQLFilterOp.");
+                return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
             }
             }
         }
@@ -529,7 +529,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template<class T>
@@ -662,12 +662,12 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     if (range.is_empty_value_range()) {
         _begin_scan_keys.clear();
         _end_scan_keys.clear();
-        return Status::OK;
+        return Status::OK();
     }
 
     // 2. stop extend ScanKey when it's already extend a range value
     if (_has_range_value) {
-        return Status::OK;
+        return Status::OK();
     }
 
     //if a column doesn't have any predicate, we will try converting the range to fixed values
@@ -680,7 +680,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
-                return Status::OK;
+                return Status::OK();
             }
         }
     } else {
@@ -791,7 +791,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
         _end_include = range.is_end_include();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }  // namespace doris

@@ -120,7 +120,7 @@ Status EvHttpServer::start() {
         _workers.emplace_back(worker);
         _workers[i].detach();
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void EvHttpServer::stop() {
@@ -135,7 +135,7 @@ Status EvHttpServer::_bind() {
     if (res < 0) {
         std::stringstream ss;
         ss << "convert address failed, host=" << _host << ", port=" << _port;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _server_fd = butil::tcp_listen(point, true);
     if (_server_fd < 0) {
@@ -143,7 +143,7 @@ Status EvHttpServer::_bind() {
         std::stringstream ss;
         ss << "tcp listen failed, errno=" << errno
             << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     res = butil::make_non_blocking(_server_fd);
     if (res < 0) {
@@ -151,9 +151,9 @@ Status EvHttpServer::_bind() {
         std::stringstream ss;
         ss << "make socket to non_blocking failed, errno=" << errno
             << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 bool EvHttpServer::register_handler(

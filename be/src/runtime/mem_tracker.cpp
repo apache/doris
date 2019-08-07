@@ -32,6 +32,7 @@
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
+#include "util/stack_util.h"
 
 //using std::shared_ptr;
 //using std::weak_ptr;
@@ -319,7 +320,7 @@ Status MemTracker::MemLimitExceeded(RuntimeState* state, const std::string& deta
     // }
     // ss << tracker_to_log->LogUsage();
     // Status status = Status::MemLimitExceeded(ss.str());
-    Status status = Status::MEM_LIMIT_EXCEEDED;
+    Status status = Status::MemoryLimitExceeded("Memory limit exceeded");
     if (state != nullptr) state->log_error(status.get_error_msg());
     return status;
 }

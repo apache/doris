@@ -17,17 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.qe.ConnectContext;
-
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.load.Load;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Map;
@@ -59,6 +58,7 @@ public class LoadStmt extends DdlStmt {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
+    public static final String STRICT_MODE = "strict_mode";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -72,7 +72,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
-
+    public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -80,7 +80,7 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
-    private String version = "v1";
+    private String version = "v2";
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -89,6 +89,7 @@ public class LoadStmt extends DdlStmt {
             .add(LOAD_DELETE_FLAG_PROPERTY)
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
+            .add(STRICT_MODE)
             .add(VERSION)
             .build();
     
@@ -178,10 +179,18 @@ public class LoadStmt extends DdlStmt {
 
         // version
         final String versionProperty = properties.get(VERSION);
-        // TODO(ml): only support v1
         if (versionProperty != null) {
-            if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
-                throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
+            if (!versionProperty.equalsIgnoreCase(Load.VERSION)) {
+                throw new DdlException(VERSION + " must be " + Load.VERSION);
+            }
+        }
+
+        // strict mode
+        final String strictModeProperty = properties.get(STRICT_MODE);
+        if (strictModeProperty != null) {
+            if (!strictModeProperty.equalsIgnoreCase("true")
+                    && !strictModeProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(STRICT_MODE + " is not a boolean");
             }
         }
 
@@ -193,7 +202,7 @@ public class LoadStmt extends DdlStmt {
         }
         final String versionProperty = properties.get(VERSION);
         if (versionProperty != null) {
-            version = LoadManager.VERSION;
+            version = Load.VERSION;
         }
     }
 

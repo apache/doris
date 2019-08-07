@@ -37,18 +37,18 @@ Status CrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(BlockingJoinNode::prepare(state));
     _build_batch_pool.reset(new ObjectPool());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status CrossJoinNode::close(RuntimeState* state) {
     // avoid double close
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _build_batches.reset();
     _build_batch_pool.reset();
     BlockingJoinNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
@@ -79,7 +79,7 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
@@ -96,7 +96,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
 
     if (reached_limit() || _eos) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     ScopedTimer<MonotonicStopWatch> timer(_left_child_timer);
@@ -140,7 +140,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string CrossJoinNode::build_list_debug_string() {

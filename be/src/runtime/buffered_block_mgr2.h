@@ -344,7 +344,7 @@ public:
     Status get_new_block(Client* client, Block* unpin_block, Block** block, int64_t len = -1);
 
     // Cancels the block mgr. All subsequent calls that return a Status fail with
-    // Status::CANCELLED. Idempotent.
+    // Status::Cancelled("Cancelled"). Idempotent.
     void cancel();
 
     // Returns true if the block manager was cancelled.
@@ -490,7 +490,7 @@ private:
 
     // Callback used by DiskIoMgr to indicate a block write has completed.  write_status
     // is the status of the write. _is_cancelled is set to true if write_status is not
-    // Status::OK or a re-issue of the write fails. Returns the block's buffer to the
+    // Status::OK() or a re-issue of the write fails. Returns the block's buffer to the
     // free buffers list if it is no longer pinned. Returns the block itself to the free
     // blocks list if it has been deleted.
     void write_complete(Block* block, const Status& write_status);
@@ -587,7 +587,7 @@ private:
     DiskIoMgr::RequestContext* _io_request_context;
 
     // If true, a disk write failed and all API calls return.
-    // Status::CANCELLED. Set to true if there was an error writing a block, or if
+    // Status::Cancelled("Cancelled"). Set to true if there was an error writing a block, or if
     // write_complete() needed to reissue the write and that failed.
     bool _is_cancelled;
 

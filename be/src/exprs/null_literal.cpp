@@ -87,7 +87,7 @@ DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
 Status NullLiteral::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
 
     DCHECK_EQ(get_num_children(), 0);
@@ -102,7 +102,7 @@ Status NullLiteral::get_codegend_compute_fn(RuntimeState* state, llvm::Function*
     builder.CreateRet(v);
     *fn = codegen->finalize_function(*fn);
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 }

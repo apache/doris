@@ -20,9 +20,12 @@
 
 #include <string>
 #include <vector>
-#include <mysql/mysql.h>
 
 #include "common/status.h"
+
+#ifndef __DorisMysql
+#define __DorisMysql void
+#endif
 
 namespace doris {
 
@@ -49,17 +52,17 @@ public:
     Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
 
     Status begin_trans() {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status append(RowBatch* batch);
 
     Status abort_tarns() {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status finish_tarns() {
-        return Status::OK;
+        return Status::OK();
     }
 
 private:
@@ -67,7 +70,7 @@ private:
 
     const std::vector<ExprContext*>& _output_expr_ctxs;
     std::string _mysql_tbl;
-    MYSQL* _mysql_conn;
+    __DorisMysql* _mysql_conn;
 };
 
 }

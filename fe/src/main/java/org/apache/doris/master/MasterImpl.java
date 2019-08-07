@@ -116,7 +116,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.CANCEL_DELETE && taskType != TTaskType.RELEASE_SNAPSHOT) {
+                    && taskType != TTaskType.RELEASE_SNAPSHOT) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -132,7 +132,7 @@ public class MasterImpl {
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE) {
+                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION) {
                     return result;
                 }
             }
@@ -559,9 +559,21 @@ public class MasterImpl {
         if (request.isSetError_tablet_ids()) {
             errorTabletIds = request.getError_tablet_ids();
         }
+
+        if (request.isSetReport_version()) {
+            // report version is required. here we check if set, for compatibility.
+            long reportVersion = request.getReport_version();
+            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
+        }
+
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setIsFinished(true);
+
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            // not remove the task from queue and be will retry
+            return;
+        }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(), 
                                   publishVersionTask.getTaskType(), 
                                   publishVersionTask.getSignature());
@@ -681,23 +693,13 @@ public class MasterImpl {
 
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
-        if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
-            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-                // just return, like the old style
-                return;
-            }
-            
-            List<TTabletInfo> finishTabletInfos = request.getFinish_tablet_infos();
-            Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-            Preconditions.checkArgument(finishTabletInfos.size() == 1);
-            Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
-
-        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+        if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
             Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
+        } else {
+            LOG.warn("invalid clone task, ignore it. {}", task);
         }
 
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
-
     }
 
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {

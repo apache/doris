@@ -26,6 +26,7 @@
 #include "runtime/row_batch.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "util/uid_util.h"
 #include "exec/local_file_writer.h"
 #include "exec/broker_writer.h"
 #include <thrift/protocol/TDebugProtocol.h>
@@ -52,7 +53,7 @@ Status ExportSink::init(const TDataSink& t_sink) {
 
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(Expr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::prepare(RuntimeState* state) {
@@ -76,7 +77,7 @@ Status ExportSink::prepare(RuntimeState* state) {
     _rows_written_counter = ADD_COUNTER(profile(), "RowsExported", TUnit::UNIT);
     _write_timer = ADD_TIMER(profile(), "WriteTime");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open(RuntimeState* state) {
@@ -84,7 +85,7 @@ Status ExportSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
     // open broker
     RETURN_IF_ERROR(open_file_writer());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
@@ -112,7 +113,7 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
         COUNTER_UPDATE(_bytes_written_counter, buf.size());
     }
     COUNTER_UPDATE(_rows_written_counter, num_rows);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
@@ -121,7 +122,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     for (int i = 0; i < num_columns; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            (*ss) << "NULL";
+            (*ss) << "\\N";
         } else {
             switch (_output_expr_ctxs[i]->root()->type().type) {
                 case TYPE_BOOLEAN:
@@ -161,7 +162,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     if (string_val->ptr == NULL) {
                         if (string_val->len == 0) {
                         } else {
-                            (*ss) << "NULL";
+                            (*ss) << "\\N";
                         }
                     } else {
                         (*ss) << std::string(string_val->ptr, string_val->len);
@@ -197,7 +198,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 default: {
                     std::stringstream err_ss;
                     err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
-                    return Status(err_ss.str());
+                    return Status::InternalError(err_ss.str());
                 }
             }
         }
@@ -208,7 +209,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     }
     (*ss) << _t_export_sink.line_delimiter;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::close(RuntimeState* state, Status exec_status) {
@@ -217,12 +218,12 @@ Status ExportSink::close(RuntimeState* state, Status exec_status) {
         _file_writer->close();
         _file_writer = nullptr;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open_file_writer() {
     if (_file_writer != nullptr) {
-        return Status::OK;
+        return Status::OK();
     }
 
     std::string file_name = gen_file_name();
@@ -249,12 +250,12 @@ Status ExportSink::open_file_writer() {
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << _t_export_sink.file_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
 
     _state->add_export_output_file(_t_export_sink.export_path + "/" + file_name);
-    return Status::OK;
+    return Status::OK();
 }
 
 // TODO(lingbin): add some other info to file name, like partition
@@ -265,7 +266,7 @@ std::string ExportSink::gen_file_name() {
     gettimeofday(&tv, NULL);
 
     std::stringstream file_name;
-    file_name << "export_data_" << id.hi << "_" << id.lo << "_" 
+    file_name << "export-data-" << print_id(id) << "-"
             << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
     return file_name.str();
 }

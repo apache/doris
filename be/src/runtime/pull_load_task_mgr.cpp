@@ -86,7 +86,7 @@ Status PullLoadTaskCtx::add_sub_task_info(
     std::lock_guard<std::mutex> l(_lock);
     if (_finished_senders.count(sub_task_info.sub_task_id) > 0) {
         // Already receive this sub-task informations
-        return Status::OK;
+        return Status::OK();
     }
 
     // Apply this information
@@ -105,7 +105,7 @@ Status PullLoadTaskCtx::add_sub_task_info(
         *finish = true;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 PullLoadTaskMgr::PullLoadTaskMgr(const std::string& path) 
@@ -118,13 +118,13 @@ PullLoadTaskMgr::~PullLoadTaskMgr() {
 Status PullLoadTaskMgr::init() {
     auto st = load_task_ctxes();
     if (!st.ok()) {
-        LOG(WARNING) << "Load task from directory failed. because " << st.get_error_msg();
         _dir_exist = false;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::load_task_ctxes() {
+    /*
     // 1. scan all files
     std::vector<std::string> files;
     RETURN_IF_ERROR(FileUtils::scan_dir(_path, &files));
@@ -141,8 +141,9 @@ Status PullLoadTaskMgr::load_task_ctxes() {
                 << ", status:" << status.get_error_msg();
         }
     }
+    */
 
-    return Status::OK;
+    return Status::InternalError("Not implemented");
 }
 
 Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
@@ -151,7 +152,7 @@ Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
         char buf[64];
         std::stringstream ss;
         ss << "fopen(" << file_path << ") failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     DeferOp close_file(std::bind(&fclose, fp));
 
@@ -162,11 +163,11 @@ Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
         char buf[64];
         std::stringstream ss;
         ss << "fread content length failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (content_len > 10 * 1024 * 1024) {
-        return Status("Content is too big.");
+        return Status::InternalError("Content is too big.");
     }
 
     // 2. read content
@@ -177,7 +178,7 @@ Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
         char buf[64];
         std::stringstream ss;
         ss << "fread content failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // 3. checksum
@@ -190,13 +191,13 @@ Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
         char buf[64];
         std::stringstream ss;
         ss << "fread content failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     if (read_checksum != checksum) {
         std::stringstream ss;
         ss << "fread checksum failed, read_checksum=" << read_checksum 
             << ", content_checksum=" << checksum;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // 4. new task context
@@ -209,12 +210,12 @@ Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {
     }
 
     LOG(INFO) << "success load task " << task_ctx->id();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::save_task_ctx(PullLoadTaskCtx* task_ctx) {
     if (!_dir_exist) {
-        return Status::OK;
+        return Status::OK();
     }
     ThriftSerializer serializer(true, 64 * 1024);
     RETURN_IF_ERROR(task_ctx->serialize(&serializer));
@@ -229,7 +230,7 @@ Status PullLoadTaskMgr::save_task_ctx(PullLoadTaskCtx* task_ctx) {
         char buf[64];
         std::stringstream ss;
         ss << "fopen(" << file_path << ") failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     DeferOp close_file(std::bind(&fclose, fp));
 
@@ -239,7 +240,7 @@ Status PullLoadTaskMgr::save_task_ctx(PullLoadTaskCtx* task_ctx) {
         char buf[64];
         std::stringstream ss;
         ss << "fwrite content length failed., because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // 2. write content
@@ -248,7 +249,7 @@ Status PullLoadTaskMgr::save_task_ctx(PullLoadTaskCtx* task_ctx) {
         char buf[64];
         std::stringstream ss;
         ss << "fwrite content failed., because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // 3. checksum
@@ -259,10 +260,10 @@ Status PullLoadTaskMgr::save_task_ctx(PullLoadTaskCtx* task_ctx) {
         char buf[64];
         std::stringstream ss;
         ss << "fwrite checksum failed., because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::register_task(const TUniqueId& id, int num_senders) {
@@ -272,14 +273,14 @@ Status PullLoadTaskMgr::register_task(const TUniqueId& id, int num_senders) {
         if (it != std::end(_task_ctx_map)) {
             // Do nothing
             LOG(INFO) << "Duplicate pull load task, id=" << id << " num_senders=" << num_senders;
-            return Status::OK;
+            return Status::OK();
         }
 
         std::shared_ptr<PullLoadTaskCtx> task_ctx(new PullLoadTaskCtx(id, num_senders));
         _task_ctx_map.emplace(id, task_ctx);
     }
     LOG(INFO) << "Register pull load task, id=" << id << ", num_senders=" << num_senders;
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string PullLoadTaskMgr::task_file_path(const TUniqueId& id) const {
@@ -302,7 +303,7 @@ Status PullLoadTaskMgr::deregister_task(const TUniqueId& id) {
         auto it = _task_ctx_map.find(id);
         if (it == std::end(_task_ctx_map)) {
             LOG(INFO) << "Deregister unknown pull load task, id=" << id;
-            return Status::OK;
+            return Status::OK();
         }
         _task_ctx_map.erase(it);
         ctx = it->second;
@@ -314,7 +315,7 @@ Status PullLoadTaskMgr::deregister_task(const TUniqueId& id) {
     }
     LOG(INFO) << "Deregister pull load task, id=" << id;
     
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::report_sub_task_info(
@@ -327,7 +328,7 @@ Status PullLoadTaskMgr::report_sub_task_info(
             std::stringstream ss;
             ss << "receive unknown pull load sub-task id=" << sub_task_info.id 
                 << ", sub_id=" << sub_task_info.sub_task_id;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         ctx = it->second;
@@ -342,7 +343,7 @@ Status PullLoadTaskMgr::report_sub_task_info(
     }
     VLOG_RPC << "process one pull load sub-task, id=" << sub_task_info.id 
         << ", sub_id=" << sub_task_info.sub_task_id;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::fetch_task_info(const TUniqueId& tid, 
@@ -355,13 +356,13 @@ Status PullLoadTaskMgr::fetch_task_info(const TUniqueId& tid,
             LOG(INFO) << "Fetch unknown task info, id=" << tid;
             result->task_info.id = tid;
             result->task_info.etl_state = TEtlState::CANCELLED;
-            return Status::OK;
+            return Status::OK();
         }
 
         ctx = it->second;
     }
     ctx->get_task_info(&result->task_info);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PullLoadTaskMgr::fetch_all_task_infos(
@@ -370,7 +371,7 @@ Status PullLoadTaskMgr::fetch_all_task_infos(
     for (auto& it : _task_ctx_map) {
         it.second->get_task_info(&result->task_infos);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 }

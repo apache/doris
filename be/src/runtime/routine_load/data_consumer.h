@@ -19,6 +19,7 @@
 
 #include <ctime>
 #include <mutex>
+#include <unordered_map>
 
 #include "librdkafka/rdkafkacpp.h"
 
@@ -127,7 +128,7 @@ public:
 
     virtual Status init(StreamLoadContext* ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
-    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK; }
+    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK(); }
     virtual Status cancel(StreamLoadContext* ctx) override;
     // reassign partition topics
     virtual Status reset() override;
@@ -141,9 +142,13 @@ public:
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
 
+    // get the partitions ids of the topic
+    Status get_partition_meta(std::vector<int32_t>* partition_ids);
+
 private:
     std::string _brokers;
     std::string _topic;
+    std::unordered_map<std::string, std::string> _custom_properties;
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;

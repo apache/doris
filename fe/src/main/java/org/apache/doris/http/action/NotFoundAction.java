@@ -46,7 +46,7 @@ public class NotFoundAction extends WebBaseAction {
         writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET, "/404", new NotFoundAction(controller));
     }
 }

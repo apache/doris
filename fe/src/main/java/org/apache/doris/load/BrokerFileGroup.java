@@ -17,22 +17,22 @@
 
 package org.apache.doris.load;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.BrokerTable;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,7 +57,6 @@ public class BrokerFileGroup implements Writable {
     private String valueSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
-    // TODO(zc): we need to persist fileFormat, this should be done in next META_VERSION increase
     private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
@@ -78,6 +77,7 @@ public class BrokerFileGroup implements Writable {
         this.lineDelimiter = table.getLineDelimiter();
         this.isNegative = false;
         this.filePaths = table.getPaths();
+        this.fileFormat = table.getFileFormat();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
@@ -132,7 +132,11 @@ public class BrokerFileGroup implements Writable {
         }
 
         fileFormat = dataDescription.getFileFormat();
-
+        if (fileFormat != null) {
+            if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv")) {
+                throw new DdlException("File Format Type("+fileFormat+") Is Invalid. Only support 'csv' or 'parquet'");
+            }
+        }
         isNegative = dataDescription.isNegative();
 
         // FilePath
@@ -150,7 +154,10 @@ public class BrokerFileGroup implements Writable {
     public String getLineDelimiter() {
         return lineDelimiter;
     }
-    public String getFileFormat() { return fileFormat; }
+
+    public String getFileFormat() {
+        return fileFormat;
+    }
 
     public boolean isNegative() {
         return isNegative;
@@ -162,10 +169,6 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
-    }
-
-    public List<String> getPartitionNames(){
-        return dataDescription.getPartitionNames();
     }
 
     public List<String> getFilePaths() {
@@ -204,6 +207,7 @@ public class BrokerFileGroup implements Writable {
         }
         sb.append(",valueSeparator=").append(valueSeparator)
                 .append(",lineDelimiter=").append(lineDelimiter)
+                .append(",fileFormat=").append(fileFormat)
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;
@@ -264,6 +268,13 @@ public class BrokerFileGroup implements Writable {
                 Expr.writeTo(entry.getValue(), out);
             }
         }
+        // fileFormat
+        if (fileFormat == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, fileFormat);
+        }
     }
 
     @Override
@@ -309,6 +320,12 @@ public class BrokerFileGroup implements Writable {
                     final String name = Text.readString(in);
                     exprColumnMap.put(name, Expr.readIn(in));
                 }
+            }
+        }
+        // file format
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+            if (in.readBoolean()) {
+                fileFormat = Text.readString(in);
             }
         }
     }

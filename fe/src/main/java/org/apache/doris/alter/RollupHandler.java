@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.Clone;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -124,10 +123,12 @@ public class RollupHandler extends AlterHandler {
         // 3 check if rollup columns are valid
         // a. all columns should exist in base rollup schema
         // b. value after key
+        // c. if rollup contains REPLACE column, all keys on base index should be included.
         List<Column> rollupSchema = new ArrayList<Column>();
         // check (a)(b)
         boolean meetValue = false;
         boolean hasKey = false;
+        boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         if (KeysType.UNIQUE_KEYS == keysType || KeysType.AGG_KEYS == keysType) {
             int keysNumOfRollup = 0;
@@ -144,6 +145,9 @@ public class RollupHandler extends AlterHandler {
                     hasKey = true;
                 } else {
                     meetValue = true;
+                    if (oneColumn.getAggregationType() == AggregateType.REPLACE) {
+                        meetReplaceValue = true;
+                    }
                 }
                 rollupSchema.add(oneColumn);
             }
@@ -152,11 +156,16 @@ public class RollupHandler extends AlterHandler {
                 throw new DdlException("No key column is found");
             }
             
-            if (KeysType.UNIQUE_KEYS == keysType) {
-                // rollup of unique key table should have all keys of basetable
+            if (KeysType.UNIQUE_KEYS == keysType || meetReplaceValue) {
+                // rollup of unique key table or rollup with REPLACE value
+                // should have all keys of base table
                 if (keysNumOfRollup !=  olapTable.getKeysNum()) {
-                    throw new DdlException("rollup should contains all unique keys in basetable");
-                }       
+                    if (KeysType.UNIQUE_KEYS == keysType) {
+                        throw new DdlException("Rollup should contains all unique keys in basetable");
+                    } else {
+                        throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
+                    }
+                }
             }
         } else if (KeysType.DUP_KEYS == keysType) {
             /*
@@ -464,16 +473,9 @@ public class RollupHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         AgentBatchTask batchTask = new AgentBatchTask();
-        final String cloneFailMsg = "rollup index[" + rollupIndexName + "] has been dropped";
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
             Preconditions.checkNotNull(rollupIndex);
-
-            // 1. remove clone job
-            Clone clone = Catalog.getInstance().getCloneInstance();
-            for (Tablet tablet : rollupIndex.getTablets()) {
-                clone.cancelCloneJob(tablet.getId(), cloneFailMsg);
-            }
 
             // 2. delete rollup index
             partition.deleteRollupIndex(rollupIndexId);
@@ -598,11 +600,13 @@ public class RollupHandler extends AlterHandler {
                     break;
                 }
                 case FINISHING: {
-                    // check if previous load job finished
+                    // check previous load job finished
                     if (rollupJob.isPreviousLoadFinished()) {
-                        // if all previous load jobs are finished, then send clear alter tasks to all related be
+                        // if all previous load job finished, then send clear alter tasks to all related be
+                        LOG.info("previous txn finished, try to send clear txn task");
                         int res = rollupJob.checkOrResendClearTasks();
                         if (res != 0) {
+                            LOG.info("send clear txn task return {}", res);
                             if (res == -1) {
                                 LOG.warn("rollup job is in finishing state, but could not finished, "
                                         + "just finish it, maybe a fatal error {}", rollupJob);

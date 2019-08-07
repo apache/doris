@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_STATUS_H
-#define DORIS_BE_SRC_COMMON_COMMON_STATUS_H
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#pragma once
 
 #include <string>
 #include <vector>
@@ -25,132 +28,128 @@
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h"  // for TStatus
 #include "gen_cpp/status.pb.h" // for PStatus
-#include "util/stack_util.h" // for PStatus
+#include "util/slice.h" // for Slice
 
 namespace doris {
 
-// Status is used as a function return type to indicate success, failure or cancellation
-// of the function. In case of successful completion, it only occupies sizeof(void*)
-// statically allocated memory. In the error case, it records a stack of error messages.
-//
-// example:
-// Status fnB(int x) {
-//   Status status = fnA(x);
-//   if (!status.ok()) {
-//     status.AddErrorMsg("fnA(x) went wrong");
-//     return status;
-//   }
-// }
-//
-// TODO: macros:
-// RETURN_IF_ERROR(status) << "msg"
-// MAKE_ERROR() << "msg"
-
 class Status {
 public:
-    Status(): _error_detail(NULL) {}
-
-    static const Status OK;
-    static const Status CANCELLED;
-    static const Status MEM_LIMIT_EXCEEDED;
-    static const Status THRIFT_RPC_ERROR;
-    static const Status TIMEOUT;
+    Status(): _state(nullptr) {}
+    ~Status() noexcept { delete[] _state; }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
-    Status(const Status& status) : _error_detail(
-            status._error_detail != NULL
-            ? new ErrorDetail(*status._error_detail)
-            : NULL) {
-    }
-
-    // c'tor for error case - is this useful for anything other than CANCELLED?
-    Status(TStatusCode::type code) : _error_detail(new ErrorDetail(code)) {
-    }
-
-    // c'tor for error case
-    Status(TStatusCode::type code, const std::string& error_msg, bool quiet) :
-            _error_detail(new ErrorDetail(code, error_msg)) {
-        if (!quiet) {
-            VLOG(2) << error_msg;
-        }
-    }
-
-    Status(TStatusCode::type code, const std::string& error_msg);
-
-    // c'tor for internal error
-    Status(const std::string& error_msg);
-
-    Status(const std::string& error_msg, bool quiet);
-
-    ~Status() {
-        if (_error_detail != NULL) {
-            delete _error_detail;
-        }
+    Status(const Status& s)
+            : _state(s._state == nullptr ? nullptr : copy_state(s._state))  {
     }
 
     // same as copy c'tor
-    Status& operator=(const Status& status) {
-        delete _error_detail;
-
-        if (LIKELY(status._error_detail == NULL)) {
-            _error_detail = NULL;
-        } else {
-            _error_detail = new ErrorDetail(*status._error_detail);
+    Status& operator=(const Status& s) {
+        // The following condition catches both aliasing (when this == &s),
+        // and the common case where both s and *this are OK.
+        if (_state != s._state) {
+            delete[] _state;
+            _state = (s._state == nullptr) ? nullptr : copy_state(s._state);
         }
+        return *this;
+    }
 
+    // move c'tor
+    Status(Status&& s) noexcept : _state(s._state) {
+        s._state = nullptr;
+    }
+
+    // move assign
+    Status& operator=(Status&& s) noexcept {
+        std::swap(_state, s._state);
         return *this;
     }
 
     // "Copy" c'tor from TStatus.
     Status(const TStatus& status);
 
-    // same as previous c'tor
-    Status& operator=(const TStatus& status);
-
     Status(const PStatus& pstatus);
-    Status& operator=(const PStatus& pstatus);
 
-    // assign from stringstream
-    Status& operator=(const std::stringstream& stream);
+    static Status OK() { return Status(); }
 
-    bool ok() const {
-        return _error_detail == NULL;
+    static Status PublishTimeout(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
+    }
+    static Status MemoryAllocFailed(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
+    }
+    static Status BufferAllocFailed(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
+    }
+    static Status InvalidArgument(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
+    }
+    static Status MinimumReservationUnavailable(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
+    }
+    static Status Corruption(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
+    }
+    static Status IOError(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
+    }
+    static Status NotFound(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
+    }
+    static Status AlreadyExist(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
+    }
+    static Status NotSupported(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
+    }
+    static Status EndOfFile(const Slice& msg,
+                            int16_t precise_code = 1,
+                            const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
+    }
+    static Status InternalError(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
+    }
+    static Status RuntimeError(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
+    }
+    static Status Cancelled(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
     }
 
-    bool is_cancelled() const {
-        return _error_detail != NULL
-               && _error_detail->error_code == TStatusCode::CANCELLED;
+    static Status MemoryLimitExceeded(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
     }
 
-    bool is_mem_limit_exceeded() const {
-        return _error_detail != NULL
-               && _error_detail->error_code == TStatusCode::MEM_LIMIT_EXCEEDED;
+    static Status ThriftRpcError(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
     }
 
-    bool is_thrift_rpc_error() const {
-        return _error_detail != NULL
-               && _error_detail->error_code == TStatusCode::MEM_LIMIT_EXCEEDED;
+    static Status TimedOut(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
 
-    // Add an error message and set the code if no code has been set yet.
-    // If a code has already been set, 'code' is ignored.
-    void add_error_msg(TStatusCode::type code, const std::string& msg);
+    bool ok() const { return _state == nullptr; }
+    bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
+    bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
+    bool is_thrift_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
 
-    // Add an error message and set the code to INTERNAL_ERROR if no code has been
-    // set yet. If a code has already been set, it is left unchanged.
-    void add_error_msg(const std::string& msg);
-
-    // Does nothing if status.ok().
-    // Otherwise: if 'this' is an error status, adds the error msg from 'status;
-    // otherwise assigns 'status'.
-    void add_error(const Status& status);
-
-    // Return all accumulated error msgs.
-    void get_error_msgs(std::vector<std::string>* msgs) const;
-
+    bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
-    template <typename T> void set_t_status(T* status_container) const {
+    template <typename T>
+    void set_t_status(T* status_container) const {
         to_thrift(&status_container->status);
         status_container->__isset.status = true;
     }
@@ -159,40 +158,81 @@ public:
     void to_thrift(TStatus* status) const;
     void to_protobuf(PStatus* status) const;
 
-    // Return all accumulated error msgs in a single string.
-    void get_error_msg(std::string* msg) const;
-
-    std::string get_error_msg() const;
-
-    TStatusCode::type code() const {
-        return _error_detail == NULL ? TStatusCode::OK : _error_detail->error_code;
+    std::string get_error_msg() const {
+        auto msg = message();
+        return std::string(msg.data, msg.size);
     }
 
-    /// Does nothing if status.ok().
-    /// Otherwise: if 'this' is an error status, adds the error msg from 'status';
-    /// otherwise assigns 'status'.
-    void MergeStatus(const Status& status);
+    /// @return A string representation of this status suitable for printing.
+    ///   Returns the string "OK" for success.
+    std::string to_string() const;
+
+    /// @return A string representation of the status code, without the message
+    ///   text or sub code information.
+    std::string code_as_string() const;
+
+    // This is similar to to_string, except that it does not include
+    // the stringified error code or sub code.
+    //
+    // @note The returned Slice is only valid as long as this Status object
+    //   remains live and unchanged.
+    //
+    // @return The message portion of the Status. For @c OK statuses,
+    //   this returns an empty string.
+    Slice message() const;
+
+    TStatusCode::type code() const {
+        return _state == nullptr ? TStatusCode::OK : static_cast<TStatusCode::type>(_state[4]);
+    }
+
+    int16_t precise_code() const {
+        if (_state == nullptr) {
+            return 0;
+        }
+        int16_t precise_code;
+        memcpy(&precise_code, _state + 5, sizeof(precise_code));
+        return precise_code;
+    }
+
+    /// Clone this status and add the specified prefix to the message.
+    ///
+    /// If this status is OK, then an OK status will be returned.
+    ///
+    /// @param [in] msg
+    ///   The message to prepend.
+    /// @return A new Status object with the same state plus an additional
+    ///   leading message.
+    Status clone_and_prepend(const Slice& msg) const;
+
+    /// Clone this status and add the specified suffix to the message.
+    ///
+    /// If this status is OK, then an OK status will be returned.
+    ///
+    /// @param [in] msg
+    ///   The message to append.
+    /// @return A new Status object with the same state plus an additional
+    ///   trailing message.
+    Status clone_and_append(const Slice& msg) const;
 
 private:
-    struct ErrorDetail {
-        TStatusCode::type error_code;  // anything other than OK
-        std::vector<std::string> error_msgs;
+    const char* copy_state(const char* state);
 
-        ErrorDetail(const TStatus& status);
-        ErrorDetail(const PStatus& status);
-        ErrorDetail(TStatusCode::type code)
-            : error_code(code) {}
-        ErrorDetail(TStatusCode::type code, const std::string& msg)
-            : error_code(code), error_msgs(1, msg) {}
-    };
+    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2);
 
-    ErrorDetail* _error_detail;
+private:
+    // OK status has a nullptr _state.  Otherwise, _state is a new[] array
+    // of the following form:
+    //    _state[0..3] == length of message
+    //    _state[4]    == code
+    //    _state[5..6] == precise_code
+    //    _state[7..]  == message
+    const char* _state;
 };
 
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt) \
     do { \
-        Status _status_ = (stmt); \
+        const Status& _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_; \
         } \
@@ -208,17 +248,23 @@ private:
 
 #define EXIT_IF_ERROR(stmt) \
     do { \
-        Status _status_ = (stmt); \
+        const Status& _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
-            string msg; \
-            _status_.get_error_msg(&msg); \
+            string msg = _status_.get_error_msg(); \
             LOG(ERROR) << msg;            \
             exit(1); \
         } \
     } while (false)
 
+/// @brief Emit a warning if @c to_call returns a bad status.
+#define WARN_IF_ERROR(to_call, warning_prefix) \
+    do { \
+        const Status& _s = (to_call);  \
+        if (PREDICT_FALSE(!_s.ok())) { \
+            LOG(WARNING) << (warning_prefix) << ": " << _s.to_string();  \
+        } \
+    } while (0);
+
 }
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-
-#endif

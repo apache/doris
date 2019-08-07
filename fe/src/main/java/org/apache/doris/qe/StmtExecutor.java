@@ -47,6 +47,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -54,13 +55,14 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -145,6 +147,10 @@ public class StmtExecutor {
         }
     }
 
+    public Planner planner() {
+        return planner;
+    }
+
     public boolean isForwardToMaster() {
         if (Catalog.getInstance().isMaster()) {
             return false;
@@ -202,7 +208,7 @@ public class StmtExecutor {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
             // analyze this query
-            analyze();
+            analyze(context.getSessionVariable().toThrift());
 
             if (isForwardToMaster()) {
                 forwardToMaster();
@@ -331,7 +337,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    private void analyze() throws AnalysisException, UserException,
+    public void analyze(TQueryOptions tQueryOptions) throws AnalysisException, UserException,
                                                NotImplementedException {
         LOG.info("begin to analyze stmt: {}", context.getStmtId());
 
@@ -442,7 +448,7 @@ public class StmtExecutor {
                 // create plan
                 planner = new Planner();
                 if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-                    planner.plan(parsedStmt, analyzer, context.getSessionVariable().toThrift());
+                    planner.plan(parsedStmt, analyzer, tQueryOptions);
                 } else {
                     planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
                             analyzer, new TQueryOptions());
@@ -583,70 +589,111 @@ public class StmtExecutor {
             return;
         }
 
-        // assign request_id
+        long createTime = System.currentTimeMillis();
         UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        Throwable throwable = null;
+        try {
+            // assign request_id
+            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
-        coord = new Coordinator(context, analyzer, planner);
-        coord.setQueryType(TQueryType.LOAD);
+            coord = new Coordinator(context, analyzer, planner);
+            coord.setQueryType(TQueryType.LOAD);
 
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
-        coord.exec();
+            coord.exec();
 
-        coord.join(context.getSessionVariable().getQueryTimeoutS());
-        if (!coord.isDone()) {
-            coord.cancel();
-            ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
-        }
-
-        if (!coord.getExecStatus().ok()) {
-            String errMsg = coord.getExecStatus().getErrorMsg();
-            LOG.warn("insert failed: {}", errMsg);
-
-            // hide host info
-            int hostIndex = errMsg.indexOf("host");
-            if (hostIndex != -1) {
-                errMsg = errMsg.substring(0, hostIndex);
+            coord.join(context.getSessionVariable().getQueryTimeoutS());
+            if (!coord.isDone()) {
+                coord.cancel();
+                ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
             }
-            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
-        }
 
-        LOG.info("delta files is {}", coord.getDeltaUrls());
+            if (!coord.getExecStatus().ok()) {
+                String errMsg = coord.getExecStatus().getErrorMsg();
+                LOG.warn("insert failed: {}", errMsg);
 
-        if (context.getSessionVariable().getEnableInsertStrict()) {
-            Map<String, String> counters = coord.getLoadCounters();
-            String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
-            if (strValue != null && Long.valueOf(strValue) > 0) {
-                throw new UserException("Insert has filtered data in strict mode, tracking_url="
-                        + coord.getTrackingUrl());
+                // hide host info
+                int hostIndex = errMsg.indexOf("host");
+                if (hostIndex != -1) {
+                    errMsg = errMsg.substring(0, hostIndex);
+                }
+                ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
-        }
 
-        if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
-            // no need to add load job.
-            // mysql table is already being inserted.
-            context.getState().setOk();
-            return;
-        }
+            LOG.info("delta files is {}", coord.getDeltaUrls());
 
-        if (insertStmt.isStreaming()) {
+            if (context.getSessionVariable().getEnableInsertStrict()) {
+                Map<String, String> counters = coord.getLoadCounters();
+                String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
+                if (strValue != null && Long.valueOf(strValue) > 0) {
+                    throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                            + coord.getTrackingUrl());
+                }
+            }
+
+            if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
+                // no need to add load job.
+                // MySQL table is already being inserted.
+                context.getState().setOk();
+                return;
+            }
+
             Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     5000);
-            context.getState().setOk();
-        } else {
-            context.getCatalog().getLoadInstance().addLoadJob(
-                    uuid.toString(),
-                    insertStmt.getDb(),
-                    insertStmt.getTargetTable().getId(),
-                    insertStmt.getIndexIdToSchemaHash(),
-                    insertStmt.getTransactionId(),
-                    coord.getDeltaUrls(),
-                    System.currentTimeMillis()
-            );
+        } catch (Throwable t) {
+            // if any throwable being thrown during insert operation, first we should abort this txn
+            LOG.warn("handle insert stmt fail: {}", DebugUtil.printId(uuid), t);
+            try {
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                        insertStmt.getTransactionId(),
+                        t.getMessage() == null ? "unknown reason" : t.getMessage());
+            } catch (Exception abortTxnException) {
+                // just print a log if abort txn failed. This failure do not need to pass to user.
+                // user only concern abort how txn failed.
+                LOG.warn("errors when abort txn", abortTxnException);
+            }
+
+            if (!Config.using_old_load_usage_pattern) {
+                // if not using old usage pattern, the exception will be thrown to user directly without
+                // a label
+                throw t;
+            }
+
+            /*
+             * If config 'using_old_load_usage_pattern' is true.
+             * Doris will return a label to user, and user can use this label to check load job's status,
+             * which exactly like the old insert stmt usage pattern.
+             */
+            throwable = t;
+        }
+
+        // record insert info for show load stmt
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
+            try {
+                context.getCatalog().getLoadManager().recordFinishedLoadJob(
+                        uuid.toString(),
+                        insertStmt.getDb(),
+                        insertStmt.getTargetTable().getId(),
+                        EtlJobType.INSERT,
+                        createTime,
+                        throwable == null ? "" : throwable.getMessage()
+                );
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+                context.getState().setError("Failed to record info of insert load job, but insert job is "
+                        + (throwable == null ? "success" : "failed"));
+                return;
+            }
+
+            // set to OK, which means the insert load job is successfully submitted.
+            // and user can check the job's status by label.
             context.getState().setOk("{'label':'" + uuid.toString() + "'}");
+        } else {
+            // just return OK without label, which means this job is successfully done
+            context.getState().setOk();
         }
     }
 
@@ -795,6 +842,12 @@ public class StmtExecutor {
     public PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = new PQueryStatistics();
+        }
+        if (statisticsForAuditLog.scan_bytes == null) {
+            statisticsForAuditLog.scan_bytes = 0L;
+        }
+        if (statisticsForAuditLog.scan_rows == null) {
+            statisticsForAuditLog.scan_rows = 0L;
         }
         return statisticsForAuditLog;
     }

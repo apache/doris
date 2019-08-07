@@ -21,10 +21,12 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.task.StreamLoadTask;
@@ -50,7 +52,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
@@ -79,25 +80,30 @@ public class StreamLoadPlanner {
         descTable = analyzer.getDescTbl();
     }
 
-    public TExecPlanFragmentParams plan() throws UserException {
+    // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
+    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        boolean negative = streamLoadTask.getNegative();
         for (Column col : destTable.getBaseSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
+                throw new DdlException("Column is not SUM AggreateType. column:" + col.getName());
+            }
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
 
         // create dest sink
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
-        olapTableSink.init(streamLoadTask.getId(), streamLoadTask.getTxnId(), db.getId());
+        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -114,11 +120,9 @@ public class StreamLoadPlanner {
         params.setDesc_tbl(analyzer.getDescTbl().toThrift());
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
-        // Only use fragment id
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execParams.setQuery_id(queryId);
-        execParams.setFragment_instance_id(new TUniqueId(queryId.hi, queryId.lo + 1));
+        // user load id (streamLoadTask.id) as query id
+        execParams.setQuery_id(loadId);
+        execParams.setFragment_instance_id(new TUniqueId(loadId.hi, loadId.lo + 1));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
@@ -134,6 +138,7 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQuery_type(TQueryType.LOAD);
+        queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));

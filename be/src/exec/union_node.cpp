@@ -68,7 +68,7 @@ Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, texprs, &ctxs));
         _child_expr_lists.push_back(ctxs);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UnionNode::prepare(RuntimeState* state) {
@@ -93,7 +93,7 @@ Status UnionNode::prepare(RuntimeState* state) {
         // AddExprCtxsToFree(_child_expr_lists[i]);
         DCHECK_EQ(_child_expr_lists[i].size(), _tuple_desc->slots().size());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void UnionNode::codegen(RuntimeState* state) {
@@ -158,7 +158,7 @@ Status UnionNode::open(RuntimeState* state) {
     // succeeded.
     if (!_children.empty()) RETURN_IF_ERROR(child(_child_idx)->open(state));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UnionNode::get_next_pass_through(RuntimeState* state, RowBatch* row_batch) {
@@ -180,7 +180,7 @@ Status UnionNode::get_next_pass_through(RuntimeState* state, RowBatch* row_batch
         _to_close_child_idx = _child_idx;
         ++_child_idx;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch) {
@@ -252,7 +252,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
     }
 
     DCHECK_LE(_child_idx, _children.size());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
@@ -272,7 +272,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
         ++_const_expr_list_idx;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -317,7 +317,7 @@ Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
         (!has_more_passthrough() && !has_more_materialized() && !has_more_const(state));
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 #if 0
@@ -335,7 +335,7 @@ Status UnionNode::reset(RuntimeState* state) {
 #endif
 
 Status UnionNode::close(RuntimeState* state) {
-    if (is_closed()) return Status::OK;
+    if (is_closed()) return Status::OK();
     _child_batch.reset();
     for (auto& exprs : _const_expr_lists) {
         Expr::close(exprs, state);

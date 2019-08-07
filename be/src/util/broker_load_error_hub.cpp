@@ -43,7 +43,7 @@ Status BrokerLoadErrorHub::prepare() {
     RETURN_IF_ERROR(_broker_writer->open());
 
     _is_valid = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerLoadErrorHub::export_error(const ErrorMsg& error_msg) {
@@ -51,7 +51,7 @@ Status BrokerLoadErrorHub::export_error(const ErrorMsg& error_msg) {
     ++_total_error_num;
 
     if (!_is_valid) {
-        return Status::OK;
+        return Status::OK();
     }
 
     _error_msgs.push(error_msg);
@@ -59,14 +59,14 @@ Status BrokerLoadErrorHub::export_error(const ErrorMsg& error_msg) {
         RETURN_IF_ERROR(write_to_broker());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerLoadErrorHub::close() {
     std::lock_guard<std::mutex> lock(_mtx);
 
     if (!_is_valid) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (!_error_msgs.empty()) {
@@ -77,7 +77,7 @@ Status BrokerLoadErrorHub::close() {
     _broker_writer->close();
 
     _is_valid = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerLoadErrorHub::write_to_broker() {
@@ -91,7 +91,7 @@ Status BrokerLoadErrorHub::write_to_broker() {
     const std::string& msg = ss.str();
     size_t written_len = 0;
     RETURN_IF_ERROR(_broker_writer->write((uint8_t*) msg.c_str(), msg.length(), &written_len));
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string BrokerLoadErrorHub::debug_string() const {

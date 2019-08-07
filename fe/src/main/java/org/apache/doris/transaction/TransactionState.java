@@ -31,6 +31,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -40,12 +43,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class TransactionState implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TransactionState.class);
     
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type) use this type
-        ROUTINE_LOAD_TASK(4); // routine load task use this type
+        ROUTINE_LOAD_TASK(4), // routine load task use this type
+        BATCH_LOAD_JOB(5); // load job v2 for broker load
         
         private final int flag;
         
@@ -67,6 +72,8 @@ public class TransactionState implements Writable {
                     return INSERT_STREAMING;
                 case 4:
                     return ROUTINE_LOAD_TASK;
+                case 5:
+                    return BATCH_LOAD_JOB;
                 default:
                     return null;
             }
@@ -76,7 +83,8 @@ public class TransactionState implements Writable {
     public enum TxnStatusChangeReason {
         DB_DROPPED,
         TIMEOUT,
-        OFFSET_OUT_OF_RANGE;
+        OFFSET_OUT_OF_RANGE,
+        PAUSE;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -125,6 +133,9 @@ public class TransactionState implements Writable {
     
     private long callbackId = -1;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+
+    // is set to true, we will double the publish timeout
+    private boolean prolongPublishTimeout = false;
 
     // optional
     private TxnCommitAttachment txnCommitAttachment;
@@ -343,6 +354,8 @@ public class TransactionState implements Writable {
                 callback.replayOnAborted(this);
             } else if (transactionStatus == TransactionStatus.COMMITTED) {
                 callback.replayOnCommitted(this);
+            } else if (transactionStatus == TransactionStatus.VISIBLE) {
+                callback.replayOnVisible(this);
             }
         }
     }
@@ -424,13 +437,19 @@ public class TransactionState implements Writable {
     }
     
     public boolean isPublishTimeout() {
-        // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
-        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
-                                      Config.load_straggler_wait_second * 1000);
-        timeoutMillis = Math.max(timeoutMillis, 3000);
+        // the max timeout is Config.publish_version_timeout_second * 2;
+        long timeoutMillis = Config.publish_version_timeout_second * 1000;
+        if (prolongPublishTimeout) {
+            timeoutMillis *= 2;
+        }
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
     
+    public void prolongPublishTimeout() {
+        this.prolongPublishTimeout = true;
+        LOG.info("prolong the timeout of publish version task for transaction: {}", transactionId);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(transactionId);

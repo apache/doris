@@ -68,7 +68,7 @@ EtlJobMgr::~EtlJobMgr() {
 }
 
 Status EtlJobMgr::init() {
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EtlJobMgr::start_job(const TMiniLoadEtlTaskRequest& req) {
@@ -78,15 +78,15 @@ Status EtlJobMgr::start_job(const TMiniLoadEtlTaskRequest& req) {
     if (it != _running_jobs.end()) {
         // Already have this job, return what???
         LOG(INFO) << "Duplicated etl job(" << id << ")";
-        return Status::OK;
+        return Status::OK();
     }
 
-    // If already success, we return Status::OK
+    // If already success, we return Status::OK()
     // and wait master ask me success information
     if (_success_jobs.exists(id)) {
         // Already success
         LOG(INFO) << "Already successful etl job(" << id << ")";
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
@@ -101,7 +101,7 @@ Status EtlJobMgr::start_job(const TMiniLoadEtlTaskRequest& req) {
     VLOG_ETL << "Job id(" << id << ") insert to EtlJobMgr.";
     _running_jobs.insert(id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
@@ -189,14 +189,14 @@ Status EtlJobMgr::cancel_job(const TUniqueId& id) {
     if (it == _running_jobs.end()) {
         // Nothing to do
         LOG(INFO) << "No such job id, just print to info " << id;
-        return Status::OK;
+        return Status::OK();
     }
     _running_jobs.erase(it);
     VLOG_ETL << "id(" << id << ") have been removed from EtlJobMgr.";
     EtlJobCtx job_ctx;
-    job_ctx.finish_status = Status::CANCELLED;
+    job_ctx.finish_status = Status::Cancelled("Cancelled");
     _failed_jobs.put(id, job_ctx);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EtlJobMgr::finish_job(const TUniqueId& id,
@@ -208,7 +208,7 @@ Status EtlJobMgr::finish_job(const TUniqueId& id,
     if (it == _running_jobs.end()) {
         std::stringstream ss;
         ss << "Unknown job id(" << id << ").";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _running_jobs.erase(it);
 
@@ -224,7 +224,7 @@ Status EtlJobMgr::finish_job(const TUniqueId& id,
     VLOG_ETL << "Move job(" << id << ") from running to "
         << (finish_status.ok() ? "success jobs" : "failed jobs");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EtlJobMgr::get_job_state(const TUniqueId& id,
@@ -234,7 +234,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
     if (it != _running_jobs.end()) {
         result->status.__set_status_code(TStatusCode::OK);
         result->__set_etl_state(TEtlState::RUNNING);
-        return Status::OK;
+        return Status::OK();
     }
     // Successful
     if (_success_jobs.exists(id)) {
@@ -254,7 +254,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
             result->__set_tracking_url(
                     to_load_error_http_path(ctx.result.debug_path));
         }
-        return Status::OK;
+        return Status::OK();
     }
     // failed information
     if (_failed_jobs.exists(id)) {
@@ -267,12 +267,12 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
             result->__set_tracking_url(
                     to_http_path(ctx.result.debug_path));
         }
-        return Status::OK;
+        return Status::OK();
     }
     // NO this jobs
     result->status.__set_status_code(TStatusCode::OK);
     result->__set_etl_state(TEtlState::CANCELLED);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EtlJobMgr::erase_job(const TDeleteEtlFilesRequest& req) {
@@ -282,12 +282,12 @@ Status EtlJobMgr::erase_job(const TDeleteEtlFilesRequest& req) {
     if (it != _running_jobs.end()) {
         std::stringstream ss;
         ss << "Job(" << id << ") is running, can not be deleted.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _success_jobs.erase(id);
     _failed_jobs.erase(id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void EtlJobMgr::debug(std::stringstream& ss) {

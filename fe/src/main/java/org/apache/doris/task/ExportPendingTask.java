@@ -33,8 +33,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,14 +59,14 @@ public class ExportPendingTask extends MasterTask {
         long dbId = job.getDbId();
         db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
-            String failMsg = "db is null.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
         }
 
-        // Check exec fragments should already generated
         if (job.isReplayed()) {
-            String failMsg = "do not have exec request.";
+            // If the job is created from replay thread, all plan info will be lost.
+            // so the job has to be cancelled.
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancalled.";
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return;
         }
@@ -76,10 +74,7 @@ public class ExportPendingTask extends MasterTask {
         // make snapshots
         Status snapshotStatus = makeSnapshots();
         if (!snapshotStatus.ok()) {
-            String failMsg = "make snapshot failed.";
-            failMsg += snapshotStatus.getErrorMsg();
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            LOG.warn("make snapshot fail. job:{}", job);
+            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, snapshotStatus.getErrorMsg());
             return;
         }
 
@@ -122,10 +117,13 @@ public class ExportPendingTask extends MasterTask {
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);
                 if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
-                    return Status.CANCELLED;
+                    String err = "snapshot for tablet " + paloScanRange.getTablet_id() + " failed on backend "
+                            + address.toString() + ". reason: "
+                            + (result == null ? "unknown" : result.getStatus().error_msgs);
+                    LOG.warn("{}, export job: {}", err, job.getId());
+                    return new Status(TStatusCode.CANCELLED, err);
                 }
                 job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshot_path()));
-                LOG.debug("snapshot address:{}, path:{}", address, result.getSnapshot_path());
             }
         }
         return Status.OK;

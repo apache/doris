@@ -73,13 +73,13 @@ private:
 class VectorizedRowBatch {
 public:
     VectorizedRowBatch(
-        const std::vector<FieldInfo>& schema,
+        const TabletSchema* schema,
         const std::vector<uint32_t>& cols,
         int capacity);
 
     ~VectorizedRowBatch() {
-        for (auto& item: _col_map) {
-            delete item.second;
+        for (auto vec: _col_vectors) {
+            delete vec;
         }
         delete[] _selected;
     }
@@ -89,7 +89,7 @@ public:
     }
 
     ColumnVector* column(int column_index) {
-        return _col_map[column_index];
+        return _col_vectors[column_index];
     }
 
     const std::vector<uint32_t>& columns() const { return _cols; }
@@ -139,12 +139,12 @@ public:
     void dump_to_row_block(RowBlock* row_block);
 
 private:
-    const std::vector<FieldInfo>& _schema;
+    const TabletSchema* _schema;
     const std::vector<uint32_t>& _cols;
     const uint16_t _capacity;
     uint16_t _size = 0;
     uint16_t* _selected = nullptr;
-    std::map<ColumnId, ColumnVector*> _col_map;
+    std::vector<ColumnVector*> _col_vectors;
 
     bool _selected_in_use = false;
     uint8_t _block_status;

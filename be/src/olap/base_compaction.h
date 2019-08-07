@@ -23,12 +23,14 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
+#include "rowset/rowset_id_generator.h"
+#include "rowset/alpha_rowset_writer.h"
 
 namespace doris {
 
-class ColumnData;
-class SegmentGroup;
+class Rowset;
+class RowsetReader;
 
 // @brief 实现对START_BASE_COMPACTION命令的处理逻辑，并返回处理结果
 class BaseCompaction {
@@ -36,7 +38,8 @@ public:
     BaseCompaction() :
             _new_base_version(0, 0),
             _old_base_version(0, 0),
-            _base_compaction_locked(false) {}
+            _base_compaction_locked(false),
+            _rs_writer(nullptr) {}
 
     virtual ~BaseCompaction() {
         _release_base_compaction_lock();
@@ -47,7 +50,7 @@ public:
     // 2. 如果满足，计算需要合并哪些版本
     //
     // 输入参数：
-    // - table: 待执行BE的OLAPTable的智能指针
+    // - tablet: 待执行BE的Tablet的智能指针
     // - is_manual_trigger
     //   - 如果为true，则是手动执行START_BASE_COMPACTION命令
     //   - 如果为false，则是根据BE策略来执行
@@ -55,7 +58,7 @@ public:
     // 返回值：
     // - 如果init执行成功，即可以执行BE，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus init(OLAPTablePtr table, bool is_manual_trigger = false);
+    OLAPStatus init(TabletSharedPtr tablet, bool is_manual_trigger = false);
 
     // 执行BaseCompaction, 可能会持续很长时间
     //
@@ -82,35 +85,33 @@ private:
     // 
     // 输入参数：
     // - new_base_version_hash: 新Base的VersionHash
-    // - base_data_sources: 生成新Base需要的ColumnData*
+    // - rs_readers : 生成新Base需要的RowsetReaders*
     // - row_count: 生成Base过程中产生的row_count
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _do_base_compaction(VersionHash new_base_version_hash,
-                                  std::vector<ColumnData*>* base_data_sources,
-                                  uint64_t* row_count);
+                                   const std::vector<RowsetSharedPtr>& rowsets);
    
     // 更新Header使得修改对外可见
-    // 输出参数：
-    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
+    // 输入参数：
+    // - unused_rowsets: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus _update_header(uint64_t row_count,
-                              std::vector<SegmentGroup*>* unused_olap_indices);
+    OLAPStatus _update_header(const std::vector<RowsetSharedPtr>& unused_rowsets);
 
-    // 删除不再使用的SegmentGroup文件
+    // 删除不再使用的Rowset
     // 
     // 输入参数：
-    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
+    // - unused_rowsets: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    void _delete_old_files(std::vector<SegmentGroup*>* unused_indices);
+    void _delete_old_files(std::vector<RowsetSharedPtr>* unused_indices);
 
     // 其它函数执行失败时，调用该函数进行清理工作
     void _garbage_collection();
@@ -133,7 +134,7 @@ private:
         unused_versions->clear();
 
         std::vector<Version> all_versions;
-        _table->list_versions(&all_versions);
+        _tablet->list_versions(&all_versions);
         for (std::vector<Version>::const_iterator iter = all_versions.begin();
                 iter != all_versions.end(); ++iter) {
             if (iter->first <= _new_base_version.second) {
@@ -148,7 +149,7 @@ private:
     }
 
     bool _try_base_compaction_lock() {
-        if (_table->try_base_compaction_lock()) {
+        if (_tablet->try_base_compaction_lock()) {
             _base_compaction_locked = true;
             return true;
         }
@@ -158,13 +159,13 @@ private:
 
     void _release_base_compaction_lock() {
         if (_base_compaction_locked) {
-            _table->release_base_compaction_lock();
+            _tablet->release_base_compaction_lock();
             _base_compaction_locked = false;
         }
     }
 
     // 需要进行操作的Table指针
-    OLAPTablePtr _table;
+    TabletSharedPtr _tablet;
     // 新base的version
     Version _new_base_version;
     // 现有base的version
@@ -173,10 +174,10 @@ private:
     Version _latest_cumulative;
     // 在此次base compaction执行过程中，将被合并的cumulative文件版本
     std::vector<Version> _need_merged_versions;
-    // 需要新增的版本对应的SegmentGroup
-    std::vector<SegmentGroup*> _new_olap_indices;
-
+    // 需要新增的版本对应Rowset的
+    std::vector<RowsetSharedPtr> _new_rowsets;
     bool _base_compaction_locked;
+    RowsetWriterSharedPtr _rs_writer;
 
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };

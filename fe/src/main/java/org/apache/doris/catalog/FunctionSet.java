@@ -20,10 +20,16 @@ package org.apache.doris.catalog;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -535,7 +541,7 @@ public class FunctionSet {
 
         // Next check for strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
@@ -545,11 +551,35 @@ public class FunctionSet {
 
         // Finally check for non-strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
         return null;
+    }
+
+    /**
+     * There are essential differences in the implementation of some functions for different 
+     * types params, which should be prohibited.
+     * @param desc
+     * @param candicate
+     * @return
+     */
+    public static boolean isCastMatchAllowed(Function desc, Function candicate) {
+        final String functionName = desc.getFunctionName().getFunction();
+        final Type[] descArgTypes = desc.getArgs();
+        final Type[] candicateArgTypes = candicate.getArgs();
+        if (functionName.equalsIgnoreCase("hex") 
+                || functionName.equalsIgnoreCase("greast")
+                || functionName.equalsIgnoreCase("least")) {
+            final ScalarType descArgType = (ScalarType)descArgTypes[0];
+            final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
+            if (!descArgType.isStringType() && candicateArgType.isStringType()) {
+                // The implementations of hex for string and int are different.
+                return false;
+            }
+        }
+        return true;
     }
 
     public Function getFunction(String signatureString) {
@@ -825,7 +855,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "25knuth_stddev_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
@@ -849,7 +879,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("variance_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
@@ -926,6 +956,16 @@ public class FunctionSet {
                     prefix + "10sum_removeIN9doris_udf11LargeIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false));
         }
+
+        //PercentileApprox
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
+                prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
 
 
         // Avg

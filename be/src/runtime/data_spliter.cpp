@@ -62,7 +62,7 @@ Status DataSpliter::from_thrift(
     // Partition infos
     int num_parts = t_sink.partition_infos.size();
     if (num_parts == 0) {
-        return Status("Empty partition info.");
+        return Status::InternalError("Empty partition info.");
     }
     for (int i = 0; i < num_parts; ++i) {
         PartitionInfo* info = pool->add(new PartitionInfo());
@@ -82,7 +82,7 @@ Status DataSpliter::from_thrift(
         spliter->_rollup_map[iter.first] = schema;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::prepare(RuntimeState* state) {
@@ -98,7 +98,7 @@ Status DataSpliter::prepare(RuntimeState* state) {
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker.get()));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::open(RuntimeState* state) {
@@ -123,7 +123,7 @@ Status DataSpliter::open(RuntimeState* state) {
     _split_timer = ADD_TIMER(_profile, "process batch");
     _finish_timer = ADD_TIMER(_profile, "sort time");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int DataSpliter::binary_find_partition(const PartRangeKey& key) const {
@@ -151,7 +151,7 @@ Status DataSpliter::process_partition(
     if (_partition_expr_ctxs.size() == 0) {
         *part_index = 0;
         *info = _partition_infos[0];
-        return Status::OK;
+        return Status::OK();
     } else {
         // use binary search to get the right partition.
         ExprContext* ctx = _partition_expr_ctxs[0];
@@ -171,11 +171,11 @@ Status DataSpliter::process_partition(
             error_log << "there is no corresponding partition for this key: ";
             ctx->print_value(row, &error_log);
             state->update_num_rows_load_filtered(1);
-            return Status(error_log.str(), true);
+            return Status::InternalError(error_log.str());
         }
         *info = _partition_infos[*part_index];
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::process_distribute(
@@ -197,7 +197,7 @@ Status DataSpliter::process_distribute(
 
     *mod = hash_val % part->distributed_bucket();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::send_row(
@@ -223,7 +223,7 @@ Status DataSpliter::send_row(
         RETURN_IF_ERROR(dpp_sink->add_batch(_obj_pool.get(), state, desc, batch));
         batch->reset();
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::process_one_row(RuntimeState* state, TupleRow* row) {
@@ -243,7 +243,7 @@ Status DataSpliter::process_one_row(RuntimeState* state, TupleRow* row) {
         state->append_error_msg_to_file(
                 row->to_string(_row_desc),
                 status.get_error_msg());
-        return Status::OK;
+        return Status::OK();
     }
 
     desc.partition_id = part->id();
@@ -257,7 +257,7 @@ Status DataSpliter::process_one_row(RuntimeState* state, TupleRow* row) {
     // process distribute
     RETURN_IF_ERROR(send_row(state, desc, row, _dpp_sink_vec[part_index]));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::send(RuntimeState* state, RowBatch* batch) {
@@ -266,14 +266,14 @@ Status DataSpliter::send(RuntimeState* state, RowBatch* batch) {
     for (int i = 0; i < num_rows; ++i) {
         RETURN_IF_ERROR(process_one_row(state, batch->get_row(i)));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSpliter::close(RuntimeState* state, Status close_status) {
     bool is_ok = true;
     Status err_status;
     if (_closed) {
-        return Status::OK;
+        return Status::OK();
     }
     if (close_status.ok()) {
         SCOPED_TIMER(_finish_timer);
@@ -330,7 +330,7 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
     _expr_mem_tracker->close();
     _closed = true;
     if (is_ok) {
-        return Status::OK;
+        return Status::OK();
     } else {
         return err_status;
     }

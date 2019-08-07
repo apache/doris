@@ -60,6 +60,8 @@ public:
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal month(
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_week(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal day_of_month(
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal day_of_year(
@@ -76,12 +78,13 @@ public:
     // Date/time functions.
     static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal curtime(doris_udf::FunctionContext* context);
+    static doris_udf::DateTimeVal utc_timestamp(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal to_date(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal date_diff(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
         const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::DateTimeVal time_diff(
+    static doris_udf::DoubleVal time_diff(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
         const doris_udf::DateTimeVal& ts_val2);
 

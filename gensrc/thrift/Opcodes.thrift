@@ -82,4 +82,5 @@ enum TExprOpcode {
     BITNOT,
     FACTORIAL,
     LAST_OPCODE,
+    EQ_FOR_NULL,
 }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -191,6 +192,7 @@ public class TabletChecker extends Daemon {
 
             db.readLock();
             try {
+                int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
                 for (Table table : db.getTables()) {
                     if (!table.needSchedule()) {
                         continue;
@@ -198,6 +200,11 @@ public class TabletChecker extends Daemon {
 
                     OlapTable olapTbl = (OlapTable) table;
                     for (Partition partition : olapTbl.getPartitions()) {
+                        if (partition.getState() != PartitionState.NORMAL) {
+                            // when alter job is in FINISHING state, partition state will be set to NORMAL,
+                            // and we can schedule the tablets in it.
+                            continue;
+                        }
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
                         for (MaterializedIndex idx : partition.getMaterializedIndices()) {
@@ -210,11 +217,12 @@ public class TabletChecker extends Daemon {
                                 }
                                 
                                 Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                                    infoService,
-                                    db.getClusterName(),
-                                    partition.getVisibleVersion(),
-                                    partition.getVisibleVersionHash(),
-                                    olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
+                                        infoService,
+                                        db.getClusterName(),
+                                        partition.getVisibleVersion(),
+                                        partition.getVisibleVersionHash(),
+                                        olapTbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                                        availableBackendsNum);
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     // Only set last status check time when status is healthy.

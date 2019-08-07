@@ -55,9 +55,9 @@ namespace config {
     // the count of heart beat service
     CONF_Int32(heartbeat_service_thread_count, "1");
     // the count of thread to create table
-    CONF_Int32(create_table_worker_count, "3");
+    CONF_Int32(create_tablet_worker_count, "3");
     // the count of thread to drop table
-    CONF_Int32(drop_table_worker_count, "3");
+    CONF_Int32(drop_tablet_worker_count, "3");
     // the count of thread to batch load
     CONF_Int32(push_worker_count_normal_priority, "3");
     // the count of thread to high priority batch load
@@ -71,13 +71,11 @@ namespace config {
     // the count of thread to delete
     CONF_Int32(delete_worker_count, "3");
     // the count of thread to alter table
-    CONF_Int32(alter_table_worker_count, "3");
+    CONF_Int32(alter_tablet_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(clone_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(storage_medium_migrate_count, "1");
-    // the count of thread to cancel delete data
-    CONF_Int32(cancel_delete_data_worker_count, "3");
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
@@ -93,9 +91,9 @@ namespace config {
     // the interval time(seconds) for agent report disk state to FE
     CONF_Int32(report_disk_state_interval_seconds, "60");
     // the interval time(seconds) for agent report olap table to FE
-    CONF_Int32(report_olap_table_interval_seconds, "60");
+    CONF_Int32(report_tablet_interval_seconds, "60");
     // the timeout(seconds) for alter table
-    CONF_Int32(alter_table_timeout_seconds, "86400");
+    CONF_Int32(alter_tablet_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
     CONF_Int32(make_snapshot_timeout_seconds, "600");
     // the timeout(seconds) for release snapshot
@@ -114,14 +112,10 @@ namespace config {
     CONF_Int32(sleep_one_second, "1");
     // sleep time for five seconds
     CONF_Int32(sleep_five_seconds, "5");
-    // trans file tools dir
-    CONF_String(trans_file_tool_path, "${DORIS_HOME}/tools/trans_file_tool/trans_files.sh");
-    // agent tmp dir
-    CONF_String(agent_tmp_dir, "${DORIS_HOME}/tmp");
 
     // log dir
     CONF_String(sys_log_dir, "${DORIS_HOME}/log");
-    CONF_String(user_function_dir, "${DORIS_HOME}/lib/usr");
+    CONF_String(user_function_dir, "${DORIS_HOME}/lib/udf");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -207,7 +201,7 @@ namespace config {
 
     CONF_Int32(file_descriptor_cache_clean_interval, "3600");
     CONF_Int32(disk_stat_monitor_interval, "5");
-    CONF_Int32(unused_index_monitor_interval, "30");
+    CONF_Int32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
     CONF_Int32(min_percentage_of_error_disk, "50");
     CONF_Int32(default_num_rows_per_data_block, "1024");
@@ -215,8 +209,8 @@ namespace config {
     CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
     CONF_Int32(pending_data_expire_time_sec, "1800");
-    // incremental delta policy
-    CONF_Int32(incremental_delta_expire_time_sec, "1800");
+    // inc_rowset expired interval
+    CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "43200");
     CONF_Int32(min_garbage_sweep_interval, "200");
@@ -256,22 +250,28 @@ namespace config {
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
-    // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
-    CONF_String(webserver_interface, "");
-    CONF_String(webserver_doc_root, "${DORIS_HOME}");
+    // Number of webserver workers
     CONF_Int32(webserver_num_workers, "5");
-    // If true, webserver may serve static files from the webserver_doc_root
-    CONF_Bool(enable_webserver_doc_root, "true");
     // Period to update rate counters and sampling counters in ms.
     CONF_Int32(periodic_counter_update_period_ms, "500");
 
-    // Used for mini Load
+    // Used for mini Load. mini load data file will be removed after this time.
     CONF_Int64(load_data_reserve_hours, "4");
+    // log error log will be removed after this time
+    CONF_Int64(load_error_log_reserve_hours, "48");
+    // Deprecated, use streaming_load_max_mb instead
     CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
     CONF_Int64(streaming_load_max_mb, "10240");
-    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "600");
+    // the alive time of a TabletsChannel.
+    // If the channel does not receive any data till this time,
+    // the channel will be removed.
+    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "1200");
+    // the timeout of a rpc to process one batch in tablet writer.
+    // you may need to increase this timeout if using larger 'streaming_load_max_mb',
+    // or encounter 'tablet writer write failed' error when loading.
+    CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
@@ -409,6 +409,25 @@ namespace config {
     // Is set to true, index loading failure will not causing BE exit,
     // and the tablet will be marked as bad, so that FE will try to repair it.
     CONF_Bool(auto_recover_index_loading_failure, "false");
+
+    // This configuration is used to recover compaction under the corner case.
+    // If this configuration is set to true, block will seek position.
+    CONF_Bool(block_seek_position, "false");
+
+    // the max client cache number per each host
+    // There are variety of client cache in BE, but currently we use the
+    // same cache size configuration.
+    // TODO(cmy): use different config to set different client cache if necessary.
+    CONF_Int32(max_client_cache_size_per_host, "10");
+
+    // Dir to save files downloaded by SmallFileMgr
+    CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
+    // path gc
+    CONF_Bool(path_gc_check, "true");
+    CONF_Int32(path_gc_check_interval_second, "86400");
+    CONF_Int32(path_gc_check_step, "1000");
+    CONF_Int32(path_gc_check_step_interval_ms, "10");
+    CONF_Int32(path_scan_interval_second, "86400");
 } // namespace config
 
 } // namespace doris

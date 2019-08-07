@@ -44,6 +44,7 @@ import org.apache.doris.http.rest.CheckDecommissionAction;
 import org.apache.doris.http.rest.GetDdlStmtAction;
 import org.apache.doris.http.rest.GetLoadInfoAction;
 import org.apache.doris.http.rest.GetLogFileAction;
+import org.apache.doris.http.rest.GetSmallFileAction;
 import org.apache.doris.http.rest.GetStreamLoadState;
 import org.apache.doris.http.rest.HealthAction;
 import org.apache.doris.http.rest.LoadAction;
@@ -139,14 +140,13 @@ public class HttpServer {
         ShowProcAction.registerAction(controller);
         ShowRuntimeInfoAction.registerAction(controller);
         GetLogFileAction.registerAction(controller);
+        GetSmallFileAction.registerAction(controller);
         RowCountAction.registerAction(controller);
         CheckDecommissionAction.registerAction(controller);
         MetaReplayerCheckAction.registerAction(controller);
         ColocateMetaService.BucketSeqAction.registerAction(controller);
         ColocateMetaService.ColocateMetaAction.registerAction(controller);
-        ColocateMetaService.BalancingGroupAction.registerAction(controller);
-        ColocateMetaService.TableAction.registerAction(controller);
-        ColocateMetaService.TableGroupAction.registerAction(controller);
+        ColocateMetaService.MarkGroupStableAction.registerAction(controller);
 
         // meta service action
         File imageDir = MetaHelper.getMasterImageDir();

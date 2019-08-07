@@ -64,6 +64,19 @@ public:
     static void count_star_update(doris_udf::FunctionContext*, doris_udf::BigIntVal* dst);
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
+
+    // Impementation of percentile_approx
+    static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+
+    template <typename T>
+    static void percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst);
+
+    static void percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static DoubleVal percentile_approx_finalize(FunctionContext* ctx, const StringVal& src);
+
+    static StringVal percentile_approx_serialize(FunctionContext* ctx, const StringVal& state_sv);
+
     // Implementation of Avg.
     // TODO: Change this to use a fixed-sized BufferVal as intermediate type.
     static void avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -337,6 +350,15 @@ dst);
     static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
                                             const doris_udf::HllVal& src);
+
+    //for backward compatibility, we could remove the following four HLL methods after doris 0.11 version
+    static void hll_union_agg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* slot);
+    static void hll_union_agg_update(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
+                                     doris_udf::StringVal* dst);
+    static void hll_union_agg_merge(doris_udf::FunctionContext* ctx,const doris_udf::StringVal& src,
+                                    doris_udf::StringVal* dst);
+    static doris_udf::StringVal hll_union_agg_finalize(doris_udf::FunctionContext* ctx, const StringVal& src);
+
     // calculate result
     static int64_t hll_algorithm(uint8_t *pdata, int data_len);
     static int64_t hll_algorithm(const StringVal &dst) {

@@ -17,27 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Pair;
-import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TFunctionBinaryType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 /**
  * The OpcodeRegistry provides a mapping between function signatures and opcodes. The
  * supported functions are code-gen'ed and added to the registry with an assigned opcode.

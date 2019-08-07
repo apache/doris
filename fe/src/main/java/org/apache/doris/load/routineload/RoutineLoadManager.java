@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -148,9 +149,12 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
+            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.desired_max_waiting_jobs) {
+                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
+                                               + " routine load jobs in waiting queue, please retry later");
+            }
 
             unprotectedAddJob(routineLoadJob);
-
             Catalog.getInstance().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
@@ -578,7 +582,7 @@ public class RoutineLoadManager implements Writable {
         try {
             job.updateState(operation.getJobState(), null, true /* is replay */);
         } catch (UserException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
                  .add("current_state", operation.getJobState())

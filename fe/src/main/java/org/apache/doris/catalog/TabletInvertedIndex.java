@@ -29,10 +29,12 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -48,7 +50,7 @@ import java.util.stream.Collectors;
 /*
  * this class stores a inverted index
  * key is tablet id. value is the related ids of this tablet
- * Checkpoint thread is no need to modify this inverted index, because this inverted index will no be wrote
+ * Checkpoint thread is no need to modify this inverted index, because this inverted index will not be wrote
  * into images, all meta data are in catalog, and the inverted index will be rebuild when FE restart.
  */
 public class TabletInvertedIndex {
@@ -107,14 +109,22 @@ public class TabletInvertedIndex {
                              Set<Long> foundTabletsWithValidSchema,
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
-                             ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
-                             ListMultimap<Long, Long> transactionsToClear, 
-                             ListMultimap<Long, Long> tabletRecoveryMap) {
+                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             ListMultimap<Long, Long> transactionsToClear,
+                             ListMultimap<Long, Long> tabletRecoveryMap,
+                             SetMultimap<Long, Integer> tabletWithoutPartitionId) {
         long start = 0L;
         readLock();
         try {
             LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             start = System.currentTimeMillis();
+            for (TTablet backendTablet : backendTablets.values()) {
+                for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
+                    if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
+                        tabletWithoutPartitionId.put(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash());
+                    }
+                }
+            }
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 // traverse replicas in meta with this backend
@@ -151,12 +161,13 @@ public class TabletInvertedIndex {
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
                                             + "replica in FE: {}, report version {}-{}, report schema hash: {},"
-                                            + " is bad: {}",
+                                            + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
                                             backendTabletInfo.getVersion_hash(),
                                             backendTabletInfo.getSchema_hash(),
-                                            backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown");
+                                            backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown",
+                                            backendTabletInfo.isSetVersion_miss() ? backendTabletInfo.isVersion_miss() : "unset");
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
@@ -184,10 +195,19 @@ public class TabletInvertedIndex {
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
                                             PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                            if (partitionCommitInfo == null) {
+                                                LOG.warn("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
+                                                        tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
+                                            }
                                             TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
                                                     partitionCommitInfo.getVersion(),
                                                     partitionCommitInfo.getVersionHash());
-                                            transactionsToPublish.put(transactionId, versionInfo);
+                                            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
+                                            if (map == null) {
+                                                map = ArrayListMultimap.create();
+                                                transactionsToPublish.put(transactionState.getDbId(), map);
+                                            }
+                                            map.put(transactionId, versionInfo);
                                         }
                                     }
                                 } // end for txn id
@@ -342,6 +362,17 @@ public class TabletInvertedIndex {
      * because of some unrecoverable failure.
      */
     private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
+        if (replicaInFe.getState() != ReplicaState.NORMAL) {
+            // only normal replica need recover
+            // case:
+            // the replica's state is CLONE, which means this a newly created replica in clone process.
+            // and an old out-of-date replica reports here, and this report should not mark this replica as
+            // 'need recovery'.
+            // Other state such as ROLLUP/SCHEMA_CHANGE, the replica behavior is unknown, so for safety reason,
+            // also not mark this replica as 'need recovery'.
+            return false;
+        }
+
         if (backendTabletInfo.isSetUsed() && !backendTabletInfo.isUsed()) {
             // tablet is bad
             return true;
@@ -372,6 +403,7 @@ public class TabletInvertedIndex {
             // even if backend version is less than fe's version, but if version_miss is false,
             // which means this may be a stale report.
             // so we only return true if version_miss is true.
+            LOG.info("replicaversion missing");
             return true;
         }
         return false;

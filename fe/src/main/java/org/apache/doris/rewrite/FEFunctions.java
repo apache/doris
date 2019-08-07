@@ -27,17 +27,18 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.ParseException;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.DateTimeFormatterBuilder;
-
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
@@ -52,12 +53,23 @@ public class FEFunctions {
     /**
      * date and time function
      */
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long timediff = (getTime(first) - getTime(second)) / 1000;
+        return new FloatLiteral((double)timediff, Type.TIME);
+    }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long diff = getTime(first) - getTime(second);
-        long datediff = diff / 1000 / 60 / 60 / 24;
-        return new IntLiteral(datediff, Type.INT);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        try {
+            // DATEDIFF function only uses the date part for calculations and ignores the time part
+            long diff = sdf.parse(first.getStringValue()).getTime() - sdf.parse(second.getStringValue()).getTime();
+            long datediff = diff / 1000 / 60 / 60 / 24;
+            return new IntLiteral(datediff, Type.INT);
+        } catch (ParseException e) {
+            throw new AnalysisException(e.getLocalizedMessage());
+        }
     }
 
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -284,7 +296,6 @@ public class FEFunctions {
             throw new AnalysisException(e.getLocalizedMessage());
         }
     }
-
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {
         Calendar calendar = Calendar.getInstance();
@@ -660,5 +671,26 @@ public class FEFunctions {
 
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
+    }
+
+    @FEFunction(name = "concat", argTypes = { "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat(StringLiteral... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (StringLiteral value : values) {
+            resultBuilder.append(value.getStringValue());
+        }
+        return new StringLiteral(resultBuilder.toString());
+    }
+
+    @FEFunction(name = "concat_ws", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat_ws(StringLiteral split, StringLiteral... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (int i = 0; i < values.length - 1; i++) {
+            resultBuilder.append(values[i].getStringValue()).append(split.getStringValue());
+        }
+        resultBuilder.append(values[values.length - 1].getStringValue());
+        return new StringLiteral(resultBuilder.toString());
     }
 }

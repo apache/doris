@@ -111,7 +111,7 @@ Status KuduScanner::get_next(RowBatch* row_batch, bool* eos) {
     close_current_client_scanner();
     *eos = true;
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void KuduScanner::close() {
@@ -145,7 +145,7 @@ Status KuduScanner::open_next_scan_token(const string& scan_token)  {
     // SCOPED_TIMER(_state->total_storage_wait_timer());
     KUDU_RETURN_IF_ERROR(_scanner->Open(), "Unable to open scanner");
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void KuduScanner::close_current_client_scanner() {
@@ -164,7 +164,7 @@ Status KuduScanner::handle_empty_projection(RowBatch* row_batch, bool* batch_don
   if (row_batch->at_capacity() || _scan_node->reached_limit()) {
     *batch_done = true;
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status KuduScanner::decode_rows_into_row_batch(RowBatch* row_batch, Tuple** tuple_mem,
@@ -209,7 +209,7 @@ Status KuduScanner::decode_rows_into_row_batch(RowBatch* row_batch, Tuple** tupl
 
   // Check the status in case an error status was set during conjunct evaluation.
   //return _state->get_query_status();
-  return Status::OK;
+  return Status::OK();
 }
 
 Status KuduScanner::get_next_scanner_batch() {
@@ -222,7 +222,7 @@ Status KuduScanner::get_next_scanner_batch() {
   _cur_kudu_batch_num_read = 0;
   COUNTER_UPDATE(_scan_node->rows_read_counter(), _cur_kudu_batch.NumRows());
   _last_alive_time_micros = now;
-  return Status::OK;
+  return Status::OK();
 }
 
 }  // namespace impala

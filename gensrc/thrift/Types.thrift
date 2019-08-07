@@ -18,6 +18,7 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+
 typedef i64 TTimestamp
 typedef i32 TPlanNodeId
 typedef i32 TTupleId
@@ -71,7 +72,8 @@ enum TPrimitiveType {
   LARGEINT,
   VARCHAR,
   HLL,
-  DECIMALV2
+  DECIMALV2,
+  TIME
 }
 
 enum TTypeNodeType {
@@ -144,7 +146,7 @@ enum TTaskType {
     STORAGE_MEDIUM_MIGRATE,
     ROLLUP,
     SCHEMA_CHANGE,
-    CANCEL_DELETE,
+    CANCEL_DELETE,  // Deprecated
     MAKE_SNAPSHOT,
     RELEASE_SNAPSHOT,
     CHECK_CONSISTENCY,
@@ -157,7 +159,9 @@ enum TTaskType {
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
     RECOVER_TABLET,
-    STREAM_LOAD
+    STREAM_LOAD,
+    UPDATE_TABLET_META_INFO,
+    ALTER_TASK
 }
 
 enum TStmtType {
@@ -357,6 +361,7 @@ struct TTabletCommitInfo {
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,
+    MINI_LOAD
 }
 
 enum TLoadSourceType {

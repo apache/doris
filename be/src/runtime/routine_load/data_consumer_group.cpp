@@ -41,7 +41,7 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
                 divide_parts[i], ctx->kafka_info->topic, ctx));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
@@ -60,7 +60,7 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
 }
 
 Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
-    Status result_st = Status::OK;
+    Status result_st = Status::OK();
     // start all consumers
     for(auto& consumer : _consumers) {
         if (!_thread_pool.offer(
@@ -79,7 +79,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             }))) {
 
             LOG(WARNING) << "failed to submit data consumer: " << consumer->id() << ", group id: " << _grp_id;
-            return Status("failed to submit data consumer");
+            return Status::InternalError("failed to submit data consumer");
         } else {
             VLOG(1) << "submit a data consumer: " << consumer->id() << ", group id: " << _grp_id;
         }
@@ -133,14 +133,14 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                 // nothing to be consumed, we have to cancel it, because
                 // we do not allow finishing stream load pipe without data
                 kafka_pipe->cancel();
-                return Status::CANCELLED;
+                return Status::Cancelled("Cancelled");
             } else {
                 DCHECK(left_bytes < ctx->max_batch_size);
                 DCHECK(left_rows < ctx->max_batch_rows);
                 kafka_pipe->finish();
                 ctx->kafka_info->cmt_offset = std::move(cmt_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
-                return Status::OK;
+                return Status::OK();
             }
         }
 
@@ -175,7 +175,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
         left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void KafkaDataConsumerGroup::actual_consume(

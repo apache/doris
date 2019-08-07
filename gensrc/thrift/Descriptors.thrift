@@ -118,6 +118,7 @@ struct TOlapTableIndexTablets {
 // its a closed-open range
 struct TOlapTablePartition {
     1: required i64 id
+    // deprecated, use 'start_keys' and 'end_keys' instead
     2: optional Exprs.TExprNode start_key
     3: optional Exprs.TExprNode end_key
 
@@ -125,6 +126,9 @@ struct TOlapTablePartition {
     4: required i32 num_buckets
 
     5: required list<TOlapTableIndexTablets> indexes
+
+    6: optional list<Exprs.TExprNode> start_keys
+    7: optional list<Exprs.TExprNode> end_keys
 }
 
 struct TOlapTablePartitionParam {
@@ -133,6 +137,7 @@ struct TOlapTablePartitionParam {
     3: required i64 version
 
     // used to split a logical table to multiple paritions
+    // deprecated, use 'partition_columns' instead
     4: optional string partition_column
 
     // used to split a partition to multiple tablets
@@ -140,6 +145,8 @@ struct TOlapTablePartitionParam {
 
     // partitions
     6: required list<TOlapTablePartition> partitions
+
+    7: optional list<string> partition_columns
 }
 
 struct TOlapTableIndexSchema {

@@ -36,14 +36,14 @@ Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _child_row_batch.reset(
         new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SelectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -56,7 +56,7 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         // new ones
         _child_row_batch->transfer_resource_ownership(row_batch);
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
     *eos = false;
 
@@ -69,7 +69,7 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
             _child_row_batch->transfer_resource_ownership(row_batch);
             _child_row_batch->reset();
             if (row_batch->at_capacity()) {
-                return Status::OK;
+                return Status::OK();
             }
             RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
         }
@@ -80,18 +80,18 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
             if (*eos) {
                 _child_row_batch->transfer_resource_ownership(row_batch);
             }
-            return Status::OK;
+            return Status::OK();
         }
 
         if (_child_eos) {
             // finished w/ last child row batch, and child eos is true
             _child_row_batch->transfer_resource_ownership(row_batch);
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 bool SelectNode::copy_rows(RowBatch* output_batch) {
@@ -133,7 +133,7 @@ bool SelectNode::copy_rows(RowBatch* output_batch) {
 
 Status SelectNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _child_row_batch.reset();
     return ExecNode::close(state);

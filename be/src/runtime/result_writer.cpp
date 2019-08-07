@@ -25,6 +25,7 @@
 #include "runtime/buffer_control_block.h"
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
+#include "util/date_func.h"
 
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -44,16 +45,16 @@ ResultWriter::~ResultWriter() {
 
 Status ResultWriter::init(RuntimeState* state) {
     if (NULL == _sinker) {
-        return Status("sinker is NULL pointer.");
+        return Status::InternalError("sinker is NULL pointer.");
     }
 
     _row_buffer = new(std::nothrow) MysqlRowBuffer();
 
     if (NULL == _row_buffer) {
-        return Status("no memory to alloc.");
+        return Status::InternalError("no memory to alloc.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultWriter::add_one_row(TupleRow* row) {
@@ -103,6 +104,13 @@ Status ResultWriter::add_one_row(TupleRow* row) {
         case TYPE_DOUBLE:
             buf_ret = _row_buffer->push_double(*static_cast<double*>(item));
             break;
+
+        case TYPE_TIME: {
+            double time = *static_cast<double *>(item);
+            std::string time_str = time_str_from_int((int) time);
+            buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+            break;
+        }
 
         case TYPE_DATE:
         case TYPE_DATETIME: {
@@ -173,15 +181,15 @@ Status ResultWriter::add_one_row(TupleRow* row) {
     }
 
     if (0 != buf_ret) {
-        return Status("pack mysql buffer failed.");
+        return Status::InternalError("pack mysql buffer failed.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultWriter::append_row_batch(RowBatch* batch) {
     if (NULL == batch || 0 == batch->num_rows()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status status;

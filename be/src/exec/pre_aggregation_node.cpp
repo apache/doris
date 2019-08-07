@@ -107,15 +107,15 @@ PreAggregationNode::~PreAggregationNode() {
 
 Status PreAggregationNode::prepare(RuntimeState* state) {
     if (_construct_fail) {
-        return Status("construct failed.");
+        return Status::InternalError("construct failed.");
     }
 
     if (_is_init) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (NULL == state || _children.size() != 1) {
-        return Status("input parameter is not OK.");
+        return Status::InternalError("input parameter is not OK.");
     }
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
@@ -129,7 +129,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
 
     if (NULL == _build_timer || NULL == _get_results_timer
             || NULL == _hash_table_buckets_counter || NULL == _hash_table_load_factor_counter) {
-        return Status("construct timer and counter failed.");
+        return Status::InternalError("construct timer and counter failed.");
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -146,7 +146,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
                      true, id(), *state->mem_trackers(), 16384));
 
     if (NULL == _hash_tbl.get()) {
-        return Status("new one hash table failed.");
+        return Status::InternalError("new one hash table failed.");
     }
 
     // Determine the number of string slots in the output
@@ -182,7 +182,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     }
 
     if (0 == _children_tuple.size()) {
-        return Status("children tuple size is zero.");
+        return Status::InternalError("children tuple size is zero.");
     }
 
     _tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
@@ -191,7 +191,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     _tuple_pool.reset(new(std::nothrow) MemPool());
 
     if (NULL == _tuple_pool.get()) {
-        return Status("no memory for Mempool.");
+        return Status::InternalError("no memory for Mempool.");
     }
 
     _tuple_pool->set_limits(*state->mem_trackers());
@@ -202,7 +202,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     }
 
     _is_init = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 // Open Function, used to build hash table, Do not read in this Operation.
@@ -213,7 +213,7 @@ Status PreAggregationNode::open(RuntimeState* state) {
     // open child ready to read data, only open, do nothing.
     RETURN_IF_ERROR(_children[0]->open(state));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // GetNext interface, read data from _hash_tbl
@@ -226,7 +226,7 @@ Status PreAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bo
 
     if ((!_output_iterator.has_next() && _child_eos) || reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // if hash table hash data not read, read hash table first.
@@ -331,12 +331,12 @@ read_from_hash:
     *eos = (!_output_iterator.has_next() && _child_eos) || reached_limit();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PreAggregationNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
@@ -359,7 +359,7 @@ Status PreAggregationNode::construct_single_row() {
     _singleton_agg_row = reinterpret_cast<TupleRow*>(_tuple_pool->allocate(_tuple_row_size));
 
     if (NULL == _singleton_agg_row) {
-        return Status("new memory failed.");
+        return Status::InternalError("new memory failed.");
     }
 
     for (int i = 0; i < _row_descriptor.tuple_descriptors().size(); ++i) {
@@ -367,7 +367,7 @@ Status PreAggregationNode::construct_single_row() {
                 _row_descriptor.tuple_descriptors()[i]->byte_size()));
 
         if (NULL == tuple) {
-            return Status("new one tuple failed.");
+            return Status::InternalError("new one tuple failed.");
         }
 
         _singleton_agg_row->set_tuple(i, tuple);
@@ -409,7 +409,7 @@ Status PreAggregationNode::construct_single_row() {
         RawValue::write(default_value_ptr, value, agg_expr->get_child(0)->type(), NULL);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 /**
@@ -453,7 +453,7 @@ Status PreAggregationNode::process_row_batch_no_grouping(RowBatch* batch) {
         RETURN_IF_ERROR(update_agg_row(_singleton_agg_row, batch->get_row(i)));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PreAggregationNode::process_row_batch_with_grouping(RowBatch* batch) {
@@ -466,7 +466,7 @@ Status PreAggregationNode::process_row_batch_with_grouping(RowBatch* batch) {
             agg_row = construct_row(probe_row);
 
             if (NULL == agg_row) {
-                return Status("Construct row failed.");
+                return Status::InternalError("Construct row failed.");
             }
 
             _hash_tbl->insert(agg_row);
@@ -476,13 +476,13 @@ Status PreAggregationNode::process_row_batch_with_grouping(RowBatch* batch) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // Function used to update Aggregate Row in hash table
 Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row) {
     if (NULL == agg_row) {
-        return Status("internal error: input pointer is NULL");
+        return Status::InternalError("internal error: input pointer is NULL");
     }
 
     // compute all aggregate expr
@@ -503,7 +503,7 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
         DCHECK(slot != NULL);
 
         if (NULL == slot) {
-            return Status("get slot pointer is NULL.");
+            return Status::InternalError("get slot pointer is NULL.");
         }
 
         // switch opcode
@@ -553,7 +553,7 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
 
             default:
                 LOG(WARNING) << "invalid type: " << type_to_string(agg_expr->type());
-                return Status("unknown type");
+                return Status::InternalError("unknown type");
             }
 
             break;
@@ -603,7 +603,7 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
 
             default:
                 LOG(WARNING) << "invalid type: " << type_to_string(agg_expr->type());
-                return Status("unknown type");
+                return Status::InternalError("unknown type");
             }
 
             break;
@@ -628,18 +628,18 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
 
             default:
                 LOG(WARNING) << "invalid type: " << type_to_string(agg_expr->type());
-                return Status("Aggsum not valid.");
+                return Status::InternalError("Aggsum not valid.");
             }
 
             break;
 
         default:
             LOG(WARNING) << "bad aggregate operator: " << agg_expr->agg_op();
-            return Status("unknown agg op.");
+            return Status::InternalError("unknown agg op.");
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PreAggregationNode::debug_string(int indentation_level, stringstream* out) const {

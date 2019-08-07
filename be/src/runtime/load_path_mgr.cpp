@@ -25,7 +25,7 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
@@ -53,15 +53,14 @@ Status LoadPathMgr::init() {
     _idx = 0;
     _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
     pthread_create(&_cleaner_id, nullptr, LoadPathMgr::cleaner, this);
-    return Status::OK;
+    return Status::OK();
 }
 
 void* LoadPathMgr::cleaner(void* param) {
     // TODO(zc): add this thread to cgroup for control resource it use
     LoadPathMgr* mgr = (LoadPathMgr*)param;
-    int64_t sleep_time = std::max(3600L / 4, config::load_data_reserve_hours * 3600 / 4);
     while (true) {
-        sleep(sleep_time);
+        sleep(3600); // clean every one hour
         mgr->clean();
     }
     return nullptr;
@@ -72,12 +71,12 @@ Status LoadPathMgr::allocate_dir(
         const std::string& label,
         std::string* prefix) {
     if (_path_vec.empty()) {
-        return Status("No load path configed.");
+        return Status::InternalError("No load path configed.");
     }
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
-    Status status = Status::OK;
+    Status status = Status::OK();
     while (retry--) {
         {
             // add SHARD_PREFIX for compatible purpose
@@ -89,7 +88,7 @@ Status LoadPathMgr::allocate_dir(
         status = FileUtils::create_dir(path);
         if (LIKELY(status.ok())) {
             *prefix = path;
-            return Status::OK;
+            return Status::OK();
         } else {
             LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status.get_error_msg();
         }
@@ -98,7 +97,7 @@ Status LoadPathMgr::allocate_dir(
     return status;
 }
 
-bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir) {
+bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours) {
     struct stat dir_stat;
     if (stat(label_dir.c_str(), &dir_stat)) {
         char buf[64];
@@ -108,7 +107,7 @@ bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir) {
         return false;
     }
 
-    if ((cur_time - dir_stat.st_mtime) < _reserved_hours * 3600) {
+    if ((cur_time - dir_stat.st_mtime) < reserve_hours * 3600) {
         return false;
     }
 
@@ -144,7 +143,7 @@ Status LoadPathMgr::get_load_error_file_name(
         << "_" << std::hex << fragment_instance_id.hi
         << "_" << fragment_instance_id.lo;
     *error_path = ss.str();
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_path) {
@@ -155,8 +154,8 @@ std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_pa
     return path;
 }
 
-void LoadPathMgr::process_path(time_t now, const std::string& path) {
-    if (!is_too_old(now, path)) {
+void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t reserve_hours) {
+    if (!is_too_old(now, path, reserve_hours)) {
         return;
     }
     LOG(INFO) << "Going to remove path. path=" << path;
@@ -200,11 +199,11 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
                 }
                 for (auto& label : labels) {
                     std::string label_dir = sub_path + "/" + label;
-                    process_path(now, label_dir);
+                    process_path(now, label_dir, config::load_data_reserve_hours);
                 }
             } else {
                 // process label dir
-                process_path(now, sub_path);
+                process_path(now, sub_path, config::load_data_reserve_hours);
             }
         }
     }
@@ -240,11 +239,11 @@ void LoadPathMgr::clean_error_log() {
             }
             for (auto& error_log : error_log_files) {
                 std::string error_log_path = sub_path + "/" + error_log;
-                process_path(now, error_log_path);
+                process_path(now, error_log_path, config::load_error_log_reserve_hours);
             }
         } else {
             // process error log file
-            process_path(now, sub_path);
+            process_path(now, sub_path, config::load_error_log_reserve_hours);
         }
     }
 }

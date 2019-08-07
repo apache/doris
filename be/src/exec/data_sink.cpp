@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "exec/exec_node.h"
-#include "exec/olap_table_sink.h"
+#include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/data_stream_sender.h"
@@ -47,7 +47,7 @@ Status DataSink::create_data_sink(
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
         if (!thrift_sink.__isset.stream_sink) {
-            return Status("Missing data stream sink.");
+            return Status::InternalError("Missing data stream sink.");
         }
         bool send_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
             params.send_query_statistics_with_every_batch : false;
@@ -62,7 +62,7 @@ Status DataSink::create_data_sink(
     }
     case TDataSinkType::RESULT_SINK:
         if (!thrift_sink.__isset.result_sink) {
-            return Status("Missing data buffer sink.");
+            return Status::InternalError("Missing data buffer sink.");
         }
 
         // TODO: figure out good buffer size based on size of output row
@@ -71,8 +71,9 @@ Status DataSink::create_data_sink(
         break;
 
     case TDataSinkType::MYSQL_TABLE_SINK: {
+#ifdef DORIS_WITH_MYSQL
         if (!thrift_sink.__isset.mysql_table_sink) {
-            return Status("Missing data buffer sink.");
+            return Status::InternalError("Missing data buffer sink.");
         }
 
         // TODO: figure out good buffer size based on size of output row
@@ -80,11 +81,14 @@ Status DataSink::create_data_sink(
             pool, row_desc, output_exprs);
         sink->reset(mysql_tbl_sink);
         break;
+#else
+        return Status::InternalError("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
     }
 
     case TDataSinkType::DATA_SPLIT_SINK: {
         if (!thrift_sink.__isset.split_sink) {
-            return Status("Missing data split buffer sink.");
+            return Status::InternalError("Missing data split buffer sink.");
         }
 
         // TODO: figure out good buffer size based on size of output row
@@ -98,7 +102,7 @@ Status DataSink::create_data_sink(
 
     case TDataSinkType::EXPORT_SINK: {
         if (!thrift_sink.__isset.export_sink) {
-            return Status("Missing export sink sink.");
+            return Status::InternalError("Missing export sink sink.");
         }
 
         std::unique_ptr<ExportSink> export_sink(new ExportSink(pool, row_desc, output_exprs));
@@ -124,23 +128,23 @@ Status DataSink::create_data_sink(
         }
 
         error_msg << str << " not implemented.";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     if (sink->get() != NULL) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSink::init(const TDataSink& thrift_sink) {
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataSink::prepare(RuntimeState* state) {
     _expr_mem_tracker.reset(new MemTracker(-1, "Data sink", state->instance_mem_tracker()));
-    return Status::OK;
+    return Status::OK();
 }
 
 }  // namespace doris

@@ -22,10 +22,8 @@ import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
-import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -37,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -51,10 +50,10 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
@@ -245,17 +244,6 @@ public class EditLog {
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     catalog.replayRenamePartition(info);
-                    break;
-                }
-                case OperationType.OP_BACKUP_START:
-                case OperationType.OP_BACKUP_FINISH_SNAPSHOT:
-                case OperationType.OP_BACKUP_FINISH: {
-                    BackupJob_D job = (BackupJob_D) journal.getData();
-                    break;
-                }
-                case OperationType.OP_RESTORE_START:
-                case OperationType.OP_RESTORE_FINISH: {
-                    RestoreJob_D job = (RestoreJob_D) journal.getData();
                     break;
                 }
                 case OperationType.OP_BACKUP_JOB: {
@@ -449,16 +437,6 @@ public class EditLog {
                     }
                     break;
                 }
-                case OperationType.OP_ALTER_ACCESS_RESOURCE: {
-                    UserProperty userProperty = (UserProperty) journal.getData();
-                    catalog.getAuth().replayAlterAccess(userProperty);
-                    break;
-                }
-                case OperationType.OP_DROP_USER: {
-                    String userName = ((Text) journal.getData()).toString();
-                    catalog.getAuth().replayOldDropUser(userName);
-                    break;
-                }
                 case OperationType.OP_CREATE_USER: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     catalog.getAuth().replayCreateUser(privInfo);
@@ -629,9 +607,9 @@ public class EditLog {
                     catalog.getColocateTableIndex().replayAddBackendsPerBucketSeq(info);
                     break;
                 }
-                case OperationType.OP_COLOCATE_MARK_BALANCING: {
+                case OperationType.OP_COLOCATE_MARK_UNSTABLE: {
                     final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
-                    catalog.getColocateTableIndex().replayMarkGroupBalancing(info);
+                    catalog.getColocateTableIndex().replayMarkGroupUnstable(info);
                     break;
                 }
                 case OperationType.OP_COLOCATE_MARK_STABLE: {
@@ -677,6 +655,27 @@ public class EditLog {
                 case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
                     Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
+                    break;
+                }
+                case OperationType.OP_CREATE_LOAD_JOB: {
+                    org.apache.doris.load.loadv2.LoadJob loadJob =
+                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayCreateLoadJob(loadJob);
+                    break;
+                }
+                case OperationType.OP_END_LOAD_JOB: {
+                    LoadJobFinalOperation operation = (LoadJobFinalOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
+                    break;
+                }
+                case OperationType.OP_CREATE_SMALL_FILE: {
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(smallFile);
+                    break;
+                }
+                case OperationType.OP_DROP_SMALL_FILE: {
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(smallFile);
                     break;
                 }
                 default: {
@@ -858,10 +857,6 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
-    public void logRoutineLoadJob(RoutineLoadJob job) {
-        logEdit(OperationType.OP_ROUTINE_LOAD_JOB, job);
-    }
-
     public void logStartRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
@@ -876,10 +871,6 @@ public class EditLog {
 
     public void logCancelRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_CANCEL_ROLLUP, rollupJob);
-    }
-
-    public void logClearRollupIndexInfo(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_CLEAR_ROLLUP_INFO, info);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -962,15 +953,6 @@ public class EditLog {
         logEdit(OperationType.OP_BACKEND_STATE_CHANGE, be);
     }
 
-    public void logAlterAccess(UserProperty userProperty) {
-        logEdit(OperationType.OP_ALTER_ACCESS_RESOURCE, userProperty);
-    }
-
-    @Deprecated
-    public void logDropUser(String userName) {
-        logEdit(OperationType.OP_DROP_USER, new Text(userName));
-    }
-
     public void logCreateUser(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_USER, info);
     }
@@ -1027,26 +1009,6 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
     }
 
-    public void logBackupStart(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_START, backupJob);
-    }
-
-    public void logBackupFinishSnapshot(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_FINISH_SNAPSHOT, backupJob);
-    }
-
-    public void logBackupFinish(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_FINISH, backupJob);
-    }
-
-    public void logRestoreJobStart(RestoreJob_D restoreJob) {
-        logEdit(OperationType.OP_RESTORE_START, restoreJob);
-    }
-
-    public void logRestoreFinish(RestoreJob_D restoreJob) {
-        logEdit(OperationType.OP_RESTORE_FINISH, restoreJob);
-    }
-
     public void logGlobalVariable(SessionVariable variable) {
         logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
     }
@@ -1058,10 +1020,6 @@ public class EditLog {
 
     public void logDropCluster(ClusterInfo info) {
         logEdit(OperationType.OP_DROP_CLUSTER, info);
-    }
-
-    public void logUpdateDbClusterName(String info) {
-        logEdit(OperationType.OP_UPDATE_DB, new Text(info));
     }
 
     public void logExpandCluster(ClusterInfo ci) {
@@ -1154,8 +1112,8 @@ public class EditLog {
         logEdit(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
     }
 
-    public void logColocateMarkBalancing(ColocatePersistInfo info) {
-        logEdit(OperationType.OP_COLOCATE_MARK_BALANCING, info);
+    public void logColocateMarkUnstable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_UNSTABLE, info);
     }
 
     public void logColocateMarkStable(ColocatePersistInfo info) {
@@ -1192,5 +1150,21 @@ public class EditLog {
 
     public void logRemoveRoutineLoadJob(RoutineLoadOperation operation) {
         logEdit(OperationType.OP_REMOVE_ROUTINE_LOAD_JOB, operation);
+    }
+
+    public void logCreateLoadJob(org.apache.doris.load.loadv2.LoadJob loadJob) {
+        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
+    }
+
+    public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
+        logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
+    }
+
+    public void logCreateSmallFile(SmallFile info) {
+        logEdit(OperationType.OP_CREATE_SMALL_FILE, info);
+    }
+
+    public void logDropSmallFile(SmallFile info) {
+        logEdit(OperationType.OP_DROP_SMALL_FILE, info);
     }
 }

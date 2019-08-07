@@ -38,7 +38,39 @@ import org.apache.logging.log4j.Logger;
 //      pv bigint sum NULL DEFAULT "-1" "page visit"
 public class ColumnDef {
     private static final Logger LOG = LogManager.getLogger(ColumnDef.class);
-    private static final String HLL_EMPTY_SET = "0";
+
+    /*
+     * User can set default value for a column
+     * eg:
+     *     k1 INT NOT NULL DEFAULT "10"
+     *     k1 INT NULL
+     *     k1 INT NULL DEFAULT NULL
+     *     
+     * ColumnnDef will be transformed to Column in Analysis phase, and in Column, default value is a String.
+     * No matter does the user set the default value as NULL explicitly, or not set default value,
+     * the default value in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
+     * 
+     * But this is OK because Column has another attribute "isAllowNull".
+     * If the column is not allowed to be null, and user does not set the default value,
+     * even if default value saved in Column is null, the "null" value can not be loaded into this column,
+     * so data correctness can be guaranteed.
+     */
+    public static class DefaultValue {
+        public boolean isSet;
+        public String value;
+
+        public DefaultValue(boolean isSet, String value) {
+            this.isSet = isSet;
+            this.value = value;
+        }
+
+        // no default value
+        public static DefaultValue NOT_SET = new DefaultValue(false, null);
+        // default null
+        public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
+        // default "value"
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "0");
+    }
 
     // parameter initialized in constructor
     private String name;
@@ -46,19 +78,18 @@ public class ColumnDef {
     private AggregateType aggregateType;
     private boolean isKey;
     private boolean isAllowNull;
-    private String defaultValue;
+    private DefaultValue defaultValue;
     private String comment;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this.name = name;
         this.typeDef = typeDef;
         this.comment = "";
+        this.defaultValue = DefaultValue.NOT_SET;
     }
 
-    public ColumnDef(String name, TypeDef typeDef,
-                     boolean isKey, AggregateType aggregateType,
-                     boolean isAllowNull, String defaultValue,
-                     String comment) {
+    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
+            boolean isAllowNull, DefaultValue defaultValue, String comment) {
         this.name = name;
         this.typeDef = typeDef;
         this.isKey = isKey;
@@ -69,7 +100,7 @@ public class ColumnDef {
     }
 
     public boolean isAllowNull() { return isAllowNull; }
-    public String getDefaultValue() { return defaultValue; }
+    public String getDefaultValue() { return defaultValue.value; }
     public String getName() { return name; }
     public AggregateType getAggregateType() { return aggregateType; }
     public void setAggregateType(AggregateType aggregateType, boolean xxx) { this.aggregateType = aggregateType; }
@@ -119,14 +150,18 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.HLL) {
-            if (defaultValue != null) {
-                throw new AnalysisException("Hll can not set default value");
+            if (defaultValue.isSet) {
+                throw new AnalysisException("Hll type column can not set default value");
             }
-            defaultValue = HLL_EMPTY_SET;
+            defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
         }
 
-        if (defaultValue != null) {
-            validateDefaultValue(type, defaultValue);
+        if (!isAllowNull && defaultValue == DefaultValue.NULL_DEFAULT_VALUE) {
+            throw new AnalysisException("Can not set null default value to non nullable column: " + name);
+        }
+
+        if (defaultValue.isSet && defaultValue.value != null) {
+            validateDefaultValue(type, defaultValue.value);
         }
     }
 
@@ -191,8 +226,8 @@ public class ColumnDef {
             sb.append("NOT NULL ");
         }
 
-        if (defaultValue != null) {
-            sb.append("DEFAULT \"").append(defaultValue).append("\" ");
+        if (defaultValue.isSet) {
+            sb.append("DEFAULT \"").append(defaultValue.value).append("\" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
 
@@ -200,7 +235,7 @@ public class ColumnDef {
     }
 
     public Column toColumn() {
-        return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue, comment);
+        return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment);
     }
 
     @Override

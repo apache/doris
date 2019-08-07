@@ -34,7 +34,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.DataSplitSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
@@ -43,6 +42,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -57,7 +57,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-// InsertStmt used to
+/**
+ * Insert into is performed to load data from the result of query stmt.
+ *
+ * syntax:
+ *   INSERT INTO table_name [partition_info] [col_list] [plan_hints] query_stmt
+ *
+ *   table_name: is the name of target table
+ *   partition_info: PARTITION (p1,p2)
+ *     the partition info of target table
+ *   col_list: (c1,c2)
+ *     the column list of target table
+ *   plan_hints: [STREAMING,SHUFFLE_HINT]
+ *     The streaming plan is used by both streaming and non-streaming insert stmt.
+ *     The only difference is that non-streaming will record the load info in LoadManager and return label.
+ *     User can check the load info by show load stmt.
+ */
 public class InsertStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(InsertStmt.class);
 
@@ -239,16 +254,13 @@ public class InsertStmt extends DdlStmt {
             // if all previous job finished
             UUID uuid = UUID.randomUUID();
             String jobLabel = "insert_" + uuid;
-            LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING
-                    : LoadJobSourceType.FRONTEND;
+            LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
             long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
             transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                     jobLabel, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
-            if (isStreaming) {
-                OlapTableSink sink = (OlapTableSink) dataSink;
-                TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                sink.init(loadId, transactionId, db.getId());
-            }
+            OlapTableSink sink = (OlapTableSink) dataSink;
+            TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            sink.init(loadId, transactionId, db.getId());
         }
     }
 
@@ -328,7 +340,7 @@ public class InsertStmt extends DdlStmt {
             if (mentionedCols.contains(col.getName())) {
                 continue;
             }
-            if (col.getDefaultValue() == null) {
+            if (col.getDefaultValue() == null && !col.isAllowNull()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NOT_MENTIONED, col.getName());
             }
         }
@@ -488,7 +500,18 @@ public class InsertStmt extends DdlStmt {
             if (exprByName.containsKey(col.getName())) {
                 resultExprs.add(exprByName.get(col.getName()));
             } else {
-                resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
+                if (col.getDefaultValue() == null) {
+                    /*
+                    The import stmt has been filtered in function checkColumnCoverage when
+                        the default value of column is null and column is not nullable.
+                    So the default value of column may simply be null when column is nullable
+                     */
+                    Preconditions.checkState(col.isAllowNull());
+                    resultExprs.add(NullLiteral.create(col.getType()));
+                }
+                else {
+                    resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
+                }
             }
         }
     }
@@ -498,13 +521,9 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            if (isStreaming) {
-                dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple);
-                dataPartition = dataSink.getOutputPartition();
-            } else {
-                dataSink = new DataSplitSink((OlapTable) targetTable, olapTuple);
-                dataPartition = dataSink.getOutputPartition();
-            }
+            String partitionNames = targetPartitions == null ? null : Joiner.on(",").join(targetPartitions);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, partitionNames);
+            dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
             // TODO(lingbin): think use which one if have more than one path
@@ -525,7 +544,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void finalize() throws UserException {
-        if (isStreaming) {
+        if (targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).finalize();
         }
     }

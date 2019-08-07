@@ -234,14 +234,14 @@ std::string DownloadAction::get_content_type(const std::string& file_name) {
 Status DownloadAction::check_token(HttpRequest *req) {
     const std::string& token_str = req->param(TOKEN_PARAMETER);
     if (token_str.empty()) {
-        return Status("token is not specified.");
+        return Status::InternalError("token is not specified.");
     }
 
     if (token_str != _exec_env->token()) {
-        return Status("invalid token.");
+        return Status::InternalError("invalid token.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
@@ -249,17 +249,17 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     boost::system::error_code errcode;
     boost::filesystem::path path = canonical(file_path, errcode);
     if (errcode.value() != boost::system::errc::success) {
-        return Status("file path is invalid: " + file_path);
+        return Status::InternalError("file path is invalid: " + file_path);
     }
 
     std::string canonical_file_path = path.string();
     for (auto& allow_path : _allow_paths) {
         if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
-            return Status::OK;
+            return Status::OK();
         }
     }
 
-    return Status("file path is not allowed: " + canonical_file_path);
+    return Status::InternalError("file path is not allowed: " + canonical_file_path);
 }
 
 Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
@@ -267,15 +267,15 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     boost::system::error_code errcode;
     boost::filesystem::path path = canonical(file_path, errcode);
     if (errcode.value() != boost::system::errc::success) {
-        return Status("file path is invalid: " + file_path);
+        return Status::InternalError("file path is invalid: " + file_path);
     }
 
     std::string canonical_file_path = path.string();
     if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
-        return Status::OK;
+        return Status::OK();
     }
 
-    return Status("file path is not allowed: " + file_path);
+    return Status::InternalError("file path is not allowed: " + file_path);
 }
 
 } // end namespace doris

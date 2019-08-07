@@ -38,7 +38,7 @@
 #include "util/parse_util.h"
 #include "util/mem_info.h"
 #include "util/debug_util.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
@@ -47,6 +47,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/small_file_mgr.h"
 #include "util/pretty_printer.h"
 #include "util/doris_metrics.h"
 #include "util/brpc_stub_cache.h"
@@ -71,10 +72,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _metrics = DorisMetrics::metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
-    _client_cache = new BackendServiceClientCache();
-    _frontend_client_cache = new FrontendServiceClientCache();
-    _broker_client_cache = new BrokerServiceClientCache();
-    _extdatasource_client_cache = new ExtDataSourceServiceClientCache();
+    _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
+    _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
+    _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+    _extdatasource_client_cache = new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
@@ -99,8 +100,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _brpc_stub_cache = new BrpcStubCache();
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
+    _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
 
-    _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
+    _backend_client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
     _broker_client_cache->init_metrics(DorisMetrics::metrics(), "broker");
     _extdatasource_client_cache->init_metrics(DorisMetrics::metrics(), "extdatasource");
@@ -118,9 +120,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         exit(-1);
     }
     _broker_mgr->init();
+    _small_file_mgr->init();
     _init_mem_tracker();
     RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecEnv::_init_mem_tracker() {
@@ -132,12 +135,12 @@ Status ExecEnv::_init_mem_tracker() {
     bytes_limit = ParseUtil::parse_mem_spec(config::mem_limit, &is_percent);
     if (bytes_limit < 0) {
         ss << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "--min_buffer_size must be a power-of-two: " << config::min_buffer_size;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     int64_t buffer_pool_limit = ParseUtil::parse_mem_spec(
@@ -145,7 +148,7 @@ Status ExecEnv::_init_mem_tracker() {
     if (buffer_pool_limit <= 0) {
         ss << "Invalid --buffer_pool_limit value, must be a percentage or "
            "positive bytes value or percentage: " << config::buffer_pool_limit;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     buffer_pool_limit = BitUtil::RoundDown(buffer_pool_limit, config::min_buffer_size);
 
@@ -154,7 +157,7 @@ Status ExecEnv::_init_mem_tracker() {
     if (clean_pages_limit <= 0) {
         ss << "Invalid --buffer_pool_clean_pages_limit value, must be a percentage or "
               "positive bytes value or percentage: " << config::buffer_pool_clean_pages_limit;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _init_buffer_pool(config::min_buffer_size, buffer_pool_limit, clean_pages_limit);
@@ -175,7 +178,7 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::metrics()));
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExecEnv::_init_buffer_pool(int64_t min_page_size,
@@ -209,7 +212,7 @@ void ExecEnv::_destory() {
     delete _broker_client_cache;
     delete _extdatasource_client_cache;
     delete _frontend_client_cache;
-    delete _client_cache;
+    delete _backend_client_cache;
     delete _result_mgr;
     delete _stream_mgr;
     delete _stream_load_executor;

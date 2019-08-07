@@ -33,6 +33,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "util/arena.h"
 #include "util/random.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -95,6 +96,8 @@ public:
         Node* node_;
         // Intentionally copyable
     };
+
+    Arena* arena() const { return arena_; }
 
 private:
     enum { kMaxHeight = 12 };
@@ -336,7 +339,9 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
 
 template<typename Key, class Comparator>
 void SkipList<Key, Comparator>::Aggregate(const Key& k1, const Key& k2) {
-    compare_._schema->aggregate(k1, k2, arena_);
+    ContiguousRow dst_row(compare_._schema, k1);
+    ContiguousRow src_row(compare_._schema, k2);
+    agg_update_row(&dst_row, src_row, arena_);
 }
 
 template<typename Key, class Comparator>

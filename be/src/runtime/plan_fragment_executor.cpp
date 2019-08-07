@@ -55,6 +55,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _closed(false),
       _has_thread_token(false),
       _is_report_success(true),
+      _is_report_on_cancel(true),
       _collect_query_statistics_with_every_batch(false) {
 }
 
@@ -233,7 +234,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::optimize_llvm_module() {
@@ -298,7 +299,7 @@ Status PlanFragmentExecutor::open_internal() {
     }
 
     if (_sink.get() == NULL) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
 
@@ -358,7 +359,7 @@ Status PlanFragmentExecutor::open_internal() {
     stop_report_thread();
     send_report(true);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::collect_query_statistics() {
@@ -429,7 +430,25 @@ void PlanFragmentExecutor::send_report(bool done) {
         status = _status;
     }
 
+    // If plan is done successfully, but _is_report_success is false,
+    // no need to send report.
     if (!_is_report_success && done && status.ok()) {
+        return;
+    }
+
+    // If both _is_report_success and _is_report_on_cancel are false,
+    // which means no matter query is success or failed, no report is needed.
+    // This may happen when the query limit reached and
+    // a internal cancellation being processed
+    if (!_is_report_success && !_is_report_on_cancel) {
+        return;
+    }
+
+    // If this is a load plan, and it is not finished, and it still running ok,
+    // no need to report it.
+    // This is case for the case that the load plan's _is_report_success is always true,
+    // but we only need the last report when plan is done.
+    if (_runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
         return;
     }
 
@@ -473,7 +492,7 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
 Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
     if (_done) {
         *batch = NULL;
-        return Status::OK;
+        return Status::OK();
     }
 
     while (!_done) {
@@ -490,7 +509,7 @@ Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
         *batch = NULL;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::update_status(const Status& status) {
@@ -556,7 +575,7 @@ void PlanFragmentExecutor::close() {
             if (_prepared) {
                 _sink->close(runtime_state(), _status);
             } else {
-                _sink->close(runtime_state(), Status("prepare failed"));
+                _sink->close(runtime_state(), Status::InternalError("prepare failed"));
             }
         }
 

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
@@ -113,7 +114,15 @@ public class OlapTable extends Table {
     private Set<String> bfColumns;
     private double bfFpp;
 
-    private String colocateTable;
+    private String colocateGroup;
+    
+    // In former implementation, base index id is same as table id.
+    // But when refactoring the process of alter table job, we find that
+    // using same id is not suitable for our new framework.
+    // So we add this 'baseIndexId' to explicitly specify the base index id,
+    // which should be different with table id.
+    // The init value is -1, which means there is not partition and index at all.
+    private long baseIndexId = -1;
 
     public OlapTable() {
         // for persist
@@ -133,7 +142,7 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
@@ -161,7 +170,15 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
+    }
+
+    public void setBaseIndexId(long baseIndexId) {
+        this.baseIndexId = baseIndexId;
+    }
+
+    public long getBaseIndexId() {
+        return baseIndexId;
     }
 
     public void setState(OlapTableState state) {
@@ -253,12 +270,10 @@ public class OlapTable extends Table {
 
         // reset all 'indexIdToXXX' map
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
-            long newIdxId = 0;
+            long newIdxId = catalog.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
-                newIdxId = id;
-            } else {
-                newIdxId = catalog.getNextId();
+                baseIndexId = newIdxId;
             }
             indexIdToSchema.put(newIdxId, indexIdToSchema.remove(entry.getKey()));
             indexIdToSchemaHash.put(newIdxId, indexIdToSchemaHash.remove(entry.getKey()));
@@ -308,7 +323,7 @@ public class OlapTable extends Table {
                 long newIdxId = indexNameToId.get(entry2.getValue());
                 int schemaHash = indexIdToSchemaHash.get(newIdxId);
                 idx.setIdForRestore(newIdxId);
-                if (newIdxId != id) {
+                if (newIdxId != baseIndexId) {
                     // not base table, reset
                     partition.deleteRollupIndex(entry2.getKey());
                     partition.createRollupIndex(idx);
@@ -535,12 +550,12 @@ public class OlapTable extends Table {
         this.bfFpp = bfFpp;
     }
 
-    public String getColocateTable() {
-        return colocateTable;
+    public String getColocateGroup() {
+        return colocateGroup;
     }
 
-    public void setColocateTable(String colocateTable) {
-        this.colocateTable = colocateTable;
+    public void setColocateGroup(String colocateGroup) {
+        this.colocateGroup = colocateGroup;
     }
     
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
@@ -790,12 +805,14 @@ public class OlapTable extends Table {
         }
 
         //colocateTable
-        if (colocateTable == null) {
+        if (colocateGroup == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            Text.writeString(out, colocateTable);
+            Text.writeString(out, colocateGroup);
         }
+
+        out.writeLong(baseIndexId);
     }
 
     @Override
@@ -843,7 +860,7 @@ public class OlapTable extends Table {
 
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
         if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = PartitionInfo.read(in);
+            partitionInfo = SinglePartitionInfo.read(in);
         } else if (partType == PartitionType.RANGE) {
             partitionInfo = RangePartitionInfo.read(in);
         } else {
@@ -880,8 +897,15 @@ public class OlapTable extends Table {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             if (in.readBoolean()) {
-                colocateTable = Text.readString(in);
+                colocateGroup = Text.readString(in);
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_57) {
+            baseIndexId = in.readLong();
+        } else {
+            // the old table use table id as base index id
+            baseIndexId = id;
         }
     }
 
@@ -974,6 +998,7 @@ public class OlapTable extends Table {
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+        int availableBackendsNum = infoService.getClusterBackendIds(clusterName, true).size();
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
@@ -985,13 +1010,37 @@ public class OlapTable extends Table {
                     }
 
                     Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
-                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum);
+                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
+                            availableBackendsNum);
                     if (statusPair.first != TabletStatus.HEALTHY) {
+                        LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
+                                id, tablet.getId(), statusPair.first, tablet.getReplicas());
                         return false;
                     }
                 }
             }
         }
         return true;
+    }
+
+    // arbitrarily choose a partition, and get the buckets backends sequence from base index.
+    public List<List<Long>> getArbitraryTabletBucketsSeq() throws DdlException {
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+        for (Partition partition : idToPartition.values()) {
+            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            MaterializedIndex baseIdx = partition.getBaseIndex();
+            for (Long tabletId : baseIdx.getTabletIdsInOrder()) {
+                Tablet tablet = baseIdx.getTablet(tabletId);
+                List<Long> replicaBackendIds = tablet.getNormalReplicaBackendIds();
+                if (replicaBackendIds.size() < replicationNum) {
+                    // this should not happen, but in case, throw an exception to terminate this process
+                    throw new DdlException("Normal replica number of tablet " + tabletId + " is: "
+                            + replicaBackendIds.size() + ", which is less than expected: " + replicationNum);
+                }
+                backendsPerBucketSeq.add(replicaBackendIds.subList(0, replicationNum));
+            }
+            break;
+        }
+        return backendsPerBucketSeq;
     }
 }

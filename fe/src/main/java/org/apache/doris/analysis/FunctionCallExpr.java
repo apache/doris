@@ -397,6 +397,16 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
             fnParams.setIsDistinct(false);
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("percentile_approx(expr, DOUBLE) requires two parameters");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException("percentile_approx requires second parameter must be a constant : "
+                        + this.toSql());
+            }
+        }
         return;
     }
 

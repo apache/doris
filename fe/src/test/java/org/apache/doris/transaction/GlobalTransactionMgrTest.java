@@ -17,10 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -226,10 +223,14 @@ public class GlobalTransactionMgrTest {
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = masterTransMgr.getTransactionState(transactionId2);
-        // check status is prepare, because the commit failed
-        assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        try {
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
+            Assert.fail();
+        } catch (TabletQuorumFailedException e) {
+            transactionState = masterTransMgr.getTransactionState(transactionId2);
+            // check status is prepare, because the commit failed
+            assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        }
         // check replica version
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
@@ -533,10 +534,14 @@ public class GlobalTransactionMgrTest {
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = masterTransMgr.getTransactionState(transactionId2);
-        // check status is prepare, because the commit failed
-        assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        try {
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
+            Assert.fail();
+        } catch (TabletQuorumFailedException e) {
+            transactionState = masterTransMgr.getTransactionState(transactionId2);
+            // check status is prepare, because the commit failed
+            assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        }
 
         // commit the second transaction with 1,2,3 success
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);

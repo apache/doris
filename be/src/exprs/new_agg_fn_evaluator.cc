@@ -143,7 +143,7 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
   }
 
   *result = agg_fn_eval;
-  return Status::OK;
+  return Status::OK();
 
 cleanup:
   DCHECK(!status.ok());
@@ -160,11 +160,11 @@ Status NewAggFnEvaluator::Create(const vector<AggFn*>& agg_fns, RuntimeState* st
                                            &agg_fn_eval, tracker, row_desc));
     evals->push_back(agg_fn_eval);
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewAggFnEvaluator::Open(RuntimeState* state) {
-  if (opened_) return Status::OK;
+  if (opened_) return Status::OK();
   opened_ = true;
   // TODO chenhao, ScalarFnEvaluator different from ExprContext
   RETURN_IF_ERROR(ExprContext::open(input_evals_, state));
@@ -178,13 +178,13 @@ Status NewAggFnEvaluator::Open(RuntimeState* state) {
         &constant_args[i]));
   }
   agg_fn_ctx_->impl()->set_constant_args(move(constant_args));
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewAggFnEvaluator::Open(
     const vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
   for (NewAggFnEvaluator* eval : evals) RETURN_IF_ERROR(eval->Open(state));
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewAggFnEvaluator::Close(RuntimeState* state) {

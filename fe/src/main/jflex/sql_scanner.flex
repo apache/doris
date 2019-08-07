@@ -148,6 +148,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("external", new Integer(SqlParserSymbols.KW_EXTERNAL));
         keywordMap.put("extract", new Integer(SqlParserSymbols.KW_EXTRACT));
         keywordMap.put("false", new Integer(SqlParserSymbols.KW_FALSE));
+        keywordMap.put("file", new Integer(SqlParserSymbols.KW_FILE));
         keywordMap.put("first", new Integer(SqlParserSymbols.KW_FIRST));
         keywordMap.put("float", new Integer(SqlParserSymbols.KW_FLOAT));
         keywordMap.put("follower", new Integer(SqlParserSymbols.KW_FOLLOWER));

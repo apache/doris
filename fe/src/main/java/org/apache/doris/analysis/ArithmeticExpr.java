@@ -196,7 +196,7 @@ public class ArithmeticExpr extends Expr {
     private Type findCommonType(Type t1, Type t2) {
         PrimitiveType pt1 = t1.getPrimitiveType();
         PrimitiveType pt2 = t2.getPrimitiveType();
-
+        
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {

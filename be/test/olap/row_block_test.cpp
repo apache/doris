@@ -22,7 +22,7 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/row_block.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/logging.h"
@@ -45,111 +45,94 @@ public:
     }
 };
 
-TEST_F(TestRowBlock, init) {
-    std::vector<FieldInfo> fields;
+void init_tablet_schema(TabletSchema* tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
     {
         // k1: bigint
         {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
+            ColumnPB* column_1 = tablet_schema_pb.add_column();
+            column_1->set_unique_id(1);
+            column_1->set_name("k1");
+            column_1->set_type("BIGINT");
+            column_1->set_is_key(true);
+            column_1->set_length(8);
+            column_1->set_aggregation("NONE");
         }
         // k2: char
         {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
+            ColumnPB* column_2 = tablet_schema_pb.add_column();
+            column_2->set_unique_id(2);
+            column_2->set_name("k2");
+            column_2->set_type("CHAR");
+            column_2->set_is_key(true);
+            column_2->set_length(10);
+            column_2->set_aggregation("NONE");
         }
         // k3: varchar
         {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
+            ColumnPB* column_3 = tablet_schema_pb.add_column();
+            column_3->set_unique_id(3);
+            column_3->set_name("k3");
+            column_3->set_type("VARCHAR");
+            column_3->set_is_key(true);
+            column_3->set_length(20);
+            column_3->set_aggregation("NONE");
         }
     }
+    tablet_schema->init_from_pb(tablet_schema_pb);
+}
+
+TEST_F(TestRowBlock, init) {
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
     {
         // has nullbyte
-        RowBlock block(fields);
+        RowBlock block(&tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
-        block_info.data_file_type = COLUMN_ORIENTED_FILE;
         block_info.null_supported = true;
         auto res = block.init(block_info);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        // num_rows * (num_nullbytes + bigint + char + varchar)
-        ASSERT_EQ(1024 * (3 + 8 + 10 + (4 + 20)), block.buf_len());
+        ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
         // has nullbyte
-        RowBlock block(fields);
+        RowBlock block(&tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
-        block_info.data_file_type = COLUMN_ORIENTED_FILE;
         block_info.null_supported = false;
         auto res = block.init(block_info);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        // num_rows * (num_nullbytes + bigint + char + varchar)
-        ASSERT_EQ(1024 * (3 + 8 + 10 + (4 + 20)), block.buf_len());
+        ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
+    }
+    {
+        RowBlock block(&tablet_schema);
+        RowBlockInfo block_info;
+        block_info.row_num = 1024;
+        block_info.null_supported = true;
+        block_info.column_ids.push_back(1);
+        auto res = block.init(block_info);
+        ASSERT_EQ(OLAP_SUCCESS, res);
+        // null + sizeof(Slice)
+        ASSERT_EQ(17, block._mem_row_bytes);
+        ASSERT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[0]);
+        ASSERT_EQ(0, block._field_offset_in_memory[1]);
+        ASSERT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[2]);
     }
 }
 
 TEST_F(TestRowBlock, write_and_read) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     RowCursor row;
-    row.init(fields);
+    row.init(tablet_schema);
     for (int i = 0; i < 5; ++i) {
         block.get_row(i, &row);
 
@@ -178,94 +161,20 @@ TEST_F(TestRowBlock, write_and_read) {
     }
     block.finalize(5);
     ASSERT_EQ(5, block.row_num());
-
-    char serialized_buf[2048];
-    size_t written_len = 0;
-    res = block.serialize_to_row_format(serialized_buf, 2048, &written_len, OLAP_COMP_STORAGE);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-
-    {
-        RowBlock resolve_block(fields);
-        block_info.checksum = block.row_block_info().checksum;
-        block_info.row_num = 5;
-        res = resolve_block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        res = resolve_block.decompress(serialized_buf, written_len, OLAP_COMP_STORAGE);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        ASSERT_EQ(5, resolve_block.row_num());
-        for (int i = 0; i < 5; ++i) {
-            resolve_block.get_row(i, &row);
-            {
-                ASSERT_FALSE(row.is_null(0));
-                ASSERT_EQ(i, *(int64_t*)row.get_field_content_ptr(0));
-            }
-            {
-                ASSERT_FALSE(row.is_null(1));
-                Slice* slice = (Slice*)row.get_field_content_ptr(1);
-                char buf[10];
-                memset(buf, 'a' + i, 10);
-                ASSERT_EQ(10, slice->size);
-                ASSERT_EQ(0, memcmp(buf, slice->data, 10));
-            }
-            {
-                ASSERT_FALSE(row.is_null(2));
-                Slice* slice = (Slice*)row.get_field_content_ptr(2);
-                char buf[20];
-                memset(buf, '0' + i, 10);
-                ASSERT_EQ(10, slice->size);
-                ASSERT_EQ(0, memcmp(buf, slice->data, 10));
-            }
-        }
-    }
 }
 
 TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = false;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     RowCursor row;
-    row.init(fields);
+    row.init(tablet_schema);
     for (int i = 0; i < 5; ++i) {
         block.get_row(i, &row);
 
@@ -294,94 +203,20 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
     }
     block.finalize(5);
     ASSERT_EQ(5, block.row_num());
-
-    char serialized_buf[2048];
-    size_t written_len = 0;
-    res = block.serialize_to_row_format(serialized_buf, 2048, &written_len, OLAP_COMP_STORAGE);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-
-    {
-        RowBlock resolve_block(fields);
-        block_info.checksum = block.row_block_info().checksum;
-        block_info.row_num = 5;
-        res = resolve_block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        res = resolve_block.decompress(serialized_buf, written_len, OLAP_COMP_STORAGE);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        ASSERT_EQ(5, resolve_block.row_num());
-        for (int i = 0; i < 5; ++i) {
-            resolve_block.get_row(i, &row);
-            {
-                ASSERT_FALSE(row.is_null(0));
-                ASSERT_EQ(i, *(int64_t*)row.get_field_content_ptr(0));
-            }
-            {
-                ASSERT_FALSE(row.is_null(1));
-                Slice* slice = (Slice*)row.get_field_content_ptr(1);
-                char buf[10];
-                memset(buf, 'a' + i, 10);
-                ASSERT_EQ(10, slice->size);
-                ASSERT_EQ(0, memcmp(buf, slice->data, 10));
-            }
-            {
-                ASSERT_FALSE(row.is_null(2));
-                Slice* slice = (Slice*)row.get_field_content_ptr(2);
-                char buf[20];
-                memset(buf, '0' + i, 10);
-                ASSERT_EQ(10, slice->size);
-                ASSERT_EQ(0, memcmp(buf, slice->data, 10));
-            }
-        }
-    }
 }
 
 TEST_F(TestRowBlock, compress_failed) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     RowCursor row;
-    row.init(fields);
+    row.init(tablet_schema);
     for (int i = 0; i < 5; ++i) {
         block.get_row(i, &row);
 
@@ -407,58 +242,20 @@ TEST_F(TestRowBlock, compress_failed) {
     }
     block.finalize(5);
     ASSERT_EQ(5, block.row_num());
-
-    char serialized_buf[2048];
-    size_t written_len = 0;
-    res = block.serialize_to_row_format(serialized_buf, 1, &written_len, OLAP_COMP_STORAGE);
-    ASSERT_NE(OLAP_SUCCESS, res);
 }
 
 TEST_F(TestRowBlock, decompress_failed) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     RowCursor row;
-    row.init(fields);
+    row.init(tablet_schema);
     for (int i = 0; i < 5; ++i) {
         block.get_row(i, &row);
 
@@ -484,81 +281,20 @@ TEST_F(TestRowBlock, decompress_failed) {
     }
     block.finalize(5);
     ASSERT_EQ(5, block.row_num());
-
-    char serialized_buf[2048];
-    size_t written_len = 0;
-    res = block.serialize_to_row_format(serialized_buf, 2048, &written_len, OLAP_COMP_STORAGE);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-
-    {
-        // checksum failed
-        RowBlock resolve_block(fields);
-        block_info.checksum = 0;
-        block_info.row_num = 5;
-        res = resolve_block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        res = resolve_block.decompress(serialized_buf, written_len, OLAP_COMP_STORAGE);
-        ASSERT_NE(OLAP_SUCCESS, res);
-    }
-    {
-        // buffer is not ok
-        RowBlock resolve_block(fields);
-        block_info.checksum = block.row_block_info().checksum;
-        block_info.row_num = 5;
-        res = resolve_block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-
-        res = resolve_block.decompress(serialized_buf, written_len - 1, OLAP_COMP_STORAGE);
-        ASSERT_NE(OLAP_SUCCESS, res);
-    }
 }
 
 TEST_F(TestRowBlock, find_row) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     RowCursor row;
-    row.init(fields);
+    row.init(tablet_schema);
     for (int i = 0; i < 5; ++i) {
         block.get_row(i, &row);
 
@@ -590,7 +326,7 @@ TEST_F(TestRowBlock, find_row) {
     
     {
         RowCursor find_row;
-        find_row.init(fields);
+        find_row.init(tablet_schema);
         for (int i = 0; i < 5; ++i) {
             // bigint
             {
@@ -677,44 +413,11 @@ TEST_F(TestRowBlock, find_row) {
 }
 
 TEST_F(TestRowBlock, clear) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -727,44 +430,11 @@ TEST_F(TestRowBlock, clear) {
 }
 
 TEST_F(TestRowBlock, pos_limit) {
-    std::vector<FieldInfo> fields;
-    {
-        // k1: bigint
-        {
-            FieldInfo info;
-            info.name = "k1";
-            info.type = OLAP_FIELD_TYPE_BIGINT;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 8;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k2: char
-        {
-            FieldInfo info;
-            info.name = "k2";
-            info.type = OLAP_FIELD_TYPE_CHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 10;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-        // k3: varchar
-        {
-            FieldInfo info;
-            info.name = "k3";
-            info.type = OLAP_FIELD_TYPE_VARCHAR;
-            info.aggregation = OLAP_FIELD_AGGREGATION_NONE;
-            info.length = 20;
-            info.is_key = true;
-            fields.push_back(info);
-        }
-    }
-    // 
-    RowBlock block(fields);
+    TabletSchema tablet_schema;
+    init_tablet_schema(&tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);

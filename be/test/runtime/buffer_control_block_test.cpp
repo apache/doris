@@ -60,7 +60,7 @@ TEST_F(BufferControlBlockTest, get_one_after_close) {
     BufferControlBlock control_block(TUniqueId(), 1024);
     ASSERT_TRUE(control_block.init().ok());
 
-    control_block.close(Status::OK);
+    control_block.close(Status::OK());
     TFetchDataResult get_result;
     ASSERT_TRUE(control_block.get_batch(&get_result).ok());
     ASSERT_TRUE(get_result.eos);
@@ -162,7 +162,7 @@ TEST_F(BufferControlBlockTest, get_then_add) {
 void* close_thread(void* param) {
     BufferControlBlock* control_block = static_cast<BufferControlBlock*>(param);
     sleep(1);
-    control_block->close(Status::OK);
+    control_block->close(Status::OK());
     return NULL;
 }
 

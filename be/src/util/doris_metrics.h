@@ -83,7 +83,6 @@ public:
     static IntCounter storage_migrate_requests_total;
     static IntCounter delete_requests_total;
     static IntCounter delete_requests_failed;
-    static IntCounter cancel_delete_requests_total;
     static IntCounter clone_requests_total;
     static IntCounter clone_requests_failed;
 
@@ -114,6 +113,9 @@ public:
     static IntCounter txn_exec_plan_total;
     static IntCounter stream_receive_bytes_total;
     static IntCounter stream_load_rows_total;
+
+    static IntCounter memtable_flush_total;
+    static IntCounter memtable_flush_duration_us;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;

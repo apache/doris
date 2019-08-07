@@ -18,6 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -45,7 +46,7 @@ public class GetLoadInfoAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
@@ -63,14 +64,17 @@ public class GetLoadInfoAction extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
-        catalog.getLoadInstance().getJobInfo(info);
-
-        if (info.tblNames.isEmpty()) {
-            checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
-        } else {
-            for (String tblName : info.tblNames) {
-                checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+        try {
+            catalog.getLoadInstance().getJobInfo(info);
+            if (info.tblNames.isEmpty()) {
+                checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
+            } else {
+                for (String tblName : info.tblNames) {
+                    checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+                }
             }
+        } catch (DdlException | MetaNotFoundException e) {
+            catalog.getLoadManager().getLoadJobInfo(info);
         }
 
         sendResult(request, response, new Result(info));
