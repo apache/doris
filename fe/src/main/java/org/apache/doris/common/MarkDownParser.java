@@ -99,8 +99,9 @@ public class MarkDownParser {
                     } else if (headLevel == 2) {
                         keyValues.put(keyValue.getKey(), keyValue.getValue());
                     } else {
-                        // State error
-                        throw new UserException("Unknown head level when parsing head level(2)");
+                        //Ignore headlevel greater than 2 instead of throwing a exception
+                        //State error
+                        //throw new UserException("Unknown head level when parsing head level(2)");
                     }
                     break;
                 default:
@@ -133,7 +134,13 @@ public class MarkDownParser {
             if (!lines.get(nextToRead).startsWith("#")) {
                 sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
-            } else {
+            }
+            // Ignore headlevel greater than 2
+            else if (lines.get(nextToRead).startsWith("###")) {
+                sb.append(lines.get(nextToRead).replaceAll("#","")).append('\n');
+                nextToRead++;
+            } 
+            else {
                 break;
             }
         }

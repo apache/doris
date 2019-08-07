@@ -1,16 +1,15 @@
 # dayname
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR DAYNAME(DATE)`
 
-## Description
 
 返回日期对应的日期名字
 
 参数为Date或者Datetime类型
 
-## Examples
+## example
 
 ```
 mysql> select dayname('2007-02-03 00:00:00');
@@ -19,4 +18,5 @@ mysql> select dayname('2007-02-03 00:00:00');
 +--------------------------------+
 | Saturday                       |
 +--------------------------------+
-```
+##keyword
+DAYNAME

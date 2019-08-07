@@ -1,14 +1,13 @@
 # STDDEV,STDDEV_POP
-
-## Syntax
+## description
+### Syntax
 
 `STDDEV(expr)`
 
-## Description
 
 返回expr表达式的标准差
 
-## Examples
+## example
 ```
 MySQL > select stddev(scan_rows) from log_statis group by datetime;
 +---------------------+
@@ -24,3 +23,5 @@ MySQL > select stddev_pop(scan_rows) from log_statis group by datetime;
 |      2.3722760595994914 |
 +-------------------------+
 ```
+##keyword
+STDDEV,STDDEV_POP,POP
