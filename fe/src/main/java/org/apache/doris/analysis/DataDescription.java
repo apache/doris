@@ -243,7 +243,7 @@ public class DataDescription {
                 throw new AnalysisException("Hadoop load only supports the designated function. "
                                                     + "The error mapping function is:" + child1.toSql());
             }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, predicate.getChild(1));
+            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
             analyzeColumnToFunction(column, child1);
 
