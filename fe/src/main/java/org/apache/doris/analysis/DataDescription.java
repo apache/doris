@@ -51,8 +51,8 @@ import java.util.Set;
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
 //          [FORMAT AS format]
-//          [(tmp_col1, tmp_col2, col1=tmp_col1+tmp_col2, ...)]
-//          [SET (k1=f1(xx), k2=f2(xx))]
+//          [(tmp_col1, tmp_col2, col3, ...)]
+//          [SET (k1=f1(xx), k2=f2(xxx))]
 
 /**
  * The transform of columns should be added after the keyword named COLUMNS.
@@ -252,7 +252,7 @@ public class DataDescription {
 
     private void analyzeColumnToFunction(String columnName, Expr child1) throws AnalysisException {
         if (!(child1 instanceof FunctionCallExpr)) {
-            // only just for pass later check
+            // columnToFunction is a compatible param which is checked in non-streaming load
             columnToFunction.put(columnName, Pair.create("__slot_ref", Lists.newArrayList()));
             return;
         }

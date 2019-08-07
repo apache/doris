@@ -254,6 +254,11 @@ public class BrokerLoadJob extends LoadJob {
      */
     @Override
     public void analyze() {
+        if (originStmt == null) {
+            return;
+        }
+        // Reset dataSourceInfo, it will be re-created in analyze
+        dataSourceInfo = new PullLoadSourceInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt)));
         LoadStmt stmt = null;
         try {
@@ -489,8 +494,6 @@ public class BrokerLoadJob extends LoadJob {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
         dataSourceInfo.readFields(in);
-        // Reset dataSourceInfo, it will be re-created later in analyze
-        dataSourceInfo = new PullLoadSourceInfo();
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
             originStmt = Text.readString(in);

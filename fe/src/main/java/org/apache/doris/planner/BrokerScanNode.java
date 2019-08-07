@@ -242,6 +242,15 @@ public class BrokerScanNode extends ScanNode {
         initColumns(context);
     }
 
+    /**
+     * This method is used to calculate the slotDescByName and exprMap.
+     * The expr in exprMap is analyzed in this function.
+     * The smap of slot which belongs to expr will be analyzed by src desc.
+     * slotDescByName: the single slot from columns in load stmt
+     * exprMap: the expr from column mapping in load stmt.
+     * @param context
+     * @throws UserException
+     */
     private void initColumns(ParamCreateContext context) throws UserException {
         // This tuple descriptor is used for origin file
         TupleDescriptor srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
@@ -257,7 +266,10 @@ public class BrokerScanNode extends ScanNode {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 slotDesc.setIsMaterialized(true);
-                // same as ISSUE A
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable
                 slotDesc.setIsNullable(true);
                 slotDescByName.put(column.getName(), slotDesc);
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
@@ -282,10 +294,7 @@ public class BrokerScanNode extends ScanNode {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 slotDesc.setIsMaterialized(true);
-                // ISSUE A: src slot should be nullable even if the column is not nullable.
-                // because src slot is what we read from file, not represent to real column value.
-                // If column is not nullable, error will be thrown when filling the dest slot,
-                // which is not nullable
+                // same as ISSUE A
                 slotDesc.setIsNullable(true);
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
@@ -323,6 +332,15 @@ public class BrokerScanNode extends ScanNode {
 
     }
 
+    /**
+     * This method is used to transform hadoop function.
+     * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
+     * The method is used to rewrite those function with real function name and param.
+     * @param columnName
+     * @param originExpr
+     * @return
+     * @throws UserException
+     */
     private Expr transformHadoopFunctionExpr(String columnName, Expr originExpr) throws UserException {
         Column column = targetTable.getColumn(columnName);
         if (column == null) {

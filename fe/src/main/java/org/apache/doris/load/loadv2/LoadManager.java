@@ -315,12 +315,6 @@ public class LoadManager implements Writable{
                          .build());
     }
 
-    public List<LoadJob> getLoadJobByState(JobState jobState) {
-        return idToLoadJob.values().stream()
-                .filter(entity -> entity.getState() == jobState)
-                .collect(Collectors.toList());
-    }
-
     public int getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
@@ -455,8 +449,8 @@ public class LoadManager implements Writable{
     }
 
     public void prepareJobs() {
-        submitJobs();
         analyzeLoadJobs();
+        submitJobs();
     }
 
     private void submitJobs() {
@@ -470,10 +464,6 @@ public class LoadManager implements Writable{
                 loadJob.analyze();
             }
         }
-    }
-
-    private Map<Long, LoadJob> getIdToLoadJobs() {
-        return idToLoadJob;
     }
 
     private Database checkDb(String dbName) throws DdlException {

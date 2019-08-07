@@ -327,14 +327,21 @@ public class BrokerFileGroup implements Writable {
             }
         }
 
-        // merge fileFieldName into exprColumnMap
-        if (fileFieldNames != null) {
-            if (exprColumnMap == null) {
-                exprColumnMap = Maps.newHashMap();
-            }
-            for (String fileFieldName : fileFieldNames) {
-                exprColumnMap.put(fileFieldName, null);
-            }
+        // There are no columnExprList in the previous load job which is created before function is supported.
+        // The columnExprList could not be analyzed without origin stmt in the previous load job.
+        // So, the columnExprList need to be merged in here.
+        if (fileFieldNames == null || fileFieldNames.isEmpty()) {
+            return;
+        }
+        columnExprList = Lists.newArrayList();
+        for (String columnName : fileFieldNames) {
+            columnExprList.add(new ImportColumnDesc(columnName, null));
+        }
+        if (exprColumnMap == null || exprColumnMap.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Expr> columnExpr : exprColumnMap.entrySet()) {
+            columnExprList.add(new ImportColumnDesc(columnExpr.getKey(), columnExpr.getValue()));
         }
     }
 
