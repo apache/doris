@@ -603,6 +603,9 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
                 if ((*it)->equal(tablet_id, schema_hash)) {
                     it = _tablet_map[tablet_id].table_arr.erase(it);
                     _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
+                    if (_partition_tablet_map[(*it)->partition_id()].empty()) {
+                        _partition_tablet_map.erase((*it)->partition_id());
+                    } 
                 } else {
                     ++it;
                 }
