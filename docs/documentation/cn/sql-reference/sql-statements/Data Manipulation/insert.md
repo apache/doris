@@ -13,17 +13,17 @@ INSERT INTO table_name
 ### Parameters
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
-> 
+>
 > partition_names: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
 >
 > column_name: 指定的目的列，必须是 `table_name` 中存在的列
-> 
+>
 > expression: 需要赋值给某个列的对应表达式
-> 
+>
 > DEFAULT: 让对应列使用默认值
-> 
+>
 > query: 一个普通查询，查询的结果会写入到目标中
-> 
+>
 > hint: 用于指示 `INSERT` 执行行为的一些指示符。`streaming` 和 默认的非 `streaming` 方式均会使用同步方式完成 `INSERT` 语句执行
 >       非 `streaming` 方式在执行完成后会返回一个 label 方便用户通过 `SHOW LOAD` 查询导入的状态
 
@@ -73,8 +73,10 @@ INSERT INTO test SELECT * FROM test2
 INSERT INTO test (c1, c2) SELECT * from test2
 ```
 
-异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的*执行效率是一样*的。
+异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的**执行效率是一样**的。
 
 由于Doris之前的导入方式都是异步导入方式，为了兼容旧有的使用习惯，不加 streaming 的 `INSERT` 语句依旧会返回一个 label，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的状态。
-##keyword
-INSERT
+
+## keyword
+
+    INSERT

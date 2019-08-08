@@ -1,8 +1,13 @@
 ============
-DDL 语句
+语法帮助
 ============
 
 .. toctree::
-    :glob:
+    :hidden:
 
-    *
+    Account Management/index
+    Administration/index
+    Data Definition/index
+    Data Manipulation/index
+    Data Types/index
+    Utility/index
