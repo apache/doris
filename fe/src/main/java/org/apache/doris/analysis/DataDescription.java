@@ -39,7 +39,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,11 +63,11 @@ import java.util.TreeSet;
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     public static String FUNCTION_HASH_HLL = "hll_hash";
-    private static final Set<String> hadoopSupportFunctionName = new HashSet<>(Arrays.asList("strftime", "time_format",
-                                                                                             "alignment_timestamp",
-                                                                                             "default_value", "md5sum",
-                                                                                             "replace_value", "now",
-                                                                                             "hll_hash"));
+    private static final List<String> hadoopSupportFunctionName = Arrays.asList("strftime", "time_format",
+                                                                                "alignment_timestamp",
+                                                                                "default_value", "md5sum",
+                                                                                "replace_value", "now",
+                                                                                "hll_hash");
     private final String tableName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
@@ -257,7 +256,7 @@ public class DataDescription {
     private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
         String functionName = functionCallExpr.getFnName().getFunction();
-        if (!hadoopSupportFunctionName.contains(functionName)) {
+        if (!hadoopSupportFunctionName.contains(functionName.toLowerCase())) {
             return;
         }
         List<Expr> paramExprs = functionCallExpr.getParams().exprs();
