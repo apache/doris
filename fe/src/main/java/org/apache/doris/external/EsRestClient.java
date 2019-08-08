@@ -95,6 +95,7 @@ public class EsRestClient {
 
     /**
      * execute request for specific path
+     *
      * @param path the path must not leading with '/'
      * @return
      */
@@ -102,11 +103,14 @@ public class EsRestClient {
         selectNextNode();
         boolean nextNode;
         do {
-            Request request = new Request.Builder()
-                    .get()
-                    .addHeader("Authorization", basicAuth)
+            Request.Builder builder = new Request.Builder();
+            if (!Strings.isEmpty(basicAuth)) {
+                builder.addHeader("Authorization", basicAuth);
+            }
+            Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
+            LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             try {
                 Response response = networkClient.newCall(request).execute();
                 if (response.isSuccessful()) {
@@ -117,7 +121,7 @@ public class EsRestClient {
             }
             nextNode = selectNextNode();
             if (!nextNode) {
-                LOG.error("try all nodes [{}],no other nodes left", nodes);
+                LOG.warn("try all nodes [{}],no other nodes left", nodes);
             }
         } while (nextNode);
         return null;
