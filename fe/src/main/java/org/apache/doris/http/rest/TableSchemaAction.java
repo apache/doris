@@ -97,7 +97,7 @@ public class TableSchemaAction extends RestBaseAction {
                     List<Map<String, String>> propList = new ArrayList(columns.size());
                     for (Column column : columns) {
                         Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getType();
+                        Type colType = column.getOriginType();
                         PrimitiveType primitiveType = colType.getPrimitiveType();
                         if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
                             ScalarType scalarType = (ScalarType) colType;
