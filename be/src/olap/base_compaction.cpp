@@ -48,6 +48,9 @@ OLAPStatus BaseCompaction::compact() {
     // 4. garbage collect input rowsets after base compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
+    DorisMetrics::base_compaction_deltas_total.increment(_input_rowsets.size());
+    DorisMetrics::base_compaction_bytes_total.increment(_input_rowsets_size);
+
     return OLAP_SUCCESS;
 }
 
@@ -55,9 +58,9 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candicate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {
-        LOG(INFO) << "There is no enough rowsets to cumulative compaction."
-                  << ", the size of rowsets to compact=" << _input_rowsets.size()
-                  << ", cumulative_point=" << _tablet->cumulative_layer_point();
+        LOG(WARNING) << "There is no enough rowsets to cumulative compaction."
+                     << ", the size of rowsets to compact=" << _input_rowsets.size()
+                     << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -114,13 +117,6 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
 }
 
 OLAPStatus BaseCompaction::do_compaction() {
-    DorisMetrics::base_compaction_deltas_total.increment(_input_rowsets.size());
-    for (auto& rowset : _input_rowsets) {
-        _input_rowsets_size += rowset->data_disk_size();
-        _input_row_num += rowset->num_rows();
-    }
-    DorisMetrics::base_compaction_bytes_total.increment(_input_rowsets_size);
-
     OlapStopWatch watch;
 
     // 1. prepare cumulative_version and cumulative_version

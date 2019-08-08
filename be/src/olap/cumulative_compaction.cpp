@@ -54,6 +54,9 @@ OLAPStatus CumulativeCompaction::compact() {
     // 5. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
+    DorisMetrics::cumulative_compaction_deltas_total.increment(_input_rowsets.size());
+    DorisMetrics::cumulative_compaction_bytes_total.increment(_input_rowsets_size);
+
     return OLAP_SUCCESS;
 }
 
@@ -62,9 +65,9 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
     if (candidate_rowsets.size() <= 1) {
-        LOG(INFO) << "There is no enough rowsets to cumulative compaction."
-                  << ", the size of rowsets to compact=" << candidate_rowsets.size()
-                  << ", cumulative_point=" << _tablet->cumulative_layer_point();
+        LOG(WARNING) << "There is no enough rowsets to cumulative compaction."
+                     << ", the size of rowsets to compact=" << candidate_rowsets.size()
+                     << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -102,9 +105,9 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     if (_input_rowsets.size() <= 1) {
-        LOG(INFO) << "There is no enough rowsets to cumulative compaction."
-                  << ", the size of rowsets to compact=" << candidate_rowsets.size()
-                  << ", cumulative_point=" << _tablet->cumulative_layer_point();
+        LOG(WARNING) << "There is no enough rowsets to cumulative compaction."
+                     << ", the size of rowsets to compact=" << candidate_rowsets.size()
+                     << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -118,8 +121,6 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 OLAPStatus CumulativeCompaction::do_compaction() {
     LOG(INFO) << "start cumulative compaction. tablet=" << _tablet->full_name();
 
-    DorisMetrics::cumulative_compaction_deltas_total.increment(_input_rowsets.size());
-    DorisMetrics::cumulative_compaction_bytes_total.increment(_input_rowsets_size);
     OlapStopWatch watch;
 
     // 1. prepare cumulative_version and cumulative_version
