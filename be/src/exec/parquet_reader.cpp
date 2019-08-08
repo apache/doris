@@ -194,9 +194,9 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
         default:
             return Status::InternalError("Invalid Time Type.");
     }
-    tm* local;
-    local = localtime(&timestamp);
-    *wbytes = (uint32_t)strftime((char*)buf, 64, "%Y-%m-%d %H:%M:%S", local);
+    struct tm local;
+    localtime_r(&timestamp, &local);
+    *wbytes = (uint32_t)strftime((char*)buf, 64, "%Y-%m-%d %H:%M:%S", &local);
     return Status::OK();
 }
 

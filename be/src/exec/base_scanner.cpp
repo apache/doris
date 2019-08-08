@@ -18,6 +18,7 @@
 
 #include "base_scanner.h"
 
+#include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
@@ -144,12 +145,18 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
         ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
-            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr)
-                && !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
+            SlotDescriptor* slot_descriptor = _src_slot_descs_order_by_dest[dest_index];
+            if (_strict_mode && (slot_descriptor != nullptr)&& !_src_tuple->is_null(slot_descriptor->null_indicator_offset())) {
+                //Type of the slot is must be Varchar in _src_tuple.
+                StringValue* raw_value = _src_tuple->get_string_slot(slot_descriptor->tuple_offset());
+                std::string raw_string;
+                if (raw_value != nullptr) {//is not null then get raw value
+                    raw_string = raw_value->to_string();
+                }
                 std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
-                    << "while strict mode is " << std::boolalpha << _strict_mode;
-                _state->append_error_msg_to_file("", error_msg.str());
+                error_msg << " column(" << slot_desc->col_name() << ") value is incorrect "
+                                << "while strict mode is " << std::boolalpha << _strict_mode;
+                            _state->append_error_msg_to_file(raw_string, error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }
