@@ -673,7 +673,7 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnMapping();
+            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnToHadoopFunction();
             for (Column column : tableSchema) {
                 String columnName = column.getName();
                 if (columnNames.contains(columnName)) {

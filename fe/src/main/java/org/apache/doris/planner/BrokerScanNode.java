@@ -475,6 +475,21 @@ public class BrokerScanNode extends ScanNode {
                 }
             }
 
+            // check hll_hash
+            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                if (!(expr instanceof FunctionCallExpr)) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                }
+                FunctionCallExpr fn = (FunctionCallExpr) expr;
+                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                }
+                expr.setType(Type.HLL);
+            }
+
+            // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
                 expr.analyze(analyzer);
