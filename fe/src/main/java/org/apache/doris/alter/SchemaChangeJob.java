@@ -514,7 +514,9 @@ public class SchemaChangeJob extends AlterJob {
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION
+                                    || replica.getState() == ReplicaState.NORMAL) {
                                 continue;
                             }
                             Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE);
@@ -918,7 +920,8 @@ public class SchemaChangeJob extends AlterJob {
                     // set state to SCHEMA_CHANGE
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION) {
                                 // add log here, because there should no more CLONE replica when processing alter jobs.
                                 LOG.warn(String.format(
                                         "replica %d of tablet %d in backend %d state is invalid: %s",
@@ -1063,7 +1066,9 @@ public class SchemaChangeJob extends AlterJob {
                     }
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION
+                                    || replica.getState() == ReplicaState.NORMAL) {
                                 continue;
                             }
                             replica.setState(ReplicaState.NORMAL);

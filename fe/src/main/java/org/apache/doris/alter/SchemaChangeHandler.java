@@ -973,6 +973,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     int replicaNum = 0;
                     for (Replica replica : tablet.getReplicas()) {
                         if (replica.getState() == ReplicaState.CLONE 
+                                || replica.getState() == ReplicaState.DECOMMISSION
                                 || replica.getLastFailedVersion() > 0) {
                             // just skip it (replica cloned from old schema will be deleted)
                             continue;
@@ -1052,7 +1053,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // set replica state
                 for (Tablet tablet : alterIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE || replica.getLastFailedVersion() > 0) {
+                        if (replica.getState() == ReplicaState.CLONE 
+                                || replica.getState() == ReplicaState.DECOMMISSION
+                                || replica.getLastFailedVersion() > 0) {
                             // this should not happen, cause we only allow schema change when table is stable.
                             LOG.error("replica {} of tablet {} on backend {} is not NORMAL: {}",
                                     replica.getId(), tablet.getId(), replica.getBackendId(), replica);
