@@ -45,5 +45,6 @@ host 部分也可指定为 domain，语法为：'user_name'@['domain']，即使�
     CREATE USER 'jack'@'%' IDENTIFIED BY '12345' DEFAULT ROLE 'my_role';
 
 ## keyword
+
     CREATE, USER
 

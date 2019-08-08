@@ -27,4 +27,5 @@
         SHOW GRANTS;
 
 ## keyword
-   SHOW, GRANTS
+
+    SHOW, GRANTS
