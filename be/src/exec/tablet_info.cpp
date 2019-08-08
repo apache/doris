@@ -171,7 +171,6 @@ Status OlapTablePartitionParam::init() {
         }
         _partition_slot_descs.push_back(it->second);
     } else {
-        DCHECK(_t_param.__isset.partition_columns);
         for (auto& part_col : _t_param.partition_columns) {
             auto it = slots_map.find(part_col);
             if (it == std::end(slots_map)) {
