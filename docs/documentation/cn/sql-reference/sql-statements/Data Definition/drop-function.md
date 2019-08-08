@@ -24,5 +24,7 @@ DROP FUNCTION function_name
 ```
 DROP FUNCTION my_add(INT, INT)
 ```
-##keyword
-DROP,FUNCTION
+
+## keyword
+
+    DROP,FUNCTION

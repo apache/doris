@@ -51,5 +51,6 @@ user_identity：
         GRANT LOAD_PRIV ON db1.* TO ROLE 'my_role';
 
 ## keyword
-   GRANT
+
+    GRANT
    

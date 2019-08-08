@@ -11,5 +11,6 @@
     mysql> SELECT DATE('2003-12-31 01:02:03');
         -> '2003-12-31'
 
-##keyword
-DATE
+## keyword
+
+    DATE

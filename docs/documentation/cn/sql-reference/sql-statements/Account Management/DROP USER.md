@@ -11,8 +11,9 @@ Syntax:
 
 1. 删除用户 jack
    
-   DROP USER 'jack'
+    DROP USER 'jack'
 
 ## keyword
+
     DROP, USER
 
