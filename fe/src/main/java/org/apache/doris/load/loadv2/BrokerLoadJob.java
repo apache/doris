@@ -264,7 +264,6 @@ public class BrokerLoadJob extends LoadJob {
         try {
             stmt = (LoadStmt) parser.parse().value;
             for (DataDescription dataDescription : stmt.getDataDescriptions()) {
-                dataDescription.setIsPullLoad(true);
                 dataDescription.analyzeWithoutCheckPriv();
             }
             Database db = Catalog.getCurrentCatalog().getDb(dbId);

@@ -735,7 +735,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                                                mappingColumn, dataDescription.isPullLoad());
+                                                                mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }

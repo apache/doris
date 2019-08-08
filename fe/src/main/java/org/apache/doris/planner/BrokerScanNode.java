@@ -335,7 +335,8 @@ public class BrokerScanNode extends ScanNode {
     /**
      * This method is used to transform hadoop function.
      * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
-     * The method is used to rewrite those function with real function name and param.
+     * It rewrites those function with real function name and param.
+     * For the other function, the expr only go through this function and the origin expr is returned.
      * @param columnName
      * @param originExpr
      * @return

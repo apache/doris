@@ -34,7 +34,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -76,7 +76,7 @@ public class DataDescription {
     private TNetworkAddress beAddr;
     private String lineDelimiter;
 
-    // This param is used for non-streaming
+    // This param is used to check the column expr. It is also used for non-streaming load.
     private Map<String, Pair<String, List<String>>> columnToFunction;
     /**
      * Merged from columns and columnMappingList
@@ -84,7 +84,7 @@ public class DataDescription {
      **/
     private List<ImportColumnDesc> parsedColumnExprList;
 
-    private boolean isPullLoad = false;
+    private boolean isHadoopLoad = false;
 
     public DataDescription(String tableName,
                            List<String> partitionNames,
@@ -178,12 +178,12 @@ public class DataDescription {
         return parsedColumnExprList;
     }
 
-    public void setIsPullLoad(boolean isPullLoad) {
-        this.isPullLoad = isPullLoad;
+    public void setIsHadoopLoad(boolean isHadoopLoad) {
+        this.isHadoopLoad = isHadoopLoad;
     }
 
-    public boolean isPullLoad() {
-        return isPullLoad;
+    public boolean isHadoopLoad() {
+        return isHadoopLoad;
     }
 
     /**
@@ -198,7 +198,7 @@ public class DataDescription {
         }
         // merge columns exprs from columns and columnMappingList
         // used to check duplicated column name
-        Set<String> columnNames = Sets.newHashSet();
+        Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
         for (String columnName : columns) {
@@ -239,7 +239,7 @@ public class DataDescription {
             }
             // hadoop load only supports the FunctionCallExpr
             Expr child1 = predicate.getChild(1);
-            if (!isPullLoad && !(child1 instanceof FunctionCallExpr)) {
+            if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException("Hadoop load only supports the designated function. "
                                                     + "The error mapping function is:" + child1.toSql());
             }
@@ -270,11 +270,10 @@ public class DataDescription {
             } else if (paramExpr instanceof NullLiteral) {
                 args.add(null);
             } else {
-                if (isPullLoad) {
-                    continue;
-                } else {
+                if (isHadoopLoad) {
                     throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
                 }
+                continue;
             }
         }
 
@@ -284,7 +283,7 @@ public class DataDescription {
 
     public static void validateMappingFunction(String functionName, List<String> args,
                                                Map<String, String> columnNameMap,
-                                               Column mappingColumn, boolean isPullLoad) throws AnalysisException {
+                                               Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
         if (functionName.equalsIgnoreCase("alignment_timestamp")) {
             validateAlignmentTimestamp(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("strftime")) {
@@ -302,9 +301,7 @@ public class DataDescription {
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);
         } else {
-            if (isPullLoad) {
-                return;
-            } else {
+            if (isHadoopLoad) {
                 throw new AnalysisException("Unknown function: " + functionName);
             }
         }
