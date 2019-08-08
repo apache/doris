@@ -146,7 +146,16 @@
         ADD PARTITION p1 VALUES LESS THAN ("2015-01-01")
         DISTRIBUTED BY HASH(k1) BUCKETS 20;
 
-    3. 删除分区
+    3. 增加分区，使用新的副本数
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES LESS THAN ("2015-01-01")
+        ("replication_num"="1");
+
+    4. 修改分区副本数
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION p1 SET("replication_num"="1");
+
+    5. 删除分区
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
 
