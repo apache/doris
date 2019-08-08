@@ -41,7 +41,12 @@ public class Replica implements Writable {
         NORMAL,
         ROLLUP,
         SCHEMA_CHANGE,
-        CLONE
+        CLONE,
+        DECOMMISSION; // replica is ready to be deleted
+
+        public boolean isLoadable() {
+            return this == ReplicaState.NORMAL || this == ReplicaState.SCHEMA_CHANGE;
+        }
     }
     
     public enum ReplicaStatus {
@@ -74,6 +79,26 @@ public class Replica implements Writable {
     private long pathHash = -1;
 
     private boolean bad = false;
+
+    /*
+     * If set to true, with means this replica need to be repaired. explicitly.
+     * This can happen when this replica is created by a balance clone task, and
+     * when task finished, the version of this replica is behind the partition's visible version.
+     * So this replica need a further repair.
+     * If we do not do this, this replica will be treated as version stale, and will be removed,
+     * so that the balance task is failed, which is unexpected.
+     * 
+     * furtherRepairSetTime set alone with needFurtherRepair.
+     * This is an insurance, in case that further repair task always fail. If 20 min passed
+     * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
+     */
+    private boolean needFurtherRepair = false;
+    private long furtherRepairSetTime = -1;
+    private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
+
+    // if this watermarkTxnId is set, which means before deleting a replica,
+    // we should ensure that all txns on this replicas are finished.
+    private long watermarkTxnId = -1;
 
     public Replica() {
     }
@@ -190,6 +215,18 @@ public class Replica implements Writable {
         }
         this.bad = bad;
         return true;
+    }
+
+    public boolean needFurtherRepair() {
+        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
+            return true;
+        }
+        return false;
+    }
+
+    public void setNeedFurtherRepair(boolean needFurtherRepair) {
+        this.needFurtherRepair = needFurtherRepair;
+        this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
     // only update data size and row num
@@ -481,5 +518,13 @@ public class Replica implements Writable {
                 return -1;
             }
         }
+    }
+
+    public void setWatermarkTxnId(long watermarkTxnId) {
+        this.watermarkTxnId = watermarkTxnId;
+    }
+
+    public long getWatermarkTxnId() {
+        return watermarkTxnId;
     }
 }
