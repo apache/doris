@@ -67,5 +67,7 @@ CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
     "object_file"="http://host:port/libudasample.so"
 );
 ```
-##keyword
-CREATE,FUNCTION
+
+## keyword
+
+    CREATE,FUNCTION
