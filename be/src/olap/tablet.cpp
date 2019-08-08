@@ -150,7 +150,7 @@ OLAPStatus Tablet::init_once() {
         _inc_rs_version_map[version] = rowset;
     }
 
-    RETURN_NOT_OK(calculate_cumulative_point());
+    _cumulative_point = -1;
 
     return res;
 }
@@ -750,7 +750,11 @@ OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, Versio
 }
 
 OLAPStatus Tablet::calculate_cumulative_point() {
-    ReadLock rdlock(&_meta_lock);
+    WriteLock wrlock(&_meta_lock);
+    if (_cumulative_point != -1)  {
+        return OLAP_SUCCESS;
+    }
+    
     std::list<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
@@ -762,7 +766,6 @@ OLAPStatus Tablet::calculate_cumulative_point() {
         return a.first < b.first;
     });
 
-    _cumulative_point = -1;
     int64_t prev_version = -1;
     for (const Version& version : existing_versions) {
         if (version.first > prev_version + 1) {

@@ -301,11 +301,6 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         LOG(WARNING) << "fail to create tablet. res=" << res;
     }
 
-    // call calculate_cumulative_point() manually.
-    // If not, cumulative_point will set to minus one
-    // when init tablet during create tablet.
-    RETURN_NOT_OK(tablet->calculate_cumulative_point());
-
     LOG(INFO) << "finish to process create tablet. res=" << res;
     return res;
 } // create_tablet
@@ -1247,7 +1242,6 @@ OLAPStatus TabletManager::_create_inital_rowset(
             return res;
         }
     }
-    tablet->set_cumulative_layer_point(request.version + 1);
     res = tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";

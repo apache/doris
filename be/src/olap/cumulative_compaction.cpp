@@ -38,17 +38,20 @@ OLAPStatus CumulativeCompaction::compact() {
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
 
-    // 1. pick rowsets to compact
+    // 1.calculate cumulative point 
+    RETURN_NOT_OK(_tablet->calculate_cumulative_point());
+
+    // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
 
-    // 2. do cumulative compaction, merge rowsets
+    // 3. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
 
-    // 3. set state to success
+    // 4. set state to success
     _state = CompactionState::SUCCESS;
     _tablet->set_cumulative_layer_point(_input_rowsets.back()->end_version() + 1);
     
-    // 4. garbage collect input rowsets after cumulative compaction 
+    // 5. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
     return OLAP_SUCCESS;
