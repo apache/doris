@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_DELTA_WRITER_H
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
-#include "olap/memtable.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
@@ -30,6 +29,8 @@
 namespace doris {
 
 class SegmentGroup;
+class MemTable;
+class Schema;
 
 enum WriteType {
     LOAD = 1,

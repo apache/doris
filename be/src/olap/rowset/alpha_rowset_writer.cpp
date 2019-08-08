@@ -152,6 +152,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         LOG(WARNING) << "invalid writer state before build, state:" << _writer_state;
         return nullptr;
     }
+    int total_num_segments = 0;
     for (auto& segment_group : _segment_groups) {
         if (segment_group->load() != OLAP_SUCCESS) {
             return nullptr;
@@ -166,6 +167,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         SegmentGroupPB segment_group_pb;
         segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
         segment_group_pb.set_num_segments(segment_group->num_segments());
+        total_num_segments += segment_group->num_segments();
         segment_group_pb.set_index_size(segment_group->index_size());
         segment_group_pb.set_data_size(segment_group->data_size());
         segment_group_pb.set_num_rows(segment_group->num_rows());
@@ -188,6 +190,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
         alpha_rowset_meta->add_segment_group(segment_group_pb);
     }
+    _current_rowset_meta->set_num_segments(total_num_segments);
     if (_is_pending_rowset) {
         _current_rowset_meta->set_rowset_state(COMMITTED);
     } else {
@@ -242,7 +245,7 @@ OLAPStatus AlphaRowsetWriter::garbage_collection() {
             LOG(WARNING) << "delete segment group files failed."
                          << " tablet id:" << segment_group->get_tablet_id()
                          << ", rowset path:" << segment_group->rowset_path_prefix();
-            return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
+            return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
         }
     }
     return OLAP_SUCCESS;

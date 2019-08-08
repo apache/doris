@@ -99,10 +99,20 @@ public class VariableMgrTest {
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(5L, var.getParallelExecInstanceNum());
 
+        SetVar setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Asia/Shanghai"));
+        VariableMgr.setVar(var, setVar3);
+        Assert.assertEquals("CST", var.getTimeZone());
+        var = VariableMgr.newSessionVariable();
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
+
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
+
+        setVar3 = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("Asia/Jakarta"));
+        VariableMgr.setVar(var, setVar3);
+        Assert.assertEquals("Asia/Jakarta", var.getTimeZone());
 
         // Get from name
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
@@ -122,6 +132,35 @@ public class VariableMgrTest {
         }
         Assert.fail("No exception throws.");
     }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidTimeZoneRegion() throws DdlException {
+        // Set global variable
+        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Hongkong"));
+        SessionVariable var = VariableMgr.newSessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            LOG.warn("VariableMgr throws", e);
+            throw e;
+        }
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidTimeZoneOffset() throws DdlException {
+        // Set global variable
+        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+15:00"));
+        SessionVariable var = VariableMgr.newSessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            LOG.warn("VariableMgr throws", e);
+            throw e;
+        }
+        Assert.fail("No exception throws.");
+    }
+
 
     @Test(expected = DdlException.class)
     public void testReadOnly() throws AnalysisException, DdlException {

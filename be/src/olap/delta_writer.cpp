@@ -18,6 +18,7 @@
 #include "olap/delta_writer.h"
 
 #include "olap/schema.h"
+#include "olap/memtable.h"
 #include "olap/data_dir.h"
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"

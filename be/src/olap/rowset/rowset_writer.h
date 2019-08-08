@@ -20,14 +20,14 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/schema.h"
-#include "olap/row_block.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/mem_pool.h"
+#include "olap/column_mapping.h"
 
 namespace doris {
 
 class ContiguousRow;
+class RowCursor;
 class RowsetWriter;
 using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 
