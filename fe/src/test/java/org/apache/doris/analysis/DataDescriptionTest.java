@@ -196,7 +196,8 @@ public class DataDescriptionTest {
                                                               @Injectable SlotRef column1,
                                                               @Injectable SlotRef column2,
                                                               @Injectable FunctionCallExpr expr1,
-                                                              @Injectable FunctionCallExpr expr2) {
+                                                              @Injectable FunctionCallExpr expr2,
+                                                              @Injectable FunctionName functionName) {
         List<String> columns = Lists.newArrayList();
         columns.add("tmp_col1");
         columns.add("tmp_col2");
@@ -212,6 +213,10 @@ public class DataDescriptionTest {
                 result = column2;
                 columnMapping1.getChild(1);
                 result = expr1;
+                expr1.getFnName();
+                result = functionName;
+                functionName.getFunction();
+                result = "test";
                 column1.getColumnName();
                 result = duplicatedColumnName;
                 column2.getColumnName();
