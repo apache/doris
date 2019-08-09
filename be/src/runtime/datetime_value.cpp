@@ -1529,12 +1529,8 @@ int64_t DateTimeValue::unix_timestamp(const std::string& timezone) const {
     if (local_time_zone == nullptr) {
         return false;
     }
-    //boost::posix_time::ptime pt(
-    //            boost::date_time::date(_year, _month, _day), boost::date_time::time_duration(_hour, _minute, _second));
-    //std::cout << "ptime : " << pt << std::endl;
     char buf[64];
     char* to = to_datetime_string(buf);
-    std::cout <<"timezone : " << std::string(buf, to - buf - 1) << std::endl;
     boost::posix_time::ptime pt = boost::posix_time::time_from_string(std::string(buf, to - buf -1));
 
     boost::local_time::local_date_time lt(pt.date(), pt.time_of_day(), local_time_zone,
@@ -1553,7 +1549,6 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     }
     boost::local_time::local_date_time lt(boost::posix_time::from_time_t(timestamp), local_time_zone);
     boost::posix_time::ptime local_ptime = lt.local_time();
-    std::cout << local_ptime<< std::endl;
         
     _neg = 0;
     _type = TIME_DATETIME;

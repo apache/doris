@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -191,7 +192,7 @@ public class Coordinator {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryGlobals.setNow_string(String.valueOf(new Date().getTime()));
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTime_zone("Asia/Shanghai");                      
+            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
         } else {
             this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());             
         }
@@ -215,7 +216,7 @@ public class Coordinator {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(String.valueOf(new Date().getTime()));
-        this.queryGlobals.setTime_zone("Asia/Shanghai");                      
+        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;

@@ -111,7 +111,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
     if (query_globals.__isset.time_zone) {
         _timezone = query_globals.time_zone;
     } else {
-        _timezone = "Asia/Shanghai";
+        _timezone = TimezoneDatabase::default_time_zone;
     }
 }
 
@@ -173,7 +173,7 @@ Status RuntimeState::init(
     if (query_globals.__isset.time_zone) {
         _timezone = query_globals.time_zone;
     } else {
-        _timezone = "Asia/Shanghai";
+        _timezone = TimezoneDatabase::default_time_zone;
     }
     _exec_env = exec_env;
 

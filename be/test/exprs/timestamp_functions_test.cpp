@@ -68,8 +68,6 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
 }
 
 TEST_F(TimestampFunctionsTest, time_diff_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
-    
     DateTimeValue dt1(20190718120000);
     dt1.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv1;
@@ -80,7 +78,7 @@ TEST_F(TimestampFunctionsTest, time_diff_test) {
     doris_udf::DateTimeVal tv2;
     dt2.to_datetime_val(&tv2);
     
-    ASSERT_EQ(-3662, TimestampFunctions::time_diff(context, tv1, tv2).val);
+    ASSERT_EQ(-3662, TimestampFunctions::time_diff(ctx, tv1, tv2).val);
 }
 
 TEST_F(TimestampFunctionsTest, now) {
@@ -101,7 +99,7 @@ TEST_F(TimestampFunctionsTest, to_unix) {
     dt_val.type = TIME_DATETIME;
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, dt_val).val);
-    //ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"), "%Y-%m-%d %H:%i:%S").val);
+    ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"), "%Y-%m-%d %H:%i:%S").val);
 }
 
 TEST_F(TimestampFunctionsTest, curtime) {

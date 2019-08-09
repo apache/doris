@@ -66,6 +66,8 @@ public class TimeUtils {
     public static int MIN_TIME;
     public static int MAX_TIME;
 
+    public static String DEFAULT_TIME_ZONE = "Asia/Shanghai";
+
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
         

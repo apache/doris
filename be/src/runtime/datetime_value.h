@@ -22,11 +22,6 @@
 
 #include <iostream>
 #include <cstddef>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/date_time/time_zone_base.hpp>
-#include <boost/date_time/local_time/local_time.hpp>
-#include <boost/thread/thread.hpp>
 
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
