@@ -452,8 +452,6 @@ public class LoadChecker extends Daemon {
                             TPushType type = TPushType.LOAD;
                             if (job.isSyncDeleteJob()) {
                                 type = TPushType.DELETE;
-                            } else if (job.getDeleteFlag()) {
-                                type = TPushType.LOAD_DELETE;
                             }
                             
                             // add task to batchTask

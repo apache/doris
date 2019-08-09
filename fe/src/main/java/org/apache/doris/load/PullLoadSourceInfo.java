@@ -34,7 +34,6 @@ import java.util.Map;
 /**
  * PullLoadSourceInfo
  */
-@Deprecated
 public class PullLoadSourceInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(PullLoadSourceInfo.class);
 

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
@@ -232,7 +233,8 @@ public class Load {
 
     // return true if we truly add the load job
     // return false otherwise (eg: a retry request)
-    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
+    @Deprecated
+    public boolean addMiniLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -295,8 +297,7 @@ public class Load {
         }
 
         DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths,
-                                                                             columnNames,
-                                                                             columnSeparator, formatType, false, null);
+                columnNames, columnSeparator, formatType, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -444,12 +445,7 @@ public class Load {
             }
 
             if (properties.containsKey(LoadStmt.LOAD_DELETE_FLAG_PROPERTY)) {
-                String flag = properties.get(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
-                if (flag.equalsIgnoreCase("true") || flag.equalsIgnoreCase("false")) {
-                    job.setDeleteFlag(Boolean.parseBoolean(flag));
-                } else {
-                    throw new DdlException("Value of delete flag is invalid");
-                }
+                throw new DdlException("Do not support load_delete_flag");
             }
 
             if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
@@ -467,7 +463,7 @@ public class Load {
         Map<Long, Map<Long, List<Source>>> tableToPartitionSources = Maps.newHashMap();
         for (DataDescription dataDescription : dataDescriptions) {
             // create source
-            checkAndCreateSource(db, dataDescription, tableToPartitionSources, job.getDeleteFlag(), etlJobType);
+            checkAndCreateSource(db, dataDescription, tableToPartitionSources, etlJobType);
             job.addTableName(dataDescription.getTableName());
         }
         for (Entry<Long, Map<Long, List<Source>>> tableEntry : tableToPartitionSources.entrySet()) {
@@ -594,10 +590,11 @@ public class Load {
         return job;
     }
 
+    /*
+     * This is used for both hadoop load and broker load v2
+     */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
-                                            boolean deleteFlag, EtlJobType jobType)
-            throws DdlException {
+            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -636,10 +633,6 @@ public class Load {
                 throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
             }
 
-            if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS && deleteFlag) {
-                throw new DdlException("Delete flag can only be used for UNIQUE_KEYS table");
-            }
-
             // get table schema
             List<Column> baseSchema = table.getBaseSchema();
 
@@ -663,9 +656,11 @@ public class Load {
             }
             source.setColumnNames(columnNames);
 
-            // check default value
             Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnToHadoopFunction();
-            for (Column column : tableSchema) {
+            List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
+
+            // check default value
+            for (Column column : baseSchema) {
                 String columnName = column.getName();
                 if (columnNames.contains(columnName)) {
                     continue;
@@ -679,18 +674,10 @@ public class Load {
                     continue;
                 }
 
-                if (deleteFlag && !column.isKey()) {
-                    List<String> args = Lists.newArrayList();
-                    args.add("0");
-                    Pair<String, List<String>> functionPair = new Pair<String, List<String>>("default_value", args);
-                    assignColumnToFunction.put(columnName, functionPair);
-                    continue;
-                }
-
                 throw new DdlException("Column has no default value. column: " + columnName);
             }
 
-            // check negative for sum aggreate type
+            // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
                 for (Column column : baseSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
@@ -713,19 +700,25 @@ public class Load {
             // convert mapping column and func arg columns to schema format
             
             // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
-            // their names. These columns are visible to user, but we need to generate data for these columns.
+            // their names. These columns are invisible to user, but we need to generate data for these columns.
             // So we add column mappings for these column.
             // eg:
             // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
-            // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = B);
+            // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
                 if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                    if (assignColumnToFunction == null) {
-                        assignColumnToFunction = Maps.newHashMap();
-                        dataDescription.setColumnToFunction(assignColumnToFunction);
+                    /*
+                     * There is a case that if user does not specify the related origin column, eg:
+                     * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                     * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                     * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                     */
+                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                    if (columnNames.contains(originCol)) {
+                        assignColumnToFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
+                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
+                        parsedColumnExprList.add(importColumnDesc);
                     }
-                    assignColumnToFunction.put(column.getName(), Pair.create("substitute",
-                            Lists.newArrayList(column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX))));
                 }
             }
             

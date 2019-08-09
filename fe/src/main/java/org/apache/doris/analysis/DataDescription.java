@@ -34,7 +34,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,11 +63,16 @@ import java.util.TreeSet;
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     public static String FUNCTION_HASH_HLL = "hll_hash";
-    private static final List<String> hadoopSupportFunctionName = Arrays.asList("strftime", "time_format",
-                                                                                "alignment_timestamp",
-                                                                                "default_value", "md5sum",
-                                                                                "replace_value", "now",
-                                                                                "hll_hash");
+    private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
+            "strftime",
+            "time_format",
+            "alignment_timestamp",
+            "default_value",
+            "md5sum",
+            "replace_value",
+            "now", "hll_hash",
+            "substitute");
+
     private final String tableName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
@@ -77,20 +81,24 @@ public class DataDescription {
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
+    // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
 
     // Used for mini load
     private TNetworkAddress beAddr;
     private String lineDelimiter;
 
-    // This param only include the hadoop function which need to be checked in the future.
-    // For hadoop load, this param is also used to persistence.
-    private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
-    /**
+    /*
      * Merged from columns and columnMappingList
      * ImportColumnDesc: column name to expr or null
-     **/
-    private List<ImportColumnDesc> parsedColumnExprList;
+     */
+    private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
+    /*
+     * This param only include the hadoop function which need to be checked in the future.
+     * For hadoop load, this param is also used to persistence.
+     * The function in this param is copied from 'parsedColumnExprList'
+     */
+    private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newHashMap();
 
     private boolean isHadoopLoad = false;
 
@@ -164,12 +172,8 @@ public class DataDescription {
     }
 
     public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-
         if (Strings.isNullOrEmpty(functionName) || pair == null) {
             return;
-        }
-        if (columnToHadoopFunction == null) {
-            columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         }
         columnToHadoopFunction.put(functionName, pair);
     }
@@ -203,7 +207,6 @@ public class DataDescription {
         // merge columns exprs from columns and columnMappingList
         // used to check duplicated column name
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
         for (String columnName : columns) {
             if (!columnNames.add(columnName)) {
@@ -213,16 +216,14 @@ public class DataDescription {
             parsedColumnExprList.add(importColumnDesc);
         }
 
-
         if (columnMappingList == null || columnMappingList.isEmpty()) {
             return;
         }
+
         // Step2: analyze column mapping
         // the column expr only support the SlotRef or eq binary predicate which's child(0) must be a SloRef.
         // the duplicate column name of SloRef is forbidden.
-        columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (Expr columnExpr : columnMappingList) {
-
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
                                                     + "Expr: " + columnExpr.toSql());
@@ -250,14 +251,13 @@ public class DataDescription {
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
             analyzeColumnToHadoopFunction(column, child1);
-
         }
     }
 
     private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
         String functionName = functionCallExpr.getFnName().getFunction();
-        if (!hadoopSupportFunctionName.contains(functionName.toLowerCase())) {
+        if (!HADOOP_SUPPORT_FUNCTION_NAMES.contains(functionName.toLowerCase())) {
             return;
         }
         List<Expr> paramExprs = functionCallExpr.getParams().exprs();
