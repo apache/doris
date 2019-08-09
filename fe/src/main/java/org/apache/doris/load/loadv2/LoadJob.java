@@ -773,6 +773,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void onTaskFailed(long taskId, FailMsg failMsg) {
     }
 
+    // This analyze will be invoked after the replay is finished.
+    // The edit log of LoadJob saves the origin param which is not analyzed.
+    // So, the re-analyze must be invoked between the replay is finished and LoadJobScheduler is started.
+    // Only, the PENDING load job need to be analyzed.
+    public void analyze() {
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == this) {

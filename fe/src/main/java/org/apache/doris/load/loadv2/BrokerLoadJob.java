@@ -21,6 +21,8 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -29,9 +31,11 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
@@ -54,6 +58,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +77,10 @@ public class BrokerLoadJob extends LoadJob {
     // input params
     private List<DataDescription> dataDescriptions = Lists.newArrayList();
     private BrokerDesc brokerDesc;
+    // this param is used to persist the expr of columns
+    // the origin stmt is persisted instead of columns expr
+    // the expr of columns will be reanalyze when the log is replayed
+    private String originStmt;
 
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
@@ -83,17 +92,19 @@ public class BrokerLoadJob extends LoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions)
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions,
+                         String originStmt)
             throws MetaNotFoundException {
         super(dbId, label);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
+        this.originStmt = originStmt;
         this.jobType = EtlJobType.BROKER;
         this.authorizationInfo = gatherAuthInfo();
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, String originStmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
@@ -106,7 +117,8 @@ public class BrokerLoadJob extends LoadJob {
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                            stmt.getBrokerDesc(), stmt.getDataDescriptions());
+                                                            stmt.getBrokerDesc(), stmt.getDataDescriptions(),
+                                                            originStmt);
             brokerLoadJob.setJobProperties(stmt.getProperties());
             brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;
@@ -235,6 +247,38 @@ public class BrokerLoadJob extends LoadJob {
         }
 
         logFinalOperation();
+    }
+
+    /**
+     * If the db or table could not be found, the Broker load job will be cancelled.
+     */
+    @Override
+    public void analyze() {
+        if (originStmt == null) {
+            return;
+        }
+        // Reset dataSourceInfo, it will be re-created in analyze
+        dataSourceInfo = new PullLoadSourceInfo();
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt)));
+        LoadStmt stmt = null;
+        try {
+            stmt = (LoadStmt) parser.parse().value;
+            for (DataDescription dataDescription : stmt.getDataDescriptions()) {
+                dataDescription.analyzeWithoutCheckPriv();
+            }
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            if (db == null) {
+                throw new DdlException("Database[" + dbId + "] does not exist");
+            }
+            setDataSourceInfo(db, stmt.getDataDescriptions());
+        } catch (Exception e) {
+            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("origin_stmt", originStmt)
+                             .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
+                                     + e.getMessage())
+                             .build(), e);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false);
+        }
     }
 
     /**
@@ -441,6 +485,7 @@ public class BrokerLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         dataSourceInfo.write(out);
+        Text.writeString(out, originStmt);
     }
 
     @Override
@@ -448,6 +493,13 @@ public class BrokerLoadJob extends LoadJob {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
         dataSourceInfo.readFields(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
+            originStmt = Text.readString(in);
+        }
+        // The origin stmt does not be analyzed in here.
+        // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
+        // The origin stmt will be analyzed after the replay is completed.
     }
 
 }

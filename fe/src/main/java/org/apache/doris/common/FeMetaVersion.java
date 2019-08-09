@@ -124,4 +124,6 @@ public final class FeMetaVersion {
     public static final int VERSION_56 = 56;
     // for base index using different id
     public static final int VERSION_57 = 57;
+    // broker load support function, persist origin stmt in broker load
+    public static final int VERSION_58 = 58;
 }
