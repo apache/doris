@@ -75,38 +75,10 @@
             
             SET:
 
-            如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。
-            目前支持的函数有：
-
-                strftime(fmt, column) 日期转换函数
-                    fmt: 日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
-                    column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
-                        如果没有column_list，则按照palo表的列顺序默认输入文件的列。
-                        注意：数字型的时间戳单位为秒。
-
-                time_format(output_fmt, input_fmt, column) 日期格式转化
-                    output_fmt: 转化后的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
-                    input_fmt: 转化前column列的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
-                    column: column_list中的列，即输入文件中的列。存储内容应为input_fmt格式的日期字符串。
-                        如果没有column_list，则按照palo表的列顺序默认输入文件的列。
-
-                alignment_timestamp(precision, column) 将时间戳对齐到指定精度
-                    precision: year|month|day|hour
-                    column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
-                        如果没有column_list，则按照palo表的列顺序默认输入文件的列。
-                        注意：对齐精度为year、month的时候，只支持20050101~20191231范围内的时间戳。
-
-                default_value(value) 设置某一列导入的默认值
-                    不指定则使用建表时列的默认值
-
-                md5sum(column1, column2, ...) 将指定的导入列的值求md5sum，返回32位16进制字符串                                
-
-                replace_value(old_value[, new_value]) 将导入文件中指定的old_value替换为new_value
-                    new_value如不指定则使用建表时列的默认值
-                    
-                hll_hash(column) 用于将表或数据里面的某一列转化成HLL列的数据结构
-
-                now() 设置某一列导入的数据为导入执行的时间点。该列必须为 DATE/DATETIME 类型。
+            如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。语法为 `column_name` = expression。举几个例子帮助理解。
+            例1: 表中有3个列“c1, c2, c3", 源文件中前两列依次对应(c1,c2)，后两列之和对应c3；那么需要指定 columns (c1,c2,tmp_c3,tmp_c4) SET (c3=tmp_c3+tmp_c4); 
+            例2: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式。
+            那么可以指定 columns(tmp_time) set (year = year(tmp_time), month=month(tmp_time), day=day(tmp_time)) 完成导入。
 
     3. broker_name
 
@@ -274,28 +246,20 @@
 
     6. 从 BOS 导入一批数据，指定分区, 并对导入文件的列做一些转化，如下：
        表结构为：
-        k1 datetime
-        k2 date
-        k3 bigint
-        k4 varchar(20)
-        k5 varchar(64)
-        k6 int
+        k1 varchar(20)
+        k2 int
 
         假设数据文件只有一行数据：
 
-        1537002087,2018-08-09 11:12:13,1537002087,-,1
+        Adele,1,1
 
         数据文件中各列，对应导入语句中指定的各列：
-        tmp_k1, tmp_k2, tmp_k3, k6, v1
+        k1,tmp_k2,tmp_k3
 
         转换如下：
 
-        1) k1：将 tmp_k1 时间戳列转化为 datetime 类型的数据
-        2) k2：将 tmp_k2 datetime 类型的数据转化为 date 的数据
-        3) k3：将 tmp_k3 时间戳列转化为天级别时间戳
-        4) k4：指定导入默认值为1
-        5) k5：将 tmp_k1、tmp_k2、tmp_k3 列计算 md5 值
-        6) k6：将导入文件中的 - 值替换为 10
+        1) k1: 不变换
+        2) k2：是 tmp_k2 和 tmp_k3 数据之和
 
         LOAD LABEL example_db.label6
         (
@@ -303,14 +267,9 @@
         INTO TABLE `my_table`
         PARTITION (p1, p2)
         COLUMNS TERMINATED BY ","
-        (tmp_k1, tmp_k2, tmp_k3, k6, v1)
+        (k1, tmp_k2, tmp_k3)
         SET (
-          k1 = strftime("%Y-%m-%d %H:%i:%S", tmp_k1),
-          k2 = time_format("%Y-%m-%d %H:%i:%S", "%Y-%m-%d", tmp_k2),
-          k3 = alignment_timestamp("day", tmp_k3), 
-          k4 = default_value("1"), 
-          k5 = md5sum(tmp_k1, tmp_k2, tmp_k3),
-          k6 = replace_value("-", "10")
+          k2 = tmp_k2 + tmp_k3
         )
         )
         WITH BROKER my_bos_broker

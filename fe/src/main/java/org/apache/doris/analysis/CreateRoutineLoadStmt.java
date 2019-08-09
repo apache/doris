@@ -220,7 +220,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, name);
         // check load properties include column separator etc.
-        checkLoadProperties(analyzer);
+        checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -236,7 +236,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
     }
 
-    public void checkLoadProperties(Analyzer analyzer) throws UserException {
+    public void checkLoadProperties() throws UserException {
         if (loadPropertyList == null) {
             return;
         }

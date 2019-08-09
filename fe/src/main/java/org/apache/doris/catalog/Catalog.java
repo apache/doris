@@ -1083,7 +1083,7 @@ public class Catalog {
         LoadChecker.startAll();
 
         // New load scheduler
-        loadManager.submitJobs();
+        loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
 
