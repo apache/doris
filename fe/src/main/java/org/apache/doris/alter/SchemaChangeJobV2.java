@@ -237,12 +237,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // create replicas failed. just cancel the job
             // clear tasks and show the failed replicas to user
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
-            List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-            // only show at most 10 results
-            List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
-            String idStr = Joiner.on(", ").join(subList);
-            LOG.warn("failed to create replicas for job: {}, {}", jobId, idStr);
-            cancel("Create replicas failed. Error replicas: " + idStr);
+            String errMsg = null;
+            if (!countDownLatch.getStatus().ok()) {
+                errMsg = countDownLatch.getStatus().getErrorMsg();
+            } else {
+                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                // only show at most 3 results
+                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
+            }
+            LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);
+            cancel("Create replicas failed. Error: " + errMsg);
             return;
         }
 

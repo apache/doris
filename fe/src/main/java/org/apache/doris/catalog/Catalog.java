@@ -3290,6 +3290,7 @@ public class Catalog {
 
                 // estimate timeout
                 long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+                timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
                 try {
                     ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
@@ -3297,19 +3298,25 @@ public class Catalog {
                     ok = false;
                 }
 
-                if (!ok) {
-                    errMsg = "Failed to create partition[" + partitionName + "]. Timeout";
+                if (!ok || !countDownLatch.getStatus().ok()) {
+                    errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
                     // clear tasks
                     List<AgentTask> tasks = batchTask.getAllTasks();
                     for (AgentTask task : tasks) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
                     }
 
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                    // only show at most 10 results
-                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
-                    String idStr = Joiner.on(", ").join(subList);
-                    LOG.warn("{}. unfinished marks: {}", errMsg, idStr);
+                    if (!countDownLatch.getStatus().ok()) {
+                        errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                    } else {
+                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                        // only show at most 3 results
+                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                        if (!subList.isEmpty()) {
+                            errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
+                        }
+                    }
+                    LOG.warn(errMsg);
                     throw new DdlException(errMsg);
                 }
             } else {

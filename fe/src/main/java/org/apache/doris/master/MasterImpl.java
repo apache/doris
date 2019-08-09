@@ -134,7 +134,8 @@ public class MasterImpl {
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION) {
+                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
+                        && taskType != TTaskType.CREATE) {
                     return result;
                 }
             }
@@ -233,24 +234,29 @@ public class MasterImpl {
         // if we get here, this task will be removed from AgentTaskQueue for certain.
         // because in this function, the only problem that cause failure is meta missing.
         // and if meta is missing, we no longer need to resend this task
+        try {
+            CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                createReplicaTask.countDownToZero(task.getBackendId() + ": " + request.getTask_status().getError_msgs().toString());
+            } else {
+                long tabletId = createReplicaTask.getTabletId();
 
-        CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
-        long tabletId = createReplicaTask.getTabletId();
-        
-        if (request.isSetFinish_tablet_infos()) {
-            Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
-                    createReplicaTask.getBackendId());
-            replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+                if (request.isSetFinish_tablet_infos()) {
+                        Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
+                                        createReplicaTask.getBackendId());
+                        replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+                }
+                
+                // this should be called before 'countDownLatch()'
+                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(), task.getDbId());
+                
+                createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
+                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                        tabletId, task.getBackendId(), request.getReport_version());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
         }
-
-        // this should be called before 'countDownLatch()'
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(),
-                task.getDbId());
-
-        createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-        LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                tabletId, task.getBackendId(), request.getReport_version());
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
     }
     
     private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
