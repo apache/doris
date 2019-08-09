@@ -90,7 +90,7 @@ public class LoadManager implements Writable{
      * @param stmt
      * @throws DdlException
      */
-    public void createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
+    public void createLoadJobFromStmt(LoadStmt stmt, String originStmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob = null;
@@ -104,7 +104,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
@@ -315,12 +315,6 @@ public class LoadManager implements Writable{
                          .build());
     }
 
-    public List<LoadJob> getLoadJobByState(JobState jobState) {
-        return idToLoadJob.values().stream()
-                .filter(entity -> entity.getState() == jobState)
-                .collect(Collectors.toList());
-    }
-
     public int getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
@@ -454,13 +448,22 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void submitJobs() {
+    public void prepareJobs() {
+        analyzeLoadJobs();
+        submitJobs();
+    }
+
+    private void submitJobs() {
         loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
     }
 
-    private Map<Long, LoadJob> getIdToLoadJobs() {
-        return idToLoadJob;
+    private void analyzeLoadJobs() {
+        for (LoadJob loadJob : idToLoadJob.values()) {
+            if (loadJob.getState() == JobState.PENDING) {
+                loadJob.analyze();
+            }
+        }
     }
 
     private Database checkDb(String dbName) throws DdlException {

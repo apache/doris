@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -77,7 +78,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.stream.Collectors;
 
 // Broker scan node
 public class BrokerScanNode extends ScanNode {
@@ -221,108 +221,6 @@ public class BrokerScanNode extends ScanNode {
                 (OlapTable) targetTable, exprByName, null, partitionExprs);
     }
 
-    private void parseExprMap(Map<String, Expr> exprMap) throws UserException {
-        if (exprMap == null) {
-            return;
-        }
-        for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
-            String colName = entry.getKey();
-            Expr originExpr = entry.getValue();
-
-            Column column = targetTable.getColumn(colName);
-            if (column == null) {
-                throw new UserException("Unknown column(" + colName + ")");
-            }
-
-            // To compatible with older load version
-            if (originExpr instanceof FunctionCallExpr) {
-                FunctionCallExpr funcExpr = (FunctionCallExpr) originExpr;
-                String funcName = funcExpr.getFnName().getFunction();
-
-                if (funcName.equalsIgnoreCase("replace_value")) {
-                    List<Expr> exprs = Lists.newArrayList();
-                    SlotRef slotRef = new SlotRef(null, entry.getKey());
-                    // We will convert this to IF(`col` != child0, `col`, child1),
-                    // because we need the if return type equal to `col`, we use NE
-                    //
-                    exprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
-                    exprs.add(slotRef);
-                    if (funcExpr.hasChild(1)) {
-                        exprs.add(funcExpr.getChild(1));
-                    } else {
-                        if (column.getDefaultValue() != null) {
-                            exprs.add(new StringLiteral(column.getDefaultValue()));
-                        } else {
-                            if (column.isAllowNull()) {
-                                exprs.add(NullLiteral.create(Type.VARCHAR));
-                            } else {
-                                throw new UserException("Column(" + colName + ") has no default value.");
-                            }
-                        }
-                    }
-                    FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
-                    entry.setValue(newFn);
-                } else if (funcName.equalsIgnoreCase("strftime")) {
-                    FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
-                    List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
-                    FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                            fromUnixName, new FunctionParams(false, fromUnixArgs));
-
-                    entry.setValue(fromUnixFunc);
-                } else if (funcName.equalsIgnoreCase("time_format")) {
-                    FunctionName strToDateName = new FunctionName("STR_TO_DATE");
-                    List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
-                    FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
-                            strToDateName, new FunctionParams(false, strToDateExprs));
-
-                    FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
-                    List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
-                    FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                            dateFormatName, new FunctionParams(false, dateFormatArgs));
-
-                    entry.setValue(dateFormatFunc);
-                } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
-                    FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
-                    List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
-                    FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                            fromUnixName, new FunctionParams(false, fromUnixArgs));
-
-                    StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
-                    StringLiteral format;
-                    if (precision.getStringValue().equalsIgnoreCase("year")) {
-                        format = new StringLiteral("%Y-01-01 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("month")) {
-                        format = new StringLiteral("%Y-%m-01 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("day")) {
-                        format = new StringLiteral("%Y-%m-%d 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
-                        format = new StringLiteral("%Y-%m-%d %H:00:00");
-                    } else {
-                        throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
-                    }
-                    FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
-                    List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
-                    FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                            dateFormatName, new FunctionParams(false, dateFormatArgs));
-
-                    FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
-                    List<Expr> unixTimeArgs = Lists.newArrayList();
-                    unixTimeArgs.add(dateFormatFunc);
-                    FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
-                            unixTimeName, new FunctionParams(false, unixTimeArgs));
-
-                    entry.setValue(unixTimeFunc);
-                } else if (funcName.equalsIgnoreCase("default_value")) {
-                    entry.setValue(funcExpr.getChild(0));
-                } else if (funcName.equalsIgnoreCase("now")) {
-                    FunctionName nowFunctionName = new FunctionName("NOW");
-                    FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
-                    entry.setValue(newFunc);
-                }
-            }
-        }
-    }
-
     // Called from init, construct source tuple information
     private void initParams(ParamCreateContext context) throws AnalysisException, UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
@@ -341,75 +239,208 @@ public class BrokerScanNode extends ScanNode {
         }
 
         params.setProperties(brokerDesc.getProperties());
+        initColumns(context);
+    }
 
-        // We must create a new map here, because we will change this map later.
-        // But fileGroup will be persisted later, so we keep it unchanged.
-        if (fileGroup.getExprColumnMap() != null) {
-            context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
-        } else {
-            context.exprMap = null;
-        }
-        parseExprMap(context.exprMap);
-
-        // Generate expr
-        List<String> fileFieldNames = fileGroup.getFileFieldNames();
-        if (fileFieldNames == null) {
-            fileFieldNames = Lists.newArrayList();
-            for (Column column : targetTable.getBaseSchema()) {
-                fileFieldNames.add(column.getName());
-            }
-        } else {
-            // change fileFiledName to real column name(case match)
-            fileFieldNames = fileFieldNames.stream().map(
-                    f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
-                            Collectors.toList());
-        }
-
-        // This tuple descriptor is used for file of
+    /**
+     * This method is used to calculate the slotDescByName and exprMap.
+     * The expr in exprMap is analyzed in this function.
+     * The smap of slot which belongs to expr will be analyzed by src desc.
+     * slotDescByName: the single slot from columns in load stmt
+     * exprMap: the expr from column mapping in load stmt.
+     * @param context
+     * @throws UserException
+     */
+    private void initColumns(ParamCreateContext context) throws UserException {
+        // This tuple descriptor is used for origin file
         TupleDescriptor srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         context.tupleDescriptor = srcTupleDesc;
-
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
         context.slotDescByName = slotDescByName;
-        for (String fieldName : fileFieldNames) {
-            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setIsNullable(false);
-            slotDesc.setColumn(new Column(fieldName, PrimitiveType.VARCHAR));
-            slotDescByName.put(fieldName, slotDesc);
 
-            params.addToSrc_slot_ids(slotDesc.getId().asInt());
+        TBrokerScanRangeParams params = context.params;
+        // there are no columns transform
+        List<ImportColumnDesc> originColumnNameToExprList = context.fileGroup.getColumnExprList();
+        if (originColumnNameToExprList == null || originColumnNameToExprList.isEmpty()) {
+            for (Column column : targetTable.getBaseSchema()) {
+                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                slotDesc.setIsMaterialized(true);
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable
+                slotDesc.setIsNullable(true);
+                slotDescByName.put(column.getName(), slotDesc);
+                params.addToSrc_slot_ids(slotDesc.getId().asInt());
+            }
+            params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
+            return;
+        }
+
+        // there are columns expr which belong to load
+        Map<String, Expr> columnNameToExpr = Maps.newHashMap();
+        context.exprMap = columnNameToExpr;
+        for (ImportColumnDesc originColumnNameToExpr : originColumnNameToExprList) {
+            // make column name case match with real column name
+            String columnName = originColumnNameToExpr.getColumnName();
+            Expr columnExpr = originColumnNameToExpr.getExpr();
+            String realColName = targetTable.getColumn(columnName) == null ? columnName
+                    : targetTable.getColumn(columnName).getName();
+            if (columnExpr != null) {
+                columnExpr = transformHadoopFunctionExpr(columnName, columnExpr);
+                columnNameToExpr.put(realColName, columnExpr);
+            } else {
+                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                slotDesc.setIsMaterialized(true);
+                // same as ISSUE A
+                slotDesc.setIsNullable(true);
+                params.addToSrc_slot_ids(slotDesc.getId().asInt());
+                slotDescByName.put(realColName, slotDesc);
+            }
+        }
+        // analyze all exprs
+        for (Map.Entry<String, Expr> entry : columnNameToExpr.entrySet()) {
+            ExprSubstitutionMap smap = new ExprSubstitutionMap();
+            List<SlotRef> slots = Lists.newArrayList();
+            entry.getValue().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
+                if (slotDesc == null) {
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                                                    + ", reference=" + slot.getColumnName());
+                }
+                smap.getLhs().add(slot);
+                smap.getRhs().add(new SlotRef(slotDesc));
+            }
+            Expr expr = entry.getValue().clone(smap);
+            expr.analyze(analyzer);
+
+            // check if contain aggregation
+            List<FunctionCallExpr> funcs = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, funcs);
+            for (FunctionCallExpr fn : funcs) {
+                if (fn.isAggregateFunction()) {
+                    throw new AnalysisException("Don't support aggregation function in load expression");
+                }
+            }
+
+            columnNameToExpr.put(entry.getKey(), expr);
         }
         params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
+
+    }
+
+    /**
+     * This method is used to transform hadoop function.
+     * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
+     * It rewrites those function with real function name and param.
+     * For the other function, the expr only go through this function and the origin expr is returned.
+     * @param columnName
+     * @param originExpr
+     * @return
+     * @throws UserException
+     */
+    private Expr transformHadoopFunctionExpr(String columnName, Expr originExpr) throws UserException {
+        Column column = targetTable.getColumn(columnName);
+        if (column == null) {
+            throw new UserException("Unknown column(" + columnName + ")");
+        }
+
+        // To compatible with older load version
+        if (originExpr instanceof FunctionCallExpr) {
+            FunctionCallExpr funcExpr = (FunctionCallExpr) originExpr;
+            String funcName = funcExpr.getFnName().getFunction();
+
+            if (funcName.equalsIgnoreCase("replace_value")) {
+                List<Expr> exprs = Lists.newArrayList();
+                SlotRef slotRef = new SlotRef(null, columnName);
+                // We will convert this to IF(`col` != child0, `col`, child1),
+                // because we need the if return type equal to `col`, we use NE
+                //
+                exprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
+                exprs.add(slotRef);
+                if (funcExpr.hasChild(1)) {
+                    exprs.add(funcExpr.getChild(1));
+                } else {
+                    if (column.getDefaultValue() != null) {
+                        exprs.add(new StringLiteral(column.getDefaultValue()));
+                    } else {
+                        if (column.isAllowNull()) {
+                            exprs.add(NullLiteral.create(Type.VARCHAR));
+                        } else {
+                            throw new UserException("Column(" + columnName + ") has no default value.");
+                        }
+                    }
+                }
+                FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
+                return newFn;
+            } else if (funcName.equalsIgnoreCase("strftime")) {
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                return fromUnixFunc;
+            } else if (funcName.equalsIgnoreCase("time_format")) {
+                FunctionName strToDateName = new FunctionName("STR_TO_DATE");
+                List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
+                FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
+                        strToDateName, new FunctionParams(false, strToDateExprs));
+
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                return dateFormatFunc;
+            } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
+                StringLiteral format;
+                if (precision.getStringValue().equalsIgnoreCase("year")) {
+                    format = new StringLiteral("%Y-01-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("month")) {
+                    format = new StringLiteral("%Y-%m-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("day")) {
+                    format = new StringLiteral("%Y-%m-%d 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
+                    format = new StringLiteral("%Y-%m-%d %H:00:00");
+                } else {
+                    throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
+                }
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
+                List<Expr> unixTimeArgs = Lists.newArrayList();
+                unixTimeArgs.add(dateFormatFunc);
+                FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
+                        unixTimeName, new FunctionParams(false, unixTimeArgs));
+
+                return unixTimeFunc;
+            } else if (funcName.equalsIgnoreCase("default_value")) {
+                return funcExpr.getChild(0);
+            } else if (funcName.equalsIgnoreCase("now")) {
+                FunctionName nowFunctionName = new FunctionName("NOW");
+                FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
+                return newFunc;
+            }
+        }
+        return originExpr;
     }
 
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
-        // Analyze expr map
-        if (exprMap != null) {
-            for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
-                ExprSubstitutionMap smap = new ExprSubstitutionMap();
-
-                List<SlotRef> slots = Lists.newArrayList();
-                entry.getValue().collect(SlotRef.class, slots);
-
-                for (SlotRef slot : slots) {
-                    SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
-                    if (slotDesc == null) {
-                        throw new UserException("Unknown slot");
-                    }
-                    smap.getLhs().add(slot);
-                    smap.getRhs().add(new SlotRef(slotDesc));
-                }
-
-                Expr expr = entry.getValue().clone(smap);
-                expr.analyze(analyzer);
-                exprMap.put(entry.getKey(), expr);
-            }
-        }
 
         boolean isNegative = context.fileGroup.isNegative();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
@@ -444,6 +475,21 @@ public class BrokerScanNode extends ScanNode {
                 }
             }
 
+            // check hll_hash
+            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                if (!(expr instanceof FunctionCallExpr)) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                }
+                FunctionCallExpr fn = (FunctionCallExpr) expr;
+                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                }
+                expr.setType(Type.HLL);
+            }
+
+            // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
                 expr.analyze(analyzer);

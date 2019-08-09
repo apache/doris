@@ -31,6 +31,8 @@ import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
 import mockit.NonStrictExpectations;
 import mockit.internal.startup.Startup;
@@ -69,15 +71,21 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
-        desc.analyze(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(desc);
+    public void testNormal(@Injectable DataDescription desc) throws UserException, AnalysisException {
+        List<DataDescription> dataDescriptionList = Lists.newArrayList();
+        dataDescriptionList.add(desc);
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null, null);
+        new Expectations(){
+            {
+                desc.toSql();
+                result = "XXX";
+            }
+        };
+
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
-        Assert.assertEquals(dataDescriptions, stmt.getDataDescriptions());
+        Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
         Assert.assertNull(stmt.getProperties());
 
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
