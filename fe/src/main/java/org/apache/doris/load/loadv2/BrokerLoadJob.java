@@ -76,7 +76,6 @@ public class BrokerLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
     // input params
-    private List<DataDescription> dataDescriptions = Lists.newArrayList();
     private BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
@@ -93,12 +92,10 @@ public class BrokerLoadJob extends LoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions,
-                         String originStmt)
+    private BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, String originStmt)
             throws MetaNotFoundException {
         super(dbId, label);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
-        this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.originStmt = originStmt;
         this.jobType = EtlJobType.BROKER;
@@ -118,8 +115,7 @@ public class BrokerLoadJob extends LoadJob {
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                            stmt.getBrokerDesc(), stmt.getDataDescriptions(),
-                                                            originStmt);
+                    stmt.getBrokerDesc(), originStmt);
             brokerLoadJob.setJobProperties(stmt.getProperties());
             brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;

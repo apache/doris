@@ -235,7 +235,7 @@ public class BrokerScanNode extends ScanNode {
         // there are no columns transform
         List<ImportColumnDesc> originColumnNameToExprList = context.fileGroup.getColumnExprList();
         if (originColumnNameToExprList == null || originColumnNameToExprList.isEmpty()) {
-            for (Column column : targetTable.getBaseSchema()) {
+            for (Column column : targetTable.getFullSchema()) {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 slotDesc.setIsMaterialized(true);
@@ -406,6 +406,8 @@ public class BrokerScanNode extends ScanNode {
                 FunctionName nowFunctionName = new FunctionName("NOW");
                 FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
                 return newFunc;
+            } else if (funcName.equalsIgnoreCase("substitute")) {
+                return funcExpr.getChild(0);
             }
         }
         return originExpr;

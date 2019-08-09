@@ -335,6 +335,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.fetchResource();
     }
 
+    @Deprecated
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
         LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",

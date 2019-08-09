@@ -313,7 +313,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // <TableId,<PartitionId,<LoadInfoList>>>
             Map<Long, Map<Long, List<Source>>> loadInfo = Maps.newHashMap();
             // only support broker load now
-            Load.checkAndCreateSource(db, dataDescription, loadInfo, false, jobType);
+            Load.checkAndCreateSource(db, dataDescription, loadInfo, jobType);
         }
     }
 
