@@ -25,8 +25,6 @@
 #include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 using std::list;
 using std::string;
@@ -66,11 +64,9 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     }
 
     bool eof = false;
-    MemTracker mem_tracker;
-    MemPool mem_pool(&mem_tracker);
+    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), &mem_pool);
 
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);

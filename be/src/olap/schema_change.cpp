@@ -575,7 +575,7 @@ bool RowBlockMerger::merge(
 
     _make_heap(row_block_arr);
 
-    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), nullptr);
+    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
         init_row_with_others(&row_cursor, *(_heap.top().row_cursor));
 

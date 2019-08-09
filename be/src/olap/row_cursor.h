@@ -59,8 +59,7 @@ public:
                              const std::vector<std::string>& keys);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
-    OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema,
-                                               MemPool* mem_pool = nullptr);
+    OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
 
     RowCursorCell cell(uint32_t cid) const {
         return RowCursorCell(nullable_cell_ptr(cid));
@@ -166,7 +165,6 @@ private:
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
-    bool _variable_buf_allocated_by_pool;
     std::vector<HllContext*> hll_contexts;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
