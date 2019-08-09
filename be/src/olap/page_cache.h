@@ -64,7 +64,7 @@ public:
     // Lookup the given page in the cache.
     //
     // If the page is found, the cache entry will be written into handle.
-    // PageCacheHandle will releaase cache entry to cache when it
+    // PageCacheHandle will release cache entry to cache when it
     // destructs.
     //
     // Return true if entry is found, otherwise return false.
