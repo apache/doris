@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
 #define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
 
+#include <string>
+
 #include "olap/compaction.h"
 
 namespace doris {
@@ -25,14 +27,18 @@ namespace doris {
 class CumulativeCompaction : public Compaction {
 public:
     CumulativeCompaction(TabletSharedPtr tablet);
-    ~CumulativeCompaction();
+    ~CumulativeCompaction() override;
 
     OLAPStatus compact() override;
     OLAPStatus pick_rowsets_to_compact() override;
-    OLAPStatus do_compaction() override;
     
+    const std::string& compaction_name() const override;
+    ReaderType compaction_type() const override;
+
 private:
     int64_t _cumulative_rowset_size_threshold;
+    std::string _compaction_name;
+    ReaderType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };

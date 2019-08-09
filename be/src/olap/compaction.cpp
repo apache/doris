@@ -30,6 +30,54 @@ Compaction::Compaction(TabletSharedPtr tablet)
 
 Compaction::~Compaction() { }
 
+OLAPStatus Compaction::do_compaction() {
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name();
+
+    OlapStopWatch watch;
+
+    // 1. prepare cumulative_version and cumulative_version
+    _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
+    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
+
+    RETURN_NOT_OK(construct_output_rowset_writer());
+    RETURN_NOT_OK(construct_input_rowset_readers());
+
+    Merger merger(_tablet, compaction_type(), _output_rs_writer, _input_rs_readers);
+    OLAPStatus res = merger.merge();
+
+    // 2. 如果merge失败，执行清理工作，返回错误码退出
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to do " << compaction_name()
+                     << ". res=" << res
+                     << ", tablet=" << _tablet->full_name()
+                     << ", output_version=" << _output_version.first
+                     << "-" << _output_version.second;
+        return res;
+    }
+
+    _output_rowset = _output_rs_writer->build();
+    if (_output_rowset == nullptr) {
+        LOG(WARNING) << "rowset writer build failed. writer version:"
+                     << ", output_version=" << _output_version.first
+                     << "-" << _output_version.second;
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+
+    // 3. check correctness
+    RETURN_NOT_OK(check_correctness(merger));
+
+    // 4. modify rowsets in memory
+    RETURN_NOT_OK(modify_rowsets());
+
+    LOG(INFO) << "succeed to do " << compaction_name()
+              << ". tablet=" << _tablet->full_name()
+              << ", output_version=" << _output_version.first
+              << "-" << _output_version.second
+              << ". elapsed time=" << watch.get_elapse_second() << "s.";
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Compaction::construct_output_rowset_writer() {
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));

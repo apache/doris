@@ -30,13 +30,18 @@ namespace doris {
 class BaseCompaction : public Compaction {
 public:
     BaseCompaction(TabletSharedPtr tablet);
-    ~BaseCompaction();
+    ~BaseCompaction() override;
 
     OLAPStatus compact() override;
     OLAPStatus pick_rowsets_to_compact() override;
-    OLAPStatus do_compaction() override;
+
+    const std::string& compaction_name() const override;
+    ReaderType compaction_type() const override;
 
 private:
+    std::string _compaction_name;
+    ReaderType _compaction_type;
+
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 

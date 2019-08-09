@@ -44,13 +44,14 @@ class Merger;
 class Compaction {
 public:
     Compaction(TabletSharedPtr tablet);
-    ~Compaction();
+    virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
-
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
-    virtual OLAPStatus do_compaction() = 0;
+    virtual const std::string& compaction_name() const = 0;
+    virtual ReaderType compaction_type() const = 0;
 
+    OLAPStatus do_compaction();
     OLAPStatus modify_rowsets();
     OLAPStatus gc_unused_rowsets();
 

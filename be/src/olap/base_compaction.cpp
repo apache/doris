@@ -21,7 +21,9 @@
 namespace doris {
 
 BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
-    : Compaction(tablet) { }
+    : Compaction(tablet),
+      _compaction_name("base compaction"),
+      _compaction_type(READER_BASE_COMPACTION) { }
 
 BaseCompaction::~BaseCompaction() { }
 
@@ -48,6 +50,7 @@ OLAPStatus BaseCompaction::compact() {
     // 4. garbage collect input rowsets after base compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
+    // 5. add metric to base compaction
     DorisMetrics::base_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::base_compaction_bytes_total.increment(_input_rowsets_size);
 
@@ -116,49 +119,12 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
 }
 
-OLAPStatus BaseCompaction::do_compaction() {
-    OlapStopWatch watch;
+const std::string& BaseCompaction::compaction_name() const {
+    return _compaction_name;
+}
 
-    // 1. prepare cumulative_version and cumulative_version
-    _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
-
-    RETURN_NOT_OK(construct_output_rowset_writer());
-    RETURN_NOT_OK(construct_input_rowset_readers());
-
-    Merger merger(_tablet, READER_BASE_COMPACTION, _output_rs_writer, _input_rs_readers);
-    OLAPStatus res = merger.merge();
-
-    // 3. 如果merge失败，执行清理工作，返回错误码退出
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to do base compaction. res=" << res
-                     << ", tablet=" << _tablet->full_name()
-                     << ", output_version=" << _output_version.first
-                     << "-" << _output_version.second;
-        return OLAP_ERR_BE_MERGE_ERROR;
-    }
-
-    _output_rowset = _output_rs_writer->build();
-    if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version.first
-                     << "-" << _output_version.second;
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-
-    // 3. check correctness
-    RETURN_NOT_OK(check_correctness(merger));
-
-    // 4. modify rowsets in memory
-    RETURN_NOT_OK(modify_rowsets());
-
-    LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first
-              << "-" << _output_version.second
-              << ". elapsed time of doing base compaction"
-              << ", time=" << watch.get_elapse_second() << "s";
-
-    return OLAP_SUCCESS;
+ReaderType BaseCompaction::compaction_type() const {
+    return _compaction_type;
 }
 
 }  // namespace doris

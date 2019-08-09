@@ -22,7 +22,9 @@ namespace doris {
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
     : Compaction(tablet),
-      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes)
+      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes),
+      _compaction_name("cumulative compaction"),
+      _compaction_type(READER_CUMULATIVE_COMPACTION)
 { }
 
 CumulativeCompaction::~CumulativeCompaction() { }
@@ -49,11 +51,14 @@ OLAPStatus CumulativeCompaction::compact() {
 
     // 4. set state to success
     _state = CompactionState::SUCCESS;
+
+    // 5. set cumulative point
     _tablet->set_cumulative_layer_point(_input_rowsets.back()->end_version() + 1);
     
-    // 5. garbage collect input rowsets after cumulative compaction 
+    // 6. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
 
+    // 7. add metric to cumulative compaction
     DorisMetrics::cumulative_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::cumulative_compaction_bytes_total.increment(_input_rowsets_size);
 
@@ -118,52 +123,12 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CumulativeCompaction::do_compaction() {
-    LOG(INFO) << "start cumulative compaction. tablet=" << _tablet->full_name();
+const std::string& CumulativeCompaction::compaction_name() const {
+    return _compaction_name;
+}
 
-    OlapStopWatch watch;
-
-    // 1. prepare cumulative_version and cumulative_version
-    _output_version = Version(_input_rowsets.front()->start_version(),
-                              _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
-    RETURN_NOT_OK(construct_output_rowset_writer());
-    RETURN_NOT_OK(construct_input_rowset_readers());
-
-    Merger merger(_tablet, READER_CUMULATIVE_COMPACTION, _output_rs_writer, _input_rs_readers);
-
-    // 2. merge input rowsets to output rowset
-    OLAPStatus res = merger.merge();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to do cumulative merge. res=" << res
-                     << ", tablet=" << _tablet->full_name()
-                     << ", output_version=" << _output_version.first
-                     << "-" << _output_version.second;
-        return res;
-    }
-
-    _output_rowset = _output_rs_writer->build();
-    if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed."
-                     << " output_version=" << _output_version.first
-                     << "-" << _output_version.second;
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-
-
-    // 3. check correctness
-    RETURN_NOT_OK(check_correctness(merger));
-
-    // 4. modify rowsets in memory
-    RETURN_NOT_OK(modify_rowsets());
-
-    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first
-              << "-" << _output_version.second
-              << ". elapsed time of doing cumulative compaction"
-              << ", time=" << watch.get_elapse_second() << "s";
-
-    return OLAP_SUCCESS;
+ReaderType CumulativeCompaction::compaction_type() const {
+    return _compaction_type;
 }
 
 }  // namespace doris
