@@ -48,7 +48,7 @@ private:
 };
 
 TEST_F(ExternalScanContextMgrTest, create_normal) {
-    std::shared_ptr<Context> context;
+    std::shared_ptr<ScanContext> context;
     ExternalScanContextMgr context_mgr(&_exec_env);
     context_mgr._is_stop = true;
     Status st = context_mgr.create_scan_context(&context);
@@ -57,7 +57,7 @@ TEST_F(ExternalScanContextMgrTest, create_normal) {
 }
 
 TEST_F(ExternalScanContextMgrTest, get_normal) {
-    std::shared_ptr<Context> context;
+    std::shared_ptr<ScanContext> context;
     ExternalScanContextMgr context_mgr(&_exec_env);
     context_mgr._is_stop = true;
     Status st = context_mgr.create_scan_context(&context);
@@ -65,7 +65,7 @@ TEST_F(ExternalScanContextMgrTest, get_normal) {
     ASSERT_TRUE(context != nullptr);
 
     std::string context_id = context->context_id;
-    std::shared_ptr<Context> result;
+    std::shared_ptr<ScanContext> result;
     st = context_mgr.get_scan_context(context_id, &result);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(context != nullptr);
@@ -73,7 +73,7 @@ TEST_F(ExternalScanContextMgrTest, get_normal) {
 
 TEST_F(ExternalScanContextMgrTest, get_abnormal) {
     std::string context_id = "not_exist";
-    std::shared_ptr<Context> result;
+    std::shared_ptr<ScanContext> result;
     ExternalScanContextMgr context_mgr(&_exec_env);
     context_mgr._is_stop = true;
     Status st = context_mgr.get_scan_context(context_id, &result);
@@ -82,7 +82,7 @@ TEST_F(ExternalScanContextMgrTest, get_abnormal) {
 }
 
 TEST_F(ExternalScanContextMgrTest, clear_context) {
-    std::shared_ptr<Context> context;
+    std::shared_ptr<ScanContext> context;
     ExternalScanContextMgr context_mgr(&_exec_env);
     context_mgr._is_stop = true;
     Status st = context_mgr.create_scan_context(&context);
@@ -93,7 +93,7 @@ TEST_F(ExternalScanContextMgrTest, clear_context) {
     st = context_mgr.clear_scan_context(context_id);
     ASSERT_TRUE(st.ok());
 
-    std::shared_ptr<Context> result;
+    std::shared_ptr<ScanContext> result;
     st = context_mgr.get_scan_context(context_id, &result);
     ASSERT_TRUE(!st.ok());
     ASSERT_TRUE(result == nullptr);

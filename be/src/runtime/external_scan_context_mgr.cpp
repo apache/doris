@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <functional>
+#include <vector>
 
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
@@ -33,9 +34,9 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(ex
                     std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
 }
 
-Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<Context>* p_context) {
+Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>* p_context) {
     std::string context_id = generate_uuid_string();
-    std::shared_ptr<Context> context(new Context(context_id));
+    std::shared_ptr<ScanContext> context(new ScanContext(context_id));
     // context->last_access_time  = time(NULL);
     {
         std::lock_guard<std::mutex> l(_lock);        
@@ -45,7 +46,7 @@ Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<Context>* p_c
     return Status::OK();
 }
 
-Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, std::shared_ptr<Context>* p_context) {
+Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, std::shared_ptr<ScanContext>* p_context) {
     {
         std::lock_guard<std::mutex> l(_lock);        
         auto iter = _active_contexts.find(context_id);
@@ -62,20 +63,24 @@ Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, s
 }
 
 Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id) {
-    std::shared_ptr<Context> context;
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _active_contexts.find(context_id);
-    if (iter != _active_contexts.end()) {
-        context = iter->second;
-        if (context == nullptr) {
-            _active_contexts.erase(context_id);
-            Status::OK();
+    std::shared_ptr<ScanContext> context;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto iter = _active_contexts.find(context_id);
+        if (iter != _active_contexts.end()) {
+            context = iter->second;
+            if (context == nullptr) {
+                _active_contexts.erase(context_id);
+                Status::OK();
+            }
+            iter = _active_contexts.erase(iter);
         }
+    }
+    if (context != nullptr) {
         // first cancel the fragment instance, just ignore return status
         _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
         // clear the fragment instance's related result queue
         _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
-        iter = _active_contexts.erase(iter);
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
     }
     return Status::OK();
@@ -85,6 +90,7 @@ void ExternalScanContextMgr::gc_expired_context() {
     while (!_is_stop) {
         std::this_thread::sleep_for(std::chrono::seconds(_scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
+        std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {
             std::lock_guard<std::mutex> l(_lock);
             for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
@@ -101,15 +107,17 @@ void ExternalScanContextMgr::gc_expired_context() {
                 // free context if context is idle for context->keep_alive_min
                 if (current_time - context->last_access_time > context->keep_alive_min * 60) {
                     LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
-                    // must cancel the fragment instance, otherwise return thrift transport TTransportException
-                    _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
-                    _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
+                    expired_contexts.push_back(context);
                     iter = _active_contexts.erase(iter);
                 } else {
                     ++iter; // advanced
                 }
             }
-
+        }
+        for (auto expired_context : expired_contexts) {
+            // must cancel the fragment instance, otherwise return thrift transport TTransportException
+            _exec_env->fragment_mgr()->cancel(expired_context->fragment_instance_id);
+            _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id);
         }
     }
 }

@@ -31,7 +31,7 @@
 
 namespace doris {
 
-struct Context {
+struct ScanContext {
 public:
     TUniqueId fragment_instance_id;
     int64_t offset;
@@ -40,8 +40,8 @@ public:
     std::mutex _local_lock;
     std::string context_id;
     short keep_alive_min;
-    Context(std::string id) : context_id(std::move(id)) {}
-    Context(const TUniqueId& fragment_id, int64_t offset) : fragment_instance_id(fragment_id), offset(offset) {}
+    ScanContext(std::string id) : context_id(std::move(id)) {}
+    ScanContext(const TUniqueId& fragment_id, int64_t offset) : fragment_instance_id(fragment_id), offset(offset) {}
 };
 
 class ExternalScanContextMgr {
@@ -55,9 +55,9 @@ public:
         _keep_alive_reaper->join();
     }
 
-    Status create_scan_context(std::shared_ptr<Context>* p_context);
+    Status create_scan_context(std::shared_ptr<ScanContext>* p_context);
 
-    Status get_scan_context(const std::string& context_id, std::shared_ptr<Context>* p_context);
+    Status get_scan_context(const std::string& context_id, std::shared_ptr<ScanContext>* p_context);
 
     Status clear_scan_context(const std::string& context_id);
 
@@ -65,7 +65,7 @@ public:
 private:
 
     ExecEnv* _exec_env;
-    std::map<std::string, std::shared_ptr<Context>> _active_contexts;
+    std::map<std::string, std::shared_ptr<ScanContext>> _active_contexts;
     void gc_expired_context();
     bool _is_stop;
     std::unique_ptr<std::thread> _keep_alive_reaper;

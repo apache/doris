@@ -110,10 +110,6 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
                 result->cols[i].byte_vals.push_back(*static_cast<int8_t*>(item));
                 break;
             case TYPE_SMALLINT:
-                if (!result->cols[i].__isset.short_vals) {
-                    std::vector<int16_t> tmp;
-                    result->cols[i].__set_short_vals(tmp);
-                }
                 result->cols[i].__isset.short_vals = true;
                 result->cols[i].short_vals.push_back(*static_cast<int16_t*>(item));
                 break;

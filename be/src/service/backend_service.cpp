@@ -273,7 +273,7 @@ void BackendService::submit_routine_load_task(
 void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
-    std::shared_ptr<Context> p_context;
+    std::shared_ptr<ScanContext> p_context;
     _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
@@ -299,7 +299,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
     std::string context_id = params.context_id;
     u_int64_t offset = params.offset;
     TStatus t_status;
-    std::shared_ptr<Context> context;
+    std::shared_ptr<ScanContext> context;
     Status context_st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
     if (!context_st.ok()) {
         context_st.to_thrift(&t_status);
