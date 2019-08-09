@@ -29,8 +29,6 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 using std::list;
 using std::map;
@@ -357,13 +355,11 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         }
 
         // 5. Read data from raw file and write into SegmentGroup of cur_tablet
-        MemTracker mem_tracker;
-        MemPool mem_pool(&mem_tracker);
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&row, &mem_pool);
+                res = reader->next(&row);
                 if (OLAP_SUCCESS != res) {
                     LOG(WARNING) << "read next row failed."
                         << " res=" << res << " read_rows=" << num_rows;
@@ -494,7 +490,7 @@ OLAPStatus BinaryReader::finalize() {
   return OLAP_SUCCESS;
 }
 
-OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
+OLAPStatus BinaryReader::next(RowCursor* row) {
   OLAPStatus res = OLAP_SUCCESS;
 
   if (!_ready || NULL == row) {
@@ -563,9 +559,9 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         column.type() == OLAP_FIELD_TYPE_VARCHAR ||
         column.type() == OLAP_FIELD_TYPE_HLL) {
       Slice slice(_row_buf + offset, field_size);
-      row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
+      row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
     } else {
-      row->set_field_content(i, _row_buf + offset, mem_pool);
+      row->set_field_content_shallow(i, _row_buf + offset);
     }
     offset += field_size;
   }
@@ -626,7 +622,7 @@ OLAPStatus LzoBinaryReader::finalize() {
   return OLAP_SUCCESS;
 }
 
-OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
+OLAPStatus LzoBinaryReader::next(RowCursor* row) {
   OLAPStatus res = OLAP_SUCCESS;
 
   if (!_ready || NULL == row) {
@@ -689,9 +685,9 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         column.type() == OLAP_FIELD_TYPE_VARCHAR ||
         column.type() == OLAP_FIELD_TYPE_HLL) {
       Slice slice(_row_buf + _next_row_start + offset, field_size);
-      row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
+      row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
     } else {
-      row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);
+      row->set_field_content_shallow(i, _row_buf + _next_row_start + offset);
     }
 
     offset += field_size;

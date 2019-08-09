@@ -81,10 +81,16 @@ public:
         column_schema(index)->to_index(&dst_cell, cell(index));
     }
 
-    // set field content without nullbyte
+    // deep copy field content (ignore null-byte)
     void set_field_content(size_t index, const char* buf, MemPool* mem_pool) {
         char* dest = cell_ptr(index);
-        column_schema(index)->copy_content(dest, buf, mem_pool);
+        column_schema(index)->deep_copy_content(dest, buf, mem_pool);
+    }
+
+    // shallow copy field content (ignore null-byte)
+    void set_field_content_shallow(size_t index, const char* buf) {
+        char* dst_cell = cell_ptr(index);
+        column_schema(index)->shallow_copy_content(dst_cell, buf);
     }
 
     // 从传入的字符串数组反序列化内部各field的值

@@ -568,8 +568,6 @@ bool RowBlockMerger::merge(
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
-    MemTracker mem_tracker;
-    MemPool mem_pool(&mem_tracker);
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
         goto MERGE_ERR;
@@ -577,13 +575,8 @@ bool RowBlockMerger::merge(
 
     _make_heap(row_block_arr);
 
-    // TODO: for now, string type in rowblock is not allocated
-    // memory during init procedure. So, copying content
-    // in row_cursor to rowblock is necessary
-    // That's not very memory-efficient!
+    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), nullptr);
     while (_heap.size() > 0) {
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), &mem_pool);
-
         init_row_with_others(&row_cursor, *(_heap.top().row_cursor));
 
         if (!_pop_heap()) {
@@ -624,10 +617,9 @@ MERGE_ERR:
 }
 
 bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
-    for (vector<RowBlock*>::const_iterator it = row_block_arr.begin();
-            it != row_block_arr.end(); ++it) {
+    for (auto row_block : row_block_arr) {
         MergeElement element;
-        element.row_block = *it;
+        element.row_block = row_block;
         element.row_block_index = 0;
         element.row_cursor = new(nothrow) RowCursor();
 
@@ -688,27 +680,19 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         const RowBlockChanger& row_block_changer) :
         _row_block_changer(row_block_changer),
         _row_block_allocator(nullptr),
-        _src_cursor(nullptr),
-        _dst_cursor(nullptr) { }
+        _cursor(nullptr) { }
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
-    SAFE_DELETE(_src_cursor);
-    SAFE_DELETE(_dst_cursor);
+    SAFE_DELETE(_cursor);
 }
 
-bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer,
-                                            RowBlock* row_block,
-                                            MemPool* mem_pool) {
+bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        row_block->get_row(i, _src_cursor);
-        // we don't use a local MemPool because before flush(), AlphaRowsetWriter may reference to object allocated
-        // inside MemPool. Note that BetaRowsetWriter doesn't have this problem, it always copies the entire row data in
-        // add_row(). So if AlphaRowsetWriter were fixed to not rely on data in MemPool, local MemPool could be used.
-        copy_row(_dst_cursor, *_src_cursor, mem_pool);
-        if (OLAP_SUCCESS != rowset_writer->add_row(*_dst_cursor)) {
-            LOG(WARNING) << "fail to attach writer";
+        row_block->get_row(i, _cursor);
+        if (OLAP_SUCCESS != rowset_writer->add_row(*_cursor)) {
+            LOG(WARNING) << "fail to write to new rowset for direct schema change";
             return false;
         }
     }
@@ -727,27 +711,14 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
     }
 
-    if (nullptr == _src_cursor) {
-        _src_cursor = new(nothrow) RowCursor();
-        if (nullptr == _src_cursor) {
+    if (nullptr == _cursor) {
+        _cursor = new(nothrow) RowCursor();
+        if (nullptr == _cursor) {
             LOG(WARNING) << "fail to allocate row cursor.";
             return false;
         }
 
-        if (OLAP_SUCCESS != _src_cursor->init(new_tablet->tablet_schema())) {
-            LOG(WARNING) << "fail to init row cursor.";
-            return false;
-        }
-    }
-
-    if (nullptr == _dst_cursor) {
-        _dst_cursor = new(nothrow) RowCursor();
-        if (nullptr == _dst_cursor) {
-            LOG(WARNING) << "fail to allocate row cursor.";
-            return false;
-        }
-
-        if (OLAP_SUCCESS != _dst_cursor->init(new_tablet->tablet_schema())) {
+        if (OLAP_SUCCESS != _cursor->init(new_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
@@ -776,11 +747,9 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     }
 
     VLOG(3) << "init writer. new_tablet=" << new_tablet->full_name()
-            << "block_row_number=" << new_tablet->num_rows_per_row_block();
+            << ", block_row_number=" << new_tablet->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = nullptr;
-    MemTracker mem_tracker;
-    MemPool mem_pool(&mem_tracker);
 
     // Reset filtered_rows and merged_rows statistic
     reset_merged_rows();
@@ -821,7 +790,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
         add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(rowset_writer, new_row_block, &mem_pool)) {
+        if (!_write_row_block(rowset_writer.get(), new_row_block)) {
             LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
@@ -2071,7 +2040,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                 return res;
             }
 
-            VLOG(10) << "A column with default value will be added after schema chaning. "
+            VLOG(10) << "A column with default value will be added after schema changing. "
                      << "column=" << column_name
                      << ", default_value=" << new_column.default_value();
             continue;
@@ -2088,8 +2057,8 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             return res;
         }
 
-        VLOG(3) << "A new schema delta is converted while droping column. "
-                << "Droped column will be assigned as '0' for the older schema. "
+        VLOG(3) << "A new schema delta is converted while dropping column. "
+                << "Dropped column will be assigned as '0' for the older schema. "
                 << "column=" << column_name;
     }
 
@@ -2145,7 +2114,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
     }
 
     if (base_tablet->delete_predicates().size() != 0){
-        //there exists delete condtion in header, can't do linked schema change
+        //there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
     }
 
@@ -2161,7 +2130,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (true == column_schema.is_nullable() && value.length() == 0) {
+    if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);

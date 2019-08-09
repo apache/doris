@@ -215,21 +215,20 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
             slice->size = column.length();
             variable_ptr += slice->size;
         } else if (type == OLAP_FIELD_TYPE_HLL) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
+            // slice.data points to serialized HLL, (slice.data - 8) points to HllContext object used to aggregate HLL
+            auto slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             HllContext* context = nullptr;
             if (mem_pool != nullptr) {
                 char* mem = reinterpret_cast<char*>(mem_pool->allocate(sizeof(HllContext)));
                 context = new (mem) HllContext;
             } else {
-                // store context addr, which will be freed
-                // in deconstructor if allocated by new function
                 context = new HllContext();
                 hll_contexts.push_back(context);
             }
 
             *(size_t*)(variable_ptr) = (size_t)(context);
             variable_ptr += sizeof(HllContext*);
-            slice->data = variable_ptr;
+            slice->data = variable_ptr; // serialized HLL will be populated when finalizing HllContext
             slice->size = HLL_COLUMN_DEFAULT_LEN;
             variable_ptr += slice->size;
         }

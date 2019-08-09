@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 
+#include "gutil/macros.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "gen_cpp/types.pb.h"
@@ -32,12 +33,14 @@ using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 
 class RowsetWriter {
 public:
-    virtual ~RowsetWriter() { }
+    RowsetWriter() = default;
+    virtual ~RowsetWriter() = default;
+    DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    // Note that `row` may reference to other memory objects (such as the actual slice data) that are not necessarily
-    // get copied inside add_row. It is the caller's responsibilities to ensure those objects are alive before flush().
+    // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
+    // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
     virtual OLAPStatus add_row(const RowCursor& row) = 0;
     virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
