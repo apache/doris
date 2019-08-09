@@ -21,8 +21,10 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
@@ -94,6 +96,14 @@ public class CreateReplicaTask extends AgentTask {
                 LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
                           latch.getCount(), backendId, tabletId);
             }
+        }
+    }
+
+    // call this always means one of tasks is failed. count down to zero to finish entire task
+    public void countDownToZero(String errMsg) {
+        if (this.latch != null) {
+            latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
+            LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
         }
     }
 

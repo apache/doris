@@ -207,8 +207,8 @@ public class RollupJobV2 extends AlterJobV2 {
         // send all tasks and wait them finished
         AgentTaskQueue.addBatchTask(batchTask);
         AgentTaskExecutor.submit(batchTask);
-        // max timeout is 30 seconds
-        long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 30000);
+        long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
+                Config.max_create_table_timeout_second * 1000L);
         boolean ok = false;
         try {
             ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -217,16 +217,21 @@ public class RollupJobV2 extends AlterJobV2 {
             ok = false;
         }
 
-        if (!ok) {
+        if (!ok || !countDownLatch.getStatus().ok()) {
             // create rollup replicas failed. just cancel the job
             // clear tasks and show the failed replicas to user
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
-            List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-            // only show at most 10 results
-            List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
-            String idStr = Joiner.on(", ").join(subList);
-            LOG.warn("failed to create rollup replicas for job: {}, {}", jobId, idStr);
-            cancel("Create rollup replicas failed. Error replicas: " + idStr);
+            String errMsg = null;
+            if (!countDownLatch.getStatus().ok()) {
+                errMsg = countDownLatch.getStatus().getErrorMsg();
+            } else {
+                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                // only show at most 3 results
+                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
+            }
+            LOG.warn("failed to create rollup replicas for job: {}, {}", jobId, errMsg);
+            cancel("Create rollup replicas failed. Error: " + errMsg);
             return;
         }
 
