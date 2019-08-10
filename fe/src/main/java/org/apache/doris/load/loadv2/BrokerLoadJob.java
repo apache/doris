@@ -108,26 +108,31 @@ public class BrokerLoadJob extends LoadJob {
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
-        // check data source info
-        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions(), EtlJobType.BROKER);
 
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
                     stmt.getBrokerDesc(), originStmt);
             brokerLoadJob.setJobProperties(stmt.getProperties());
-            brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
+            brokerLoadJob.checkAndDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
     }
 
-    private void setDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
-        for (DataDescription dataDescription : dataDescriptions) {
-            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-            fileGroup.parse(db);
-            dataSourceInfo.addFileGroup(fileGroup);
+    private void checkAndDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+        // check data source info
+        db.readLock();
+        try {
+            LoadJob.checkDataSourceInfo(db, dataDescriptions, EtlJobType.BROKER);
+            for (DataDescription dataDescription : dataDescriptions) {
+                BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+                fileGroup.parse(db);
+                dataSourceInfo.addFileGroup(fileGroup);
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
@@ -266,7 +271,7 @@ public class BrokerLoadJob extends LoadJob {
             if (db == null) {
                 throw new DdlException("Database[" + dbId + "] does not exist");
             }
-            setDataSourceInfo(db, stmt.getDataDescriptions());
+            checkAndDataSourceInfo(db, stmt.getDataDescriptions());
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("origin_stmt", originStmt)
@@ -480,7 +485,6 @@ public class BrokerLoadJob extends LoadJob {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         brokerDesc.write(out);
-        dataSourceInfo.write(out);
         Text.writeString(out, originStmt);
     }
 
@@ -488,7 +492,9 @@ public class BrokerLoadJob extends LoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
-        dataSourceInfo.readFields(in);
+        if (Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_58) {
+            dataSourceInfo.readFields(in);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
             originStmt = Text.readString(in);

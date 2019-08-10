@@ -252,62 +252,49 @@ public class BrokerScanNode extends ScanNode {
      * @throws UserException
      */
     private void initColumns(ParamCreateContext context) throws UserException {
-        // This tuple descriptor is used for origin file
-        TupleDescriptor srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
-        context.tupleDescriptor = srcTupleDesc;
-        Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
-        context.slotDescByName = slotDescByName;
-
-        TBrokerScanRangeParams params = context.params;
-
+        List<String> sourceFileColumns = context.fileGroup.getFileFieldNames();
         List<ImportColumnDesc> originColumnNameToExprList = context.fileGroup.getColumnExprList();
-        if (originColumnNameToExprList == null || originColumnNameToExprList.isEmpty()) {
-            // there are no columns transform
-            for (Column column : targetTable.getFullSchema()) {
-                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setIsMaterialized(true);
-                // ISSUE A: src slot should be nullable even if the column is not nullable.
-                // because src slot is what we read from file, not represent to real column value.
-                // If column is not nullable, error will be thrown when filling the dest slot,
-                // which is not nullable
-                slotDesc.setIsNullable(true);
-                slotDescByName.put(column.getName(), slotDesc);
-                params.addToSrc_slot_ids(slotDesc.getId().asInt());
-            }
-            params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
-            return;
-        }
+        // originColumnNameToExprList must has emlements. because it is always filled by user or by system 
+        Preconditions.checkState(originColumnNameToExprList != null && !originColumnNameToExprList.isEmpty());
 
-        // there are columns expr which belong to load
-        Map<String, Expr> columnNameToExpr = Maps.newHashMap();
-        context.exprMap = columnNameToExpr;
+        // 1. create source slots
+        context.tupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
+        context.slotDescByName = Maps.newHashMap();
+        for (String sourceColName : sourceFileColumns) {
+            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.tupleDescriptor);
+            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+            slotDesc.setIsMaterialized(true);
+            // src slot should be nullable even if the column is not nullable.
+            // because src slot is what we read from file, not represent to real column value.
+            // If column is not nullable, error will be thrown when filling the dest slot,
+            // which is not nullable
+            slotDesc.setIsNullable(true);
+            context.params.addToSrc_slot_ids(slotDesc.getId().asInt());
+            String realColName = targetTable.getColumn(sourceColName) == null ? sourceColName
+                    : targetTable.getColumn(sourceColName).getName();
+            context.slotDescByName.put(realColName, slotDesc);
+        }
+        context.params.setSrc_tuple_id(context.tupleDescriptor.getId().asInt());
+
+        // 2. handle column mapping exprs
+        context.exprMap = Maps.newHashMap();
         for (ImportColumnDesc originColumnNameToExpr : originColumnNameToExprList) {
-            // make column name case match with real column name
             String columnName = originColumnNameToExpr.getColumnName();
             Expr columnExpr = originColumnNameToExpr.getExpr();
             String realColName = targetTable.getColumn(columnName) == null ? columnName
                     : targetTable.getColumn(columnName).getName();
             if (columnExpr != null) {
                 columnExpr = transformHadoopFunctionExpr(columnName, columnExpr);
-                columnNameToExpr.put(realColName, columnExpr);
-            } else {
-                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setIsMaterialized(true);
-                // same as ISSUE A
-                slotDesc.setIsNullable(true);
-                params.addToSrc_slot_ids(slotDesc.getId().asInt());
-                slotDescByName.put(realColName, slotDesc);
+                context.exprMap.put(realColName, columnExpr);
             }
         }
-        // analyze all exprs
-        for (Map.Entry<String, Expr> entry : columnNameToExpr.entrySet()) {
+        // analyze all column mapping exprs
+        for (Map.Entry<String, Expr> entry : context.exprMap.entrySet()) {
             ExprSubstitutionMap smap = new ExprSubstitutionMap();
             List<SlotRef> slots = Lists.newArrayList();
             entry.getValue().collect(SlotRef.class, slots);
             for (SlotRef slot : slots) {
-                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
+                SlotDescriptor slotDesc = context.slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
                     throw new UserException("unknown reference column, column=" + entry.getKey()
                                                     + ", reference=" + slot.getColumnName());
@@ -326,10 +313,8 @@ public class BrokerScanNode extends ScanNode {
                     throw new AnalysisException("Don't support aggregation function in load expression");
                 }
             }
-
-            columnNameToExpr.put(entry.getKey(), expr);
+            context.exprMap.put(entry.getKey(), expr);
         }
-        params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
     }
 
     /**

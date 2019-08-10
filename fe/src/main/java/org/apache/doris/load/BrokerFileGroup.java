@@ -63,11 +63,11 @@ public class BrokerFileGroup implements Writable {
     private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
-    // this is a compatible param which only happens before the function of broker has been supported.
     private List<String> fileFieldNames;
     private List<String> filePaths;
 
     // this is a compatible param which only happens before the function of broker has been supported.
+    @Deprecated
     private Map<String, Expr> exprColumnMap;
     // this param will be recreated by data desc when the log replay
     private List<ImportColumnDesc> columnExprList;
@@ -89,6 +89,7 @@ public class BrokerFileGroup implements Writable {
     public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
         this.exprColumnMap = null;
+        this.fileFieldNames = dataDescription.getColumnNames();
         this.columnExprList = dataDescription.getParsedColumnExprList();
     }
 
@@ -171,6 +172,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<String> getFilePaths() {
         return filePaths;
+    }
+
+    public List<String> getFileFieldNames() {
+        return fileFieldNames;
     }
 
     public List<ImportColumnDesc> getColumnExprList() {

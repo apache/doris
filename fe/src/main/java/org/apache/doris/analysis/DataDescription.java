@@ -79,7 +79,7 @@ public class DataDescription {
     private final List<String> partitionNames;
     private final List<String> filePaths;
     // the column name list of data desc
-    private final List<String> columns;
+    private List<String> columns;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
@@ -203,21 +203,23 @@ public class DataDescription {
      * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if (columns == null || columns.isEmpty()) {
-            return;
-        }
-        // merge columns exprs from columns and columnMappingList
         // used to check duplicated column name
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+        // merge columns exprs from columns and columnMappingList
         // Step1: analyze columns
-        for (String columnName : columns) {
-            if (!columnNames.add(columnName)) {
-                throw new AnalysisException("Duplicate column : " + columnName);
+        if (columns != null && !columns.isEmpty()) {
+            // Step1: analyze columns
+            for (String columnName : columns) {
+                if (!columnNames.add(columnName)) {
+                    throw new AnalysisException("Duplicate column : " + columnName);
+                }
+                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
+                parsedColumnExprList.add(importColumnDesc);
             }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
-            parsedColumnExprList.add(importColumnDesc);
         }
 
+        // Step2: analyze column mapping
         if (columnMappingList == null || columnMappingList.isEmpty()) {
             return;
         }
@@ -492,11 +494,25 @@ public class DataDescription {
         analyzeColumns();
     }
 
+    /*
+     * If user does not specify COLUMNS in load stmt, we fill it here. 
+     * eg1:
+     * both COLUMNS and SET clause is empty. after fill:
+     * (k1,k2,k3)
+     * eg2:
+     * COLUMNS is empty, SET is not empty
+     * SET ( k2 = default_value("2") )
+     * after fill:
+     * (k1, __doris_tmp_0, k3)
+     * SET ( k2 = default_value("2") )
+     * 
+     * __doris_tmp_0 is a placeholder, which mean load process should skip that column in source file.
+     */
     public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
         if (columns != null && !columns.isEmpty()) {
             return;
         }
-        
+        columns = Lists.newArrayList();
         Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
             mappingColNames.add(importColumnDesc.getColumnName());
@@ -511,6 +527,7 @@ public class DataDescription {
                 columns.add("__doris_tmp_" + (placeholder++));
             }
         }
+        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", columns, parsedColumnExprList);
     }
 
     public String toSql() {

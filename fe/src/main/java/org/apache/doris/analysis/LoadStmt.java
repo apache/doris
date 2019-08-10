@@ -197,13 +197,13 @@ public class LoadStmt extends DdlStmt {
 
     }
 
-    private void analyzeVersion() {
+    private void analyzeVersion() throws AnalysisException {
         if (properties == null) {
             return;
         }
         final String versionProperty = properties.get(VERSION);
         if (versionProperty != null) {
-            version = Load.VERSION;
+            throw new AnalysisException("Do not support VERSION property");
         }
     }
 
