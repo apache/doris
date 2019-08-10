@@ -20,6 +20,7 @@
 
 #include <assert.h>
 #include <map>
+#include <vector>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -175,6 +176,14 @@ public:
 
     static int mem_compare(const void* a, const void* b, size_t n) {
         return memcmp(a, b, n);
+    }
+
+    static size_t compute_total_size(const std::vector<Slice>& slices) {
+        size_t total_size = 0;
+        for (auto& slice : slices) {
+            total_size += slice.size;
+        }
+        return total_size;
     }
 
 };

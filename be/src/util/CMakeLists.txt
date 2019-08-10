@@ -25,14 +25,12 @@ set(UTIL_FILES
   arena.cpp
   bfd_parser.cpp
   bitmap.cpp
-  codec.cpp
+  block_compression.cpp
   coding.cpp
-  compress.cpp
   cpu_info.cpp
   date_func.cpp
   dynamic_util.cpp
   debug_util.cpp
-  decompress.cpp
   disk_info.cpp
   errno.cpp
   hash_util.hpp

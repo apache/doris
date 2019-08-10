@@ -61,8 +61,9 @@ enum CompressionTypePB {
     NO_COMPRESSION = 2;
     SNAPPY = 3;
     LZ4 = 4;
-    ZLIB = 5;
-    ZSTB = 6;
+    LZ4F = 5;
+    ZLIB = 6;
+    ZSTB = 7;
 }
 
 message ZoneMapPB {

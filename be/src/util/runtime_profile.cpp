@@ -24,7 +24,6 @@
 #include <boost/foreach.hpp>
 
 #include "common/object_pool.h"
-#include "util/compress.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
