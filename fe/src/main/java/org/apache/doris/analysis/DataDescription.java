@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -35,6 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -522,6 +524,27 @@ public class DataDescription {
         }
 
         analyzeColumns();
+    }
+
+    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
+        if (columns != null && !columns.isEmpty()) {
+            return;
+        }
+        
+        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+            mappingColNames.add(importColumnDesc.getColumnName());
+        }
+
+        int placeholder = 0;
+        for (Column column : baseSchema) {
+            if (!mappingColNames.contains(column.getName())) {
+                columns.add(column.getName());
+                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
+            } else {
+                columns.add("__doris_tmp_" + (placeholder++));
+            }
+        }
     }
 
     public String toSql() {

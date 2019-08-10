@@ -637,6 +637,8 @@ public class Load {
             // get table schema
             List<Column> baseSchema = table.getBaseSchema();
 
+            dataDescription.fillColumnInfoIfNotSpecified(baseSchema);
+
             // source columns
             List<String> columnNames = Lists.newArrayList();
             List<String> assignColumnNames = Lists.newArrayList();

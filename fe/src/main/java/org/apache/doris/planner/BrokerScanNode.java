@@ -232,9 +232,10 @@ public class BrokerScanNode extends ScanNode {
         context.slotDescByName = slotDescByName;
 
         TBrokerScanRangeParams params = context.params;
-        // there are no columns transform
+
         List<ImportColumnDesc> originColumnNameToExprList = context.fileGroup.getColumnExprList();
         if (originColumnNameToExprList == null || originColumnNameToExprList.isEmpty()) {
+            // there are no columns transform
             for (Column column : targetTable.getFullSchema()) {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
@@ -303,7 +304,6 @@ public class BrokerScanNode extends ScanNode {
             columnNameToExpr.put(entry.getKey(), expr);
         }
         params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
-
     }
 
     /**
