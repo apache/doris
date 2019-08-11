@@ -39,7 +39,7 @@
             [PARTITION (p1, p2)]
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
-            [BASE_PATH AS "base_path"]
+            [COLUMNS FROM PATH AS (columns_from_path)]
             [(column_list)]
             [SET (k1 = func(k2))]
     
@@ -67,9 +67,11 @@
 
             用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
 
-            base_path:
+            columns_from_path:
 
-            用于指定作为Partition Discovery的基础路径。
+            用于指定需要从文件路径中解析的字段。
+            语法：
+            (col_from_path_name1, col_from_path_name2, ...)
  
             column_list：
 
@@ -367,36 +369,21 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password"); 
 
-    9. 通过Partition Discovery提取文件路径中的压缩字段
-        如果导入路径为目录，则递归地列出该目录下的所有parquet文件
-        如果需要，则会根据表中定义的字段类型解析文件路径中的partitioned fields，实现类似Spark中读parquet文件
-        1. 不指定Partition Discovery的基础路径（BASE_PATH）
-            LOAD LABEL example_db.label10
-            (
-            DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir")
-            INTO TABLE `my_table`
-            FORMAT AS "parquet"
-            (k1, k2, k3)
-            )
-            WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+    9. 提取文件路径中的压缩字段
+        如果需要，则会根据表中定义的字段类型解析文件路径中的压缩字段（partitioned fields），类似Spark中Partition Discovery的功能
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
+        INTO TABLE `my_table`
+        FORMAT AS "csv"
+        COLUMNS FROM PATH AS (city, utc_date)
+        (k1, k2, k3)
+        SET (uniq_id = md5sum(k1, city))
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-            hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/k1=key1/xxx.parquet, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/k1=key2/xxx.parquet, ...]
-            则会从文件path中提取k1对应的partitioned field的值，并完成数据导入
-
-        2. 指定Partition Discovery的基础路径（BASE_PATH）
-            LOAD LABEL example_db.label11
-            (
-            DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26")
-            INTO TABLE `my_table`
-            FORMAT AS "csv"
-            BASE_PATH AS "hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/"
-            (k1, k2, k3, utc_date，city)
-            SET (uniq_id = md5sum(k1, city))
-            )
-            WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
-            hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
-            假设CSV文件中仅包括3列（k1, k2和k3），则会根据base_path（hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/）提取文件路径的中的city和utc_date字段
+        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
+        则提取文件路径的中的city和utc_date字段
 
      
 ## keyword
