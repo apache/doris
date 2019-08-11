@@ -24,6 +24,7 @@
 #include <boost/bind.hpp>
 
 #include "agent/cgroups_mgr.h"
+#include "common/object_pool.h"
 #include "common/resource_tls.h"
 #include "service/backend_options.h"
 #include "runtime/plan_fragment_executor.h"
@@ -33,8 +34,11 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_util.h"
+#include "util/url_coding.h"
 #include "runtime/client_cache.h"
+#include "runtime/descriptors.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
@@ -545,6 +549,111 @@ void FragmentMgr::debug(std::stringstream& ss) {
             << "\t" << now.second_diff(it.second->start_time())
             << "\n";
     }
+}
+
+/*
+ * 1. resolve opaqued_query_plan to thrift structure
+ * 2. build TExecPlanFragmentParams
+ */
+Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns) {
+    const std::string& opaqued_query_plan = params.opaqued_query_plan;
+    std::string query_plan_info;
+    // base64 decode query plan
+    if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
+        LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
+        std::stringstream msg;
+        msg << "query_plan_info: " << query_plan_info << " validate error, should not be modified after returned Doris FE processed";
+        return Status::InvalidArgument(msg.str());
+    }
+    TQueryPlanInfo t_query_plan_info;
+    const uint8_t* buf = (const uint8_t*)query_plan_info.data();
+    uint32_t len = query_plan_info.size();
+    // deserialize TQueryPlanInfo
+    auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
+    if (!st.ok()) {
+        LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
+        std::stringstream msg;
+        msg << "query_plan_info: " << query_plan_info << " deserialize error, should not be modified after returned Doris FE processed";
+        return Status::InvalidArgument(msg.str());
+    }
+
+    // set up desc tbl
+    DescriptorTbl* desc_tbl = NULL;
+    ObjectPool obj_pool;
+    st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
+    if (!st.ok()) {
+        LOG(WARNING) << "open context error: extract DescriptorTbl failure";
+        std::stringstream msg;
+        msg << "query_plan_info: " << query_plan_info << " create DescriptorTbl error, should not be modified after returned Doris FE processed";
+        return Status::InvalidArgument(msg.str());
+    }
+    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    if (tuple_desc == nullptr) {
+        LOG(WARNING) << "open context error: extract TupleDescriptor failure";
+        std::stringstream msg;
+        msg << "query_plan_info: " << query_plan_info << " get  TupleDescriptor error, should not be modified after returned Doris FE processed";
+        return Status::InvalidArgument(msg.str());
+    }
+    // process selected columns form slots
+    for (const SlotDescriptor* slot : tuple_desc->slots()) {
+        TScanColumnDesc col;
+        col.__set_name(slot->col_name());
+        col.__set_type(to_thrift(slot->type().type));
+        selected_columns->emplace_back(std::move(col));
+    }
+
+    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: " << apache::thrift::ThriftDebugString(t_query_plan_info);
+    // assign the param used to execute PlanFragment
+    TExecPlanFragmentParams exec_fragment_params;
+    exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
+    exec_fragment_params.__set_fragment(t_query_plan_info.plan_fragment);
+    exec_fragment_params.__set_desc_tbl(t_query_plan_info.desc_tbl);
+
+    // assign the param used for executing of PlanFragment-self
+    TPlanFragmentExecParams fragment_exec_params;
+    fragment_exec_params.query_id = t_query_plan_info.query_id;
+    fragment_exec_params.fragment_instance_id = fragment_instance_id;
+    std::map<::doris::TPlanNodeId, std::vector<TScanRangeParams>> per_node_scan_ranges;
+    std::vector<TScanRangeParams> scan_ranges;
+    std::vector<int64_t> tablet_ids = params.tablet_ids;
+    TNetworkAddress address;
+    address.hostname = BackendOptions::get_localhost();
+    address.port = doris::config::be_port;
+    std::map<int64_t, TTabletVersionInfo> tablet_info = t_query_plan_info.tablet_info;
+    for (auto tablet_id : params.tablet_ids) {
+        TPaloScanRange scan_range;
+        scan_range.db_name = params.database;
+        scan_range.table_name = params.table;
+        auto iter = tablet_info.find(tablet_id);
+        if (iter != tablet_info.end()) {
+            TTabletVersionInfo info = iter->second;
+            scan_range.tablet_id = tablet_id;
+            scan_range.version = std::to_string(info.version);
+            scan_range.version_hash = std::to_string(info.version_hash);
+            scan_range.schema_hash = std::to_string(info.schema_hash);
+            scan_range.hosts.push_back(address);
+        } else {
+            std::stringstream msg;
+            msg << "tablet_id: " << tablet_id << " not found";
+            LOG(WARNING) << "tablet_id [ " << tablet_id << " ] not found";
+            return Status::NotFound(msg.str());
+        }
+        TScanRange doris_scan_range;
+        doris_scan_range.__set_palo_scan_range(scan_range);
+        TScanRangeParams scan_range_params;
+        scan_range_params.scan_range = doris_scan_range;
+        scan_ranges.push_back(scan_range_params);
+    }
+    per_node_scan_ranges.insert(std::make_pair((::doris::TPlanNodeId)0, scan_ranges));
+    fragment_exec_params.per_node_scan_ranges = per_node_scan_ranges;
+    exec_fragment_params.__set_params(fragment_exec_params);
+    // batch_size for one RowBatch
+    TQueryOptions query_options;
+    query_options.batch_size = params.batch_size;
+    exec_fragment_params.__set_query_options(query_options);
+    VLOG_ROW << "external exec_plan_fragment params is "
+             << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
+    return exec_plan_fragment(exec_fragment_params);
 }
 
 }

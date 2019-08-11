@@ -18,11 +18,16 @@
 #ifndef DORIS_BE_SERVICE_BACKEND_SERVICE_H
 #define DORIS_BE_SERVICE_BACKEND_SERVICE_H
 
+#include <map>
 #include <memory>
+#include <time.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include "agent/agent_server.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
-#include <thrift/protocol/TDebugProtocol.h>
+#include "gen_cpp/TDorisExternalService.h"
+#include "gen_cpp/DorisExternalService_types.h"
 
 namespace doris {
 
@@ -66,6 +71,8 @@ public:
     BackendService(ExecEnv* exec_env);
 
     virtual ~BackendService() {
+        // _is_stop = true;
+        // _keep_alive_reaper->join();
     }
 
     // NOTE: now we do not support multiple backend in one process
@@ -148,11 +155,22 @@ public:
     virtual void get_tablet_stat(TTabletStatResult& result) override;
 
     virtual void submit_routine_load_task(TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) override;
-private:
-    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 
+    // used for external service, open means start the scan procedure
+    virtual void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params);
+
+    // used for external service, external use getNext to fetch data batch after batch until eos = true
+    virtual void get_next(TScanBatchResult& result_, const TScanNextBatchParams& params);
+
+    // used for external service, close some context and release resource related with this context
+    virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params);
+
+private:
+
+    Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
     std::unique_ptr<AgentServer> _agent_server;
+
 };
 
 } // namespace doris
