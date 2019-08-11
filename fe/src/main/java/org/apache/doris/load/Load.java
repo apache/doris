@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LabelName;
@@ -635,7 +636,7 @@ public class Load {
 
             // get table schema
             List<Column> baseSchema = table.getBaseSchema();
-
+            // fill the column info if user does not specify them
             dataDescription.fillColumnInfoIfNotSpecified(baseSchema);
 
             // source columns
@@ -658,8 +659,12 @@ public class Load {
             }
             source.setColumnNames(columnNames);
 
-            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnToHadoopFunction();
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
             List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
+            Map<String, Expr> parsedColumnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                parsedColumnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+            }
 
             // check default value
             for (Column column : baseSchema) {
@@ -668,7 +673,7 @@ public class Load {
                     continue;
                 }
 
-                if (assignColumnToFunction != null && assignColumnToFunction.containsKey(columnName)) {
+                if (parsedColumnExprMap.containsKey(columnName)) {
                     continue;
                 }
 
@@ -691,7 +696,7 @@ public class Load {
             // check hll
             for (Column column : baseSchema) {
                 if (column.getDataType() == PrimitiveType.HLL) {
-                    if (assignColumnToFunction != null && !assignColumnToFunction.containsKey(column.getName())) {
+                    if (columnToHadoopFunction != null && !columnToHadoopFunction.containsKey(column.getName())) {
                         throw new DdlException("Hll column is not assigned. column:" + column.getName());
                     }
                 }
@@ -704,7 +709,7 @@ public class Load {
             // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
             // their names. These columns are invisible to user, but we need to generate data for these columns.
             // So we add column mappings for these column.
-            // eg:
+            // eg1:
             // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
@@ -716,21 +721,46 @@ public class Load {
                      * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
                      */
                     String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
-                    if (columnNames.contains(originCol)) {
-                        assignColumnToFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
+                    Expr mappingExpr = parsedColumnExprMap.get(originCol);
+                    if (mappingExpr != null) {
+                        /*
+                         * eg:
+                         * (A, C) SET (B = func(xx)) 
+                         * ->
+                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                         */
+                        if (columnToHadoopFunction.containsKey(originCol)) {
+                            columnToHadoopFunction.put(column.getName(), columnToHadoopFunction.get(originCol));
+                        }
+                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                        parsedColumnExprList.add(importColumnDesc);
+                    } else {
+                        /*
+                         * eg:
+                         * (A, B, C)
+                         * ->
+                         * (A, B, C) SET (__doris_shadow_B = substitute(B))
+                         */
+                        columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
                         ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
                         parsedColumnExprList.add(importColumnDesc);
                     }
+                    
                 }
             }
             
+            LOG.debug("after add shadow column. parsedColumnExprList: {}, columnToHadoopFunction: {}",
+                    parsedColumnExprList, columnToHadoopFunction);
+
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (String columnName : columnNames) {
                 columnNameMap.put(columnName, columnName);
             }
-            if (assignColumnToFunction != null) {
+
+            // validate hadoop functions
+            if (columnToHadoopFunction != null) {
                 columnToFunction = Maps.newHashMap();
-                for (Entry<String, Pair<String, List<String>>> entry : assignColumnToFunction.entrySet()) {
+                for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                     String mappingColumnName = entry.getKey();
                     Column mappingColumn = table.getColumn(mappingColumnName);
                     if (mappingColumn == null) {
@@ -3254,5 +3284,3 @@ public class Load {
         return num;
     }
 }
-
-
