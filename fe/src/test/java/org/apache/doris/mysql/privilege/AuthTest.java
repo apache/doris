@@ -75,6 +75,7 @@ public class AuthTest {
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
         auth = new PaloAuth();
+
         new NonStrictExpectations() {
             {
                 analyzer.getClusterName();

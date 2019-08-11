@@ -22,6 +22,7 @@ include "Status.thrift"
 include "Types.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
+include "DorisExternalService.thrift"
 
 struct TPullLoadSubTaskInfo {
     1: required Types.TUniqueId id
@@ -161,4 +162,14 @@ service BackendService {
     TTabletStatResult get_tablet_stat();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
+
+    // doris will build  a scan context for this session, context_id returned if success
+    DorisExternalService.TScanOpenResult open_scanner(1: DorisExternalService.TScanOpenParams params);
+
+    // return the batch_size of data
+    DorisExternalService.TScanBatchResult get_next(1: DorisExternalService.TScanNextBatchParams params);
+
+    // release the context resource associated with the context_id
+    DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
+
 }

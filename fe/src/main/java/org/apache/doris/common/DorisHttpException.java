@@ -15,32 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.common;
 
-import mockit.Mock;
-import mockit.MockUp;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
-public class FakeCatalog extends MockUp<Catalog> {
-    
-    private static Catalog catalog;
+public class DorisHttpException extends RuntimeException {
 
-    public static void setCatalog(Catalog catalog) {
-        FakeCatalog.catalog = catalog;
+    private HttpResponseStatus code;
+
+    public DorisHttpException() {
+        super("validation failed");
     }
-    
-    // @Mock
-    // public int getJournalVersion() {
-    // return FeMetaVersion.VERSION_45;
-    // }
-    
-    @Mock
-    private static Catalog getCurrentCatalog() {
-        System.out.println("fake get current catalog is called");
-        return catalog;
+
+    public DorisHttpException(HttpResponseStatus code, String msg) {
+        super(msg);
+        this.code = code;
     }
-    
-    @Mock
-    public static Catalog getInstance() {
-        return catalog;
+
+    public HttpResponseStatus getCode() {
+        return code;
     }
+
 }
