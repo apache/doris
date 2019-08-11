@@ -284,6 +284,7 @@ public class BrokerScanNode extends ScanNode {
             Expr columnExpr = originColumnNameToExpr.getExpr();
             Column col = targetTable.getColumn(columnName);
             if (col == null) {
+                // maybe 1) shadow column, 2) unknown column
                 if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                     /*
                      * The shadow column mapping expr is added when creating load job.
@@ -292,10 +293,15 @@ public class BrokerScanNode extends ScanNode {
                      * We can just ignore this shadow column's mapping expr, like it does not exist.
                      */
                     continue;
+                } else if (columnExpr == null) {
+                    // this is a unknown column, but the column expr is null, so we just consider it as
+                    // a placeholder column, ignore it
+                    continue;
                 }
+                // unknown column but has column expr, which is not allowed.
                 throw new UserException("Unknown column(" + columnName + ")");
             }
-
+            Preconditions.checkNotNull(col, columnName);
             String realColName = col.getName();
             if (columnExpr != null) {
                 columnExpr = transformHadoopFunctionExpr(columnName, columnExpr);
