@@ -420,8 +420,8 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
-        std::map<std::string, std::string> partition_columns = {{"k4", "1"}};
-        range.__set_partition_columns(partition_columns);
+        std::map<std::string, std::string> columns_from_path = {{"k4", "1"}};
+        range.__set_columns_from_path(columns_from_path);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
@@ -441,8 +441,8 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
-        std::map<std::string, std::string> partition_columns = {{"k4", "2"}};
-        range.__set_partition_columns(partition_columns);
+        std::map<std::string, std::string> columns_from_path = {{"k4", "2"}};
+        range.__set_columns_from_path(columns_from_path);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);

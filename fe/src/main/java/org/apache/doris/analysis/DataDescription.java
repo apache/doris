@@ -49,6 +49,7 @@ import java.util.Set;
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
 //          [FORMAT AS format]
+//          [COLUMNS FROM PATH AS (col1, ...)]
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
 public class DataDescription {
@@ -60,7 +61,7 @@ public class DataDescription {
     private final List<String> columnNames;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
-    private final String basePath;
+    private final List<String> columnsFromPath;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -86,7 +87,7 @@ public class DataDescription {
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
         this.fileFormat = null;
-        this.basePath = null;
+        this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -97,7 +98,7 @@ public class DataDescription {
                            List<String> columnNames,
                            ColumnSeparator columnSeparator,
                            String fileFormat,
-                           String basePath,
+                           List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this.tableName = tableName;
@@ -106,7 +107,7 @@ public class DataDescription {
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
         this.fileFormat = fileFormat;
-        this.basePath = basePath;
+        this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -142,8 +143,8 @@ public class DataDescription {
         return fileFormat;
     }
 
-    public String getBasePath() {
-        return basePath;
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
     }
 
     public String getColumnSeparator() {
@@ -209,11 +210,18 @@ public class DataDescription {
     }
 
     private void checkColumnInfo() throws AnalysisException {
-        if (columnNames == null || columnNames.isEmpty()) {
+        List<String> columns = Lists.newArrayList();
+        if (columnNames != null) {
+            columns.addAll(columnNames);
+        }
+        if (columnsFromPath != null) {
+            columns.addAll(columnsFromPath);
+        }
+        if (columns.isEmpty()) {
             return;
         }
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (String col : columnNames) {
+        for (String col : columns) {
             if (!columnSet.add(col)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col);
             }

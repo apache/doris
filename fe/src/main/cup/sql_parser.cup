@@ -191,7 +191,7 @@ parser code {:
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
-    KW_BACKEND, KW_BACKUP, KW_BASE_PATH, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
@@ -211,7 +211,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
-    KW_PARTITION, KW_PARTITIONS, KW_PRECEDING,
+    KW_PARTITION, KW_PARTITIONS, KW_PATH, KW_PRECEDING,
     KW_PASSWORD, KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
@@ -379,7 +379,7 @@ nonterminal LabelName job_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
-nonterminal List<String> opt_col_list, col_list, opt_dup_keys;
+nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<String> opt_partitions, partitions;
 nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
@@ -403,7 +403,7 @@ nonterminal List<AlterClause> alter_table_clause_list;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, opt_base_path;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format;
 
 nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
@@ -1050,11 +1050,11 @@ data_desc ::=
     opt_partitions:partitionNames
     opt_field_term:colSep
     opt_file_format:fileFormat
-    opt_base_path:basePath
+    opt_columns_from_path:columnsFromPath
     opt_col_list:colList
     opt_col_mapping_list:colMappingList
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, basePath, isNeg, colMappingList);
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, columnsFromPath, isNeg, colMappingList);
     :}
     ;
 
@@ -1111,11 +1111,11 @@ opt_file_format ::=
     {: RESULT = format; :}
     ;
 
-opt_base_path ::=
+opt_columns_from_path ::=
     /* Empty */
     {: RESULT = null; :}
-    | KW_BASE_PATH KW_AS ident_or_text:basePath
-    {: RESULT = basePath; :}
+    | KW_COLUMNS KW_FROM KW_PATH KW_AS LPAREN ident_list:columnsFromPath RPAREN
+    {: RESULT = columnsFromPath; :}
     ;
 
 opt_col_list ::=
@@ -3932,7 +3932,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FORMAT:id
     {: RESULT = id; :}
-    | KW_BASE_PATH:id
+    | KW_PATH:id
     {: RESULT = id; :}
     | KW_FUNCTION:id
     {: RESULT = id; :}

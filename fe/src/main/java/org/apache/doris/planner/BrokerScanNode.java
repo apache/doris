@@ -353,15 +353,20 @@ public class BrokerScanNode extends ScanNode {
         parseExprMap(context.exprMap);
 
         // Generate expr
-        List<String> fileFieldNames = fileGroup.getFileFieldNames();
-        if (fileFieldNames == null) {
-            fileFieldNames = Lists.newArrayList();
+        List<String> fieldNames = Lists.newArrayList();
+        if (fileGroup.getFileFieldNames() != null) {
+            fieldNames.addAll(fileGroup.getFileFieldNames());
+        }
+        if (fileGroup.getColumnsFromPath() != null) {
+            fieldNames.addAll(fileGroup.getColumnsFromPath());
+        }
+        if (fieldNames.isEmpty()) {
             for (Column column : targetTable.getBaseSchema()) {
-                fileFieldNames.add(column.getName());
+                fieldNames.add(column.getName());
             }
         } else {
             // change fileFiledName to real column name(case match)
-            fileFieldNames = fileFieldNames.stream().map(
+            fieldNames = fieldNames.stream().map(
                     f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
                             Collectors.toList());
         }
@@ -372,7 +377,7 @@ public class BrokerScanNode extends ScanNode {
 
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
         context.slotDescByName = slotDescByName;
-        for (String fieldName : fileFieldNames) {
+        for (String fieldName : fieldNames) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
@@ -589,29 +594,15 @@ public class BrokerScanNode extends ScanNode {
         }
     }
 
-    private Map<String, String> parsePartitionedFields(String filePath, BrokerFileGroup fileGroup) {
-        String basePath = fileGroup.getBasePath();
-        if (basePath == null) {
-            // find the default base path
-            for (String base : fileGroup.getFilePaths()) {
-                if (base.endsWith("/*")) {
-                    base = base.substring(0, base.indexOf("/*"));
-                }
-                if (filePath.startsWith(base)) {
-                    basePath = base;
-                    break;
-                }
-            }
-        }
-
-        if (basePath == null || !filePath.startsWith(basePath)) {
+    private Map<String, String> parseColumnsFromPath(String filePath, BrokerFileGroup fileGroup) throws UserException {
+        List<String> columnsFromPath = fileGroup.getColumnsFromPath();
+        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<String> fileFieldNames = fileGroup.getFileFieldNames();
-        String subPath = filePath.substring(basePath.length());
-        String[] strings = subPath.split("/");
-        Map<String, String> partitionedFields = new HashMap<>();
-        for (String str : strings) {
+        String[] strings = filePath.split("/");
+        Map<String, String> columns = new HashMap<>();
+        for (int i = strings.length - 1; i >= 0; i--) {
+            String str = strings[i];
             if (str == null || str.isEmpty() || !str.contains("=")) {
                 continue;
             }
@@ -619,12 +610,18 @@ public class BrokerScanNode extends ScanNode {
             if (pair.length != 2) {
                 continue;
             }
-            if (!fileFieldNames.contains(pair[0])) {
+            if (!columnsFromPath.contains(pair[0])) {
                 continue;
             }
-            partitionedFields.put(pair[0], pair[1]);
+            columns.put(pair[0], pair[1]);
+            if (columns.size() > columnsFromPath.size()) {
+                break;
+            }
         }
-        return partitionedFields;
+        if (columns.size() != columnsFromPath.size()) {
+            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+        }
+        return columns;
     }
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
@@ -682,7 +679,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes, BrokerFileGroup fileGroup) {
+            TFileFormatType formatType, long rangeBytes, BrokerFileGroup fileGroup) throws UserException {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);
@@ -691,7 +688,7 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setStart_offset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setFile_size(fileStatus.size);
-        rangeDesc.setPartition_columns(parsePartitionedFields(fileStatus.path, fileGroup));
+        rangeDesc.setColumns_from_path(parseColumnsFromPath(fileStatus.path, fileGroup));
         return rangeDesc;
     }
 

@@ -58,10 +58,10 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
-    private String basePath;
     private boolean isNegative;
     private List<Long> partitionIds;
     private List<String> fileFieldNames;
+    private List<String> columnsFromPath;
     private List<String> filePaths;
 
     // This column need expression to get column
@@ -83,7 +83,7 @@ public class BrokerFileGroup implements Writable {
 
     public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
-        this.basePath = dataDescription.getBasePath();
+        this.columnsFromPath = dataDescription.getColumnsFromPath();
         exprColumnMap = dataDescription.getParsedExprMap();
     }
 
@@ -161,8 +161,8 @@ public class BrokerFileGroup implements Writable {
         return fileFormat;
     }
 
-    public String getBasePath() {
-        return basePath;
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
     }
 
     public boolean isNegative() {
@@ -211,10 +211,20 @@ public class BrokerFileGroup implements Writable {
             }
             sb.append("]");
         }
+        if (columnsFromPath != null) {
+            sb.append(",columnsFromPath=[");
+            int idx = 0;
+            for (String name : columnsFromPath) {
+                if (idx++ != 0) {
+                    sb.append(",");
+                }
+                sb.append(name);
+            }
+            sb.append("]");
+        }
         sb.append(",valueSeparator=").append(valueSeparator)
                 .append(",lineDelimiter=").append(lineDelimiter)
                 .append(",fileFormat=").append(fileFormat)
-                .append(",basePath=").append(basePath)
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;
@@ -259,6 +269,15 @@ public class BrokerFileGroup implements Writable {
                 Text.writeString(out, name);
             }
         }
+        // columnsFromPath
+        if (columnsFromPath == null) {
+            out.writeInt(0);
+        } else {
+            out.writeInt(columnsFromPath.size());
+            for (String name : columnsFromPath) {
+                Text.writeString(out, name);
+            }
+        }
         // filePaths
         out.writeInt(filePaths.size());
         for (String path : filePaths) {
@@ -281,13 +300,6 @@ public class BrokerFileGroup implements Writable {
         } else {
             out.writeBoolean(true);
             Text.writeString(out, fileFormat);
-        }
-        // basePath
-        if (basePath == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, basePath);
         }
     }
 
@@ -317,6 +329,16 @@ public class BrokerFileGroup implements Writable {
                 }
             }
         }
+        // columnsFromPath
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
+            int fileFieldNameSize = in.readInt();
+            if (fileFieldNameSize > 0) {
+                columnsFromPath = Lists.newArrayList();
+                for (int i = 0; i < fileFieldNameSize; ++i) {
+                    columnsFromPath.add(Text.readString(in));
+                }
+            }
+        }
         // fileInfos
         {
             int size = in.readInt();
@@ -340,12 +362,6 @@ public class BrokerFileGroup implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
             if (in.readBoolean()) {
                 fileFormat = Text.readString(in);
-            }
-        }
-        // basePath
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
-            if (in.readBoolean()) {
-                basePath = Text.readString(in);
             }
         }
     }

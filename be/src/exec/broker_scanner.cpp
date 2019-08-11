@@ -54,7 +54,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         _cur_decompressor(nullptr),
         _next_range(0),
         _cur_line_reader_eof(false),
-        _partition_columns(),
+        _columns_from_path(),
         _scanner_eof(false),
         _skip_next_line(false) {
 }
@@ -238,7 +238,7 @@ Status BrokerScanner::open_line_reader() {
     RETURN_IF_ERROR(create_decompressor(range.format_type));
 
     // set partitioned columns
-    _partition_columns = range.partition_columns;
+    _columns_from_path = range.columns_from_path;
 
     // open line reader
     switch (range.format_type) {
@@ -484,7 +484,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         split_line(line, &values);
     }
 
-    if (values.size() + _partition_columns.size() < _src_slot_descs.size()) {
+    if (values.size() + _columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -493,7 +493,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() + _partition_columns.size() > _src_slot_descs.size()) {
+    } else if (values.size() + _columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -507,8 +507,8 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     int file_column_index = 0;
     for (int i = 0; i < _src_slot_descs.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
-        auto iter = _partition_columns.find(slot_desc->col_name());
-        if (iter != _partition_columns.end()) {
+        auto iter = _columns_from_path.find(slot_desc->col_name());
+        if (iter != _columns_from_path.end()) {
             std::string partitioned_field = iter->second;
             const Slice value = Slice(partitioned_field.c_str(), partitioned_field.size());
             fill_slot(slot_desc, value);

@@ -34,8 +34,8 @@ namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::map<std::string, std::string>& partition_columns) :
-           _partition_columns(partition_columns), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::map<std::string, std::string>& columns_from_path) :
+           _columns_from_path(columns_from_path), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -128,8 +128,8 @@ Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tup
         if (iter != _map_column.end()) {
             _parquet_column_ids.emplace_back(iter->second);
         } else {
-            auto iter_1 = _partition_columns.find(slot_desc->col_name());
-            if (iter_1 == _partition_columns.end()) {
+            auto iter_1 = _columns_from_path.find(slot_desc->col_name());
+            if (iter_1 == _columns_from_path.end()) {
                 std::stringstream str_error;
                 str_error << "Invalid Column Name:" << slot_desc->col_name();
                 LOG(WARNING) << str_error.str();
@@ -214,12 +214,12 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
         size_t slots = tuple_slot_descs.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
-            auto iter = _partition_columns.find(slot_desc->col_name());
-            if (iter != _partition_columns.end()) {
+            auto iter = _columns_from_path.find(slot_desc->col_name());
+            if (iter != _columns_from_path.end()) {
                 std::string partitioned_field = iter->second;
                 value = reinterpret_cast<const uint8_t*>(partitioned_field.c_str());
-                wbtyes = partitioned_field.size();
-                fill_slot(tuple, slot_desc, mem_pool, value, wbtyes);
+                wbytes = partitioned_field.size();
+                fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
                 continue;
             } else {
                 column_index = index++; // column index in batch record
@@ -419,8 +419,8 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                         tm* local;
                         local = localtime(&timestamp);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
-                        wbtyes = (uint32_t)strftime(to, 64, "%Y-%m-%d", local);
-                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbtyes);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
                 }
@@ -434,8 +434,8 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                         tm* local;
                         local = localtime(&timestamp);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
-                        wbtyes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", local);
-                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbtyes);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
                 }
