@@ -1043,4 +1043,29 @@ public class OlapTable extends Table {
         }
         return backendsPerBucketSeq;
     }
+
+    /**
+     * Get the proximate row count of this table, if you need accurate row count should select count(*) from table.
+     * @return proximate row count
+     */
+    public long proximateRowCount() {
+        long totalCount = 0;
+        for (Partition partition : getPartitions()) {
+            long version = partition.getVisibleVersion();
+            long versionHash = partition.getVisibleVersionHash();
+            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (Tablet tablet : index.getTablets()) {
+                    long tabletRowCount = 0L;
+                    for (Replica replica : tablet.getReplicas()) {
+                        if (replica.checkVersionCatchUp(version, versionHash)
+                                && replica.getRowCount() > tabletRowCount) {
+                            tabletRowCount = replica.getRowCount();
+                        }
+                    }
+                    totalCount += tabletRowCount;
+                }
+            }
+        }
+        return totalCount;
+    }
 }

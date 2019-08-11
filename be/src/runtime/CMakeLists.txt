@@ -100,6 +100,9 @@ set(RUNTIME_FILES
   routine_load/data_consumer_pool.cpp
   routine_load/routine_load_task_executor.cpp
   small_file_mgr.cpp
+  result_queue_mgr.cpp
+  memory_scratch_sink.cpp
+  external_scan_context_mgr.cpp
 )
 
 if (WITH_MYSQL)

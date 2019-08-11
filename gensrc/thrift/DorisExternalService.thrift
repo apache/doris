@@ -62,7 +62,9 @@ struct TScanRowBatch {
 struct TTabletVersionInfo {
   1: required i64 tablet_id
   2: required i64 version
-  3: required i64 versionHash
+  3: required i64 version_hash
+  // i32 for historical reason
+  4: required i32 schema_hash
 }
 
 struct TQueryPlanInfo {
@@ -105,6 +107,8 @@ struct TScanOpenParams {
   9: optional string user
 
   10: optional string passwd
+    // max keep alive time min
+  11: optional i16 keep_alive_min
 }
 
 
@@ -152,11 +156,11 @@ struct TScanCloseResult {
 // scan service expose ability of scanning data ability to other compute system
 service TDorisExternalService {
     // doris will build  a scan context for this session, context_id returned if success
-    TScanOpenResult open(1: TScanOpenParams params);
+    TScanOpenResult open_scanner(1: TScanOpenParams params);
 
     // return the batch_size of data
-    TScanBatchResult getNext(1: TScanNextBatchParams params);
+    TScanBatchResult get_next(1: TScanNextBatchParams params);
 
     // release the context resource associated with the context_id
-    TScanCloseResult close(1: TScanCloseParams params);
+    TScanCloseResult close_scanner(1: TScanCloseParams params);
 }
