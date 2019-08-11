@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -254,8 +255,21 @@ public class BrokerScanNode extends ScanNode {
         for (ImportColumnDesc originColumnNameToExpr : originColumnNameToExprList) {
             String columnName = originColumnNameToExpr.getColumnName();
             Expr columnExpr = originColumnNameToExpr.getExpr();
-            String realColName = targetTable.getColumn(columnName) == null ? columnName
-                    : targetTable.getColumn(columnName).getName();
+            Column col = targetTable.getColumn(columnName);
+            if (col == null) {
+                if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                    /*
+                     * The shadow column mapping expr is added when creating load job.
+                     * But the load job is being actually scheduled, the schema change may already finished.
+                     * So the shadow column may not be found here.
+                     * We can just ignore this shadow column's mapping expr, like it does not exist.
+                     */
+                    continue;
+                }
+                throw new UserException("Unknown column(" + columnName + ")");
+            }
+
+            String realColName = col.getName();
             if (columnExpr != null) {
                 columnExpr = transformHadoopFunctionExpr(columnName, columnExpr);
                 context.exprMap.put(realColName, columnExpr);
@@ -288,6 +302,7 @@ public class BrokerScanNode extends ScanNode {
             }
             context.exprMap.put(entry.getKey(), expr);
         }
+        LOG.debug("after init column, exprMap: {}", context.exprMap);
     }
 
     /**

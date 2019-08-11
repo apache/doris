@@ -532,24 +532,24 @@ public class DataDescription {
      * __doris_tmp_0 is a placeholder, which mean load process should skip that column in source file.
      */
     public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
-        if (columns != null && !columns.isEmpty()) {
-            return;
-        }
-        columns = Lists.newArrayList();
-        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-            mappingColNames.add(importColumnDesc.getColumnName());
-        }
+        if (columns == null || columns.isEmpty()) {
+            columns = Lists.newArrayList();
+            Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                mappingColNames.add(importColumnDesc.getColumnName());
+            }
 
-        int placeholder = 0;
-        for (Column column : baseSchema) {
-            if (!mappingColNames.contains(column.getName())) {
-                columns.add(column.getName());
-                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
-            } else {
-                columns.add("__doris_tmp_" + (placeholder++));
+            int placeholder = 0;
+            for (Column column : baseSchema) {
+                if (!mappingColNames.contains(column.getName())) {
+                    columns.add(column.getName());
+                    parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
+                } else {
+                    columns.add("__doris_tmp_" + (placeholder++));
+                }
             }
         }
+
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", columns, parsedColumnExprList);
     }
 

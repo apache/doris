@@ -249,6 +249,7 @@ public class OlapTable extends Table {
                 }
             }
         }
+        LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
     }
 
     public boolean deleteIndexInfo(String indexName) {

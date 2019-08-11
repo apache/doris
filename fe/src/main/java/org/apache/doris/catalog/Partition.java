@@ -312,6 +312,11 @@ public class Partition extends MetaObject implements Writable {
             }
         }
 
+        out.writeInt(idToShadowIndex.size());
+        for (MaterializedIndex shadowIndex : idToShadowIndex.values()) {
+            shadowIndex.write(out);
+        }
+
         out.writeLong(visibleVersion);
         out.writeLong(visibleVersionHash);
 
@@ -337,6 +342,14 @@ public class Partition extends MetaObject implements Writable {
         for (int i = 0; i < rollupCount; ++i) {
             MaterializedIndex rollupTable = MaterializedIndex.read(in);
             idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
+        }
+        
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+            int shadowIndexCount = in.readInt();
+            for (int i = 0; i < shadowIndexCount; i++) {
+                MaterializedIndex shadowIndex = MaterializedIndex.read(in);
+                idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
+            }
         }
 
         visibleVersion = in.readLong();
