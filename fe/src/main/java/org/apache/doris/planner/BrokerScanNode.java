@@ -140,7 +140,7 @@ public class BrokerScanNode extends ScanNode {
     private List<ParamCreateContext> paramCreateContexts;
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
@@ -368,7 +368,7 @@ public class BrokerScanNode extends ScanNode {
             // change fileFiledName to real column name(case match)
             fieldNames = fieldNames.stream().map(
                     f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
-                            Collectors.toList());
+                    Collectors.toList());
         }
 
         // This tuple descriptor is used for file of
@@ -444,7 +444,7 @@ public class BrokerScanNode extends ScanNode {
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new UserException("Unknown slot ref("
-                                                            + destSlotDesc.getColumn().getName() + ") in source file");
+                                    + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
                 }
@@ -679,7 +679,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes, BrokerFileGroup fileGroup) throws UserException {
+                                                   TFileFormatType formatType, long rangeBytes, BrokerFileGroup fileGroup) throws UserException {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);

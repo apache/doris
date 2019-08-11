@@ -74,8 +74,8 @@ public class DataDescription {
 
     private boolean isPullLoad = false;
 
-    public DataDescription(String tableName, 
-                           List<String> partitionNames, 
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
                            List<String> filePaths,
                            List<String> columnNames,
                            ColumnSeparator columnSeparator,
@@ -468,10 +468,10 @@ public class DataDescription {
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
-                                                                PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), tableName);
         }
 
         if (filePaths == null || filePaths.isEmpty()) {

@@ -74,7 +74,7 @@ Status BrokerScanner::open() {
 
 Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    // Get one line 
+    // Get one line
     while (!_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
@@ -121,7 +121,7 @@ Status BrokerScanner::open_next_reader() {
     RETURN_IF_ERROR(open_file_reader());
     RETURN_IF_ERROR(open_line_reader());
     _next_range++;
-    
+
     return Status::OK();
 }
 
@@ -383,8 +383,8 @@ bool BrokerScanner::check_decimal_input(
 }
 
 bool is_null(const Slice& slice) {
-    return slice.size == 2 && 
-        slice.data[0] == '\\' && 
+    return slice.size == 2 &&
+        slice.data[0] == '\\' &&
         slice.data[1] == 'N';
 }
 
