@@ -38,7 +38,7 @@ AlphaRowsetWriter::AlphaRowsetWriter() :
 AlphaRowsetWriter::~AlphaRowsetWriter() {
     SAFE_DELETE(_column_data_writer);
     if (!_rowset_build) {
-        garbage_collection();
+        _garbage_collection();
     }
     for (auto& segment_group : _segment_groups) {
         segment_group->release();
@@ -222,23 +222,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     return rowset;
 }
 
-MemPool* AlphaRowsetWriter::mem_pool() {
-    if (_column_data_writer != nullptr) {
-        return _column_data_writer->mem_pool();
-    } else {
-        return nullptr;
-    }
-}
-
-Version AlphaRowsetWriter::version() {
-    return _rowset_writer_context.version;
-}
-
-int64_t AlphaRowsetWriter::num_rows() {
-    return _num_rows_written;
-}
-
-OLAPStatus AlphaRowsetWriter::garbage_collection() {
+OLAPStatus AlphaRowsetWriter::_garbage_collection() {
     for (auto& segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -249,10 +233,6 @@ OLAPStatus AlphaRowsetWriter::garbage_collection() {
         }
     }
     return OLAP_SUCCESS;
-}
-
-DataDir* AlphaRowsetWriter::data_dir() {
-    return _rowset_writer_context.data_dir;
 }
 
 OLAPStatus AlphaRowsetWriter::_init() {

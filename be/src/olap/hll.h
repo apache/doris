@@ -30,7 +30,7 @@ namespace doris {
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_EXPLICLIT_INT64_NUM = 160;
 const static int HLL_REGISTERS_COUNT = 16384;
-// registers (2^14) + 1 (type)
+// maximum size in byte of serialized HLL: type(1) + registers (2^14)
 const static int HLL_COLUMN_DEFAULT_LEN = 16385;
 
 struct HllContext {
