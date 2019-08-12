@@ -170,9 +170,9 @@ public class PathTrieTest {
                            @Injectable ExecuteEnv execEnv) {
         PathTrie pathTrie = new PathTrie();
         pathTrie.insert("/api/{db}/_multi_start", new MultiStart(controller, execEnv));
-        pathTrie.insert("/api/external/{cluster}/{database}/{table}/_count", new TableRowCountAction(controller));
-        pathTrie.insert("/api/external/{cluster}/{database}/{table}/_schema", new TableSchemaAction(controller));
-        pathTrie.insert("/api/external/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
+        pathTrie.insert("/api/{db}/{table}/_count", new TableRowCountAction(controller));
+        pathTrie.insert("/api/{db}/{table}/_schema", new TableSchemaAction(controller));
+        pathTrie.insert("/api/{db}/{table}/_query_plan", new TableQueryPlanAction(controller));
         Map<String, String> params = Maps.newHashMap();
         pathTrie.retrieve("/api/test/_multi_start", params);
         Assert.assertEquals("test", params.get("db"));
