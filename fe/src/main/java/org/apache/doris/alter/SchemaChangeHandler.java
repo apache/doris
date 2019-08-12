@@ -56,6 +56,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -1207,7 +1209,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> schemaChangeJobInfos = new LinkedList<List<Comparable>>();
         getOldAlterJobInfos(db, schemaChangeJobInfos);
-        getAlterJobV2Infos(schemaChangeJobInfos);
+        getAlterJobV2Infos(db, schemaChangeJobInfos);
 
         // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
@@ -1215,12 +1217,22 @@ public class SchemaChangeHandler extends AlterHandler {
         return schemaChangeJobInfos;
     }
 
-    private void getAlterJobV2Infos(List<List<Comparable>> schemaChangeJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
+        ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            if (alterJob.getDbId() != db.getId()) {
+                continue;
+            }
+            if (ctx != null) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, db.getFullName(), alterJob.getTableName(), PrivPredicate.ALTER)) {
+                    continue;
+                }
+            }
             alterJob.getInfo(schemaChangeJobInfos);
         }
     }
 
+    @Deprecated
     private void getOldAlterJobInfos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
         List<AlterJob> selectedJobs = Lists.newArrayList();
 

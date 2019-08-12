@@ -44,8 +44,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -563,7 +565,7 @@ public class RollupHandler extends AlterHandler {
         List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
 
         getOldAlterJobInfos(db, rollupJobInfos);
-        getAlterJobV2Infos(rollupJobInfos);
+        getAlterJobV2Infos(db, rollupJobInfos);
 
         // sort by
         // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
@@ -573,8 +575,17 @@ public class RollupHandler extends AlterHandler {
         return rollupJobInfos;
     }
 
-    private void getAlterJobV2Infos(List<List<Comparable>> rollupJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<List<Comparable>> rollupJobInfos) {
+        ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            if (alterJob.getDbId() != db.getId()) {
+                continue;
+            }
+            if (ctx != null) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, db.getFullName(), alterJob.getTableName(), PrivPredicate.ALTER)) {
+                    continue;
+                }
+            }
             alterJob.getInfo(rollupJobInfos);
         }
     }
