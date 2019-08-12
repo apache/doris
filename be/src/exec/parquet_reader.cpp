@@ -34,8 +34,8 @@ namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader) :
-           _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::map<std::string, std::string>& columns_from_path) :
+           _columns_from_path(columns_from_path), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -125,13 +125,17 @@ Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tup
     for (auto slot_desc : tuple_slot_descs) {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
-        if (iter == _map_column.end()) {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
+        if (iter != _map_column.end()) {
+            _parquet_column_ids.emplace_back(iter->second);
+        } else {
+            auto iter_1 = _columns_from_path.find(slot_desc->col_name());
+            if (iter_1 == _columns_from_path.end()) {
+                std::stringstream str_error;
+                str_error << "Invalid Column Name:" << slot_desc->col_name();
+                LOG(WARNING) << str_error.str();
+                return Status::InvalidArgument(str_error.str());
+            }
         }
-        _parquet_column_ids.emplace_back(iter->second);
     }
     return Status::OK();
 }
@@ -204,13 +208,23 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
     const uint8_t *value = nullptr;
+    int index = 0;
     int column_index = 0;
     try {
         size_t slots = tuple_slot_descs.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
-            column_index = i;// column index in batch record
-            switch (_parquet_column_type[i]) {
+            auto iter = _columns_from_path.find(slot_desc->col_name());
+            if (iter != _columns_from_path.end()) {
+                std::string partitioned_field = iter->second;
+                value = reinterpret_cast<const uint8_t*>(partitioned_field.c_str());
+                wbytes = partitioned_field.size();
+                fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
+                continue;
+            } else {
+                column_index = index++; // column index in batch record
+            }
+            switch (_parquet_column_type[column_index]) {
                 case arrow::Type::type::STRING: {
                     auto str_array = std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
                     if (str_array->IsNull(_current_line_of_group)) {
@@ -393,6 +407,35 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     } else {
                         std::string value = decimal_array->FormatValue(_current_line_of_group);
                         fill_slot(tuple, slot_desc, mem_pool, (const uint8_t*)value.c_str(), value.length());
+                    }
+                    break;
+                }
+                case arrow::Type::type::DATE32: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) * 24 * 60 * 60);
+                        tm* local;
+                        local = localtime(&timestamp);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
+                    }
+                    break;
+                }
+                case arrow::Type::type::DATE64: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        // convert milliseconds to seconds
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000);
+                        tm* local;
+                        local = localtime(&timestamp);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
                 }

@@ -104,6 +104,7 @@ private:
     //Status init_expr_ctxes();
 
     Status line_to_src_tuple();
+    void fill_slot(SlotDescriptor* slot_desc, const Slice& value);
     bool line_to_src_tuple(const Slice& line);
 private:;
     const std::vector<TBrokerRangeDesc>& _ranges;
@@ -120,6 +121,7 @@ private:;
     Decompressor* _cur_decompressor;
     int _next_range;
     bool _cur_line_reader_eof;
+    std::map<std::string, std::string> _columns_from_path;
 
     bool _scanner_eof;
 
