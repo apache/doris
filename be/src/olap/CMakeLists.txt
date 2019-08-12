@@ -53,6 +53,7 @@ add_library(Olap STATIC
     olap_server.cpp
     options.cpp
     out_stream.cpp
+    page_cache.cpp
     push_handler.cpp
     reader.cpp
     row_block.cpp

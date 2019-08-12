@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
 #include "olap/column_block.h" // for ColumnBlockView
+#include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
 
@@ -96,6 +97,14 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 }
 
 Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
+    auto cache = StoragePageCache::instance();
+    PageCacheHandle cache_handle;
+    StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
+    if (cache->lookup(cache_key, &cache_handle)) {
+        // we find page in cache, use it
+        *handle = PageHandle(std::move(cache_handle));
+        return Status::OK();
+    }
     // Now we read this from file. we 
     size_t data_size = pp.size;
     if (has_checksum() && data_size < sizeof(uint32_t)) {
@@ -119,7 +128,9 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
 
     // TODO(zc): compress
     
-    *handle = PageHandle::create_from_slice(data);
+    // insert this into cache and return the cache handle
+    cache->insert(cache_key, data, &cache_handle);
+    *handle = PageHandle(std::move(cache_handle));
 
     return Status::OK();
 }
