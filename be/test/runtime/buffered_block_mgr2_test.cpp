@@ -557,7 +557,7 @@ protected:
         // RuntimeState* shared_state = new RuntimeState(TExecPlanFragmentParams(), "",
         //     _test_env->exec_env());
         RuntimeState* shared_state = new RuntimeState(
-                TUniqueId(), TQueryOptions(), "", _test_env->exec_env());
+                TUniqueId(), TQueryOptions(), TQueryGlobals(), _test_env->exec_env());
         for (int i = 0; i < num_threads; ++i) {
             thread* t = new boost::thread(boost::bind(
                         &BufferedBlockMgrTest::CreateDestroyThread, this, i, shared_state));

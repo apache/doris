@@ -108,9 +108,9 @@ visible_functions = [
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE'],
-    [['now', 'current_timestamp'], 'DATETIME', [],
+    [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
-    [['curtime', 'current_time'], 'DATETIME', [],
+    [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
     [['utc_timestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE'],
@@ -217,6 +217,9 @@ visible_functions = [
     [['monthname'], 'VARCHAR', ['DATETIME'],
         '_ZN5doris18TimestampFunctions10month_nameEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
+
+    [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
+            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
 
     # Math builtin functions
     [['pi'], 'DOUBLE', [],

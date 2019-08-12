@@ -14,31 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+//
+#ifndef DORIS_BE_EXPRS_TIMEZONE_DB_H
+#define DORIS_BE_EXPRS_TIMEZONE_DB_H
 
-namespace doris_udf {
-class FunctionContext;
-}
+#include <stdint.h>
+#include <iostream>
+#include <cstddef>
+#include <sstream>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/gregorian/gregorian.hpp>
+#include <boost/date_time/time_zone_base.hpp>
+#include <boost/date_time/local_time/local_time.hpp>
+#include <boost/thread/thread.hpp>
+
+#include "common/logging.h"
 
 namespace doris {
 
-class MemPool;
-class MemTracker;
-class RuntimeState;
-
-class FunctionUtils {
+class TimezoneDatabase {
 public:
-    FunctionUtils();
-    FunctionUtils(RuntimeState* state);
-    ~FunctionUtils();
-
-    doris_udf::FunctionContext* get_fn_ctx() {
-        return _fn_ctx;
-    }
+    static void init();
+    static boost::local_time::time_zone_ptr find_timezone(const std::string &tz);
+    static const std::string default_time_zone;
 private:
-    RuntimeState* _state = nullptr;
-    MemTracker* _mem_tracker = nullptr;
-    MemPool* _memory_pool = nullptr;
-    doris_udf::FunctionContext* _fn_ctx = nullptr;
+    static const char *_s_timezone_database_str;
+    static boost::local_time::tz_database _s_tz_database;
 };
-
 }
+#endif
