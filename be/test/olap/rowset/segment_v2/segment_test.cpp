@@ -64,7 +64,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
     opts.num_rows_per_block = num_rows_per_block;
 
     std::string fname = dname + "/int_case";
-    SegmentWriter writer(fname, 0, tablet_schema, opts);
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
     auto st = writer.init(10);
     ASSERT_TRUE(st.ok());
 

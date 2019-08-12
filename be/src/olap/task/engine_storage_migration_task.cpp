@@ -250,10 +250,9 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         std::vector<RowsetSharedPtr>& consistent_rowsets) {
-    std::vector<std::string> success_files;
     OLAPStatus status = OLAP_SUCCESS;
     for (auto& rs : consistent_rowsets) {
-        status = rs->copy_files_to_path(schema_hash_path, &success_files);
+        status = rs->copy_files_to(schema_hash_path);
         if (status != OLAP_SUCCESS) {
             if (remove_all_dir(schema_hash_path) != OLAP_SUCCESS) {
                 LOG(FATAL) << "remove storage migration path failed. "
