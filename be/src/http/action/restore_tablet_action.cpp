@@ -179,10 +179,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     // create hard link for files in /root_path/data/shard/tablet_id/schema_hash
     s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
-        s = FileUtils::remove_all(restore_schema_hash_path);
-        if (!s.ok()) {
-            LOG(WARNING) << "remove invalid tablet path:" << restore_schema_hash_path << " failed";
-        }
+        RETURN_IF_ERROR(FileUtils::remove_all(restore_schema_hash_path));
+        return s;
     }
     std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(tablet_meta.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
