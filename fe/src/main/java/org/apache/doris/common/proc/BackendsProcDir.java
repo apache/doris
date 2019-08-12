@@ -52,7 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg")
+            .add("MaxDiskUsedPct").add("DiskTotalCapacity").add("ErrMsg")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -163,10 +163,14 @@ public class BackendsProcDir implements ProcDirInterface {
             if (totalB <= 0) {
                 used = 0.0;
             } else {
-                used = (double) (totalB - availB) * 100 / totalB;
+                used = (double) (dataUsedB) * 100 / totalB;
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+
+            long diskTotalB = backend.getDiskTotalCapacityB();
+            Pair<Double, String> diskTotalCapacity = DebugUtil.getByteUint(diskTotalB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(diskTotalCapacity.first) + " " + diskTotalCapacity.second);
 
             backendInfo.add(backend.getHeartbeatErrMsg());
 

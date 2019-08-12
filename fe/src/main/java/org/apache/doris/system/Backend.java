@@ -280,6 +280,18 @@ public class Backend implements Writable {
         return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
     }
 
+    public long getDiskTotalCapacityB() {
+        ImmutableMap<String, DiskInfo> disks = disksRef.get();
+        long diskTotalCapacityB = 0L;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                diskTotalCapacityB += diskInfo.getDiskTotalCapacityB();
+            }
+        }
+        return diskTotalCapacityB;
+    }
+
+
     public long getTotalCapacityB() {
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         long totalCapacityB = 0L;
@@ -348,7 +360,8 @@ public class Backend implements Writable {
         boolean isChanged = false;
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRoot_path();
-            long totalCapacityB = tDisk.getDisk_total_capacity();
+            long totalCapacityB = tDisk.getData_total_capacity();
+            long diskTotalCapacityB = tDisk.getDisk_total_capacity();
             long dataUsedCapacityB = tDisk.getData_used_capacity();
             long diskAvailableCapacityB = tDisk.getDisk_available_capacity();
             boolean isUsed = tDisk.isUsed();
@@ -362,6 +375,7 @@ public class Backend implements Writable {
             newDisks.put(rootPath, diskInfo);
 
             diskInfo.setTotalCapacityB(totalCapacityB);
+            diskInfo.setDiskTotalCapacityB(diskTotalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
             if (tDisk.isSetPath_hash()) {

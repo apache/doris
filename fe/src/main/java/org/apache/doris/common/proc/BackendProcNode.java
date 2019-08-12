@@ -33,7 +33,7 @@ import java.util.Map;
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
-            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
+            .add("TotalCapacity").add("TotalUsedPct").add("DiskTotalCapacity").add("State").add("PathHash")
             .build();
 
     private Backend backend;
@@ -65,8 +65,11 @@ public class BackendProcNode implements ProcNodeInterface {
             // total
             long totalB = entry.getValue().getTotalCapacityB();
             Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(totalB);
+            long diskTotalB = entry.getValue().getDiskTotalCapacityB();
+            Pair<Double, String> diskTotalUnitPair = DebugUtil.getByteUint(diskTotalB);
+
             // other
-            long otherB = totalB - availB;
+            long otherB = diskTotalB - availB - dataUsedB;
             Pair<Double, String> otherUnitPair = DebugUtil.getByteUint(otherB);
 
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(otherUnitPair.first) + " " + otherUnitPair.second);
@@ -78,9 +81,11 @@ public class BackendProcNode implements ProcNodeInterface {
             if (totalB <= 0) {
                 used = 0.0;
             } else {
-                used = (double) otherB * 100 / totalB;
+                used = (double) dataUsedB * 100 / totalB;
             }
             info.add(String.format("%.2f", used) + " %");
+
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(diskTotalUnitPair.first) + " "  + diskTotalUnitPair.second);
 
             info.add(entry.getValue().getState().name());
             info.add(String.valueOf(entry.getValue().getPathHash()));

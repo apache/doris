@@ -104,6 +104,7 @@ IntGauge DorisMetrics::process_fd_num_used;
 IntGauge DorisMetrics::process_fd_num_limit_soft;
 IntGauge DorisMetrics::process_fd_num_limit_hard;
 IntGaugeMetricsMap DorisMetrics::disks_total_capacity;
+IntGaugeMetricsMap DorisMetrics::disks_disk_total_capacity;
 IntGaugeMetricsMap DorisMetrics::disks_avail_capacity;
 IntGaugeMetricsMap DorisMetrics::disks_data_used_capacity;
 IntGaugeMetricsMap DorisMetrics::disks_state;
@@ -250,6 +251,8 @@ void DorisMetrics::initialize(
     for (auto& path : paths) {
         IntGauge* gauge = disks_total_capacity.set_key(path);
         _metrics->register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_disk_total_capacity.set_key(path);
+        _metrics->register_metric("disks_disk_total_capacity", MetricLabels().add("path", path), gauge);
         gauge = disks_avail_capacity.set_key(path);
         _metrics->register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
         gauge = disks_data_used_capacity.set_key(path);

@@ -124,6 +124,7 @@ public:
     static IntGauge process_fd_num_limit_soft;
     static IntGauge process_fd_num_limit_hard;
     static IntGaugeMetricsMap disks_total_capacity;
+    static IntGaugeMetricsMap disks_disk_total_capacity;
     static IntGaugeMetricsMap disks_avail_capacity;
     static IntGaugeMetricsMap disks_data_used_capacity;
     static IntGaugeMetricsMap disks_state;

@@ -36,6 +36,7 @@ public class DiskInfo implements Writable {
 
     private String rootPath;
     private long totalCapacityB;
+    private long diskTotalCapacityB;
     private long dataUsedCapacityB;
     private long diskAvailableCapacityB;
     private DiskState state;
@@ -51,6 +52,7 @@ public class DiskInfo implements Writable {
     public DiskInfo(String rootPath) {
         this.rootPath = rootPath;
         this.totalCapacityB = DEFAULT_CAPACITY_B;
+        this.diskTotalCapacityB = DEFAULT_CAPACITY_B;
         this.dataUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
@@ -70,6 +72,14 @@ public class DiskInfo implements Writable {
         this.totalCapacityB = totalCapacityB;
     }
 
+    public long getDiskTotalCapacityB() {
+        return diskTotalCapacityB;
+    }
+
+    public void setDiskTotalCapacityB(long diskTotalCapacityB) {
+        this.diskTotalCapacityB = diskTotalCapacityB;
+    }
+
     public long getDataUsedCapacityB() {
         return dataUsedCapacityB;
     }
@@ -87,7 +97,7 @@ public class DiskInfo implements Writable {
     }
 
     public double getUsedPct() {
-        return (totalCapacityB - diskAvailableCapacityB) / (double) (totalCapacityB <= 0 ? 1 : totalCapacityB);
+        return (diskTotalCapacityB - diskAvailableCapacityB) / (double) (diskTotalCapacityB <= 0 ? 1 : diskTotalCapacityB);
     }
 
     public DiskState getState() {

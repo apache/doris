@@ -95,9 +95,9 @@ public class BackendTest {
     public void diskInfoTest() {
         Map<String, TDisk> diskInfos = new HashMap<String, TDisk>();
 
-        TDisk disk1 = new TDisk("/data1/", 1000, 800, true);
-        TDisk disk2 = new TDisk("/data2/", 2000, 700, true);
-        TDisk disk3 = new TDisk("/data3/", 3000, 600, false);
+        TDisk disk1 = new TDisk("/data1/", 1000, 3000, 800, true);
+        TDisk disk2 = new TDisk("/data2/", 2000, 6000, 700, true);
+        TDisk disk3 = new TDisk("/data3/", 3000, 8000, 600, false);
 
         diskInfos.put(disk1.getRoot_path(), disk1);
         diskInfos.put(disk2.getRoot_path(), disk2);
@@ -105,15 +105,22 @@ public class BackendTest {
 
         // first update
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity(),
+        Assert.assertEquals(disk1.getData_total_capacity() + disk2.getData_total_capacity(),
                             backend.getTotalCapacityB());
         Assert.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
-        diskInfos.remove(disk1.getRoot_path());
-        backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk2.getDisk_total_capacity(), backend.getTotalCapacityB());
-        Assert.assertEquals(disk2.getDisk_available_capacity() + 1, backend.getAvailableCapacityB());
+//        diskInfos.remove(disk1.getRoot_path());
+//        backend.updateDisks(diskInfos);
+//        Assert.assertEquals(disk2.getData_total_capacity(), backend.getTotalCapacityB());
+//        Assert.assertEquals(disk2.getData_available_capacity() + 1, backend.getAvailableCapacityB());
+
+
+        System.out.println(backend.getAvailableCapacityB());
+        System.out.println(backend.getDataUsedCapacityB());
+        System.out.println(backend.getTotalCapacityB());
+        System.out.println(backend.getDisks());
+        System.out.println(backend.getDiskTotalCapacityB());
     }
 
     @Test

@@ -203,6 +203,10 @@ private:
             const std::string& root_path,
             int64_t* disk_available);
 
+    OLAPStatus _get_path_disk_total_capacity(
+            const std::string& root_path,
+            int64_t* disk_total_capacity);
+
     OLAPStatus _config_root_path_unused_flag_file(
             const std::string& root_path,
             std::string* unused_flag_file);

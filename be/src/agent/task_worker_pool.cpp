@@ -1260,13 +1260,15 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_storage_medium(root_path_info.storage_medium);
-            disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
+            disk.__set_data_total_capacity(static_cast<double>(root_path_info.capacity));
+            disk.__set_disk_total_capacity(static_cast<double>(root_path_info.disk_total_capacity));
             disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
 
             DorisMetrics::disks_total_capacity.set_metric(root_path_info.path, root_path_info.capacity);
+            DorisMetrics::disks_disk_total_capacity.set_metric(root_path_info.path, root_path_info.disk_total_capacity);
             DorisMetrics::disks_avail_capacity.set_metric(root_path_info.path, root_path_info.available);
             DorisMetrics::disks_data_used_capacity.set_metric(root_path_info.path, root_path_info.data_used_capacity);
             DorisMetrics::disks_state.set_metric(root_path_info.path, root_path_info.is_used ? 1L : 0L);

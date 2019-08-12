@@ -128,11 +128,11 @@ public class UnitTestUtil {
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-                                        long totalCapacityB, long availableCapacityB) {
+                                        long totalCapacityB, long diskTotalCapacity, long availableCapacityB) {
         Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
         Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
         String rootPath = "root_path";
-        TDisk disk = new TDisk(rootPath, totalCapacityB, availableCapacityB, true);
+        TDisk disk = new TDisk(rootPath, totalCapacityB, diskTotalCapacity, availableCapacityB, true);
         backendDisks.put(rootPath, disk);
         backend.updateDisks(backendDisks);
         return backend;
