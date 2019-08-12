@@ -275,14 +275,17 @@ public class GlobalTransactionMgr {
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
         // 2. validate potential exists problem: db->table->partition
         // guarantee exist exception during a transaction
-        // if table or partition is dropped during load, the job is fail
-        // if index is dropped, it does not matter
+        // if index is dropped, it does not matter.
+        // if table or partition is dropped during load, just ignore that tablet,
+        // because we should allow dropping rollup or partition during load
         for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
             long tabletId = tabletCommitInfo.getTabletId();
             long tableId = tabletInvertedIndex.getTableId(tabletId);
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
+                // this can happen when tableId == -1 (tablet being dropping)
+                // or table really not exist.
+                continue;
             }
 
             if (tbl.getState() == OlapTableState.RESTORE) {
@@ -292,7 +295,9 @@ public class GlobalTransactionMgr {
 
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
             if (tbl.getPartition(partitionId) == null) {
-                throw new MetaNotFoundException("could not find partition for tablet [" + tabletId + "]");
+                // this can happen when partitionId == -1 (tablet being dropping)
+                // or partition really not exist.
+                continue;
             }
 
             if (!tableToPartition.containsKey(tableId)) {
@@ -305,6 +310,11 @@ public class GlobalTransactionMgr {
             tabletToBackends.get(tabletId).add(tabletCommitInfo.getBackendId());
         }
         
+        if (tableToPartition.isEmpty()) {
+            // table or all partitions are being dropped
+            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+        }
+
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
