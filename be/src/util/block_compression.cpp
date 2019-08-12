@@ -266,7 +266,7 @@ public:
         static SnappyBlockCompression s_instance;
         return &s_instance;
     }
-    ~SnappyBlockCompression() { }
+    ~SnappyBlockCompression() override { }
 
     Status compress(const Slice& input, Slice* output) const override {
         snappy::RawCompress(input.data, input.size, output->data, &output->size);
