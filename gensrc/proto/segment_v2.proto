@@ -63,7 +63,7 @@ enum CompressionTypePB {
     LZ4 = 4;
     LZ4F = 5;
     ZLIB = 6;
-    ZSTB = 7;
+    ZSTD = 7;
 }
 
 message ZoneMapPB {
@@ -118,7 +118,7 @@ message FileFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
     optional PagePointerPB key_index_page = 9; // short key index page
 }
@@ -148,7 +148,7 @@ message SegmentFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = LZ4]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
 
     // Short key index's page
