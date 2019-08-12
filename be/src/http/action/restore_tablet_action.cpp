@@ -86,7 +86,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
 
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-    if (tablet = nullptr) {
+    if (tablet != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status::InternalError("tablet already exists, can not restore.");
     }
