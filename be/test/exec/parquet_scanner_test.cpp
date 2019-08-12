@@ -38,7 +38,7 @@ namespace doris {
 
 class ParquetSannerTest : public testing::Test {
 public:
-    ParquetSannerTest() : _runtime_state("ParquetSannerTest") {
+    ParquetSannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
     }

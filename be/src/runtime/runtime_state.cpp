@@ -26,6 +26,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/expr.h"
+#include "exprs/timezone_db.h"
 #include "runtime/buffered_block_mgr.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_util.h"
@@ -50,7 +51,7 @@ namespace doris {
 RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env) :
+        const TQueryGlobals& query_globals, ExecEnv* exec_env) :
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
@@ -68,14 +69,14 @@ RuntimeState::RuntimeState(
             _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_instance_id, query_options, now, exec_env);
+    Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env) :
+        const TQueryGlobals& query_globals, ExecEnv* exec_env) :
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
@@ -95,19 +96,23 @@ RuntimeState::RuntimeState(
             _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_params.params.fragment_instance_id, query_options, now, exec_env);
+    Status status = init(fragment_params.params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
-RuntimeState::RuntimeState(const std::string& now)
+RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
     : _obj_pool(new ObjectPool()),
       _data_stream_recvrs_pool(new ObjectPool()),
       _unreported_error_idx(0),
       _profile(_obj_pool.get(), "<unnamed>"),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    _now.reset(new DateTimeValue());
-    _now->from_date_str(now.c_str(), now.size());
+    _timestamp = atol(query_globals.now_string.c_str());
+    if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+    } else {
+        _timezone = TimezoneDatabase::default_time_zone;
+    }
 }
 
 RuntimeState::~RuntimeState() {
@@ -161,11 +166,15 @@ RuntimeState::~RuntimeState() {
 
 Status RuntimeState::init(
     const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-    const std::string& now, ExecEnv* exec_env) {
+    const TQueryGlobals&  query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
-    _now.reset(new DateTimeValue());
-    _now->from_date_str(now.c_str(), now.size());
+    _timestamp = atol(query_globals.now_string.c_str());
+    if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+    } else {
+        _timezone = TimezoneDatabase::default_time_zone;
+    }
     _exec_env = exec_env;
 
     if (!query_options.disable_codegen) {

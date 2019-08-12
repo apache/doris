@@ -38,7 +38,7 @@ namespace doris {
 // mock
 class EsHttpScanNodeTest : public testing::Test {
 public:
-    EsHttpScanNodeTest() : _runtime_state("EsHttpScanNodeTest") {
+    EsHttpScanNodeTest() : _runtime_state(TQueryGlobals()) {
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         TDescriptorTable t_desc_table;
 

@@ -1524,43 +1524,43 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
     return true;
 }
 
-int DateTimeValue::unix_timestamp() const {
-    int64_t days = daynr() - calc_daynr(1970, 1, 1);
-    if (days < 0) {
-        return 0;
-    }
-    int64_t seconds = days * 86400 + _hour * 3600 + _minute * 60 + _second;
-    if (seconds > std::numeric_limits<int>::max()) {
-        return 0;
-    }
-    // TODO(zc): we only support Beijing Timezone, so minus 28800
-    seconds -= 28800;
-    if (seconds < 0) {
-        return 0;
-    }
-    return seconds;
-}
-
-bool DateTimeValue::from_unixtime(int64_t seconds) {
-    if (seconds < 0) {
+bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
+    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
+    if (local_time_zone == nullptr) {
         return false;
     }
-    // TODO(zc): we only support Beijing Timezone, so add 28800
-    seconds += 28800;
-    int64_t days = seconds / 86400 + calc_daynr(1970, 1, 1);
+    char buf[64];
+    char* to = to_datetime_string(buf);
+    boost::posix_time::ptime pt = boost::posix_time::time_from_string(std::string(buf, to - buf -1));
 
-    _neg = false;
-    get_date_from_daynr(days);
-    seconds %= 86400;
-    if (seconds == 0) {
-        _type = TIME_DATE;
-        return true;
+    boost::local_time::local_date_time lt(pt.date(), pt.time_of_day(), local_time_zone,
+                                              boost::local_time::local_date_time::NOT_DATE_TIME_ON_ERROR);
+
+    boost::posix_time::ptime utc_ptime = lt.utc_time();
+    boost::posix_time::ptime utc_start(boost::gregorian::date(1970, 1, 1));
+    boost::posix_time::time_duration dur = utc_ptime - utc_start;
+    *timestamp =  dur.total_milliseconds() / 1000;
+    return true;
+}
+
+bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
+    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
+    if (local_time_zone == nullptr) {
+        return false;                            
     }
+    boost::local_time::local_date_time lt(boost::posix_time::from_time_t(timestamp), local_time_zone);
+    boost::posix_time::ptime local_ptime = lt.local_time();
+        
+    _neg = 0;
     _type = TIME_DATETIME;
-    _hour = seconds / 3600;
-    seconds %= 3600;
-    _minute = seconds / 60;
-    _second = seconds % 60;
+    _year = local_ptime.date().year();
+    _month = local_ptime.date().month();
+    _day = local_ptime.date().day();
+    _hour = local_ptime.time_of_day().hours();
+    _minute = local_ptime.time_of_day().minutes();
+    _second = local_ptime.time_of_day().seconds();
+    _microsecond = 0;
+
     return true;
 }
 
@@ -1581,7 +1581,7 @@ const char* DateTimeValue::day_name() const {
 
 DateTimeValue DateTimeValue::local_time() {
     DateTimeValue value;
-    value.from_unixtime(time(NULL));
+    value.from_unixtime(time(NULL), TimezoneDatabase::default_time_zone);
     return value;
 }
 

@@ -68,15 +68,15 @@ public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id,
                  const TQueryOptions& query_options,
-                 const std::string& now, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env);
+        const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const std::string& now);
+    RuntimeState(const TQueryGlobals& query_globals);
 
     // Empty d'tor to avoid issues with scoped_ptr.
     ~RuntimeState();
@@ -84,7 +84,7 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id,
                 const TQueryOptions& query_options,
-                const std::string& now, ExecEnv* exec_env);
+                const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Set up four-level hierarchy of mem trackers: process, query, fragment instance.
     // The instance tracker is tied to our profile.
@@ -136,8 +136,11 @@ public:
     int num_scanner_threads() const {
         return _query_options.num_scanner_threads;
     }
-    const DateTimeValue* now() const {
-        return _now.get();
+    int64_t timestamp() const {
+        return _timestamp;
+    }
+    const std::string& timezone() const {
+        return _timezone;
     }
     const std::string& user() const {
         return _user;
@@ -532,9 +535,10 @@ private:
 
     // Username of user that is executing the query to which this RuntimeState belongs.
     std::string _user;
-    // Query-global timestamp, e.g., for implementing now().
-    // Use pointer to avoid inclusion of timestampvalue.h and avoid clang issues.
-    boost::scoped_ptr<DateTimeValue> _now;
+
+    //Query-global timestamp
+    int64_t _timestamp;
+    std::string _timezone;
 
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;
