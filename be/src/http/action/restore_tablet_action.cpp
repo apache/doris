@@ -37,6 +37,7 @@
 #include "olap/storage_engine.h"
 #include "olap/data_dir.h"
 #include "runtime/exec_env.h"
+#include "gutil/strings/substitute.h" // for Substitute
 
 using boost::filesystem::path;
 
@@ -121,7 +122,7 @@ Status RestoreTabletAction::_reload_tablet(
                      << ", signature: " << tablet_id;
         // remove tablet data path in data path
         // path: /roo_path/data/shard/tablet_id
-        std::string tablet_path = shard_path + "/" + std::to_string(tablet_id) + "/" + std::to_string(schema_hash);
+        std::string tablet_path = strings::Substitute("$0/$1/$2", shard_path, tablet_id, schema_hash);
         LOG(INFO) << "remove tablet_path:" << tablet_path;
         Status s = FileUtils::remove_all(tablet_path);
         if (!s.ok()) {
@@ -190,24 +191,13 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 
 Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src, const std::string& dst) {
     std::vector<std::string> files;
-    Status s = FileUtils::scan_dir(src, &files);
-    if (!s.ok()) {
-        LOG(WARNING) << "scan dir failed:" << src;
-        return s;
-    }
+    RETURN_IF_ERROR(FileUtils::scan_dir(src, &files));
     for (auto& file : files) {
         std::string from = src + "/" + file;
         std::string to = dst + "/" + file;
         if (FileUtils::is_dir(from)) {
-            s = FileUtils::create_dir(to);
-            if (!s.ok()) {
-                LOG(WARNING) << "create path failed:" << to;
-                return s;
-            }
-            s = _create_hard_link_recursive(from, to);
-            if (!s.ok()) {
-                return s;
-            }
+            RETURN_IF_ERROR(FileUtils::create_dir(to));
+            RETURN_IF_ERROR(_create_hard_link_recursive(from, to));
         } else {
             int link_ret = link(from.c_str(), to.c_str());
             if (link_ret != 0) {
