@@ -14,10 +14,65 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-#include "timestamp_functions.h"
+#include "exprs/timezone_db.h"
 
 namespace doris {
+boost::local_time::tz_database TimezoneDatabase::_s_tz_database;
+void TimezoneDatabase::init() {
+    // Create a temporary file and write the timezone information.  The boost
+    // interface only loads this format from a file.  We don't want to raise
+    // an error here since this is done when the backend is created and this
+    // information might not actually get used by any queries.
+    char filestr[] = "/tmp/doris.tzdb.XXXXXXX";
+    FILE *file = NULL;
+    int fd = -1;
+
+    if ((fd = mkstemp(filestr)) == -1) {
+        LOG(ERROR) << "Could not create temporary timezone file: " << filestr;
+        return;
+    }
+
+    if ((file = fopen(filestr, "w")) == NULL) {
+        unlink(filestr);
+        close(fd);
+        LOG(ERROR) << "Could not open temporary timezone file: " << filestr;
+        return;
+    }
+
+    if (fputs(_s_timezone_database_str, file) == EOF) {
+        unlink(filestr);
+        close(fd);
+        fclose(file);
+        LOG(ERROR) << "Could not load temporary timezone file: " << filestr;
+        return;
+    }
+
+    fclose(file);
+    _s_tz_database.load_from_file(std::string(filestr));
+    unlink(filestr);
+    close(fd);
+}
+
+boost::local_time::time_zone_ptr TimezoneDatabase::find_timezone(const std::string &tz) {
+    try {
+        // See if they specified a zone id
+        if (tz.find_first_of('/') != std::string::npos) {
+            return _s_tz_database.time_zone_from_region(tz);
+        } else if (tz == "CST") {
+            boost::local_time::time_zone_ptr tzp(new boost::local_time::posix_time_zone(std::string("TMP") + "+08:00"));
+            return tzp;
+        } else {
+            //eg. +08:00
+            boost::local_time::time_zone_ptr tzp(new boost::local_time::posix_time_zone(std::string("TMP") + tz));
+            return tzp;
+        }
+    } catch (boost::exception& e) {
+        return nullptr;
+    }
+}
+
+const std::string TimezoneDatabase::default_time_zone = "+08:00";
+
 const char* TimezoneDatabase::_s_timezone_database_str =
 "\"ID\",\"STD ABBR\",\"STD NAME\",\"DST ABBR\",\"DST NAME\",\"GMT offset\",\"DST adjustment\",\
 \"DST Start Date rule\",\"Start time\",\"DST End date rule\",\"End time\"\n\
