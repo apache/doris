@@ -55,7 +55,8 @@ public class TableRowCountAction extends RestBaseAction {
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{table}/_count", new TableRowCountAction(controller));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",
+                                   new TableRowCountAction(controller));
     }
 
     @Override
@@ -64,7 +65,7 @@ public class TableRowCountAction extends RestBaseAction {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
         String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter("table");
+        String tableName = request.getSingleParameter(TABLE_KEY);
         try {
             if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {

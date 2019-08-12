@@ -36,8 +36,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Start multi action
 public class MultiStart extends RestBaseAction {
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiStart(ActionController controller, ExecuteEnv execEnv) {

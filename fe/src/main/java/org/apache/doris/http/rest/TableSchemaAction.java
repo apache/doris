@@ -58,9 +58,9 @@ public class TableSchemaAction extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         // the extra `/api` path is so disgusting
         controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{table}/_schema", new TableSchemaAction(controller));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", new TableSchemaAction
+                                           (controller));
     }
-
 
     @Override
     protected void executeWithoutPassword(ActionAuthorizationInfo authInfo,
@@ -68,7 +68,7 @@ public class TableSchemaAction extends RestBaseAction {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
         String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter("table");
+        String tableName = request.getSingleParameter(TABLE_KEY);
         try {
             if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {

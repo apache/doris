@@ -31,8 +31,7 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class MultiUnload extends RestBaseAction {
-    private static final String LABEL_KEY = "label";
-    private static final String SUB_LABEL_KEY = "label";
+    private static final String SUB_LABEL_KEY = "sub_label";
 
     private ExecuteEnv execEnv;
 

@@ -35,8 +35,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // List all labels of one multi-load
 public class MultiDesc extends RestBaseAction {
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiDesc(ActionController controller, ExecuteEnv execEnv) {

@@ -81,10 +81,10 @@ public class TableQueryPlanAction extends RestBaseAction {
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.POST,
-                                   "/api/{" + DB_KEY + "}/{table}/_query_plan",
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
                                    new TableQueryPlanAction(controller));
         controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{database}/{table}/_query_plan",
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
                                    new TableQueryPlanAction(controller));
     }
 
@@ -94,7 +94,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
         String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter("table");
+        String tableName = request.getSingleParameter(TABLE_KEY);
         String postContent = request.getContent();
         try {
             // may be these common validate logic should be moved to one base class

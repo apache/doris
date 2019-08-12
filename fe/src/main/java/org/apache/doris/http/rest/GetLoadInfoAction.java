@@ -32,8 +32,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Get load information of one load job
 public class GetLoadInfoAction extends RestBaseAction {
-    private static final String LABEL_KEY = "label";
-
     public GetLoadInfoAction(ActionController controller) {
         super(controller);
     }

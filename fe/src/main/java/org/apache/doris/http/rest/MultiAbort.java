@@ -31,8 +31,6 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class MultiAbort extends RestBaseAction {
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiAbort(ActionController controller, ExecuteEnv execEnv) {
