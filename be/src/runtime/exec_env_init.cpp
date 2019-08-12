@@ -41,6 +41,7 @@
 #include "util/mem_info.h"
 #include "util/debug_util.h"
 #include "olap/storage_engine.h"
+#include "olap/page_cache.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
@@ -126,6 +127,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
     RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
+
     return Status::OK();
 }
 
@@ -181,6 +183,18 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::metrics()));
+
+    int64_t storage_cache_limit = ParseUtil::parse_mem_spec(
+        config::storage_page_cache_limit, &is_percent);
+    if (storage_cache_limit > MemInfo::physical_mem()) {
+        LOG(WARNING) << "Config storage_page_cache_limit is greater than memory size, config="
+            << config::storage_page_cache_limit
+            << ", memory=" << MemInfo::physical_mem();
+    }
+    StoragePageCache::create_global_cache(storage_cache_limit);
+
+    // TODO(zc): The current memory usage configuration is a bit confusing,
+    // we need to sort out the use of memory
     return Status::OK();
 }
 
