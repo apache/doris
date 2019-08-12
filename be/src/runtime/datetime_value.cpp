@@ -1524,7 +1524,7 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
     return true;
 }
 
-int64_t DateTimeValue::unix_timestamp(const std::string& timezone) const {
+bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
     boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
     if (local_time_zone == nullptr) {
         return false;
@@ -1539,7 +1539,8 @@ int64_t DateTimeValue::unix_timestamp(const std::string& timezone) const {
     boost::posix_time::ptime utc_ptime = lt.utc_time();
     boost::posix_time::ptime utc_start(boost::gregorian::date(1970, 1, 1));
     boost::posix_time::time_duration dur = utc_ptime - utc_start;
-    return dur.total_milliseconds() / 1000;
+    *timestamp =  dur.total_milliseconds() / 1000;
+    return true;
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {

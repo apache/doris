@@ -18,7 +18,7 @@
 
 namespace doris {
 boost::local_time::tz_database TimezoneDatabase::_s_tz_database;
-TimezoneDatabase::TimezoneDatabase() {
+void TimezoneDatabase::init() {
     // Create a temporary file and write the timezone information.  The boost
     // interface only loads this format from a file.  We don't want to raise
     // an error here since this is done when the backend is created and this
@@ -52,8 +52,6 @@ TimezoneDatabase::TimezoneDatabase() {
     unlink(filestr);
     close(fd);
 }
-
-TimezoneDatabase::~TimezoneDatabase() {}
 
 boost::local_time::time_zone_ptr TimezoneDatabase::find_timezone(const std::string &tz) {
     try {

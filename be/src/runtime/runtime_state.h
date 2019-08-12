@@ -139,7 +139,7 @@ public:
     int64_t timestamp() const {
         return _timestamp;
     }
-    const std::string timezone() const {
+    const std::string& timezone() const {
         return _timezone;
     }
     const std::string& user() const {

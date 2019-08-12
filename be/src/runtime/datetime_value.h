@@ -332,9 +332,13 @@ public:
 
     // Add interval 
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
-
-    int64_t unix_timestamp(const std::string& timezone) const;
-
+    
+    //unix_timestamp is called with a timezone argument,
+    //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
+    bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
+    
+    //construct datetime_value from timestamp and timezone
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
     bool from_unixtime(int64_t, const std::string& timezone);
 
     bool operator==(const DateTimeValue& other) const {
@@ -436,8 +440,10 @@ public:
     }
 
     int64_t second_diff(const DateTimeValue& rhs) const {
-        return unix_timestamp(TimezoneDatabase::default_time_zone) 
-            - rhs.unix_timestamp(TimezoneDatabase::default_time_zone);
+        int day_diff = daynr() - rhs.daynr();
+        int time_diff = (hour() * 3600 + minute() * 60 + second())
+            - (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+        return day_diff * 3600 * 24 + time_diff;
     }
 
     void set_type(int type);

@@ -34,14 +34,7 @@ namespace doris {
 
 class TimezoneDatabase {
 public:
-    TimezoneDatabase();
-
-    ~TimezoneDatabase();
-
-    static void init() {
-        TimezoneDatabase();
-    }
-
+    static void init();
     static boost::local_time::time_zone_ptr find_timezone(const std::string &tz);
     static const std::string default_time_zone;
 private:

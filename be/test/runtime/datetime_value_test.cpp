@@ -303,19 +303,25 @@ TEST_F(DateTimeValueTest, from_unixtime) {
 // Calculate format
 TEST_F(DateTimeValueTest, unix_timestamp) {
     DateTimeValue value;
-    std::cout << TimezoneDatabase::default_time_zone << std::endl;
+    int64_t timestamp;
     value.from_date_int64(19691231);
-    ASSERT_EQ(-115200, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(-115200, timestamp);
     value.from_date_int64(19700101);
-    ASSERT_EQ(-28800, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(-28800, timestamp);
     value.from_date_int64(19700102);
-    ASSERT_EQ(86400 - 28800, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(86400 - 28800, timestamp);
     value.from_date_int64(19880201000000);
-    ASSERT_EQ(570672000 - 28800, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(570672000 - 28800, timestamp);
     value.from_date_int64(20380119);
-    ASSERT_EQ(2147472000 - 28800, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(2147472000 - 28800, timestamp);
     value.from_date_int64(20380120);
-    ASSERT_EQ(2147529600, value.unix_timestamp(TimezoneDatabase::default_time_zone));
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(2147529600, timestamp);
 }
 
 // Calculate format
