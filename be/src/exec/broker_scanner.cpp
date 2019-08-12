@@ -54,6 +54,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         _cur_decompressor(nullptr),
         _next_range(0),
         _cur_line_reader_eof(false),
+        _columns_from_path(),
         _scanner_eof(false),
         _skip_next_line(false) {
 }
@@ -235,6 +236,9 @@ Status BrokerScanner::open_line_reader() {
     // create decompressor.
     // _decompressor may be NULL if this is not a compressed file
     RETURN_IF_ERROR(create_decompressor(range.format_type));
+
+    // set columns parsed from this file path
+    _columns_from_path = range.columns_from_path;
 
     // open line reader
     switch (range.format_type) {
@@ -452,6 +456,17 @@ bool BrokerScanner::convert_one_row(
     return fill_dest_tuple(line, tuple, tuple_pool);
 }
 
+inline void BrokerScanner::fill_slot(SlotDescriptor* slot_desc, const Slice& value) {
+    if (slot_desc->is_nullable() && is_null(value)) {
+        _src_tuple->set_null(slot_desc->null_indicator_offset());
+    }
+    _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+    void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+    str_slot->ptr = value.data;
+    str_slot->len = value.size;
+}
+
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
@@ -469,7 +484,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         split_line(line, &values);
     }
 
-    if (values.size() < _src_slot_descs.size()) {
+    if (values.size() + _columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -478,7 +493,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() > _src_slot_descs.size()) {
+    } else if (values.size() + _columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -489,18 +504,18 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         return false;
     }
 
-    for (int i = 0; i < values.size(); ++i) {
+    int file_column_index = 0;
+    for (int i = 0; i < _src_slot_descs.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
-        const Slice& value = values[i];
-        if (slot_desc->is_nullable() && is_null(value)) {
-            _src_tuple->set_null(slot_desc->null_indicator_offset());
-            continue;
+        auto iter = _columns_from_path.find(slot_desc->col_name());
+        if (iter != _columns_from_path.end()) {
+            std::string partitioned_field = iter->second;
+            const Slice value = Slice(partitioned_field.c_str(), partitioned_field.size());
+            fill_slot(slot_desc, value);
+        } else {
+            const Slice& value = values[file_column_index++];
+            fill_slot(slot_desc, value);
         }
-        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = value.data;
-        str_slot->len = value.size;
     }
 
     return true;

@@ -155,6 +155,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("following", new Integer(SqlParserSymbols.KW_FOLLOWING));
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
         keywordMap.put("format", new Integer(SqlParserSymbols.KW_FORMAT));
+        keywordMap.put("path", new Integer(SqlParserSymbols.KW_PATH));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));
         keywordMap.put("frontend", new Integer(SqlParserSymbols.KW_FRONTEND));
         keywordMap.put("frontends", new Integer(SqlParserSymbols.KW_FRONTENDS));

@@ -75,6 +75,7 @@ import org.apache.logging.log4j.Logger;
 import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -296,6 +297,7 @@ public class BrokerScanNode extends ScanNode {
                 slotDesc.setIsMaterialized(true);
                 // same as ISSUE A
                 slotDesc.setIsNullable(true);
+                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
@@ -636,7 +638,7 @@ public class BrokerScanNode extends ScanNode {
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
-            String fileFormat,
+            BrokerFileGroup fileGroup,
             TBrokerScanRangeParams params,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
@@ -651,16 +653,17 @@ public class BrokerScanNode extends ScanNode {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            TFileFormatType formatType = formatType(fileFormat, fileStatus.path);
+            TFileFormatType formatType = formatType(fileGroup.getFileFormat(), fileStatus.path);
+            Map<String, String> columnsFromPath = parseColumnsFromPath(fileStatus.path, fileGroup.getColumnsFromPath());
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes, columnsFromPath);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes, columnsFromPath);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -672,7 +675,7 @@ public class BrokerScanNode extends ScanNode {
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes, columnsFromPath);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -687,7 +690,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes) {
+            TFileFormatType formatType, long rangeBytes, Map<String, String> columnsFromPath) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);
@@ -696,7 +699,38 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setStart_offset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setFile_size(fileStatus.size);
+        rangeDesc.setColumns_from_path(columnsFromPath);
         return rangeDesc;
+    }
+
+    private Map<String, String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        String[] strings = filePath.split("/");
+        Map<String, String> columns = new HashMap<>();
+        for (int i = strings.length - 1; i >= 0; i--) {
+            String str = strings[i];
+            if (str == null || str.isEmpty() || !str.contains("=")) {
+                continue;
+            }
+            String[] pair = str.split("=");
+            if (pair.length != 2) {
+                continue;
+            }
+            if (!columnsFromPath.contains(pair[0])) {
+                continue;
+            }
+            columns.put(pair[0], pair[1]);
+            if (columns.size() > columnsFromPath.size()) {
+                break;
+            }
+        }
+        if (columns.size() != columnsFromPath.size()) {
+            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+        }
+        LOG.info("columns from path: " + columns + ", filePath: " + filePath);
+        return columns;
     }
 
     @Override
@@ -714,7 +748,7 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
+            processFileGroup(context.fileGroup, context.params, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {
@@ -766,3 +800,5 @@ public class BrokerScanNode extends ScanNode {
     }
 
 }
+
+
