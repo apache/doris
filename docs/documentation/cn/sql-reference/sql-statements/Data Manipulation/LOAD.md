@@ -11,7 +11,7 @@
     本帮助主要描述第一种导入方式，即 Hadoop Load 相关帮助信息。其余导入方式可以使用以下命令查看帮助：
 
     !!!该导入方式可能在后续某个版本即不再支持，建议使用其他导入方式进行数据导入。!!!
-    
+
     1. help broker load;
     2. help mini load;
     3. help stream load;
@@ -34,7 +34,7 @@
         当前导入批次的标签。在一个 database 内唯一。
         语法：
         [database_name.]your_label
-     
+
     2. data_desc
 
         用于描述一批导入数据。
@@ -51,9 +51,9 @@
             [(column_list)]
             [COLUMNS FROM PATH AS (columns_from_path)]
             [SET (k1 = func(k2))]
-    
+
         说明：
-            file_path: 
+            file_path:
 
             文件路径，可以指定到一个文件，也可以用 * 通配符指定某个目录下的所有文件。通配符必须匹配到文件，而不能是目录。
 
@@ -61,21 +61,21 @@
 
             如果指定此参数，则只会导入指定的分区，导入分区以外的数据会被过滤掉。
             如果不指定，默认导入table的所有分区。
-        
+
             NEGATIVE：
             如果指定此参数，则相当于导入一批“负”数据。用于抵消之前导入的同一批数据。
             该参数仅适用于存在 value 列，并且 value 列的聚合类型仅为 SUM 的情况。
-            
+
             column_separator：
 
             用于指定导入文件中的列分隔符。默认为 \t
             如果是不可见字符，则需要加\\x作为前缀，使用十六进制来表示分隔符。
             如hive文件的分隔符\x01，指定为"\\x01"
-            
+
             file_type：
 
-            用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
- 
+            用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。
+
             column_list：
 
             用于指定导入文件中的列和 table 中的列的对应关系。
@@ -88,7 +88,7 @@
             用于指定需要从文件路径中解析的字段。
             语法：
             (col_from_path_name1, col_from_path_name2, ...)
-            
+
             SET:
 
             如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。
@@ -114,19 +114,19 @@
                 default_value(value) 设置某一列导入的默认值
                     不指定则使用建表时列的默认值
 
-                md5sum(column1, column2, ...) 将指定的导入列的值求md5sum，返回32位16进制字符串                                
+                md5sum(column1, column2, ...) 将指定的导入列的值求md5sum，返回32位16进制字符串
 
                 replace_value(old_value[, new_value]) 将导入文件中指定的old_value替换为new_value
                     new_value如不指定则使用建表时列的默认值
-                    
+
                 hll_hash(column) 用于将表或数据里面的某一列转化成HLL列的数据结构
-            
+
     3. opt_properties
 
         用于指定一些特殊参数。
         语法：
         [PROPERTIES ("key"="value", ...)]
-        
+
         可以指定如下参数：
         cluster:          导入所使用的 Hadoop 计算队列。
         timeout：         指定导入操作的超时时间。默认超时为3天。单位秒。
@@ -160,7 +160,7 @@
         );
 
         其中 hdfs_host 为 namenode 的 host，hdfs_port 为 fs.defaultFS 端口（默认9000）
-    
+
     2. 导入一批数据，包含多个文件。导入不同的 table，指定分隔符，指定列对应关系
 
         LOAD LABEL example_db.label2
@@ -184,7 +184,7 @@
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\\x01"
         );
-    
+
     4. 导入一批“负”数据
 
         LOAD LABEL example_db.label4
@@ -241,13 +241,13 @@
         SET (
           k1 = strftime("%Y-%m-%d %H:%M:%S", tmp_k1),
           k2 = time_format("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", tmp_k2),
-          k3 = alignment_timestamp("day", tmp_k3), 
-          k4 = default_value("1"), 
+          k3 = alignment_timestamp("day", tmp_k3),
+          k4 = default_value("1"),
           k5 = md5sum(tmp_k1, tmp_k2, tmp_k3),
           k6 = replace_value("-", "10")
         )
         );
-    
+
     7. 导入数据到含有HLL列的表，可以是表中的列或者数据里面的列
 
         LOAD LABEL example_db.label7
@@ -284,8 +284,8 @@
         FORMAT AS "parquet"
         (k1, k2, k3)
         )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password"); 
-        
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
     9. 提取文件路径中的压缩字段
         如果需要，则会根据表中定义的字段类型解析文件路径中的压缩字段（partitioned fields），类似Spark中Partition Discovery的功能
         LOAD LABEL example_db.label10
@@ -304,4 +304,4 @@
 
 ## keyword
     LOAD
-    
+

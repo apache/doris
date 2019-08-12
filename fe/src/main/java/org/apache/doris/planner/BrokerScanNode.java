@@ -139,7 +139,7 @@ public class BrokerScanNode extends ScanNode {
     private List<ParamCreateContext> paramCreateContexts;
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
@@ -310,7 +310,7 @@ public class BrokerScanNode extends ScanNode {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
                     throw new UserException("unknown reference column, column=" + entry.getKey()
-                                                    + ", reference=" + slot.getColumnName());
+                            + ", reference=" + slot.getColumnName());
                 }
                 smap.getLhs().add(slot);
                 smap.getRhs().add(new SlotRef(slotDesc));
@@ -470,7 +470,7 @@ public class BrokerScanNode extends ScanNode {
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new UserException("Unknown slot ref("
-                                                            + destSlotDesc.getColumn().getName() + ") in source file");
+                                    + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
                 }
@@ -480,12 +480,12 @@ public class BrokerScanNode extends ScanNode {
             if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 if (!(expr instanceof FunctionCallExpr)) {
                     throw new AnalysisException("HLL column must use hll_hash function, like "
-                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
                 if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
                     throw new AnalysisException("HLL column must use hll_hash function, like "
-                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 expr.setType(Type.HLL);
             }
@@ -689,7 +689,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes, List<String> columnsFromPath) {
+                                                   TFileFormatType formatType, long rangeBytes, List<String> columnsFromPath) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);

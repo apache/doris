@@ -65,10 +65,10 @@ public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     public static String FUNCTION_HASH_HLL = "hll_hash";
     private static final List<String> hadoopSupportFunctionName = Arrays.asList("strftime", "time_format",
-                                                                                "alignment_timestamp",
-                                                                                "default_value", "md5sum",
-                                                                                "replace_value", "now",
-                                                                                "hll_hash");
+            "alignment_timestamp",
+            "default_value", "md5sum",
+            "replace_value", "now",
+            "hll_hash");
     private final String tableName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
@@ -251,17 +251,17 @@ public class DataDescription {
 
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "Expr: " + columnExpr.toSql());
+                        + "Expr: " + columnExpr.toSql());
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "The mapping operator error, op: " + predicate.getOp());
+                        + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
             if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "The mapping column error. column: " + child0.toSql());
+                        + "The mapping column error. column: " + child0.toSql());
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnNames.add(column)) {
@@ -271,7 +271,7 @@ public class DataDescription {
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException("Hadoop load only supports the designated function. "
-                                                    + "The error mapping function is:" + child1.toSql());
+                        + "The error mapping function is:" + child1.toSql());
             }
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
@@ -471,10 +471,10 @@ public class DataDescription {
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
-                                                                PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), tableName);
         }
     }
 

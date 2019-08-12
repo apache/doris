@@ -55,7 +55,7 @@ public:
     BrokerScanner(
         RuntimeState* state,
         RuntimeProfile* profile,
-        const TBrokerScanRangeParams& params, 
+        const TBrokerScanRangeParams& params,
         const std::vector<TBrokerRangeDesc>& ranges,
         const std::vector<TNetworkAddress>& broker_addresses,
         ScannerCounter* counter);
@@ -126,7 +126,7 @@ private:;
 
     bool _scanner_eof;
 
-    // When we fetch range doesn't start from 0, 
+    // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
     bool _skip_next_line;
 
