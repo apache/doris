@@ -52,13 +52,14 @@ import java.util.TreeSet;
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
 //          [FORMAT AS format]
+//          [COLUMNS FROM PATH AS (col1, ...)]
 //          [(tmp_col1, tmp_col2, col3, ...)]
 //          [SET (k1=f1(xx), k2=f2(xxx))]
 
 /**
  * The transform of columns should be added after the keyword named COLUMNS.
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
- * It old way of transform will be removed gradually. It 
+ * It old way of transform will be removed gradually. It
  */
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
@@ -75,6 +76,7 @@ public class DataDescription {
     private final List<String> columns;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
+    private final List<String> columnsFromPath;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -101,12 +103,25 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList);
+    }
+
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           ColumnSeparator columnSeparator,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.columns = columns;
         this.columnSeparator = columnSeparator;
         this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -133,6 +148,10 @@ public class DataDescription {
 
     public String getFileFormat() {
         return fileFormat;
+    }
+
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
     }
 
     public String getColumnSeparator() {
@@ -196,7 +215,14 @@ public class DataDescription {
      * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if (columns == null || columns.isEmpty()) {
+        List<String> columnList = Lists.newArrayList();
+        if (columns != null) {
+            columnList.addAll(columns);
+        }
+        if (columnsFromPath != null) {
+            columnList.addAll(columnsFromPath);
+        }
+        if (columnList.isEmpty()) {
             return;
         }
         // merge columns exprs from columns and columnMappingList
@@ -204,7 +230,7 @@ public class DataDescription {
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
-        for (String columnName : columns) {
+        for (String columnName : columnList) {
             if (!columnNames.add(columnName)) {
                 throw new AnalysisException("Duplicate column : " + columnName);
             }
@@ -490,6 +516,10 @@ public class DataDescription {
         }
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        }
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            sb.append(" COLUMNS FROM PATH AS (");
+            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
         if (columns != null && !columns.isEmpty()) {
             sb.append(" (");

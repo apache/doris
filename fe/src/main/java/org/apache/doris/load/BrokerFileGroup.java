@@ -61,6 +61,7 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
+    private List<String> columnsFromPath;
     private boolean isNegative;
     private List<Long> partitionIds;
     // this is a compatible param which only happens before the function of broker has been supported.
@@ -88,6 +89,7 @@ public class BrokerFileGroup implements Writable {
 
     public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
+        this.columnsFromPath = dataDescription.getColumnsFromPath();
         this.exprColumnMap = null;
         this.columnExprList = dataDescription.getParsedColumnExprList();
     }
@@ -161,6 +163,10 @@ public class BrokerFileGroup implements Writable {
         return fileFormat;
     }
 
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
+    }
+
     public boolean isNegative() {
         return isNegative;
     }
@@ -189,6 +195,17 @@ public class BrokerFileGroup implements Writable {
                     sb.append(",");
                 }
                 sb.append(id);
+            }
+            sb.append("]");
+        }
+        if (columnsFromPath != null) {
+            sb.append(",columnsFromPath=[");
+            int idx = 0;
+            for (String name : columnsFromPath) {
+                if (idx++ != 0) {
+                    sb.append(",");
+                }
+                sb.append(name);
             }
             sb.append("]");
         }
@@ -273,6 +290,15 @@ public class BrokerFileGroup implements Writable {
             out.writeBoolean(true);
             Text.writeString(out, fileFormat);
         }
+        // columnsFromPath
+        if (columnsFromPath == null) {
+            out.writeInt(0);
+        } else {
+            out.writeInt(columnsFromPath.size());
+            for (String name : columnsFromPath) {
+                Text.writeString(out, name);
+            }
+        }
     }
 
     @Override
@@ -326,6 +352,16 @@ public class BrokerFileGroup implements Writable {
                 fileFormat = Text.readString(in);
             }
         }
+        // columnsFromPath
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+            int fileFieldNameSize = in.readInt();
+            if (fileFieldNameSize > 0) {
+                columnsFromPath = Lists.newArrayList();
+                for (int i = 0; i < fileFieldNameSize; ++i) {
+                    columnsFromPath.add(Text.readString(in));
+                }
+            }
+        }
 
         // There are no columnExprList in the previous load job which is created before function is supported.
         // The columnExprList could not be analyzed without origin stmt in the previous load job.
@@ -336,6 +372,11 @@ public class BrokerFileGroup implements Writable {
         columnExprList = Lists.newArrayList();
         for (String columnName : fileFieldNames) {
             columnExprList.add(new ImportColumnDesc(columnName, null));
+        }
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            for (String columnName : columnsFromPath) {
+                columnExprList.add(new ImportColumnDesc(columnName, null));
+            }
         }
         if (exprColumnMap == null || exprColumnMap.isEmpty()) {
             return;

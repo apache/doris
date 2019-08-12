@@ -48,6 +48,7 @@
             [PARTITION (p1, p2)]
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
+            [COLUMNS FROM PATH AS (columns_from_path)]
             [(column_list)]
             [SET (k1 = func(k2))]
     
@@ -74,6 +75,12 @@
             file_type：
 
             用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
+
+            columns_from_path:
+
+            用于指定需要从文件路径中解析的字段。
+            语法：
+            (col_from_path_name1, col_from_path_name2, ...)
  
             column_list：
 
@@ -278,6 +285,22 @@
         (k1, k2, k3)
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password"); 
+        
+    9. 提取文件路径中的压缩字段
+        如果需要，则会根据表中定义的字段类型解析文件路径中的压缩字段（partitioned fields），类似Spark中Partition Discovery的功能
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
+        INTO TABLE `my_table`
+        FORMAT AS "csv"
+        COLUMNS FROM PATH AS (city, utc_date)
+        (k1, k2, k3)
+        SET (uniq_id = md5sum(k1, city))
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
+        则提取文件路径的中的city和utc_date字段
 
 ## keyword
     LOAD
