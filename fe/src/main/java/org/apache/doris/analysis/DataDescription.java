@@ -203,7 +203,7 @@ public class DataDescription {
      * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        // used to check duplicated column name
+        // used to check duplicated column name in COLUMNS
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
         // merge columns exprs from columns and columnMappingList
@@ -212,7 +212,7 @@ public class DataDescription {
             // Step1: analyze columns
             for (String columnName : columns) {
                 if (!columnNames.add(columnName)) {
-                    throw new AnalysisException("Duplicate column : " + columnName);
+                    throw new AnalysisException("Duplicate column: " + columnName);
                 }
                 ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
                 parsedColumnExprList.add(importColumnDesc);
@@ -224,6 +224,8 @@ public class DataDescription {
             return;
         }
 
+        // used to check duplicated column name in SET clause
+        Set<String> columnMappingNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         // Step2: analyze column mapping
         // the column expr only support the SlotRef or eq binary predicate which's child(0) must be a SloRef.
         // the duplicate column name of SloRef is forbidden.
@@ -243,7 +245,7 @@ public class DataDescription {
                                                     + "The mapping column error. column: " + child0.toSql());
             }
             String column = ((SlotRef) child0).getColumnName();
-            if (!columnNames.add(column)) {
+            if (!columnMappingNames.add(column)) {
                 throw new AnalysisException("Duplicate column mapping: " + column);
             }
             // hadoop load only supports the FunctionCallExpr
@@ -500,34 +502,41 @@ public class DataDescription {
     /*
      * If user does not specify COLUMNS in load stmt, we fill it here. 
      * eg1:
-     * both COLUMNS and SET clause is empty. after fill:
-     * (k1,k2,k3)
+     *      both COLUMNS and SET clause is empty. after fill:
+     *      (k1,k2,k3)
+     *      
      * eg2:
-     * COLUMNS is empty, SET is not empty
-     * SET ( k2 = default_value("2") )
-     * after fill:
-     * (k1, __doris_tmp_0, k3)
-     * SET ( k2 = default_value("2") )
+     *      COLUMNS is empty, SET is not empty
+     *      SET ( k2 = default_value("2") )
+     *      after fill:
+     *      (k1, k2, k3)
+     *      SET ( k2 = default_value("2") )
+     *         
+     * eg3:
+     *      COLUMNS is empty, SET is not empty
+     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
+     *      after fill:
+     *      (k1,k2,k3)
+     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
      * 
-     * __doris_tmp_0 is a placeholder, which mean load process should skip that column in source file.
      */
     public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
-        if (columns == null || columns.isEmpty()) {
-            columns = Lists.newArrayList();
-            Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-                mappingColNames.add(importColumnDesc.getColumnName());
-            }
+        if (columns != null && !columns.isEmpty()) {
+            return;
+        }
 
-            int placeholder = 0;
-            for (Column column : baseSchema) {
-                if (!mappingColNames.contains(column.getName())) {
-                    columns.add(column.getName());
-                    parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
-                } else {
-                    columns.add("__doris_tmp_" + (placeholder++));
-                }
+        columns = Lists.newArrayList();
+
+        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+            mappingColNames.add(importColumnDesc.getColumnName());
+        }
+        
+        for (Column column : baseSchema) {
+            if (!mappingColNames.contains(column.getName())) {
+                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
+            columns.add(column.getName());
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", columns, parsedColumnExprList);
