@@ -863,27 +863,23 @@ OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string data_file_name = _construct_file_name(rowset_id, segment_id, ".dat");
         std::string new_data_file_path = dest_path + "/" + data_file_name;
-        if (check_dir_existed(new_data_file_path)) {
-            LOG(WARNING) << "fail to create hard link, file already exist: " << new_data_file_path;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string origin_data_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
-        if (link(origin_data_file_path.c_str(), new_data_file_path.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << origin_data_file_path
-                         << ", to=" << new_data_file_path << ", error=" << strerror(errno);
-            return OLAP_ERR_OS_ERROR;
+        if (!check_dir_existed(new_data_file_path)) {
+            std::string origin_data_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
+            if (link(origin_data_file_path.c_str(), new_data_file_path.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << origin_data_file_path
+                             << ", to=" << new_data_file_path << ", error=" << strerror(errno);
+                return OLAP_ERR_OS_ERROR;
+            }
         }
         std::string index_file_name = _construct_file_name(rowset_id, segment_id, ".idx");
         std::string new_index_file_path = dest_path + "/" + index_file_name;
-        if (check_dir_existed(new_index_file_path)) {
-            LOG(WARNING) << "fail to create hard link, file already exist: " << new_index_file_path;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string origin_idx_file_path = construct_index_file_path(_rowset_path_prefix, segment_id);
-        if (link(origin_idx_file_path.c_str(), new_index_file_path.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path
-                         << ", to=" << new_index_file_path << ", error=" << strerror(errno);
-            return OLAP_ERR_OS_ERROR;
+        if (!check_dir_existed(new_index_file_path)) {
+            std::string origin_idx_file_path = construct_index_file_path(_rowset_path_prefix, segment_id);
+            if (link(origin_idx_file_path.c_str(), new_index_file_path.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path
+                             << ", to=" << new_index_file_path << ", error=" << strerror(errno);
+                return OLAP_ERR_OS_ERROR;
+            }
         }
     }
     return OLAP_SUCCESS;
