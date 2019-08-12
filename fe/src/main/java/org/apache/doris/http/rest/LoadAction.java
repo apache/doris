@@ -43,7 +43,6 @@ public class LoadAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(LoadAction.class);
 
     public static final String CLUSTER_NAME_PARAM = "cluster";
-    public static final String DB_NAME_PARAM = "db";
     public static final String TABLE_NAME_PARAM = "table";
     public static final String LABEL_NAME_PARAM = "label";
     public static final String SUB_LABEL_NAME_PARAM = "sub_label";
@@ -65,11 +64,11 @@ public class LoadAction extends RestBaseAction {
         ExecuteEnv execEnv = ExecuteEnv.getInstance();
         LoadAction action = new LoadAction(controller, execEnv);
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_load", action);
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_NAME_PARAM + "}/_load", action);
 
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_stream_load",
-                new LoadAction(controller, execEnv, true));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_NAME_PARAM + "}/_stream_load",
+                                   new LoadAction(controller, execEnv, true));
     }
 
     @Override
@@ -86,7 +85,7 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No cluster selected.");
         }
 
-        String dbName = request.getSingleParameter(DB_NAME_PARAM);
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }

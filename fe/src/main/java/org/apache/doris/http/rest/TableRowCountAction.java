@@ -52,9 +52,7 @@ public class TableRowCountAction extends RestBaseAction {
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_count", new TableRowCountAction(controller));
-        controller.registerHandler(HttpMethod.GET,
-                "/api/{database}/{table}/_count", new TableRowCountAction(controller));
+                "/api/external/{cluster}/{database}/{table}/_count", new TableRowCountAction(controller));
     }
 
     @Override

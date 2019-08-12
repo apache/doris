@@ -55,7 +55,7 @@ public class TableSchemaAction extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         // the extra `/api` path is so disgusting
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_schema", new TableSchemaAction(controller));
+                "/api/external/{cluster}/{database}/{table}/_schema", new TableSchemaAction(controller));
     }
 
 

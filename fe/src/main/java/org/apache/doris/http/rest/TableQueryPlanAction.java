@@ -77,9 +77,9 @@ public class TableQueryPlanAction extends RestBaseAction {
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.POST,
-                "/api/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
+                "/api/external/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
+                "/api/external/{cluster}/{database}/{table}/_query_plan", new TableQueryPlanAction(controller));
     }
 
     @Override
