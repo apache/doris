@@ -122,7 +122,7 @@ private:;
     Decompressor* _cur_decompressor;
     int _next_range;
     bool _cur_line_reader_eof;
-    std::map<std::string, std::string> _columns_from_path;
+    std::vector<std::string> _columns_from_path;
 
     bool _scanner_eof;
 

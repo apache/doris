@@ -436,7 +436,7 @@ TEST_F(ParquetSannerTest, normal) {
         range.format_type = TFileFormatType::FORMAT_PARQUET;
         range.splittable = true;
 
-        std::map<std::string, std::string> columns_from_path = {{"partition_column", "value"}};
+        std::vector<std::string> columns_from_path{"value"};
         range.__set_columns_from_path(columns_from_path);
 #if 1
         range.path = "./be/test/exec/test_data/parquet_scanner/localfile.parquet";
