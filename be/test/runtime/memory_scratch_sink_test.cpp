@@ -57,7 +57,7 @@ public:
         TUniqueId query_id;
         query_id.lo = 10;
         query_id.hi = 100;
-        _runtime_state = new RuntimeState(query_id, query_options, "MemoryScratchSinkTest", &_exec_env);
+        _runtime_state = new RuntimeState(query_id, query_options, TQueryGlobals(), &_exec_env);
         {
             TExpr expr;
             {
