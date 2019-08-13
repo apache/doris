@@ -1091,11 +1091,11 @@ public class OlapTable extends Table {
         for (Partition partition : getPartitions()) {
             long version = partition.getVisibleVersion();
             long versionHash = partition.getVisibleVersionHash();
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     long tabletRowCount = 0L;
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash)
+                        if (replica.checkVersionCatchUp(version, versionHash, false)
                                 && replica.getRowCount() > tabletRowCount) {
                             tabletRowCount = replica.getRowCount();
                         }
