@@ -125,6 +125,10 @@ public:
         _need_delete_file = true;
     }
 
+    static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
+        return left->end_version() < right->end_version();
+    }
+
 protected:
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
