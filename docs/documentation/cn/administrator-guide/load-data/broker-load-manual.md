@@ -95,7 +95,7 @@ LOAD LABEL db1.label1
     SET
     (
         id=tmp_c2,
-        name=tmp_c1)
+        name=tmp_c1
     ),
     DATA INFILE("hdfs://abc.com:8888/user/palo/test/ml/file2")
     INTO TABLE tbl2
