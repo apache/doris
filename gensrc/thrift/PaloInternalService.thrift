@@ -181,8 +181,16 @@ struct TPlanFragmentExecParams {
 // Global query parameters assigned by the coordinator.
 struct TQueryGlobals {
   // String containing a timestamp set as the current time.
+  // Format is yyyy-MM-dd HH:mm:ss
   1: required string now_string
-  2: optional string time_zone
+
+  // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
+  // this query to calculate time zone relative function 
+  2: optional i64 timestamp_ms
+
+  // time_zone is the timezone this query used.
+  // If this value is set, BE will ignore now_string
+  3: optional string time_zone
 }
 
 

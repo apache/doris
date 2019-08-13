@@ -136,8 +136,8 @@ public:
     int num_scanner_threads() const {
         return _query_options.num_scanner_threads;
     }
-    int64_t timestamp() const {
-        return _timestamp;
+    int64_t timestamp_ms() const {
+        return _timestamp_ms;
     }
     const std::string& timezone() const {
         return _timezone;
@@ -536,8 +536,8 @@ private:
     // Username of user that is executing the query to which this RuntimeState belongs.
     std::string _user;
 
-    //Query-global timestamp
-    int64_t _timestamp;
+    //Query-global timestamp_ms
+    int64_t _timestamp_ms;
     std::string _timezone;
 
     TUniqueId _query_id;
