@@ -468,15 +468,15 @@ inline void BrokerScanner::fill_slot(SlotDescriptor* slot_desc, const Slice& val
     str_slot->len = value.size;
 }
 
-inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start) {
+inline void BrokerScanner::fill_slots_of_columns_from_path(int start, const std::vector<SlotDescriptor*>& src_slot_descs, Tuple* tuple) {
     // values of columns from path can not be null
-    for (int i = start; i < _src_slot_descs.size(); ++i) {
-        auto slot_desc = _src_slot_descs[i];
-        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+    for (int i = start; i < src_slot_descs.size(); ++i) {
+        auto slot_desc = src_slot_descs[i];
+        tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = tuple->get_slot(slot_desc->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         const std::string& column_from_path = _columns_from_path[i - start];
-        str_slot->ptr = column_from_path.c_str();
+        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
         str_slot->len = column_from_path.size();
     }
 }
@@ -525,7 +525,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         fill_slot(slot_desc, value);
     }
 
-    fill_slots_of_columns_from_path(file_column_index);
+    fill_slots_of_columns_from_path(file_column_index, _src_slot_descs, _src_tuple);
 
     return true;
 }
