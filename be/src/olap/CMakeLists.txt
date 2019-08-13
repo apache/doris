@@ -41,6 +41,7 @@ add_library(Olap STATIC
     hll.cpp
     in_list_predicate.cpp
     in_stream.cpp
+    key_coder.cpp
     lru_cache.cpp
     memtable.cpp
     merger.cpp
@@ -52,6 +53,7 @@ add_library(Olap STATIC
     olap_server.cpp
     options.cpp
     out_stream.cpp
+    page_cache.cpp
     push_handler.cpp
     reader.cpp
     row_block.cpp
@@ -63,6 +65,7 @@ add_library(Olap STATIC
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
+    short_key_index.cpp
     snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
@@ -84,6 +87,9 @@ add_library(Olap STATIC
     rowset/segment_v2/encoding_info.cpp
     rowset/segment_v2/ordinal_page_index.cpp
     rowset/segment_v2/binary_dict_page.cpp
+    rowset/segment_v2/segment.cpp
+    rowset/segment_v2/segment_iterator.cpp
+    rowset/segment_v2/segment_writer.cpp
     rowset_factory.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp

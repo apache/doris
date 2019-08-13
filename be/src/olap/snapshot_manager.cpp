@@ -334,8 +334,7 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     OLAPStatus res = OLAP_SUCCESS;
     for (auto& rs : consistent_rowsets) {
-        std::vector<std::string> success_files;
-        RETURN_NOT_OK(rs->make_snapshot(schema_hash_path, &success_files));
+        RETURN_NOT_OK(rs->link_files_to(schema_hash_path, rs->rowset_id()));
     }
     return res;
 }
@@ -458,8 +457,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         vector<RowsetMetaSharedPtr> rs_metas;
         for (auto& rs : consistent_rowsets) {
-            std::vector<std::string> success_files;
-            res = rs->make_snapshot(schema_full_path, &success_files);
+            res = rs->link_files_to(schema_full_path, rs->rowset_id());
             if (res != OLAP_SUCCESS) { break; }
             rs_metas.push_back(rs->rowset_meta());
             VLOG(3) << "add rowset meta to clone list. " 

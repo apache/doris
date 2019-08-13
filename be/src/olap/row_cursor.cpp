@@ -28,18 +28,14 @@ using std::vector;
 namespace doris {
 RowCursor::RowCursor() :
         _fixed_len(0),
-        _variable_len(0),
-        _variable_buf_allocated_by_pool(false) {}
+        _variable_len(0) {}
 
 RowCursor::~RowCursor() {
     delete [] _owned_fixed_buf;
-    if (!_variable_buf_allocated_by_pool) {
-        for (HllContext* context : hll_contexts) {
-            delete context;
-        }
-
-        delete [] _variable_buf;
+    for (HllContext* context : hll_contexts) {
+        delete context;
     }
+    delete [] _variable_buf;
 }
 
 OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
@@ -176,25 +172,12 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowCursor::allocate_memory_for_string_type(
-        const TabletSchema& schema,
-        MemPool* mem_pool) {
+OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
     // allocate memory for string type(char, varchar, hll)
     // The memory allocated in this function is used in aggregate and copy function
     if (_variable_len == 0) { return OLAP_SUCCESS; }
-    if (mem_pool != nullptr) {
-        /*
-         * It is called by row_cursor of row_block in sc(schema change)
-         * or be/ce if mem_pool is not null. RowCursor in rowblock do not
-         * allocate memory for string type in initialization. So memory
-         * for string and hllcontext are all administrated by mem_pool.
-         */
-        _variable_buf = reinterpret_cast<char*>(mem_pool->allocate(_variable_len));
-        _variable_buf_allocated_by_pool = true;
-    } else {
-        DCHECK(_variable_buf == nullptr) << "allocate memory twice";
-        _variable_buf = new (nothrow) char[_variable_len];
-    }
+    DCHECK(_variable_buf == nullptr) << "allocate memory twice";
+    _variable_buf = new (nothrow) char[_variable_len];
     memset(_variable_buf, 0, _variable_len);
 
     // init slice of char, varchar, hll type
@@ -215,21 +198,14 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
             slice->size = column.length();
             variable_ptr += slice->size;
         } else if (type == OLAP_FIELD_TYPE_HLL) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            HllContext* context = nullptr;
-            if (mem_pool != nullptr) {
-                char* mem = reinterpret_cast<char*>(mem_pool->allocate(sizeof(HllContext)));
-                context = new (mem) HllContext;
-            } else {
-                // store context addr, which will be freed
-                // in deconstructor if allocated by new function
-                context = new HllContext();
-                hll_contexts.push_back(context);
-            }
+            // slice.data points to serialized HLL, (slice.data - 8) points to HllContext object used to aggregate HLL
+            auto slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
+            HllContext* context = new HllContext();
+            hll_contexts.push_back(context);
 
             *(size_t*)(variable_ptr) = (size_t)(context);
             variable_ptr += sizeof(HllContext*);
-            slice->data = variable_ptr;
+            slice->data = variable_ptr; // serialized HLL will be populated when finalizing HllContext
             slice->size = HLL_COLUMN_DEFAULT_LEN;
             variable_ptr += slice->size;
         }

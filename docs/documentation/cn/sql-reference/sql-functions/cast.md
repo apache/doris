@@ -1,26 +1,24 @@
 # CAST
-
-## Syntax
+## description
+### Syntax
 
 ```
 cast (input as type)
 ```
 
-## Description
+### BIGINT type 
 
-将 input 转成 指定的 type 
-
-## BIGINT type 
-
-### Syntax
+### Syntax(BIGINT)
 
 ``` cast (input as BIGINT) ```
 
-### Description
+
+将 input 转成 指定的 type 
+
 
 将当前列 input 转换为 BIGINT 类型
 
-### Examples
+## example
 
 1. 转常量，或表中某列
 
@@ -54,3 +52,5 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 +----------------------------------------+
 1 row in set (0.00 sec)
 ```
+##keyword
+CAST

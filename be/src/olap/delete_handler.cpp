@@ -29,6 +29,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "olap/olap_cond.h"
 
 using apache::thrift::ThriftDebugString;
 using std::numeric_limits;

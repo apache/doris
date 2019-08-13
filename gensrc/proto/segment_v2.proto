@@ -61,8 +61,9 @@ enum CompressionTypePB {
     NO_COMPRESSION = 2;
     SNAPPY = 3;
     LZ4 = 4;
-    ZLIB = 5;
-    ZSTB = 6;
+    LZ4F = 5;
+    ZLIB = 6;
+    ZSTD = 7;
 }
 
 message ZoneMapPB {
@@ -72,17 +73,21 @@ message ZoneMapPB {
 }
 
 message ColumnMetaPB {
+    // column id in table schema
+    optional uint32 column_id = 1;
+    // unique column id
+    optional uint32 unique_id = 2;
     // this field is FieldType's value
-    optional int32 type = 1;
-    optional EncodingTypePB encoding = 2;
+    optional int32 type = 3;
+    optional EncodingTypePB encoding = 4;
     // compress type for column
-    optional CompressionTypePB compression = 3;
+    optional CompressionTypePB compression = 5;
     // if this column can be nullable
-    optional bool is_nullable = 4;
+    optional bool is_nullable = 6;
     // if this column has checksum for each page
-    optional bool has_checksum = 5;
+    optional bool has_checksum = 7;
     // ordinal index page
-    optional PagePointerPB ordinal_index_page = 6;
+    optional PagePointerPB ordinal_index_page = 8;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
@@ -113,7 +118,40 @@ message FileFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
     optional PagePointerPB key_index_page = 9; // short key index page
 }
+
+message ShortKeyFooterPB {
+    // How many index item in this index.
+    optional uint32 num_items = 1;
+    // The total bytes occupied by the index key
+    optional uint32 key_bytes = 2;
+    // The total bytes occupied by the key offsets
+    optional uint32 offset_bytes = 3;
+    // Segment id which this index is belong to 
+    optional uint32 segment_id = 4;
+    // number rows in each block
+    optional uint32 num_rows_per_block = 5;
+    // How many rows in this segment
+    optional uint32 num_segment_rows = 6;
+    // Total bytes for this segment
+    optional uint32 segment_bytes = 7;
+}
+
+message SegmentFooterPB {
+    optional uint32 version = 1 [default = 1]; // file version
+    repeated ColumnMetaPB columns = 2; // tablet schema
+    optional uint64 num_rows = 3; // number of values
+    optional uint64 index_footprint = 4; // total idnex footprint of all columns
+    optional uint64 data_footprint = 5; // total data footprint of all columns
+    optional uint64 raw_data_footprint = 6; // raw data footprint
+
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
+    repeated MetadataPairPB file_meta_datas = 8; // meta data of file
+
+    // Short key index's page
+    optional PagePointerPB short_key_index_page = 9;
+}
+

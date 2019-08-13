@@ -1,10 +1,9 @@
 # from_unixtime
-
-## Syntax
+## description
+### Syntax
 
 `DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
 
-## Description
 
 将unix时间戳转化位对应的time格式，返回的格式由string_format指定
 
@@ -16,7 +15,7 @@
 
 其余string_format格式是非法的，返回NULL
 
-## Examples
+## example
 
 ```
 mysql> select from_unixtime(1196440219);
@@ -39,4 +38,5 @@ mysql> select from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss');
 +--------------------------------------------------+
 | 2007-12-01 00:30:19                              |
 +--------------------------------------------------+
-```
+##keyword
+FROM_UNIXTIME,FROM,UNIXTIME

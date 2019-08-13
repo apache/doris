@@ -1,14 +1,13 @@
 # split_part
-
-## Syntax
+## description
+### Syntax
 
 `VARCHAR split_part(VARCHAR content, VARCHAR delimiter, INT field)`
 
-## Description
 
 根据分割符拆分字符串, 返回指定的分割部分(从一开始计数)。
 
-## Examples
+## example
 
 ```
 mysql> select split_part("hello world", " ", 1);
@@ -40,3 +39,5 @@ mysql> select split_part("abca", "a", 1);
 |                            |
 +----------------------------+
 ```
+##keyword
+SPLIT_PART,SPLIT,PART

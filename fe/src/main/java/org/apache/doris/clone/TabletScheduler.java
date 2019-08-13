@@ -553,32 +553,36 @@ public class TabletScheduler extends Daemon {
             throws SchedException {
         if (tabletCtx.getType() == Type.REPAIR) {
             switch (status) {
-                case REPLICA_MISSING:
-                    handleReplicaMissing(tabletCtx, batchTask);
-                    break;
-                case VERSION_INCOMPLETE:
-                    handleReplicaVersionIncomplete(tabletCtx, batchTask);
-                    break;
-                case REPLICA_RELOCATING:
-                    handleReplicaRelocating(tabletCtx, batchTask);
-                    break;
-                case REDUNDANT:
-                    handleRedundantReplica(tabletCtx, false);
-                    break;
-                case FORCE_REDUNDANT:
-                    handleRedundantReplica(tabletCtx, true);
-                    break;
-                case REPLICA_MISSING_IN_CLUSTER:
-                    handleReplicaClusterMigration(tabletCtx, batchTask);
-                    break;
-                case COLOCATE_MISMATCH:
-                    handleColocateMismatch(tabletCtx, batchTask);
-                    break;
-                case COLOCATE_REDUNDANT:
-                    handleColocateRedundant(tabletCtx);
-                    break;
-                default:
-                    break;
+            case REPLICA_MISSING:
+                handleReplicaMissing(tabletCtx, batchTask);
+                break;
+            case VERSION_INCOMPLETE:
+                handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                break;
+            case REPLICA_RELOCATING:
+                handleReplicaRelocating(tabletCtx, batchTask);
+                break;
+            case REDUNDANT:
+                handleRedundantReplica(tabletCtx, false);
+                break;
+            case FORCE_REDUNDANT:
+                handleRedundantReplica(tabletCtx, true);
+                break;
+            case REPLICA_MISSING_IN_CLUSTER:
+                handleReplicaClusterMigration(tabletCtx, batchTask);
+                break;
+            case COLOCATE_MISMATCH:
+                handleColocateMismatch(tabletCtx, batchTask);
+                break;
+            case COLOCATE_REDUNDANT:
+                handleColocateRedundant(tabletCtx);
+                break;
+            case NEED_FURTHER_REPAIR:
+                // same as version incomplete, it prefer to the dest replica which need further repair
+                handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                break;
+            default:
+                break;
             }
         } else {
             // balance
@@ -656,7 +660,7 @@ public class TabletScheduler extends Daemon {
      *  1. backend has been dropped
      *  2. replica is bad
      *  3. backend is not available
-     *  4. replica's state is CLONE
+     *  4. replica's state is CLONE or DECOMMISSION
      *  5. replica's last failed version > 0
      *  6. replica with lower version
      *  7. replica not in right cluster
@@ -664,10 +668,11 @@ public class TabletScheduler extends Daemon {
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         stat.counterReplicaRedundantErr.incrementAndGet();
+
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)
-                || deleteCloneReplica(tabletCtx, force)
+                || deleteCloneOrDecommissionReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
@@ -680,7 +685,7 @@ public class TabletScheduler extends Daemon {
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any redundant replicas");
     }
 
-    private boolean deleteBackendDropped(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteBackendDropped(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             long beId = replica.getBackendId();
             if (infoService.getBackend(beId) == null) {
@@ -691,7 +696,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteBadReplica(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteBadReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             if (replica.isBad()) {
                 deleteReplicaInternal(tabletCtx, replica, "replica is bad", force);
@@ -701,7 +706,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteBackendUnavailable(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteBackendUnavailable(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
@@ -716,17 +721,17 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteCloneReplica(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteCloneOrDecommissionReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
-            if (replica.getState() == ReplicaState.CLONE) {
-                deleteReplicaInternal(tabletCtx, replica, "clone state", force);
+            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.DECOMMISSION) {
+                deleteReplicaInternal(tabletCtx, replica, replica.getState() + " state", force);
                 return true;
             }
         }
         return false;
     }
 
-    private boolean deleteReplicaWithFailedVersion(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteReplicaWithFailedVersion(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             if (replica.getLastFailedVersion() > 0) {
                 deleteReplicaInternal(tabletCtx, replica, "version incomplete", force);
@@ -736,7 +741,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteReplicaWithLowerVersion(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteReplicaWithLowerVersion(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             if (!replica.checkVersionCatchUp(tabletCtx.getCommittedVersion(), tabletCtx.getCommittedVersionHash())) {
                 deleteReplicaInternal(tabletCtx, replica, "lower version", force);
@@ -746,7 +751,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteReplicaOnSameHost(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteReplicaOnSameHost(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster());
         if (statistic == null) {
             return false;
@@ -781,7 +786,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteReplicaNotInCluster(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteReplicaNotInCluster(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
@@ -796,7 +801,7 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
-    private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster());
         if (statistic == null) {
             return false;
@@ -806,7 +811,7 @@ public class TabletScheduler extends Daemon {
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
-            boolean force, ClusterLoadStatistic statistic) {
+            boolean force, ClusterLoadStatistic statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
         for (Replica replica : replicas) {
@@ -859,7 +864,28 @@ public class TabletScheduler extends Daemon {
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any colocate redundant replicas");
     }
 
-    private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) {
+    private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) throws SchedException {
+
+        /*
+         * Before deleting a replica, we should make sure that there is no running txn on it and no more txns will be on it.
+         * So we do followings:
+         * 1. If replica is loadable, set a watermark txn id on it and set it state as DECOMMISSION, but not deleting it this time.
+         *      The DECOMMISSION state will ensure that no more txns will be on this replicas.
+         * 2. Wait for any txns before the watermark txn id to be finished. If all are finished, which means this replica is
+         *      safe to be deleted.
+         */
+        if (!force && replica.getState().isLoadable() && replica.getWatermarkTxnId() == -1) {
+            long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+            replica.setWatermarkTxnId(nextTxnId);
+            replica.setState(ReplicaState.DECOMMISSION);
+            throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
+        } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
+            long watermarkTxnId = replica.getWatermarkTxnId();
+            if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId, tabletCtx.getDbId())) {
+                throw new SchedException(Status.SCHEDULE_FAILED, "wait txn before " + watermarkTxnId + " to be finished");
+            }
+        }
+        
         // delete this replica from catalog.
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);

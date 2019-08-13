@@ -26,6 +26,9 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/BackendService.cpp
     ${GEN_CPP_DIR}/BackendService_types.cpp
     ${GEN_CPP_DIR}/PaloBrokerService_types.cpp
+    ${GEN_CPP_DIR}/TDorisExternalService.cpp
+    ${GEN_CPP_DIR}/DorisExternalService_types.cpp
+    ${GEN_CPP_DIR}/DorisExternalService_constants.cpp
     ${GEN_CPP_DIR}/TPaloBrokerService.cpp
     ${GEN_CPP_DIR}/HeartbeatService_constants.cpp
     ${GEN_CPP_DIR}/HeartbeatService.cpp

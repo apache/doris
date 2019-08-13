@@ -225,6 +225,9 @@ namespace config {
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
 
+    // Cache for stoage page size
+    CONF_String(storage_page_cache_limit, "20G");
+
     // be policy
     CONF_Int64(base_compaction_start_hour, "20");
     CONF_Int64(base_compaction_end_hour, "7");
@@ -413,6 +416,14 @@ namespace config {
     // This configuration is used to recover compaction under the corner case.
     // If this configuration is set to true, block will seek position.
     CONF_Bool(block_seek_position, "false");
+
+    // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
+    // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
+    CONF_Int32(max_memory_sink_batch_count, "20");
+    
+    // This configuration is used for the context gc thread schedule period
+    // note: unit is minute, default is 5min
+    CONF_Int32(scan_context_gc_interval_min, "5");
 
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the

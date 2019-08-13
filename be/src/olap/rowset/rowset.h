@@ -98,12 +98,14 @@ public:
     virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
     // remove all files in this rowset
+    // TODO should we rename the method to remove_files() to be more specific?
     virtual OLAPStatus remove() = 0;
 
-    virtual OLAPStatus make_snapshot(const std::string& snapshot_path,
-                                     std::vector<std::string>* success_links) = 0;
-    virtual OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                          std::vector<std::string>* success_files) = 0;
+    // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
+    virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
+
+    // copy all files to `dir`
+    virtual OLAPStatus copy_files_to(const std::string& dir) = 0;
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 

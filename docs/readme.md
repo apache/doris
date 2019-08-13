@@ -73,3 +73,25 @@ documentation/
         │   ├── date-time-functions
         │   │   ├── index.rst
 ```
+
+## Docs Styles
+
+There are some styles need to be followed.
+
+### SQL-Statement
+
+Docs under `documentation/cn/sql-reference/sql-statements/` must obey the following style
+
+```
+# TITLE(capital)
+
+## description
+
+    The description of this doc. The "## description" must be reserved, with a following empty line.
+
+## keyword
+
+    The keyword of this doc. Usually, this can be the title of this doc.
+    The "## keyword" must  be reserved, with a following empty line.
+```
+

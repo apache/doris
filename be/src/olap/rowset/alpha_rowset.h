@@ -55,10 +55,9 @@ public:
 
     OLAPStatus remove() override;
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links) override;
-    OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                  std::vector<std::string>* success_files) override;
+    OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
+
+    OLAPStatus copy_files_to(const std::string& dir) override;
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
                                  std::vector<std::string>* success_files);

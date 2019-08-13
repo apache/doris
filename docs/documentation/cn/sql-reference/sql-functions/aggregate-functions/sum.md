@@ -1,14 +1,13 @@
 # SUM
-
-## Syntax
+## description
+### Syntax
 
 `SUM(expr)`
 
-## Description
 
 用于返回选中字段所有值的和
 
-## Examples
+## example
 ```
 MySQL > select sum(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -17,3 +16,5 @@ MySQL > select sum(scan_rows) from log_statis group by datetime;
 |       8217360135 |
 +------------------+
 ```
+##keyword
+SUM

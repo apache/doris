@@ -17,16 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Function;
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -214,8 +215,8 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc != null) {
-                dataDescription.setIsPullLoad(true);
+            if (brokerDesc == null) {
+                dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
         }

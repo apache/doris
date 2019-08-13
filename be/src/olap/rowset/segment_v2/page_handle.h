@@ -19,46 +19,70 @@
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
 #include "util/slice.h" // for Slice
+#include "olap/page_cache.h"
 
 namespace doris {
 namespace segment_v2 {
 
-// when page is read into memory, we use this to store it
-// This class should delete memory
+// When a column page is read into memory, we use this to store it.
+// A page's data may be in cache, or may not in cache. We use this
+// class to unify these two cases.
+// If client use this struct to wrap data not in cache, this class
+// will free data's memory when it is destoryed.
 class PageHandle {
 public:
-    static PageHandle create_from_slice(const Slice& slice) {
-        return PageHandle(slice);
+    PageHandle() : _is_data_owner(false) { }
+
+    // This class will take the ownership of input data's memory. It will
+    // free it when deconstructs.
+    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) { }
+
+    // This class will take the content of cache data, and will make input
+    // cache_data to a invalid cache handle.
+    PageHandle(PageCacheHandle cache_data)
+        : _is_data_owner(false), _cache_data(std::move(cache_data)) {
     }
 
-    PageHandle() : _data((const uint8_t*)nullptr, 0) { }
-
     // Move constructor
-    PageHandle(PageHandle&& other) noexcept : _data(other._data) {
-        other._data = Slice();
+    PageHandle(PageHandle&& other) noexcept
+            : _is_data_owner(false),
+            _data(std::move(other._data)),
+            _cache_data(std::move(other._cache_data)) {
+        // we can use std::exchange if we switch c++14 on
+        std::swap(_is_data_owner, other._is_data_owner);
     }
 
     PageHandle& operator=(PageHandle&& other) noexcept {
-        std::swap(_data, other._data);
+        std::swap(_is_data_owner, other._is_data_owner);
+        _data = std::move(other._data);
+        _cache_data = std::move(other._cache_data);
         return *this;
     }
 
     ~PageHandle() {
-        delete[] _data.data;
-        _data = Slice();
+        if (_is_data_owner) {
+            delete[] _data.data;
+        }
     }
 
+    // This function only valid when assign valid data, either in cache or not
     Slice data() const {
-        return _data;
+        if (_is_data_owner) {
+            return _data;
+        } else {
+            return _cache_data.data();
+        }
     }
 
 private:
-    PageHandle(const Slice& data) : _data(data) {
-    }
 
+    // when this is true, it means this struct own data and _data is valid.
+    // otherwise _cache_data is valid, and data is belong to cache.
+    bool _is_data_owner = false;
     Slice _data;
+    PageCacheHandle _cache_data;
 
-    // cause we 
+    // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(PageHandle);
 };
 

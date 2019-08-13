@@ -76,7 +76,7 @@ Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
 ```
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
-TO "bos://bj-test-cmy/export/" 
+TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
     "column_separator"=",",
@@ -162,18 +162,4 @@ FinishTime: 2019-06-25 17:08:34
 * `export_running_job_num_limit`：正在运行的 Export 作业数量限制。如果超过，则作业将等待并处于 PENDING 状态。默认为 5，可以运行时调整。
 * `export_task_default_timeout_second`：Export 作业默认超时时间。默认为 2 小时。可以运行时调整。
 * `export_tablet_num_per_task`：一个查询计划负责的最大分片数。默认为 5。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

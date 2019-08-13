@@ -19,27 +19,48 @@
 
 #include <boost/shared_ptr.hpp>
 #include <gperftools/heap-profiler.h>
-#include <thrift/protocol/TDebugProtocol.h>
+#include <memory>
 #include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/protocol/TDebugProtocol.h>
+#include <thrift/processor/TMultiplexedProcessor.h>
 
+#include "common/logging.h"
+#include "common/config.h"
+#include "common/status.h"
+#include "gen_cpp/TDorisExternalService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/DorisExternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "olap/storage_engine.h"
-#include "service/backend_options.h"
-#include "util/network_util.h"
-#include "util/thrift_util.h"
-#include "util/thrift_server.h"
-#include "util/debug_util.h"
-#include "util/doris_metrics.h"
+
+#include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
+#include "runtime/result_queue_mgr.h"
+#include "runtime/primitive_type.h"
+#include "service/backend_options.h"
+#include "util/blocking_queue.hpp"
+#include "util/debug_util.h"
+#include "util/doris_metrics.h"
+#include "util/thrift_util.h"
+#include "util/uid_util.h"
+#include "util/url_coding.h"
+#include "util/network_util.h"
+#include "util/thrift_util.h"
+#include "util/thrift_server.h"
 
 namespace doris {
 
 using apache::thrift::TException;
 using apache::thrift::TProcessor;
+using apache::thrift::TMultiplexedProcessor;
 using apache::thrift::transport::TTransportException;
 using apache::thrift::concurrency::ThreadFactory;
 using apache::thrift::concurrency::PosixThreadFactory;
@@ -60,13 +81,13 @@ BackendService::BackendService(ExecEnv* exec_env) :
 
 Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
     boost::shared_ptr<BackendService> handler(new BackendService(exec_env));
-
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
     boost::shared_ptr<ThreadFactory> thread_factory(new PosixThreadFactory());
 
     boost::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
+
     *server = new ThriftServer("backend",
                                be_processor,
                                port,
@@ -243,6 +264,83 @@ void BackendService::submit_routine_load_task(
     // we do not care about each task's submit result. just return OK.
     // FE will handle the failure.
     return Status::OK().to_thrift(&t_status);
+}
+
+/*
+ * 1. validate user privilege (todo)
+ * 2. FragmentMgr#exec_plan_fragment
+ */
+void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
+    TStatus t_status;
+    TUniqueId fragment_instance_id = generate_uuid();
+    std::shared_ptr<ScanContext> p_context;
+    _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
+    p_context->fragment_instance_id = fragment_instance_id;
+    p_context->offset = 0;
+    p_context->last_access_time  = time(NULL);
+    if (params.__isset.keep_alive_min) {
+        p_context->keep_alive_min = params.keep_alive_min;
+    } else {
+        p_context->keep_alive_min = 5;
+    }
+    std::vector<TScanColumnDesc> selected_columns;
+    // start the scan procedure
+    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(params, fragment_instance_id, &selected_columns);
+    exec_st.to_thrift(&t_status);
+    //return status
+    // t_status.status_code = TStatusCode::OK;
+    result_.status = t_status;
+    result_.__set_context_id(p_context->context_id);
+    result_.__set_selected_columns(selected_columns);
+}
+
+// fetch result from polling the queue, should always maintaince the context offset, otherwise inconsistent result
+void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) {
+    std::string context_id = params.context_id;
+    u_int64_t offset = params.offset;
+    TStatus t_status;
+    std::shared_ptr<ScanContext> context;
+    Status context_st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
+    if (!context_st.ok()) {
+        context_st.to_thrift(&t_status);
+        result_.status = t_status;
+        return;
+    }
+    if (offset != context->offset) {
+        LOG(ERROR) << "getNext error: context offset [" <<  context->offset<<" ]" << " ,client offset [ " << offset << " ]";
+        // invalid offset
+        t_status.status_code = TStatusCode::NOT_FOUND;
+        std::stringstream msg;
+        msg << "context_id: " << context_id << " send offset: " << offset << "diff with context offset: " << context->offset; 
+        t_status.error_msgs.push_back(msg.str());
+        result_.status = t_status;
+    } else {
+        // during accessing, should disabled last_access_time
+        context->last_access_time = -1;
+        TUniqueId fragment_instance_id = context->fragment_instance_id;
+        std::shared_ptr<TScanRowBatch> rows_per_col;
+        bool eos;
+        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
+        if (fetch_st.ok()) {
+            result_.__set_eos(eos);
+            // when eos = true  rows_per_col = nullptr
+            if (!eos) {
+                result_.__set_rows(*rows_per_col);
+                context->offset += (*rows_per_col).num_rows;
+            }
+        }
+        fetch_st.to_thrift(&t_status);
+        result_.status = t_status;
+    }
+    context->last_access_time = time(NULL);
+}
+
+void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
+    std::string context_id = params.context_id;
+    TStatus t_status;
+    Status st = _exec_env->external_scan_context_mgr()->clear_scan_context(context_id);
+    st.to_thrift(&t_status);
+    result_.status = t_status;
 }
 
 } // namespace doris
