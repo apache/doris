@@ -86,7 +86,7 @@ private:
     void fill_slots_of_columns_from_path(int start);
 
 private:
-    const std::map<std::string, std::string>& _columns_from_path;
+    const std::vector<std::string>& _columns_from_path;
     parquet::ReaderProperties _properties;
     std::shared_ptr<ParquetFile> _parquet;
 

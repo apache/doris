@@ -34,7 +34,7 @@ namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::map<std::string, std::string>& columns_from_path) :
+ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::vector<std::string>& columns_from_path) :
            _columns_from_path(columns_from_path), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();

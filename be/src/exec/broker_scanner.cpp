@@ -476,7 +476,7 @@ inline void BrokerScanner::fill_slots_of_columns_from_path(int start) {
         void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         const std::string& column_from_path = _columns_from_path[i - start];
-        str_slot->ptr = column_from_path.c_str();
+        str_slot->ptr = reinterpret_cast<char*>(column_from_path.c_str());
         str_slot->len = column_from_path.size();
     }
 }
@@ -520,7 +520,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
     int file_column_index = 0;
     for (; file_column_index < values.size(); ++file_column_index) {
-        auto slot_desc = _src_slot_descs[i];
+        auto slot_desc = _src_slot_descs[file_column_index];
         const Slice& value = values[file_column_index];
         fill_slot(slot_desc, value);
     }
