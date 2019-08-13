@@ -68,7 +68,7 @@ private:
 // Reader of broker parquet file
 class ParquetReaderWrap {
 public:
-    ParquetReaderWrap(FileReader *file_reader, const std::map<std::string, std::string>& columns_from_path);
+    ParquetReaderWrap(FileReader *file_reader, const std::vector<std::string>& columns_from_path);
     virtual ~ParquetReaderWrap();
 
     // Read 
@@ -83,7 +83,7 @@ private:
     Status set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc);
     Status read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
     Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbtyes);
-    void fill_slots_of_columns_from_path(int start);
+    void fill_slots_of_columns_from_path(int start, const std::vector<SlotDescriptor*>& src_slot_descs, Tuple* tuple);
 
 private:
     const std::vector<std::string>& _columns_from_path;

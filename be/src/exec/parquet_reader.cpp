@@ -128,8 +128,7 @@ Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tup
         if (iter != _map_column.end()) {
             _parquet_column_ids.emplace_back(iter->second);
         } else {
-            auto iter_1 = _columns_from_path.find(slot_desc->col_name());
-            if (iter_1 == _columns_from_path.end()) {
+            if (std::find(_columns_from_path.begin(), _columns_from_path.end(), slot_desc->col_name()) != _columns_from_path.end()) {
                 std::stringstream str_error;
                 str_error << "Invalid Column Name:" << slot_desc->col_name();
                 LOG(WARNING) << str_error.str();
@@ -204,15 +203,15 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
     return Status::OK();
 }
 
-inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start) {
+inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start, const std::vector<SlotDescriptor*>& src_slot_descs, Tuple* tuple) {
     // values of columns from path can not be null
-    for (int i = start; i < _src_slot_descs.size(); ++i) {
-        auto slot_desc = _src_slot_descs[i];
-        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+    for (int i = start; i < src_slot_descs.size(); ++i) {
+        auto slot_desc = src_slot_descs[i];
+        tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = tuple->get_slot(slot_desc->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         const std::string& column_from_path = _columns_from_path[i - start];
-        str_slot->ptr = column_from_path.c_str();
+        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
         str_slot->len = column_from_path.size();
     }
 }
@@ -462,7 +461,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     }
 
     ++column_index;
-    fill_slots_of_columns_from_path(column_index);
+    fill_slots_of_columns_from_path(column_index, tuple_slot_descs, tuple);
 
     // update data value
     ++_current_line_of_group;
