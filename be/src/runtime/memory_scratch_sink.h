@@ -69,7 +69,7 @@ private:
 
     Status prepare_exprs(RuntimeState* state);
 
-    Status add_per_col(TupleRow* row, std::shared_ptr<TScanRowBatch> result);
+    Status add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result);
 
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
