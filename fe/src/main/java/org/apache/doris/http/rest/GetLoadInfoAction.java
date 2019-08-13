@@ -32,9 +32,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Get load information of one load job
 public class GetLoadInfoAction extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     public GetLoadInfoAction(ActionController controller) {
         super(controller);
     }
@@ -42,7 +39,7 @@ public class GetLoadInfoAction extends RestBaseAction {
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
         GetLoadInfoAction action = new GetLoadInfoAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/{db}/_load_info", action);
+        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/_load_info", action);
     }
 
     @Override

@@ -17,9 +17,6 @@
 
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -32,10 +29,16 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+
+import com.google.common.base.Strings;
+
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.util.HashMap;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * This class is responsible for fetch the approximate row count of the specified table from cluster-meta data,
@@ -52,23 +55,21 @@ public class TableRowCountAction extends RestBaseAction {
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_count", new TableRowCountAction(controller));
-        controller.registerHandler(HttpMethod.GET,
-                "/api/{database}/{table}/_count", new TableRowCountAction(controller));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",
+                                   new TableRowCountAction(controller));
     }
 
     @Override
-    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response) throws DdlException {
+    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
-        String clusterName = request.getSingleParameter("cluster");
-        String dbName = request.getSingleParameter("database");
-        String tableName = request.getSingleParameter("table");
+        String dbName = request.getSingleParameter(DB_KEY);
+        String tableName = request.getSingleParameter(TABLE_KEY);
         try {
-            if (Strings.isNullOrEmpty(clusterName)
-                    || Strings.isNullOrEmpty(dbName)
+            if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{cluster}/{database}/{table} must be selected");
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
             }
             String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
             // check privilege for select, otherwise return HTTP 401

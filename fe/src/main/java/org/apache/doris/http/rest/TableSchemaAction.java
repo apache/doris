@@ -17,9 +17,6 @@
 
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -36,12 +33,18 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+
+import com.google.common.base.Strings;
+
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * Get table schema for specified cluster.database.table with privilege checking
@@ -55,23 +58,21 @@ public class TableSchemaAction extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         // the extra `/api` path is so disgusting
         controller.registerHandler(HttpMethod.GET,
-                "/api/{cluster}/{database}/{table}/_schema", new TableSchemaAction(controller));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", new TableSchemaAction
+                                           (controller));
     }
-
 
     @Override
     protected void executeWithoutPassword(ActionAuthorizationInfo authInfo,
                                           BaseRequest request, BaseResponse response) throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
-        String clusterName = request.getSingleParameter("cluster");
-        String dbName = request.getSingleParameter("database");
-        String tableName = request.getSingleParameter("table");
+        String dbName = request.getSingleParameter(DB_KEY);
+        String tableName = request.getSingleParameter(TABLE_KEY);
         try {
-            if (Strings.isNullOrEmpty(clusterName)
-                    || Strings.isNullOrEmpty(dbName)
+            if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "No cluster or database or table selected.");
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "No database or table selected.");
             }
             String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
             // check privilege for select, otherwise return 401 HTTP status
