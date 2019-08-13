@@ -115,7 +115,7 @@ struct TBrokerRangeDesc {
     // total size of the file
     8: optional i64 file_size
     // columns parsed from file path
-    9: optional map<string, string> columns_from_path
+    9: optional list<string> columns_from_path
 }
 
 struct TBrokerScanRangeParams {

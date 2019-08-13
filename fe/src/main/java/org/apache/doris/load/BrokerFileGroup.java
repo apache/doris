@@ -369,6 +369,7 @@ public class BrokerFileGroup implements Writable {
         if (fileFieldNames == null || fileFieldNames.isEmpty()) {
             return;
         }
+        // Order of columnExprList: fileFieldNames + columnsFromPath
         columnExprList = Lists.newArrayList();
         for (String columnName : fileFieldNames) {
             columnExprList.add(new ImportColumnDesc(columnName, null));

@@ -75,7 +75,6 @@ import org.apache.logging.log4j.Logger;
 import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -654,7 +653,7 @@ public class BrokerScanNode extends ScanNode {
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
             TFileFormatType formatType = formatType(fileGroup.getFileFormat(), fileStatus.path);
-            Map<String, String> columnsFromPath = parseColumnsFromPath(fileStatus.path, fileGroup.getColumnsFromPath());
+            List<String> columnsFromPath = parseColumnsFromPath(fileStatus.path, fileGroup.getColumnsFromPath());
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
@@ -690,7 +689,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes, Map<String, String> columnsFromPath) {
+            TFileFormatType formatType, long rangeBytes, List<String> columnsFromPath) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);
@@ -703,34 +702,39 @@ public class BrokerScanNode extends ScanNode {
         return rangeDesc;
     }
 
-    private Map<String, String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+    private List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
-            return Collections.emptyMap();
+            return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
-        Map<String, String> columns = new HashMap<>();
-        for (int i = strings.length - 1; i >= 0; i--) {
+        if (strings.length < 2) {
+            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+        }
+        String[] columns = new String[columnsFromPath.size()];
+        int size = 0;
+        for (int i = strings.length - 2; i >= 0; i--) {
             String str = strings[i];
             if (str == null || str.isEmpty() || !str.contains("=")) {
-                continue;
+                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=");
             if (pair.length != 2) {
+                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            }
+            int index = columnsFromPath.indexOf(pair[0]);
+            if (index == -1) {
                 continue;
             }
-            if (!columnsFromPath.contains(pair[0])) {
-                continue;
-            }
-            columns.put(pair[0], pair[1]);
-            if (columns.size() > columnsFromPath.size()) {
+            columns[index] = pair[1];
+            size++;
+            if (size >= columnsFromPath.size()) {
                 break;
             }
         }
-        if (columns.size() != columnsFromPath.size()) {
+        if (size != columnsFromPath.size()) {
             throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
         }
-        LOG.info("columns from path: " + columns + ", filePath: " + filePath);
-        return columns;
+        return Lists.newArrayList(columns);
     }
 
     @Override

@@ -52,8 +52,8 @@ import java.util.TreeSet;
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
 //          [FORMAT AS format]
-//          [COLUMNS FROM PATH AS (col1, ...)]
 //          [(tmp_col1, tmp_col2, col3, ...)]
+//          [COLUMNS FROM PATH AS (col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xxx))]
 
 /**
@@ -228,6 +228,7 @@ public class DataDescription {
         // merge columns exprs from columns and columnMappingList
         // used to check duplicated column name
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        // Order of parsedColumnExprList: columns(fileFieldNames) + columnsFromPath
         parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
         for (String columnName : columnList) {
