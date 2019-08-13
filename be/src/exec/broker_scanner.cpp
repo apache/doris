@@ -468,7 +468,7 @@ inline void BrokerScanner::fill_slot(SlotDescriptor* slot_desc, const Slice& val
     str_slot->len = value.size;
 }
 
-inline void BrokerScanner::fill_slots_of_columns_from_path(int start) {
+inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start) {
     // values of columns from path can not be null
     for (int i = start; i < _src_slot_descs.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
@@ -476,7 +476,7 @@ inline void BrokerScanner::fill_slots_of_columns_from_path(int start) {
         void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         const std::string& column_from_path = _columns_from_path[i - start];
-        str_slot->ptr = reinterpret_cast<char*>(column_from_path.c_str());
+        str_slot->ptr = column_from_path.c_str();
         str_slot->len = column_from_path.size();
     }
 }
