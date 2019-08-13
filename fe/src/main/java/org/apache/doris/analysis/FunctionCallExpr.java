@@ -536,7 +536,7 @@ public class FunctionCallExpr extends Expr {
             LOG.warn("fn {} not exists", fnName.getFunction());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
-
+        /*
         if (fnName.getFunction().equals("from_unixtime")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
             if (children.size() > 1) {
@@ -552,7 +552,7 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
-
+        */
         if (fn.getFunctionName().getFunction().equals("time_diff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             return;
