@@ -423,7 +423,7 @@ StringVal TimestampFunctions::from_unix(
 }
 
 IntVal TimestampFunctions::to_unix(FunctionContext* context) {
-    return IntVal(context->impl()->state()->timestamp() / 1000);
+    return IntVal(context->impl()->state()->timestamp_ms() / 1000);
 }
 
 IntVal TimestampFunctions::to_unix(
@@ -462,7 +462,7 @@ IntVal TimestampFunctions::to_unix(
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(context->impl()->state()->timestamp() / 1000, "+00:00")) {
+    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+00:00")) {
         return DateTimeVal::null();
     }
 
@@ -473,7 +473,7 @@ DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
 
 DateTimeVal TimestampFunctions::now(FunctionContext* context) {
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(context->impl()->state()->timestamp() / 1000,
+    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
             context->impl()->state()->timezone())) {
         return DateTimeVal::null();
     }
@@ -485,7 +485,7 @@ DateTimeVal TimestampFunctions::now(FunctionContext* context) {
 
 DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(context->impl()->state()->timestamp() / 1000,
+    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
             context->impl()->state()->timezone())) {
         return DoubleVal::null();
     }

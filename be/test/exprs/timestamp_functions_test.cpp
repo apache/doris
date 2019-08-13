@@ -40,7 +40,8 @@ public:
         TimezoneDatabase::init();
         
         TQueryGlobals globals;
-        globals.__set_now_string("1565080737805");
+        globals.__set_now_string("2019-08-06 01:38:57");
+        globals.__set_timestamp_ms(1565080737805);
         globals.__set_time_zone("America/Los_Angeles");
         state = new RuntimeState(globals);
         utils = new FunctionUtils(state);
