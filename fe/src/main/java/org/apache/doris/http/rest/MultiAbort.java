@@ -31,9 +31,6 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class MultiAbort extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiAbort(ActionController controller, ExecuteEnv execEnv) {
@@ -44,7 +41,7 @@ public class MultiAbort extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiAbort action = new MultiAbort(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_abort", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_abort", action);
     }
 
     @Override

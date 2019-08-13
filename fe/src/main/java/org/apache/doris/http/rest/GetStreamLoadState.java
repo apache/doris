@@ -31,9 +31,6 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class GetStreamLoadState extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     public GetStreamLoadState(ActionController controller) {
         super(controller);
     }

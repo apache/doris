@@ -17,12 +17,6 @@
 
 package org.apache.doris.http;
 
-import com.google.common.collect.Lists;
-import junit.framework.AssertionFailedError;
-import mockit.internal.startup.Startup;
-import okhttp3.Credentials;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
@@ -51,6 +45,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+
+import com.google.common.collect.Lists;
+
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
@@ -65,6 +62,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import junit.framework.AssertionFailedError;
+import mockit.internal.startup.Startup;
+import okhttp3.Credentials;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*", "javax.net.ssl.*"})
@@ -107,7 +110,7 @@ abstract public class DorisHttpTestCase {
 
     public static final int HTTP_PORT = 32474;
 
-    protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + CLUSTER_NAME + "/" + DB_NAME + "/" + TABLE_NAME;
+    protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
 
 
     protected String rootAuth = Credentials.basic("root", "");
