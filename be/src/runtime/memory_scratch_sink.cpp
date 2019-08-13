@@ -83,7 +83,7 @@ Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
     t_scan_row_batch->__set_cols(std::move(cols));
     for (int i = 0; status.ok() && i < batch->num_rows(); ++i) {
         TupleRow* row = batch->get_row(i);
-        status = add_per_col(row, t_scan_row_batch);
+        status = add_per_col(state, row, t_scan_row_batch);
         if (!status.ok()) {
             return Status::InternalError("convert row failed");
         }
@@ -93,7 +93,7 @@ Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 // add all col data for TScanRowBatch
-Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBatch> result) {
+Status MemoryScratchSink::add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result) {
     int num_cols = _output_expr_ctxs.size();
     for (int i = 0; i < num_cols; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
@@ -147,9 +147,14 @@ Status MemoryScratchSink::add_per_col(TupleRow* row, std::shared_ptr<TScanRowBat
             }
             case TYPE_DATE:
             case TYPE_DATETIME: {
-                result->cols[i].__isset.long_vals = true;
                 const DateTimeValue* time_val = (const DateTimeValue*)(item);
-                result->cols[i].long_vals.push_back(time_val->unix_timestamp());
+                int64_t ts = 0;
+                if (time_val->unix_timestamp(&ts, state->timezone())) {
+                    result->cols[i].__isset.long_vals = true;
+                    result->cols[i].long_vals.push_back(ts);
+                } else {
+                    result->cols[i].is_null.back() = true;
+                }
                 break;
             }
             case TYPE_VARCHAR:
