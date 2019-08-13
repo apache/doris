@@ -788,6 +788,7 @@ public class GlobalTransactionMgr {
         }
 
         // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
+        List<TransactionState> abortedTxns = Lists.newArrayList();
         writeLock();
         try {
             List<Long> transactionsToDelete = Lists.newArrayList();
@@ -814,6 +815,7 @@ public class GlobalTransactionMgr {
                             transactionState.setFinishTime(System.currentTimeMillis());
                             transactionState.setReason("transaction is timeout and is cancelled automatically");
                             unprotectUpsertTransactionState(transactionState);
+                            abortedTxns.add(transactionState);
                         }
                     }
                 }
@@ -826,10 +828,19 @@ public class GlobalTransactionMgr {
         } finally {
             writeUnlock();
         }
+
+        for (TransactionState abortedTxn : abortedTxns) {
+            try {
+                abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
+            } catch (UserException e) {
+                // just print a log, it does not matter.
+                LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);
+            }
+        }
     }
     
     private boolean checkTxnHasRelatedJob(TransactionState txnState, Map<Long, Set<Long>> dbIdToTxnIds) {
-        // TODO: put checkTxnHasRelaredJob into Load
+        // TODO: put checkTxnHasRelatedJob into Load
         Set<Long> txnIds = dbIdToTxnIds.get(txnState.getDbId());
         if (txnIds == null) {
             // We can't find the related load job of this database.
