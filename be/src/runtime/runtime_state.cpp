@@ -107,11 +107,20 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
       _profile(_obj_pool.get(), "<unnamed>"),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    _timestamp = atol(query_globals.now_string.c_str());
     if (query_globals.__isset.time_zone) {
         _timezone = query_globals.time_zone;
-    } else {
+        _timestamp_ms = query_globals.timestamp_ms;
+    } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneDatabase::default_time_zone;
+        DateTimeValue dt;
+        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        int64_t timestamp;
+        dt.unix_timestamp(&timestamp, _timezone);
+        _timestamp_ms = timestamp * 1000;
+    } else {
+        //Unit test may set into here
+        _timezone = TimezoneDatabase::default_time_zone;
+        _timestamp_ms = 0;
     }
 }
 
@@ -169,11 +178,20 @@ Status RuntimeState::init(
     const TQueryGlobals&  query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
-    _timestamp = atol(query_globals.now_string.c_str());
     if (query_globals.__isset.time_zone) {
         _timezone = query_globals.time_zone;
-    } else {
+        _timestamp_ms = query_globals.timestamp_ms;
+    } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneDatabase::default_time_zone;
+        DateTimeValue dt;
+        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        int64_t timestamp;
+        dt.unix_timestamp(&timestamp, _timezone);
+        _timestamp_ms = timestamp * 1000;
+    } else {
+        //Unit test may set into here
+        _timezone = TimezoneDatabase::default_time_zone;
+        _timestamp_ms = 0;
     }
     _exec_env = exec_env;
 
