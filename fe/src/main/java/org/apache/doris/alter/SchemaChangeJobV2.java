@@ -751,7 +751,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
     
     @Override
-    public synchronized void write(DataOutput out) throws IOException {
+    public void write(DataOutput out) throws IOException {
         super.write(out);
 
         out.writeInt(partitionIndexTabletMap.rowKeySet().size());

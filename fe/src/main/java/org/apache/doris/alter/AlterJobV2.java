@@ -126,6 +126,10 @@ public class AlterJobV2 implements Writable {
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
+     * 
+     * lock order:
+     *      synchronized
+     *      db lock
      */
     public synchronized void run() {
         if (isTimeout()) {
@@ -186,7 +190,7 @@ public class AlterJobV2 implements Writable {
     }
 
     @Override
-    public synchronized void write(DataOutput out) throws IOException {
+    public void write(DataOutput out) throws IOException {
         Text.writeString(out, type.name());
         Text.writeString(out, jobState.name());
 
@@ -202,7 +206,7 @@ public class AlterJobV2 implements Writable {
     }
 
     @Override
-    public synchronized void readFields(DataInput in) throws IOException {
+    public void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJobV2.write().
         // except 'type' member, which is read in AlterJobV2.read()
         jobState = JobState.valueOf(Text.readString(in));
