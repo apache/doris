@@ -54,7 +54,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter("db");
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("Parameter db is missing");
         }

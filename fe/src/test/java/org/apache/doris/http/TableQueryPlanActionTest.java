@@ -17,10 +17,8 @@
 
 package org.apache.doris.http;
 
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 import org.apache.doris.thrift.TQueryPlanInfo;
+
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.json.JSONObject;
@@ -30,10 +28,14 @@ import org.junit.Test;
 import java.io.IOException;
 import java.util.Base64;
 
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     private static final String PATH_URI = "/_query_plan";
-    protected static final String ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + CLUSTER_NAME + "/" + DB_NAME + "/es_table";
+    protected static final String ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
 
     @Test
     public void testQueryPlanAction() throws IOException, TException {

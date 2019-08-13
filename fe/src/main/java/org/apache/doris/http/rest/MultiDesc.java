@@ -35,9 +35,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // List all labels of one multi-load
 public class MultiDesc extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiDesc(ActionController controller, ExecuteEnv execEnv) {
@@ -48,7 +45,7 @@ public class MultiDesc extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiDesc action = new MultiDesc(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_desc", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_desc", action);
     }
 
     @Override
