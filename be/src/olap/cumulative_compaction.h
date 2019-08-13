@@ -33,8 +33,15 @@ public:
 
 protected:
     OLAPStatus pick_rowsets_to_compact() override;
-    std::string compaction_name() const override;
-    ReaderType compaction_type() const override;
+
+    std::string compaction_name() const override {
+        return "cumulative compaction";
+    }
+
+    ReaderType compaction_type() const override {
+        return ReaderType::READER_CUMULATIVE_COMPACTION;
+    }
+
 
 private:
     int64_t _cumulative_rowset_size_threshold;

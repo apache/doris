@@ -121,13 +121,5 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     return OLAP_SUCCESS;
 }
 
-std::string CumulativeCompaction::compaction_name() const {
-    return "cumulative compaction";
-}
-
-ReaderType CumulativeCompaction::compaction_type() const {
-    return ReaderType::READER_CUMULATIVE_COMPACTION;
-}
-
 }  // namespace doris
 

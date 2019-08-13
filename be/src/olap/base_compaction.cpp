@@ -118,12 +118,4 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
 }
 
-std::string BaseCompaction::compaction_name() const {
-    return "base compaction";
-}
-
-ReaderType BaseCompaction::compaction_type() const {
-    return ReaderType::READER_BASE_COMPACTION;
-}
-
 }  // namespace doris
