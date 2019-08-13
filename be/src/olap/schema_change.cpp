@@ -1108,8 +1108,8 @@ bool SchemaChangeWithSorting::_external_sorting(
         TabletSharedPtr new_tablet) {
     Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
 
-    uint64_t merged_rows = 0;
-    uint64_t filtered_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t filtered_rows = 0;
     vector<RowsetReaderSharedPtr> rs_readers;
     for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
             it != src_rowsets.end(); ++it) {
@@ -1248,7 +1248,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         new_tablet->modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
         // inherit cumulative_layer_point from base_tablet
         // check if new_tablet.ce_point > base_tablet.ce_point?
-        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
+        new_tablet->set_cumulative_layer_point(-1);
         // save tablet meta
         res = new_tablet->save_meta();
         if (res != OLAP_SUCCESS) {
@@ -1519,7 +1519,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         }
 
         // inherit cumulative_layer_point from base_tablet
-        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
+        new_tablet->set_cumulative_layer_point(-1);
 
         // get history versions to be changed
         res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);

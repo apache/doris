@@ -31,24 +31,31 @@ class Merger {
 public:
     // parameter index is created by caller, and it is empty.
     Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type);
+    Merger(TabletSharedPtr tablet, ReaderType type, 
+           RowsetWriterSharedPtr writer, const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     virtual ~Merger() {};
 
     // @brief read from multiple OLAPData and SegmentGroup, then write into single OLAPData and SegmentGroup
     // @return  OLAPStatus: OLAP_SUCCESS or FAIL
     // @note it will take long time to finish.
-    OLAPStatus merge(const std::vector<RowsetReaderSharedPtr>& rs_readers, 
-                     uint64_t* merged_rows, uint64_t* filted_rows);
+    OLAPStatus merge(const vector<RowsetReaderSharedPtr>& rs_readers,
+                     int64_t* merged_rows, int64_t* filted_rows);
+    OLAPStatus merge();
 
     // 获取在做merge过程中累积的行数
-    uint64_t row_count() {
-        return _row_count;
-    }
+    inline int64_t row_count() const { return _row_count; }
+    inline int64_t merged_rows() const { return _merged_rows; }
+    inline int64_t filted_rows() const { return _filted_rows; }
 private:
     TabletSharedPtr _tablet;
-    RowsetWriterSharedPtr _rs_writer;
+    RowsetWriterSharedPtr _output_rs_writer;
+
+    std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     ReaderType _reader_type;
-    uint64_t _row_count;
+    int64_t _row_count;
+    int64_t _merged_rows;
+    int64_t _filted_rows;
 
     DISALLOW_COPY_AND_ASSIGN(Merger);
 };
