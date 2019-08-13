@@ -33,9 +33,10 @@ public:
     ~BaseCompaction() override;
 
     OLAPStatus compact() override;
-    OLAPStatus pick_rowsets_to_compact() override;
 
-    const std::string& compaction_name() const override;
+protected:
+    OLAPStatus pick_rowsets_to_compact() override;
+    std::string compaction_name() const override;
     ReaderType compaction_type() const override;
 
 private:

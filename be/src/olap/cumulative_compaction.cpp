@@ -22,9 +22,7 @@ namespace doris {
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
     : Compaction(tablet),
-      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes),
-      _compaction_name("cumulative compaction"),
-      _compaction_type(READER_CUMULATIVE_COMPACTION)
+      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes)
 { }
 
 CumulativeCompaction::~CumulativeCompaction() { }
@@ -123,12 +121,12 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     return OLAP_SUCCESS;
 }
 
-const std::string& CumulativeCompaction::compaction_name() const {
-    return _compaction_name;
+std::string CumulativeCompaction::compaction_name() const {
+    return "cumulative compaction";
 }
 
 ReaderType CumulativeCompaction::compaction_type() const {
-    return _compaction_type;
+    return ReaderType::READER_CUMULATIVE_COMPACTION;
 }
 
 }  // namespace doris

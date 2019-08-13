@@ -85,8 +85,6 @@ OLAPStatus Merger::merge() {
     row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), _output_rs_writer->mem_pool());
-
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
         if (OLAP_SUCCESS == res && eof) {

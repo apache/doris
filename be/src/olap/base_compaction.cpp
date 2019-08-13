@@ -21,9 +21,8 @@
 namespace doris {
 
 BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
-    : Compaction(tablet),
-      _compaction_name("base compaction"),
-      _compaction_type(READER_BASE_COMPACTION) { }
+    : Compaction(tablet)
+{ }
 
 BaseCompaction::~BaseCompaction() { }
 
@@ -119,12 +118,12 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
 }
 
-const std::string& BaseCompaction::compaction_name() const {
-    return _compaction_name;
+std::string BaseCompaction::compaction_name() const {
+    return "base compaction";
 }
 
 ReaderType BaseCompaction::compaction_type() const {
-    return _compaction_type;
+    return ReaderType::READER_BASE_COMPACTION;
 }
 
 }  // namespace doris

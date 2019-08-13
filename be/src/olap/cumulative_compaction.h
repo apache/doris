@@ -30,15 +30,14 @@ public:
     ~CumulativeCompaction() override;
 
     OLAPStatus compact() override;
+
+protected:
     OLAPStatus pick_rowsets_to_compact() override;
-    
-    const std::string& compaction_name() const override;
+    std::string compaction_name() const override;
     ReaderType compaction_type() const override;
 
 private:
     int64_t _cumulative_rowset_size_threshold;
-    std::string _compaction_name;
-    ReaderType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };

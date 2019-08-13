@@ -47,8 +47,10 @@ public:
     virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
+
+protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
-    virtual const std::string& compaction_name() const = 0;
+    virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
     OLAPStatus do_compaction();
