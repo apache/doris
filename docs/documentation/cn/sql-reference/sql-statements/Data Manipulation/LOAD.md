@@ -48,8 +48,8 @@
             [PARTITION (p1, p2)]
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
-            [COLUMNS FROM PATH AS (columns_from_path)]
             [(column_list)]
+            [COLUMNS FROM PATH AS (columns_from_path)]
             [SET (k1 = func(k2))]
     
         说明：
@@ -75,12 +75,6 @@
             file_type：
 
             用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
-
-            columns_from_path:
-
-            用于指定需要从文件路径中解析的字段。
-            语法：
-            (col_from_path_name1, col_from_path_name2, ...)
  
             column_list：
 
@@ -88,6 +82,12 @@
             当需要跳过导入文件中的某一列时，将该列指定为 table 中不存在的列名即可。
             语法：
             (col_name1, col_name2, ...)
+
+            columns_from_path:
+
+            用于指定需要从文件路径中解析的字段。
+            语法：
+            (col_from_path_name1, col_from_path_name2, ...)
             
             SET:
 
@@ -293,8 +293,8 @@
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
         INTO TABLE `my_table`
         FORMAT AS "csv"
-        COLUMNS FROM PATH AS (city, utc_date)
         (k1, k2, k3)
+        COLUMNS FROM PATH AS (city, utc_date)
         SET (uniq_id = md5sum(k1, city))
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");

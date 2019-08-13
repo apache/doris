@@ -204,27 +204,30 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
     return Status::OK();
 }
 
+inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start) {
+    // values of columns from path can not be null
+    for (int i = start; i < _src_slot_descs.size(); ++i) {
+        auto slot_desc = _src_slot_descs[i];
+        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string& column_from_path = _columns_from_path[i - start];
+        str_slot->ptr = column_from_path.c_str();
+        str_slot->len = column_from_path.size();
+    }
+}
+
 Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs, MemPool* mem_pool, bool* eof) {
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
     const uint8_t *value = nullptr;
-    int index = 0;
     int column_index = 0;
     try {
-        size_t slots = tuple_slot_descs.size();
+        size_t slots = _parquet_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
-            auto iter = _columns_from_path.find(slot_desc->col_name());
-            if (iter != _columns_from_path.end()) {
-                std::string partitioned_field = iter->second;
-                value = reinterpret_cast<const uint8_t*>(partitioned_field.c_str());
-                wbytes = partitioned_field.size();
-                fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
-                continue;
-            } else {
-                column_index = index++; // column index in batch record
-            }
-            switch (_parquet_column_type[column_index]) {
+            column_index = i;// column index in batch record
+            switch (_parquet_column_type[i]) {
                 case arrow::Type::type::STRING: {
                     auto str_array = std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
                     if (str_array->IsNull(_current_line_of_group)) {
@@ -457,6 +460,9 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
+
+    ++column_index;
+    fill_slots_of_columns_from_path(column_index);
 
     // update data value
     ++_current_line_of_group;

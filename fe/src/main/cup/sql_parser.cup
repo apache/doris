@@ -1050,8 +1050,8 @@ data_desc ::=
     opt_partitions:partitionNames
     opt_field_term:colSep
     opt_file_format:fileFormat
-    opt_columns_from_path:columnsFromPath
     opt_col_list:colList
+    opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, columnsFromPath, isNeg, colMappingList);

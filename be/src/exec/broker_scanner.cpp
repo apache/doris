@@ -459,12 +459,26 @@ bool BrokerScanner::convert_one_row(
 inline void BrokerScanner::fill_slot(SlotDescriptor* slot_desc, const Slice& value) {
     if (slot_desc->is_nullable() && is_null(value)) {
         _src_tuple->set_null(slot_desc->null_indicator_offset());
+        return;
     }
     _src_tuple->set_not_null(slot_desc->null_indicator_offset());
     void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
     str_slot->ptr = value.data;
     str_slot->len = value.size;
+}
+
+inline void BrokerScanner::fill_slots_of_columns_from_path(int start) {
+    // values of columns from path can not be null
+    for (int i = start; i < _src_slot_descs.size(); ++i) {
+        auto slot_desc = _src_slot_descs[i];
+        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string& column_from_path = _columns_from_path[i - start];
+        str_slot->ptr = column_from_path.c_str();
+        str_slot->len = column_from_path.size();
+    }
 }
 
 // Convert one row to this tuple
@@ -505,18 +519,13 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     }
 
     int file_column_index = 0;
-    for (int i = 0; i < _src_slot_descs.size(); ++i) {
+    for (; file_column_index < values.size(); ++file_column_index) {
         auto slot_desc = _src_slot_descs[i];
-        auto iter = _columns_from_path.find(slot_desc->col_name());
-        if (iter != _columns_from_path.end()) {
-            std::string partitioned_field = iter->second;
-            const Slice value = Slice(partitioned_field.c_str(), partitioned_field.size());
-            fill_slot(slot_desc, value);
-        } else {
-            const Slice& value = values[file_column_index++];
-            fill_slot(slot_desc, value);
-        }
+        const Slice& value = values[file_column_index];
+        fill_slot(slot_desc, value);
     }
+
+    fill_slots_of_columns_from_path(file_column_index);
 
     return true;
 }
