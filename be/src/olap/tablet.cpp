@@ -46,37 +46,6 @@ using std::sort;
 using std::string;
 using std::vector;
 
-TabletSharedPtr Tablet::create_tablet_from_meta_file(
-            const string& file_path, DataDir* data_dir) {
-    TabletMetaSharedPtr tablet_meta(new(nothrow) TabletMeta());
-    if (tablet_meta == nullptr) {
-        LOG(WARNING) << "fail to malloc TabletMeta.";
-        return NULL;
-    }
-
-    if (tablet_meta->create_from_file(file_path) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to load tablet_meta. file_path=" << file_path;
-        return nullptr;
-    }
-
-    // add new fields
-    boost::filesystem::path file_path_path(file_path);
-    string shard_path = file_path_path.parent_path().parent_path().parent_path().string();
-    string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
-    uint64_t shard = stol(shard_str);
-    tablet_meta->set_shard_id(shard);
-
-    // save tablet_meta info to kv db
-    // tablet_meta key format: tablet_id + "_" + schema_hash
-    OLAPStatus res = TabletMetaManager::save(data_dir, tablet_meta->tablet_id(),
-                                             tablet_meta->schema_hash(), tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save tablet_meta to db. file_path=" << file_path;
-        return nullptr;
-    }
-    return create_tablet_from_meta(tablet_meta, data_dir);
-}
-
 TabletSharedPtr Tablet::create_tablet_from_meta(
         TabletMetaSharedPtr tablet_meta,
         DataDir* data_dir) {
@@ -171,6 +140,8 @@ string Tablet::tablet_path() const {
     return _tablet_path;
 }
 
+// should save tablet meta to remote meta store
+// if it's a primary replica
 OLAPStatus Tablet::save_meta() {
     OLAPStatus res = _tablet_meta->save_meta(_data_dir);
     if (res != OLAP_SUCCESS) {
@@ -463,8 +434,15 @@ OLAPStatus Tablet::check_version_integrity(const Version& version) {
     return capture_consistent_versions(version, &span_versions);
 }
 
+// if any rowset contains the version's data, it means the version
+// already exist
 bool Tablet::check_version_exist(const Version& version) const {
-    return (_rs_version_map.find(version) != _rs_version_map.end());
+    for (auto& it : _rs_version_map) {
+        if (it.first.first <= version.first && it.first.second >= version.second) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Tablet::list_versions(vector<Version>* versions) const {

@@ -1133,6 +1133,15 @@ void TabletManager::update_storage_medium_type_count(uint32_t storage_medium_typ
     _available_storage_medium_type_count = storage_medium_type_count;
 }
 
+void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos) {
+    ReadLock rlock(&_tablet_map_lock);
+    if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
+        for (auto& tablet_info : _partition_tablet_map[partition_id]) {
+            tablet_infos->insert(tablet_info);
+        }
+    }
+}
+
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
     tablet_info->tablet_id = tablet->tablet_id();
     tablet_info->schema_hash = tablet->schema_hash();
@@ -1242,7 +1251,8 @@ OLAPStatus TabletManager::_create_inital_rowset(
             return res;
         }
     }
-    res = tablet->save_meta();
+    tablet->set_cumulative_layer_point(request.version + 1);
+    // should not save tablet meta here, because it will be saved if add to map successfully
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
     }
