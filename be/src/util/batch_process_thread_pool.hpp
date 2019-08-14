@@ -29,14 +29,13 @@
 
 namespace doris {
 
-
 // Fixed capacity FIFO queue, where both blocking_get and blocking_put operations block
 // if the queue is empty or full, respectively.
 template <typename T>
 class BatchProcessThreadPool {
 public:
-    // Singnature of function that process task batch by batch not one by one
-    typedef boost::function<void (std::vector<T>)> BatchProcessFunction;
+    // Signature of function that process task batch by batch not one by one
+    typedef std::function<void (std::vector<T>)> BatchProcessFunction;
 
     // Creates a new thread pool and start num_threads threads.
     //  -- num_threads: how many threads are part of this pool
@@ -53,8 +52,8 @@ public:
             _work_func(work_func) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
-                    boost::bind<void>(
-                        boost::mem_fn(&BatchProcessThreadPool::work_thread), this, i));
+                    std::bind<void>(
+                        std::mem_fn(&BatchProcessThreadPool::work_thread), this, i));
         }
     }
 

@@ -27,23 +27,23 @@ TabletSyncService::TabletSyncService() {
         3,  // thread num
         10000,  // queue size
         10, // batch size
-        boost::bind<void>(boost::mem_fn(&TabletSyncService::_fetch_rowset_meta_thread), this, _1));
+        std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_rowset_meta_thread), this, std::placeholders::_1));
 
     _push_rowset_pool = new BatchProcessThreadPool<PushRowsetMetaTask>(
         3,  // thread num
         10000,  // queue size
         10, // batch size
-        boost::bind<void>(boost::mem_fn(&TabletSyncService::_push_rowset_meta_thread), this, _1));
+        std::bind<void>(std::mem_fn(&TabletSyncService::_push_rowset_meta_thread), this, std::placeholders::_1));
     _fetch_tablet_pool = new BatchProcessThreadPool<FetchTabletMetaTask>(
         3,  // thread num
         10000,  // queue size
         10, // batch size
-        boost::bind<void>(boost::mem_fn(&TabletSyncService::_fetch_tablet_meta_thread), this, _1));
+        std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_tablet_meta_thread), this, std::placeholders::_1));
     _push_tablet_pool = new BatchProcessThreadPool<PushTabletMetaTask>(
         3,  // thread num
         10000,  // queue size
         10, // batch size
-        boost::bind<void>(boost::mem_fn(&TabletSyncService::_push_tablet_meta_thread), this, _1));
+        std::bind<void>(std::mem_fn(&TabletSyncService::_push_tablet_meta_thread), this, std::placeholders::_1));
 }
 
 
@@ -53,6 +53,12 @@ TabletSyncService::~TabletSyncService() {
     }
     if (_push_rowset_pool != nullptr) {
         delete _push_rowset_pool;
+    }
+    if (_fetch_tablet_pool != nullptr) {
+        delete _fetch_tablet_pool;
+    }
+    if (_push_tablet_pool != nullptr) {
+        delete _push_tablet_pool;
     }
 }
 

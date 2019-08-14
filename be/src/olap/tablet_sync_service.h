@@ -44,7 +44,7 @@ public:
     bool load_data;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
     bool operator< (const FetchRowsetMetaTask& o) const {
-            return priority < o.priority;
+        return priority < o.priority;
     }
 
     FetchRowsetMetaTask& operator++() {
@@ -60,7 +60,7 @@ public:
     RowsetMetaPB rowset_meta_pb;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
     bool operator< (const PushRowsetMetaTask& o) const {
-            return priority < o.priority;
+        return priority < o.priority;
     }
 
     PushRowsetMetaTask& operator++() {
@@ -76,7 +76,7 @@ public:
     bool load_data;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
     bool operator< (const FetchTabletMetaTask& o) const {
-            return priority < o.priority;
+        return priority < o.priority;
     }
 
     FetchTabletMetaTask& operator++() {
@@ -91,7 +91,7 @@ public:
     TabletMetaPB tablet_meta_pb;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
     bool operator< (const PushTabletMetaTask& o) const {
-            return priority < o.priority;
+        return priority < o.priority;
     }
 
     PushTabletMetaTask& operator++() {
@@ -107,6 +107,8 @@ public:
 class TabletSyncService {
 
 public:
+    TabletSyncService();
+    ~TabletSyncService();
     // fetch rowset meta and data to local metastore
     // when add a task, should check if the task already exist
     // if the rowset meta is not published, should commit it to local meta store
@@ -140,9 +142,6 @@ private:
     void _push_rowset_meta_thread(std::vector<PushRowsetMetaTask> tasks); 
     void _fetch_tablet_meta_thread(std::vector<FetchTabletMetaTask> tasks); 
     void _push_tablet_meta_thread(std::vector<PushTabletMetaTask> tasks); 
-public:
-    TabletSyncService();
-    ~TabletSyncService();
 
 private:
     BatchProcessThreadPool<FetchRowsetMetaTask>* _fetch_rowset_pool = nullptr;
