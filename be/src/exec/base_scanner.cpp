@@ -156,7 +156,7 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
                     << "while strict mode is " << std::boolalpha << _strict_mode 
-                    << "src value is " << raw_string;
+                    << ", src value is " << raw_string;
                 _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
