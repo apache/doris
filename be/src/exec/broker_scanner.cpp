@@ -452,18 +452,6 @@ bool BrokerScanner::convert_one_row(
     return fill_dest_tuple(line, tuple, tuple_pool);
 }
 
-inline void BrokerScanner::fill_slot(SlotDescriptor* slot_desc, const Slice& value) {
-    if (slot_desc->is_nullable() && is_null(value)) {
-        _src_tuple->set_null(slot_desc->null_indicator_offset());
-        return;
-    }
-    _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-    void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->ptr = value.data;
-    str_slot->len = value.size;
-}
-
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
@@ -481,7 +469,8 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         split_line(line, &values);
     }
 
-    const TBrokerRangeDesc& range = _ranges[_next_range];
+    // range of current file
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
     if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
@@ -506,7 +495,15 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     for (int i = 0; i < values.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
         const Slice& value = values[i];
-        fill_slot(slot_desc, value);
+        if (slot_desc->is_nullable() && is_null(value)) {
+            _src_tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
+        }
+        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        str_slot->ptr = value.data;
+        str_slot->len = value.size;
     }
 
     fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
