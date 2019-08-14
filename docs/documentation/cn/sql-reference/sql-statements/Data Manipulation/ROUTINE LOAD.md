@@ -157,8 +157,17 @@
 
                     "kafka_partitions" = "0,1,2,3",
                     "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
-            
-            4. property
+            4. kafka_default_offsets 
+               指定kafka partition的默认起始offset
+               如果没有指定kafka_partitions/kafka_offsets,默认消费所有分区,此时可以指定kafka_default_offsets指定起始 offset。
+               值为
+                  1) OFFSET_BEGINNING: 从有数据的位置开始订阅。
+                  2) OFFSET_END: 从末尾开始订阅。
+               示例：
+
+                    "kafka_default_offsets"="OFFSET_BEGINNING"
+                 
+            5. property
 
                 指定自定义kafka参数。
                 功能等同于kafka shell中 "--property" 参数。

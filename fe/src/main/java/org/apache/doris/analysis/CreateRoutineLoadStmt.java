@@ -94,7 +94,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
-
+    public static final String KAFKA_DEFAULT_OFFSETS="kafka_default_offsets";
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
 
@@ -111,6 +111,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(KAFKA_TOPIC_PROPERTY)
             .add(KAFKA_PARTITIONS_PROPERTY)
             .add(KAFKA_OFFSETS_PROPERTY)
+            .add(KAFKA_DEFAULT_OFFSETS)
             .build();
 
     private final LabelName labelName;
@@ -136,6 +137,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+    // kafka default offset
+    private String kafkaDefaultOffset="";
     //custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
@@ -210,6 +213,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
+    }
+    public String getKafkaDefaultOffset() {
+        return kafkaDefaultOffset;
     }
 
     @Override
@@ -400,6 +406,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     }
                 }
             }
+        }
+        // check default offset
+        final String kafkaODefaultffsetsString = dataSourceProperties.get(KAFKA_DEFAULT_OFFSETS);
+        if (kafkaODefaultffsetsString != null) {
+            kafkaDefaultOffset = kafkaODefaultffsetsString.replaceAll(" ", "");
         }
 
         // check custom kafka property
