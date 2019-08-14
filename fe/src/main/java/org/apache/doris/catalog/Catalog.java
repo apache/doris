@@ -4227,6 +4227,7 @@ public class Catalog {
         Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
         Preconditions.checkNotNull(replica, info);
         replica.updateVersionInfo(info.getVersion(), info.getVersionHash(), info.getDataSize(), info.getRowCount());
+        replica.setBad(false);
     }
 
     public void replayAddReplica(ReplicaPersistInfo info) {
