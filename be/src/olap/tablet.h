@@ -46,9 +46,6 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
-    static TabletSharedPtr create_tablet_from_meta_file(
-            const std::string& header_file,
-            DataDir* data_dir = nullptr);
     static TabletSharedPtr create_tablet_from_meta(
             TabletMetaSharedPtr tablet_meta,
             DataDir* data_dir  = nullptr);
@@ -238,6 +235,13 @@ public:
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     OLAPStatus calculate_cumulative_point();
+    // TODO(ygl): 
+    inline bool is_primary_replica() { return false; }
+
+    // TODO(ygl):
+    // eco mode means power saving in new energy car
+    // eco mode also means save money in palo
+    inline bool in_eco_mode() { return false; }
 
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

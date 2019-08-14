@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.http.action.BackendAction;
 import org.apache.doris.http.action.HaAction;
 import org.apache.doris.http.action.HelpAction;
@@ -88,7 +89,6 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServer {
     private static final Logger LOG = LogManager.getLogger(HttpServer.class);
-    private static final int BACKLOG_NUM = 128;
     private QeService qeService = null;
     private int port;
     private ActionController controller;
@@ -196,7 +196,7 @@ public class HttpServer {
             EventLoopGroup workerGroup = new NioEventLoopGroup();
             try {
                 serverBootstrap = new ServerBootstrap();
-                serverBootstrap.option(ChannelOption.SO_BACKLOG, BACKLOG_NUM);
+                serverBootstrap.option(ChannelOption.SO_BACKLOG, Config.http_backlog_num);
                 serverBootstrap.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
                         .childHandler(new PaloHttpServerInitializer());

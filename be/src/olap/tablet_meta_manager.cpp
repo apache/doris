@@ -77,6 +77,9 @@ OLAPStatus TabletMetaManager::get_json_meta(DataDir* store,
     return OLAP_SUCCESS;
 }
 
+// TODO(ygl):
+// 1. if term > 0 then save to remote meta store first using term
+// 2. save to local meta store
 OLAPStatus TabletMetaManager::save(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash,
         TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
@@ -112,6 +115,9 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
+// TODO(ygl): 
+// 1. remove load data first
+// 2. remove from load meta store using term if term > 0
 OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
         const string& header_prefix) {
     std::stringstream key_stream;
