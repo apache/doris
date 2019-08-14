@@ -203,19 +203,6 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
     return Status::OK();
 }
 
-inline void ParquetReaderWrap::fill_slots_of_columns_from_path(int start, const std::vector<SlotDescriptor*>& src_slot_descs, Tuple* tuple) {
-    // values of columns from path can not be null
-    for (int i = start; i < src_slot_descs.size(); ++i) {
-        auto slot_desc = src_slot_descs[i];
-        tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = tuple->get_slot(slot_desc->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string& column_from_path = _columns_from_path[i - start];
-        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
-        str_slot->len = column_from_path.size();
-    }
-}
-
 Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs, MemPool* mem_pool, bool* eof) {
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
@@ -418,10 +405,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
                         time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) * 24 * 60 * 60);
-                        tm* local;
-                        local = localtime(&timestamp);
+                        struct tm local;
+                        localtime_r(&timestamp, &local);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
-                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", local);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", &local);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
@@ -433,10 +420,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     } else {
                         // convert milliseconds to seconds
                         time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000);
-                        tm* local;
-                        local = localtime(&timestamp);
+                        struct tm local;
+                        localtime_r(&timestamp, &local);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
-                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", local);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", &local);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
@@ -459,9 +446,6 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
-
-    ++column_index;
-    fill_slots_of_columns_from_path(column_index, tuple_slot_descs, tuple);
 
     // update data value
     ++_current_line_of_group;

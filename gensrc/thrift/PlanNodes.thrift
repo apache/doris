@@ -114,8 +114,10 @@ struct TBrokerRangeDesc {
     7: optional Types.TUniqueId load_id
     // total size of the file
     8: optional i64 file_size
-    // columns parsed from file path
-    9: optional list<string> columns_from_path
+    // number of columns from file
+    9: optional i32 num_of_columns_from_file
+    // columns parsed from file path should be after the columns read from file
+    10: optional list<string> columns_from_path
 }
 
 struct TBrokerScanRangeParams {

@@ -70,6 +70,8 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             _cur_file_eof = false;
         }
         RETURN_IF_ERROR(_cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
+        const TBrokerRangeDesc& range = _ranges[_next_range];
+        fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
