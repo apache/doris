@@ -30,18 +30,23 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.DateTimeZone;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.sql.Time;
 import java.text.ParseException;
+import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * compute functions in FE.
@@ -91,7 +96,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue());
+        String result = dateFormat(getTime(date), fmtLiteral.getStringValue());
         return new StringLiteral(result);
     }
 
@@ -283,18 +288,32 @@ public class FEFunctions {
     }
 
     private static long getTime(LiteralExpr expr) throws AnalysisException {
-        try {
-            String[] parsePatterns = { "yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss" };
+
+        if (expr instanceof DateLiteral) {
             long time;
-            if (expr instanceof DateLiteral) {
-                time = expr.getLongValue();
-            } else {
-                time = DateUtils.parseDate(expr.getStringValue(), parsePatterns).getTime();
-            }
+            time = expr.getLongValue();
+            // add time zone offset to get right timestamp
+            time += DateTimeZone.forID("Asia/Shanghai").getOffset(0) - TimeUtils.getTimeZone().getOffset(0);
             return time;
-        } catch (ParseException e) {
-            throw new AnalysisException(e.getLocalizedMessage());
+        } else {
+            String[] parsePatterns = {"yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"};
+            SimpleDateFormat parser = null;
+            ParsePosition pos = new ParsePosition(0);
+            for (int i = 0; i < parsePatterns.length; ++i) {
+                if (i == 0) {
+                    parser = new SimpleDateFormat(parsePatterns[0]);
+                    parser.setTimeZone(TimeZone.getTimeZone("GMT"));
+                } else {
+                    parser.applyPattern(parsePatterns[i]);
+                }
+                pos.setIndex(0);
+                Date date = parser.parse(expr.getStringValue(), pos);
+                if (date != null && pos.getIndex() == expr.getStringValue().length()) {
+                    return date.getTime();
+                }
+            }
         }
+        throw new AnalysisException("Unable to parse the date: " + expr.getStringValue());
     }
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {
@@ -308,9 +327,10 @@ public class FEFunctions {
         return firstDay;
     }
 
-    private  static String dateFormat(Date date,  String pattern) {
+    private  static String dateFormat(long date,  String pattern) {
         DateTimeFormatterBuilder formatterBuilder = new DateTimeFormatterBuilder();
         Calendar calendar = Calendar.getInstance();
+        calendar.setTimeZone(TimeUtils.getTimeZone());
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -385,7 +405,7 @@ public class FEFunctions {
                     case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
                     {
                         int week;
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         int firstSunday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY);
                         if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY
                                 && calendar.get(Calendar.DATE) >= firstSunday) {
@@ -402,7 +422,7 @@ public class FEFunctions {
                         formatterBuilder.appendWeekOfWeekyear(2);
                         break;
                     case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         if(calendar.get(Calendar.MONTH) == Calendar.JANUARY &&
                                 calendar.get(Calendar.DATE) < calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY)) {
                             formatterBuilder.appendLiteral(String.valueOf(calendar.get(Calendar.YEAR) - 1));
@@ -417,7 +437,7 @@ public class FEFunctions {
                         formatterBuilder.appendDayOfWeekText();
                         break;
                     case 'w': // %w Day of the week (0=Sunday..6=Saturday)
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         calendar.setFirstDayOfWeek(Calendar.SUNDAY);
                         formatterBuilder.appendLiteral(String.valueOf(calendar.get(Calendar.DAY_OF_WEEK) - 1));
                         break;
@@ -429,7 +449,7 @@ public class FEFunctions {
                         formatterBuilder.appendYear(4, 4);
                         break;
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         int day = calendar.get(Calendar.DAY_OF_MONTH);
                         if (day >= 10 && day <= 19) {
                             formatterBuilder.appendLiteral(String.valueOf(day) + "th");
@@ -451,7 +471,7 @@ public class FEFunctions {
                         }
                         break;
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY) {
                             int firstSunday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY);
                             formatterBuilder.appendLiteral(String.format("%02d",
@@ -466,7 +486,7 @@ public class FEFunctions {
                         break;
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     {
-                        calendar.setTime(date);
+                        calendar.setTimeInMillis(date);
                         int week;
                         int firstMonday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.MONDAY);
                         if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY) {
@@ -497,7 +517,11 @@ public class FEFunctions {
             }
         }
         DateTimeFormatter formatter = formatterBuilder.toFormatter();
-        return formatter.withLocale(Locale.US).print(date.getTime());
+
+        String ss = formatter.withZone(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())).withLocale(Locale.US).print(date);
+        System.out.println(ss);
+        return ss;
+        //return formatter.withLocale(Locale.US).print(date.getTime());
     }
 
     /**
