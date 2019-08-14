@@ -35,7 +35,11 @@ OLAPStatus Compaction::do_compaction() {
 
     OlapStopWatch watch;
 
-    // 1. prepare cumulative_version and cumulative_version
+    // 1. prepare input and output parameters
+    for (auto& rowset : _input_rowsets) {
+        _input_rowsets_size += rowset->data_disk_size();
+        _input_row_num += rowset->num_rows();
+    }
     _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
