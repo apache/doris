@@ -42,6 +42,16 @@ OLAPStatus EnginePublishVersionTask::finish() {
          : _publish_version_req.partition_version_infos) {
 
         int64_t partition_id = partitionVersionInfo.partition_id;
+        // get all partition related tablets and check whether the tablet have the related version
+        std::set<TabletInfo> partition_related_tablet_infos;
+        StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(partition_id, 
+            &partition_related_tablet_infos);
+        if (_publish_version_req.strict_mode && partition_related_tablet_infos.empty()) {
+            LOG(INFO) << "could not find related tablet for partition " << partition_id
+                      << ", skip publish version";
+            continue;
+        }
+
         map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
         StorageEngine::instance()->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &tablet_related_rs);
 
@@ -104,11 +114,43 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 res = publish_status;
                 continue;
             }
+            partition_related_tablet_infos.erase(tablet_info);
             LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                       << ", transaction_id=" << transaction_id << ", version=" << version.first
                       << ", res=" << publish_status;
             // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
             RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
+        }
+
+        // check if the related tablet remained all have the version
+        for (auto& tablet_info : partition_related_tablet_infos) {
+            // has to use strict mode to check if check all tablets
+            if (!_publish_version_req.strict_mode) {
+                break;
+            }
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                tablet_info.tablet_id, tablet_info.schema_hash);
+            if (tablet == nullptr) {
+                _error_tablet_ids->push_back(tablet_info.tablet_id);
+            } else {
+                // check if the version exist, if not exist, then set publish failed
+                if (!tablet->check_version_exist(version)) {
+                    _error_tablet_ids->push_back(tablet_info.tablet_id);
+                    // generate a pull rowset meta task to pull rowset from remote meta store and storage
+                    // pull rowset meta using tablet_id + txn_id
+                    // it depends on the tablet type to download file or only meta
+                    if (tablet->in_eco_mode()) {
+                        if (tablet->is_primary_replica()) {
+                            // primary replica should fetch the meta using txn id
+                            // it will fetch the rowset to meta store, and will be published in next publish version task
+                            StorageEngine::instance()->tablet_sync_service()->fetch_rowset(tablet, transaction_id, FETCH_DATA);
+                        } else {
+                            // shadow replica should fetch the meta using version
+                            StorageEngine::instance()->tablet_sync_service()->fetch_rowset(tablet, version, NOT_FETCH_DATA);
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -53,6 +53,11 @@ struct TCreateTabletReq {
     8: optional Types.TSchemaHash base_schema_hash
     9: optional i64 table_id
     10: optional i64 partition_id
+    // used to find the primary replica among tablet's replicas
+    // replica with the largest term is primary replica
+    11: optional i64 allocation_term
+    // indicate whether this tablet is a compute storage split mode, we call it "eco mode"
+    12: optional bool is_eco_mode
 }
 
 struct TDropTabletReq {
@@ -193,6 +198,8 @@ enum TAgentServiceVersion {
 struct TPublishVersionRequest {
     1: required Types.TTransactionId transaction_id
     2: required list<TPartitionVersionInfo> partition_version_infos
+    // strict mode means BE will check tablet missing version
+    3: optional bool strict_mode = false
 }
 
 struct TClearAlterTaskRequest {
