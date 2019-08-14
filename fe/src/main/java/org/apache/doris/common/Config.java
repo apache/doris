@@ -215,6 +215,21 @@ public class Config extends ConfigBase {
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
+
+    /*
+     * The backlog_num for netty http server
+     * When you enlarge this backlog_num, you should ensure it's value larger than
+     * the linux /proc/sys/net/core/somaxconn config
+     */
+    @ConfField public static int http_backlog_num = 1024;
+
+    /*
+     * The backlog_num for thrift server
+     * When you enlarge this backlog_num, you should ensure it's value larger than
+     * the linux /proc/sys/net/core/somaxconn config
+     */
+    @ConfField public static int thrift_backlog_num = 1024;
+
     /*
      * FE thrift server port
      */
