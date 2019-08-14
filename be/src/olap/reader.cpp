@@ -469,7 +469,6 @@ void Reader::close() {
     VLOG(3) << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
-    _olap_table->release_data_sources(&_own_data_sources);
 
     for (auto pred : _col_predicates) {
         delete pred;
@@ -479,22 +478,11 @@ void Reader::close() {
 }
 
 OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
-    const std::vector<ColumnData*>* data_sources;
-    if (read_params.reader_type == READER_ALTER_TABLE
-            || read_params.reader_type == READER_BASE_COMPACTION
-            || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
-        data_sources = &read_params.olap_data_arr;
-    } else {
-        _olap_table->obtain_header_rdlock();
-        _olap_table->acquire_data_sources(_version, &_own_data_sources);
-        _olap_table->release_header_lock();
-
-        if (_own_data_sources.size() < 1) {
-            LOG(WARNING) << "fail to acquire data sources. [table_name='" << _olap_table->full_name()
-                         << "' version=" << _version.first << "-" << _version.second << "]";
-            return OLAP_ERR_VERSION_NOT_EXIST;
-        }
-        data_sources = &_own_data_sources;
+    const std::vector<ColumnData*>* data_sources = &read_params.olap_data_arr;
+    if (data_sources->empty()) {
+        LOG(WARNING) << "fail to acquire data sources. [table_name='" << _olap_table->full_name()
+                     << "' version=" << _version.first << "-" << _version.second << "]";
+        return OLAP_ERR_VERSION_NOT_EXIST;
     }
     
     // do not use index stream cache when be/ce/alter/checksum,

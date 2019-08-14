@@ -203,9 +203,6 @@ private:
 
     OLAPTablePtr _olap_table;
 
-    // _own_data_sources is data source that reader aquire from olap_table, so we need to
-    // release these when reader closing
-    std::vector<ColumnData*> _own_data_sources;
     std::vector<ColumnData*> _data_sources;
 
     KeysParam _keys_param;

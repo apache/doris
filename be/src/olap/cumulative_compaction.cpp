@@ -534,7 +534,6 @@ OLAPStatus CumulativeCompaction::_roll_back(const vector<SegmentGroup*>& old_ola
     // unused_indices will only contain new cumulative index
     // we don't need to delete it here; we will delete new cumulative index in the end.
     vector<SegmentGroup*> unused_indices;
-
     OLAPStatus res = OLAP_SUCCESS;
     res = _table->replace_data_sources(&need_remove_version, &old_olap_indices, &unused_indices);
     if (res != OLAP_SUCCESS) {

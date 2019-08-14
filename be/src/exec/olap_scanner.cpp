@@ -108,6 +108,17 @@ Status OlapScanner::_prepare(
                 ss << "fail to check version hash of tablet: " << tablet_id;
                 return Status::InternalError(ss.str());
             }
+
+            Version rd_version(0, _version);
+            _olap_table->acquire_data_sources(rd_version, &_params.olap_data_arr);
+            if (_params.olap_data_arr.empty()) {
+                std::stringstream ss;
+                ss << "failed to initialize storage reader. tablet=" << _olap_table->full_name()
+                << ", version=" << _version << ", backend=" << BackendOptions::get_localhost();
+                LOG(WARNING) << ss.str();
+                return Status(ss.str());
+            }
+
         }
     }
 
@@ -477,6 +488,7 @@ Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    _olap_table->release_data_sources(&_params.olap_data_arr);
     update_counter();
     _reader.reset();
     Expr::close(_conjunct_ctxs, state);

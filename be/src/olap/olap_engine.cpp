@@ -2590,6 +2590,12 @@ OLAPStatus OLAPEngine::compute_checksum(
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
+    Reader reader;
+    ReaderParams reader_params;
+    reader_params.olap_table = tablet;
+    reader_params.reader_type = READER_CHECKSUM;
+    reader_params.version = Version(0, version);
+
     {
         ReadLock rdlock(tablet->get_header_lock_ptr());
         const PDelta* message = tablet->lastest_version();
@@ -2605,13 +2611,13 @@ OLAPStatus OLAPEngine::compute_checksum(
                              res, tablet_id, message->version_hash(), version_hash);
             return OLAP_ERR_CE_CMD_PARAMS_ERROR;
         }
-    }
 
-    Reader reader;
-    ReaderParams reader_params;
-    reader_params.olap_table = tablet;
-    reader_params.reader_type = READER_CHECKSUM;
-    reader_params.version = Version(0, version);
+        tablet->acquire_data_sources(reader_params.version, &reader_params.olap_data_arr);
+        if (reader_params.olap_data_arr.empty()) {
+            LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name() << ", version=" << version;
+            return OLAP_ERR_VERSION_NOT_EXIST;
+        }
+    }
 
     // ignore float and double type considering to precision lose
     for (size_t i = 0; i < tablet->tablet_schema().size(); ++i) {
@@ -2626,6 +2632,7 @@ OLAPStatus OLAPEngine::compute_checksum(
     res = reader.init(reader_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("initiate reader fail. [res=%d]", res);
+        tablet->release_data_sources(&reader_params.olap_data_arr);
         return res;
     }
 
@@ -2633,6 +2640,7 @@ OLAPStatus OLAPEngine::compute_checksum(
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
+        tablet->release_data_sources(&reader_params.olap_data_arr);
         return res;
     }
     row.allocate_memory_for_string_type(tablet->tablet_schema());
@@ -2651,6 +2659,8 @@ OLAPStatus OLAPEngine::compute_checksum(
 
         row_checksum = row.hash_code(row_checksum);
     }
+
+    tablet->release_data_sources(&reader_params.olap_data_arr);
 
     LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
     *checksum = row_checksum;
