@@ -133,6 +133,8 @@ public:
 
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
+    void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
