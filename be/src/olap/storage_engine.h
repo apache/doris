@@ -44,6 +44,7 @@
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_sync_service.h"
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
 
@@ -193,6 +194,9 @@ public:
     TxnManager* txn_manager() { return _txn_manager.get(); }
 
     bool check_rowset_id_in_unused_rowsets(RowsetId rowset_id);
+
+    // TODO(ygl)
+    TabletSyncService* tablet_sync_service() { return nullptr; }
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
