@@ -32,16 +32,19 @@ import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.DateTimeZone;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.ParseException;
+import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * compute functions in FE.
@@ -235,6 +238,7 @@ public class FEFunctions {
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
+        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.YEAR), Type.INT);
     }
@@ -243,6 +247,7 @@ public class FEFunctions {
     public static IntLiteral month(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
+        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.MONTH) + 1, Type.INT);
     }
@@ -251,6 +256,7 @@ public class FEFunctions {
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
+        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.DAY_OF_MONTH), Type.INT);
     }
@@ -283,27 +289,27 @@ public class FEFunctions {
     }
 
     private static long getTime(LiteralExpr expr) throws AnalysisException {
-            if (expr instanceof DateLiteral) {
-                return expr.getLongValue();
-            } else {
-                String[] parsePatterns = {"yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"};
-                SimpleDateFormat parser = null;
-                ParsePosition pos = new ParsePosition(0);
-                for (int i = 0; i < parsePatterns.length; ++i) {
-                    if (i == 0) {
-                        parser = new SimpleDateFormat(parsePatterns[0]);
-                        parser.setTimeZone(TimeZone.getTimeZone("+08:00"));
-                    } else {
-                        parser.applyPattern(parsePatterns[i]);
-                    }
-                    pos.setIndex(0);
-                    Date date = parser.parse(expr.getStringValue(), pos);
-                    if (date != null && pos.getIndex() == expr.getStringValue().length()) {
-                        return date.getTime();
-                    }
+        if (expr instanceof DateLiteral) {
+            return expr.getLongValue();
+        } else {
+            String[] parsePatterns = {"yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"};
+            SimpleDateFormat parser = null;
+            ParsePosition pos = new ParsePosition(0);
+            for (int i = 0; i < parsePatterns.length; ++i) {
+                if (i == 0) {
+                    parser = new SimpleDateFormat(parsePatterns[0]);
+                    parser.setTimeZone(TimeZone.getTimeZone("+08:00"));
+                } else {
+                    parser.applyPattern(parsePatterns[i]);
+                }
+                pos.setIndex(0);
+                Date date = parser.parse(expr.getStringValue(), pos);
+                if (date != null && pos.getIndex() == expr.getStringValue().length()) {
+                    return date.getTime();
                 }
             }
-            throw new AnalysisException(e.getLocalizedMessage());
+        }
+        throw new AnalysisException("Unable to parse the date: " + expr.getStringValue());
     }
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {
@@ -320,6 +326,7 @@ public class FEFunctions {
     private  static String dateFormat(Date date,  String pattern) {
         DateTimeFormatterBuilder formatterBuilder = new DateTimeFormatterBuilder();
         Calendar calendar = Calendar.getInstance();
+        calendar.setTimeZone(TimeZone.getTimeZone("+08:00"));
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -506,7 +513,7 @@ public class FEFunctions {
             }
         }
         DateTimeFormatter formatter = formatterBuilder.toFormatter();
-        return formatter.withLocale(Locale.US).print(date.getTime());
+        return formatter.withZone(DateTimeZone.forID("+08:00")).withLocale(Locale.US).print(date.getTime());
     }
 
     /**
