@@ -46,11 +46,14 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
@@ -1334,33 +1337,49 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
 
-        AlterJob alterJob = null;
+        AlterJob schemaChangeJob = null;
+        AlterJobV2 schemaChangeJobV2 = null;
         db.writeLock();
         try {
-            // 1. get table
-            OlapTable olapTable = (OlapTable) db.getTable(tableName);
-            if (olapTable == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+            if (!(table instanceof OlapTable)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
+            }
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {
+                throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
 
-            // 2. find schema change job
-            alterJob = alterJobs.get(olapTable.getId());
-            if (alterJob == null) {
-                throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
+            // find from new alter jobs first
+            schemaChangeJobV2 = getAlterJobV2(olapTable.getId());
+            if (schemaChangeJobV2 == null) {
+                schemaChangeJob = getAlterJob(olapTable.getId());
+                Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());
+                if (schemaChangeJob.getState() == JobState.FINISHING
+                        || schemaChangeJob.getState() == JobState.FINISHED
+                        || schemaChangeJob.getState() == JobState.CANCELLED) {
+                    throw new DdlException("job is already " + schemaChangeJob.getState().name() + ", can not cancel it");
+                }
+                schemaChangeJob.cancel(olapTable, "user cancelled");
             }
-
-            if (alterJob.getState() == JobState.FINISHING ||
-                    alterJob.getState() == JobState.FINISHED ||
-                    alterJob.getState() == JobState.CANCELLED) {
-                throw new DdlException("job is already " + alterJob.getState().name() + ", can not cancel it");
-            }
-
-            // 3. cancel schema change job
-            alterJob.cancel(olapTable, "user cancelled");
         } finally {
             db.writeUnlock();
         }
 
-        jobDone(alterJob);
+        // alter job v2's cancel must be called outside the database lock
+        if (schemaChangeJobV2 != null) {
+            if (!schemaChangeJobV2.cancel("user cancelled")) {
+                throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
+            }
+            return;
+        }
+
+        // handle old alter job
+        if (schemaChangeJob != null && schemaChangeJob.getState() == JobState.CANCELLED) {
+            jobDone(schemaChangeJob);
+        }
     }
 }

@@ -673,14 +673,12 @@ public class RollupHandler extends AlterHandler {
 
             // find from new alter jobs first
             rollupJobV2 = getAlterJobV2(olapTable.getId());
-            if (rollupJobV2 != null) {
-                if (!rollupJobV2.cancel("user cancelled")) {
-                    throw new DdlException("Job can not be cancelled. State: " + rollupJobV2.getJobState());
-                }
-            } else {
+            if (rollupJobV2 == null) {
                 rollupJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(rollupJob, olapTable.getId());
-                if (rollupJob.getState() == JobState.FINISHED || rollupJob.getState() == JobState.CANCELLED) {
+                if (rollupJob.getState() == JobState.FINISHED
+                        || rollupJob.getState() == JobState.FINISHING
+                        || rollupJob.getState() == JobState.CANCELLED) {
                     throw new DdlException("job is already " + rollupJob.getState().name() + ", can not cancel it");
                 }
                 rollupJob.cancel(olapTable, "user cancelled");
@@ -689,7 +687,16 @@ public class RollupHandler extends AlterHandler {
             db.writeUnlock();
         }
 
-        if (rollupJob != null) {
+        // alter job v2's cancel must be called outside the database lock
+        if (rollupJobV2 != null) {
+            if (!rollupJobV2.cancel("user cancelled")) {
+                throw new DdlException("Job can not be cancelled. State: " + rollupJobV2.getJobState());
+            }
+            return;
+        }
+
+        // handle old alter job
+        if (rollupJob != null && rollupJob.getState() == JobState.CANCELLED) {
             jobDone(rollupJob);
         }
     }
