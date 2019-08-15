@@ -319,7 +319,7 @@ public:
         auto zres = deflateInit(&zstrm, Z_DEFAULT_COMPRESSION);
         if (zres != Z_OK) {
             return Status::InvalidArgument(
-                Substitute("Fail to do ZLib stream compress, error=$0, res=",
+                Substitute("Fail to do ZLib stream compress, error=$0, res=$1",
                            zError(zres), zres));
         }
         // we assume that output is e

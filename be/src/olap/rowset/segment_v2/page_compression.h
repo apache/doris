@@ -32,50 +32,51 @@ namespace segment_v2 {
 
 // Helper to decompress a compressed page.
 // Compressed page is composed of
-// Header | CompressedData
-// Header : uncompressed data length(fixed32)
+// CompressedData | Footer
 // CompressedData: binary
+// Footer : uncompressed data length(fixed32)
 // Usage: 
 //      Slice compressed_data;
-//      PageDecompressor decompressor(compressed_data, uncomrcodec);
+//      PageDecompressor decompressor(compressed_data, codec);
 //      RETURN_IF_ERROR(decompressor.init());
-//      std::string buf;
-//      buf.resize(decompressor.uncompressed_bytes());
-//      RETURN_IF_ERROR(decompress_to(buf.data()));
+//      Slice uncompressed_slice;
+//      RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_slice));
+//      // usage 
+//      if (uncompressed_slice.data != compressed_slice.data) {
+//          delete[] uncompressed_slice.data;
+//      }
 class PageDecompressor {
 public:
     PageDecompressor(const Slice& data, const BlockCompressionCodec* codec)
         : _data(data), _codec(codec) {
     }
 
-    // Parse and validate compressed page's header.
+    // Parse and validate compressed page's footer.
     // Only this funciton is executed successfully, uncompressed_bytes
     // and decompress_to can be called.
     // Return error if this page is corrupt.
     Status init();
-
-    // Get uncompressed size in bytes of this page
-    size_t uncompressed_bytes() const { return _uncompressed_bytes; }
     
-    // Decmopress compressed data into buf whose capacity must be greater than
-    // uncompressed_bytes()
-    Status decompress_to(void* buf);
+    // This client will set uncompress content to input param. In normal case
+    // client should call delete[] content.data to free heap memory. However
+    // when the data is not compressed, this function will return input data
+    // directly. In this case, client should not free content.
+    Status decompress_to(Slice* content);
 private:
     Slice _data;
     const BlockCompressionCodec* _codec;
-    size_t _uncompressed_bytes;
 };
 
 // Helper to build a compress page.
 // Usage:
-//      std::<Slice> raw_data;
-//      PageCompressor compressor(codec, 0.9);
-//      std::<Slice> compressed_data;
+//      std::vector<Slice> raw_data;
+//      PageCompressor compressor(codec, 0.1);
+//      std::vector<Slice> compressed_data;
 //      compressor.compress(raw_data, &compressed_data)
 class PageCompressor {
 public:
-    PageCompressor(const BlockCompressionCodec* codec, double min_compression_ratio = 1)
-        : _codec(codec), _min_compression_ratio(min_compression_ratio) {
+    PageCompressor(const BlockCompressionCodec* codec, double min_space_saving = 0.1)
+        : _codec(codec), _min_space_saving(min_space_saving) {
     }
 
     // Try to compress input raw data into compressed page
@@ -86,9 +87,8 @@ public:
 private:
     const BlockCompressionCodec* _codec;
 
-    // If ratio of compressed_data to raw_data is greater than min_compression_ratio,
-    // compress will return orgin data
-    double _min_compression_ratio;
+    // If space saving is lower than _min_space_saving, compress will return orgin data
+    double _min_space_saving;
 
     // used to store compressed data
     faststring _buf;

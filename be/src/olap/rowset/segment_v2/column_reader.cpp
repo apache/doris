@@ -136,13 +136,16 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     if (_compress_codec != nullptr) {
         PageDecompressor decompressor(page_slice, _compress_codec);
         RETURN_IF_ERROR(decompressor.init());
-        auto uncompressed_bytes = decompressor.uncompressed_bytes();
-        std::unique_ptr<uint8_t[]> uncompressed_page(new uint8_t[uncompressed_bytes]);
-        RETURN_IF_ERROR(decompressor.decompress_to(uncompressed_page.get()));
 
-        // Assgin uncompressed page to page and page slice
-        page = std::move(uncompressed_page);
-        page_slice = Slice(page.get(), uncompressed_bytes);
+        Slice uncompressed_page;
+        RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
+
+        // If decompressor create new heap memory for uncompressed data,
+        // assign this uncompressed page to page and page slice
+        if (uncompressed_page.data != page_slice.data) {
+            page.reset((uint8_t*)uncompressed_page.data);
+        }
+        page_slice = uncompressed_page;
     }
     // insert this into cache and return the cache handle
     cache->insert(cache_key, page_slice, &cache_handle);

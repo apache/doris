@@ -32,54 +32,62 @@ Status PageDecompressor::init() {
             Substitute("Compressed page's size is too small, size=$0, needed=$1",
                        _data.size, 4));
     }
-    _uncompressed_bytes = decode_fixed32_le((uint8_t*)_data.data);
     return Status::OK();
 }
 
-Status PageDecompressor::decompress_to(void* buf) {
-    Slice compressed_slice(_data.data + 4, _data.size - 4);
-    if (compressed_slice.size == _uncompressed_bytes) {
+Status PageDecompressor::decompress_to(Slice* content) {
+    // decode uncompressed_bytes from footer
+    uint32_t uncompressed_bytes = decode_fixed32_le((uint8_t*)_data.data + _data.size - 4);
+
+    Slice compressed_slice(_data.data, _data.size - 4);
+    if (compressed_slice.size == uncompressed_bytes) {
         // If compressed_slice's size is equal with _uncompressed_bytes, it means
         // compressor store this directly without compression. So we just copy
         // this to buf and return.
-        memcpy(buf, compressed_slice.data, _uncompressed_bytes);
+        *content = _data;
         return Status::OK();
     }
+    std::unique_ptr<char[]> buf(new char[uncompressed_bytes]);
     
-    Slice uncompressed_data((char*)buf, _uncompressed_bytes);
-    RETURN_IF_ERROR(_codec->decompress(compressed_slice, &uncompressed_data));
-    if (uncompressed_data.size != _uncompressed_bytes) {
+    Slice uncompressed_slice(buf.get(), uncompressed_bytes);
+    RETURN_IF_ERROR(_codec->decompress(compressed_slice, &uncompressed_slice));
+    if (uncompressed_slice.size != uncompressed_bytes) {
         // If size after decompress didn't match recorded size, we think this
         // page is corrupt.
         return Status::Corruption(
             Substitute("Uncompressed size not match, record=$0 vs decompress=$1",
-                       _uncompressed_bytes, uncompressed_data.size));
+                       uncompressed_bytes, uncompressed_slice.size));
     }
+    *content = Slice(buf.release(), uncompressed_bytes);
     return Status::OK();
 }
 
 Status PageCompressor::compress(const std::vector<Slice>& raw_data,
-                                std::vector<Slice>* compressed_data) {
+                                std::vector<Slice>* compressed_slices) {
     size_t uncompressed_bytes = Slice::compute_total_size(raw_data);
     size_t max_compressed_bytes = _codec->max_compressed_len(uncompressed_bytes);
     _buf.resize(max_compressed_bytes + 4);
-    Slice compressed_slice(_buf.data() + 4, max_compressed_bytes);
+    Slice compressed_slice(_buf.data(), max_compressed_bytes);
     RETURN_IF_ERROR(_codec->compress(raw_data, &compressed_slice));
-    double compression_ratio = (double)compressed_slice.size / uncompressed_bytes;
-    if (compressed_slice.size >= uncompressed_bytes ||
-        compression_ratio > _min_compression_ratio) {
-        // If compression ration is not lower enough we just copy uncompressed
+
+    double space_saving = 1.0 - (double)compressed_slice.size / uncompressed_bytes;
+    if (compressed_slice.size >= uncompressed_bytes || // use integer to make definite
+            space_saving < _min_space_saving) {
+        // If space saving is not higher enough we just copy uncompressed
         // data to avoid decompression CPU cost
-        encode_fixed32_le((uint8_t*)_buf.data(), uncompressed_bytes);
-        compressed_data->emplace_back(_buf.data(), 4);
         for (auto& slice : raw_data) {
-            compressed_data->push_back(slice);
+            compressed_slices->push_back(slice);
         }
+
+        // encode uncompressed_bytes into footer of compressed value
+        encode_fixed32_le((uint8_t*)_buf.data(), uncompressed_bytes);
+        compressed_slices->emplace_back(_buf.data(), 4);
         return Status::OK();
     }
+    // encode uncompressed_bytes into footer of compressed value
+    encode_fixed32_le((uint8_t*)_buf.data() + compressed_slice.size, uncompressed_bytes);
     // return compressed data to client
-    encode_fixed32_le((uint8_t*)_buf.data(), uncompressed_bytes);
-    compressed_data->emplace_back(_buf.data(), 4 + compressed_slice.size);
+    compressed_slices->emplace_back(_buf.data(), 4 + compressed_slice.size);
 
     return Status::OK();
 }

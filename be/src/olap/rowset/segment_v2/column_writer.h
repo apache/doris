@@ -36,10 +36,12 @@ namespace segment_v2 {
 
 struct ColumnWriterOptions {
     EncodingTypePB encoding_type = DEFAULT_ENCODING;
-    CompressionTypePB compression_type = NO_COMPRESSION;
+    CompressionTypePB compression_type = segment_v2::CompressionTypePB::LZ4F;
     bool need_checksum = false;
     size_t data_page_size = 64 * 1024;
-    double min_compress_ratio = 0.9;
+    // store compressed page only when space saving is above the threshold.
+    // space saving = 1 - compressed_size / uncompressed_size
+    double compression_min_space_saving = 0.1;
 };
 
 class EncodingInfo;

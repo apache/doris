@@ -87,14 +87,15 @@ TEST_F(PageCompressionTest, normal) {
         PageDecompressor decompressor(compressed_data, codec);
         st = decompressor.init();
         ASSERT_TRUE(st.ok());
-        ASSERT_EQ(raw_data.size(), decompressor.uncompressed_bytes());
 
         {
-            std::string check_buf;
-            check_buf.resize(decompressor.uncompressed_bytes());
-            st = decompressor.decompress_to((char*)check_buf.data());
+            Slice check_slice;
+            st = decompressor.decompress_to(&check_slice);
             ASSERT_TRUE(st.ok());
-            ASSERT_STREQ(raw_data.c_str(), check_buf.c_str());
+            ASSERT_STREQ(raw_data.c_str(), check_slice.data);
+            if (check_slice.data != compressed_data.data()) {
+                delete[] check_slice.data;
+            }
         }
     }
 }
@@ -127,12 +128,10 @@ TEST_F(PageCompressionTest, bad_case) {
         PageDecompressor decompressor(bad_compressed_slice, codec);
         st = decompressor.init();
         ASSERT_TRUE(st.ok());
-        ASSERT_EQ(raw_data.size(), decompressor.uncompressed_bytes());
 
         {
-            std::string check_buf;
-            check_buf.resize(decompressor.uncompressed_bytes());
-            st = decompressor.decompress_to((char*)check_buf.data());
+            Slice check_slice;
+            st = decompressor.decompress_to(&check_slice);
             ASSERT_FALSE(st.ok());
         }
     }
