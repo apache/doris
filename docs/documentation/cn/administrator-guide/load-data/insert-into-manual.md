@@ -60,11 +60,20 @@ Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令�
 
 其中 url 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
 
-如果导入成功，则返回语句执行成功，还会附加返回一个 Label 字段。示例如下：
+如果导入成功，则返回语句执行成功。示例如下：
 
-```{"label":"d2cac0a0-a16d-482d-9041-c949a4b71604"}```
+```
+Query OK, 100 row affected, 0 warning (0.22 sec)
+```
 
-导入可能部分成功，用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
+导入可能部分成功，则还会附加一个 Label 字段。示例如下：
+
+```
+Query OK, 100 row affected, 1 warning (0.23 sec)
+{'label':'7d66c457-658b-4a3e-bdcf-8beee872ef2c'}
+```
+
+其中 affected 表示导入的行数。warning 表示失败的行数。用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
 
 Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。Insert Into 的 Label 则是由系统生成的，用户可以拿着这个 Label 通过查询导入命令异步获取导入状态。
     
@@ -84,7 +93,13 @@ Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一�
 
 + enable\_insert\_strict
 
-    Insert Into 导入本身不能控制导入可容忍的错误率。用户只能通过 `enable_insert_strict` 这个 Session 参数用来控制。当该参数设置为 false 时，表示至少有一条数据被正确导入，则返回成功。当该参数设置为 false 时，表示如果有一条数据错误，则导入失败。默认为 false。可通过 `SET enable_insert_strict = true;` 来设置。 
+    Insert Into 导入本身不能控制导入可容忍的错误率。用户只能通过 `enable_insert_strict` 这个 Session 参数用来控制。
+
+    当该参数设置为 false 时，表示至少有一条数据被正确导入，则返回成功。如果有失败数据，则还会返回一个 Label。
+
+    当该参数设置为 false 时，表示如果有一条数据错误，则导入失败。
+
+    默认为 false。可通过 `SET enable_insert_strict = true;` 来设置。 
         
 + query\_timeout
 
