@@ -74,8 +74,6 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -594,6 +592,9 @@ public class StmtExecutor {
         long createTime = System.currentTimeMillis();
         UUID uuid = UUID.randomUUID();
         Throwable throwable = null;
+
+        long loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+        int filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
         try {
             // assign request_id
             context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
@@ -619,10 +620,15 @@ public class StmtExecutor {
 
             LOG.info("delta files is {}", coord.getDeltaUrls());
 
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
+                loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+            }
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
+                filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+            }
+
             if (context.getSessionVariable().getEnableInsertStrict()) {
-                Map<String, String> counters = coord.getLoadCounters();
-                String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
-                if (strValue != null && Long.valueOf(strValue) > 0) {
+                if (filteredRows > 0) {
                     context.getState().setError("Insert has filtered data in strict mode, tracking_url="
                             + coord.getTrackingUrl());
                     return;
@@ -632,7 +638,7 @@ public class StmtExecutor {
             if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
                 // no need to add load job.
                 // MySQL table is already being inserted.
-                context.getState().setOk();
+                context.getState().setOk(loadedRows, filteredRows, null);
                 return;
             }
 
@@ -698,19 +704,10 @@ public class StmtExecutor {
 
             // set to OK, which means the insert load job is successfully submitted.
             // and user can check the job's status by label.
-            Map<String, String> res = Maps.newHashMap();
-            res.put("label", uuid.toString());
-            if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
-                res.put("url", coord.getTrackingUrl());
-            }
-            GsonBuilder gsonBuilder = new GsonBuilder();
-            gsonBuilder.disableHtmlEscaping();
-            Gson gson = gsonBuilder.create();
-
-            context.getState().setOk(gson.toJson(res));
+            context.getState().setOk(loadedRows, filteredRows, "{'label':'" + uuid.toString() + "'}");
         } else {
             // just return OK without label, which means this job is successfully done
-            context.getState().setOk();
+            context.getState().setOk(loadedRows, filteredRows, null);
         }
     }
 

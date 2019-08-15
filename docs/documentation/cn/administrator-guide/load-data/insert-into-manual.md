@@ -60,11 +60,11 @@ Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令�
 
 其中 url 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
 
-如果导入成功，则返回语句执行成功，还会附加返回一个 Label 字段。
+如果导入成功，则返回语句执行成功，还会附加返回一个 Label 字段。示例如下：
 
-导入可能部分成功，则在返回结果中还会有一个 url，用户查看错误行。示例如下：
+```{"label":"d2cac0a0-a16d-482d-9041-c949a4b71604"}```
 
-```{"label":"d2cac0a0-a16d-482d-9041-c949a4b71604","url":"http://ip:port/api/_load_error_log?file=__shard_13/error_log_insert_stmt_d2cac0a0a16d482d-9041c949a4b71605_d2cac0a0a16d482d_9041c949a4b71605"}```
+导入可能部分成功，用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
 
 Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。Insert Into 的 Label 则是由系统生成的，用户可以拿着这个 Label 通过查询导入命令异步获取导入状态。
     
