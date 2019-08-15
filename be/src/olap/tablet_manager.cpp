@@ -300,10 +300,10 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     // if the CreateTabletReq has base_tablet_id then it is a alter tablet request
     if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
         is_schema_change_tablet = true;
-        ref_tablet = _get_tablet_with_no_lock(request.base_tablet_id, requet.base_schema_hash);
+        ref_tablet = _get_tablet_with_no_lock(request.base_tablet_id, request.base_schema_hash);
         // schema change should use the same data dir
         stores.clear();
-        stores.push_back(ref_tablet.data_dir());
+        stores.push_back(ref_tablet->data_dir());
     }
     // set alter type to schema change. it is useless
     TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, 
