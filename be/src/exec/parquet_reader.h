@@ -68,7 +68,7 @@ private:
 // Reader of broker parquet file
 class ParquetReaderWrap {
 public:
-    ParquetReaderWrap(FileReader *file_reader, const std::vector<std::string>& columns_from_path);
+    ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file);
     virtual ~ParquetReaderWrap();
 
     // Read 
@@ -85,7 +85,7 @@ private:
     Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbtyes);
 
 private:
-    const std::vector<std::string>& _columns_from_path;
+    const int32_t _num_of_columns_from_file;
     parquet::ReaderProperties _properties;
     std::shared_ptr<ParquetFile> _parquet;
 

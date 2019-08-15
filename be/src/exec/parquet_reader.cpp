@@ -34,8 +34,8 @@ namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, const std::vector<std::string>& columns_from_path) :
-           _columns_from_path(columns_from_path), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file) :
+           _num_of_columns_from_file(num_of_columns_from_file), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -122,18 +122,17 @@ inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc
 Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs)
 {
     _parquet_column_ids.clear();
-    for (auto slot_desc : tuple_slot_descs) {
+    for (int i = 0; i < _num_of_columns_from_file; i++) {
+        auto slot_desc = tuple_slot_descs.at(i);
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
             _parquet_column_ids.emplace_back(iter->second);
         } else {
-            if (std::find(_columns_from_path.begin(), _columns_from_path.end(), slot_desc->col_name()) != _columns_from_path.end()) {
-                std::stringstream str_error;
-                str_error << "Invalid Column Name:" << slot_desc->col_name();
-                LOG(WARNING) << str_error.str();
-                return Status::InvalidArgument(str_error.str());
-            }
+            std::stringstream str_error;
+            str_error << "Invalid Column Name:" << slot_desc->col_name();
+            LOG(WARNING) << str_error.str();
+            return Status::InvalidArgument(str_error.str());
         }
     }
     return Status::OK();

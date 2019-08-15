@@ -652,7 +652,8 @@ public class BrokerScanNode extends ScanNode {
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
-            List<String> columnsFromPath = parseColumnsFromPath(fileStatus.path, context.fileGroup.getColumnsFromPath());
+            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                    context.fileGroup.getColumnsFromPath());
             int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
@@ -705,41 +706,6 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setNum_of_columns_from_file(numberOfColumnsFromFile);
         rangeDesc.setColumns_from_path(columnsFromPath);
         return rangeDesc;
-    }
-
-    private List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
-        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
-            return Collections.emptyList();
-        }
-        String[] strings = filePath.split("/");
-        if (strings.length < 2) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-        }
-        String[] columns = new String[columnsFromPath.size()];
-        int size = 0;
-        for (int i = strings.length - 2; i >= 0; i--) {
-            String str = strings[i];
-            if (str == null || str.isEmpty() || !str.contains("=")) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            }
-            String[] pair = str.split("=");
-            if (pair.length != 2) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            }
-            int index = columnsFromPath.indexOf(pair[0]);
-            if (index == -1) {
-                continue;
-            }
-            columns[index] = pair[1];
-            size++;
-            if (size >= columnsFromPath.size()) {
-                break;
-            }
-        }
-        if (size != columnsFromPath.size()) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-        }
-        return Lists.newArrayList(columns);
     }
 
     @Override
