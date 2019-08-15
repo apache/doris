@@ -133,7 +133,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
         }
         if (convertedCustomProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
-            kafkaDefaultOffSet = convertedCustomProperties.get(KAFKA_DEFAULT_OFFSETS);
+            kafkaDefaultOffSet = convertedCustomProperties.remove(KAFKA_DEFAULT_OFFSETS);
         }
     }
 
