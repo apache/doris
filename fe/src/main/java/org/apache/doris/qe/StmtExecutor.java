@@ -71,6 +71,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -593,8 +594,8 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         Throwable throwable = null;
 
-        long loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
-        int filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+        long loadedRows = 0;
+        int filteredRows = 0;
         try {
             // assign request_id
             context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
@@ -618,7 +619,7 @@ public class StmtExecutor {
                 ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
 
-            LOG.info("delta files is {}", coord.getDeltaUrls());
+            LOG.debug("delta files is {}", coord.getDeltaUrls());
 
             if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
                 loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
@@ -627,6 +628,7 @@ public class StmtExecutor {
                 filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
             }
 
+            // if in strict mode, insert will fail if there are filtered rows
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 if (filteredRows > 0) {
                     context.getState().setError("Insert has filtered data in strict mode, tracking_url="
@@ -683,8 +685,11 @@ public class StmtExecutor {
             throwable = t;
         }
 
-        // record insert info for show load stmt
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
+        // record insert info for show load stmt if
+        // 1. NOT a streaming insert(deprecated)
+        // 2. using_old_load_usage_pattern is set to true, means a label will be returned for user to show load.
+        // 3. has filtered rows. so a label should be returned for user to show
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         uuid.toString(),
@@ -706,7 +711,8 @@ public class StmtExecutor {
             // and user can check the job's status by label.
             context.getState().setOk(loadedRows, filteredRows, "{'label':'" + uuid.toString() + "'}");
         } else {
-            // just return OK without label, which means this job is successfully done
+            // just return OK without label, which means this job is successfully done without any error
+            Preconditions.checkState(loadedRows > 0 && filteredRows == 0);
             context.getState().setOk(loadedRows, filteredRows, null);
         }
     }
