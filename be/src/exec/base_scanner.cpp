@@ -181,6 +181,9 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
 }
 
 void BaseScanner::fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path) {
+    if (start <= 0) {
+        return;
+    }
     // values of columns from path can not be null
     for (int i = start; i < _src_slot_descs.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];

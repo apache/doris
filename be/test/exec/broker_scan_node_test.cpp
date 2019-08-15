@@ -422,6 +422,7 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.splittable = true;
         std::vector<std::string> columns_from_path{"1"};
         range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
@@ -443,6 +444,7 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.splittable = true;
         std::vector<std::string> columns_from_path{"2"};
         range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
