@@ -41,7 +41,7 @@ static std::string generate_str(size_t len) {
 }
 
 void test_single_slice(segment_v2::CompressionTypePB type) {
-    BlockCompressionCodec* codec = nullptr;
+    const BlockCompressionCodec* codec = nullptr;
     auto st = get_block_compression_codec(type, &codec);
     ASSERT_TRUE(st.ok());
 
@@ -105,7 +105,7 @@ TEST_F(BlockCompressionTest, single) {
 }
 
 void test_multi_slices(segment_v2::CompressionTypePB type) {
-    BlockCompressionCodec* codec = nullptr;
+    const BlockCompressionCodec* codec = nullptr;
     auto st = get_block_compression_codec(type, &codec);
     ASSERT_TRUE(st.ok());
 
@@ -128,7 +128,7 @@ void test_multi_slices(segment_v2::CompressionTypePB type) {
     compressed.resize(max_len);
     {
         Slice compressed_slice(compressed);
-        st = codec->compress(orig, &compressed_slice);
+        st = codec->compress(orig_slices, &compressed_slice);
         ASSERT_TRUE(st.ok());
 
         std::string uncompressed;

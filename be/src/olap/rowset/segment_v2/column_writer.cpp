@@ -26,9 +26,11 @@
 #include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/types.h" // for TypeInfo
 #include "util/faststring.h" // for fastring
 #include "util/rle_encoding.h" // for RleEncoder
+#include "util/block_compression.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -87,7 +89,7 @@ ColumnWriter::~ColumnWriter() {
 Status ColumnWriter::init() {
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _opts.encoding_type, &_encoding_info));
     if (_opts.compression_type != NO_COMPRESSION) {
-        // TODO(zc):
+        RETURN_IF_ERROR(get_block_compression_codec(_opts.compression_type, &_compress_codec));
     }
 
     // create page builder
@@ -226,10 +228,14 @@ Status ColumnWriter::_write_data_page(Page* page) {
 Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
-    // TODO(zc): support compress
-    // if (_need_compress) {
-    //     output_data = &compressed_data;
-    // }
+
+    // Put compressor out of if block, because we should use compressor's
+    // content until this function finished.
+    PageCompressor compressor(_compress_codec);
+    if (_compress_codec != nullptr) {
+        RETURN_IF_ERROR(compressor.compress(*origin_data, &compressed_data));
+        output_data = &compressed_data;
+    }
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];

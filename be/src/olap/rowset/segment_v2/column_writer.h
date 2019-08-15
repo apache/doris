@@ -30,6 +30,7 @@ namespace doris {
 
 class TypeInfo;
 class WritableFile;
+class BlockCompressionCodec;
 
 namespace segment_v2 {
 
@@ -38,6 +39,7 @@ struct ColumnWriterOptions {
     CompressionTypePB compression_type = NO_COMPRESSION;
     bool need_checksum = false;
     size_t data_page_size = 64 * 1024;
+    double min_compress_ratio = 0.9;
 };
 
 class EncodingInfo;
@@ -140,8 +142,7 @@ private:
     rowid_t _next_rowid = 0;
 
     const EncodingInfo* _encoding_info = nullptr;
-    // const CompressionCodec* _codec = nullptr;
-    // TODO(zc): compression type
+    const BlockCompressionCodec* _compress_codec = nullptr;
 
     std::unique_ptr<PageBuilder> _page_builder;
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;

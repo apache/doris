@@ -32,6 +32,7 @@ class ColumnBlock;
 class Arena;
 class RandomAccessFile;
 class TypeInfo;
+class BlockCompressionCodec;
 
 namespace segment_v2 {
 
@@ -86,6 +87,7 @@ private:
 
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
+    const BlockCompressionCodec* _compress_codec = nullptr;
 
     // get page pointer from index
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;

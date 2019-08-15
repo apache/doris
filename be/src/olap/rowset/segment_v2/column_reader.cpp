@@ -23,12 +23,14 @@
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
 #include "olap/column_block.h" // for ColumnBlockView
 #include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
+#include "util/block_compression.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -85,7 +87,9 @@ Status ColumnReader::init() {
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
 
-    // TODO(zc): do with compress type
+    // Get compress codec
+    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
+
     RETURN_IF_ERROR(_init_ordinal_index());
 
     return Status::OK();
@@ -113,11 +117,14 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     if (has_checksum()) {
         data_size -= sizeof(uint32_t);
     }
-    uint8_t* buf = new uint8_t[data_size];
-    Slice data(buf, data_size);
+
+    // Now we use this buffer to store page from storage, if this page is compressed
+    // this buffer will assigned uncompressed page, and origin content will be freed.
+    std::unique_ptr<uint8_t[]> page(new uint8_t[data_size]);
+    Slice page_slice(page.get(), data_size);
 
     uint8_t checksum_buf[sizeof(uint32_t)];
-    Slice slices[2] = { data, Slice(checksum_buf, 4) };
+    Slice slices[2] = { page_slice, Slice(checksum_buf, 4) };
 
     bool verify_checksum = has_checksum() && _opts.verify_checksum;
     RETURN_IF_ERROR(_file->readv_at(pp.offset, slices, verify_checksum ? 2 : 1));
@@ -126,10 +133,20 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
         // TODO(zc): verify checksum
     }
 
-    // TODO(zc): compress
-    
+    if (_compress_codec != nullptr) {
+        PageDecompressor decompressor(page_slice, _compress_codec);
+        RETURN_IF_ERROR(decompressor.init());
+        auto uncompressed_bytes = decompressor.uncompressed_bytes();
+        std::unique_ptr<uint8_t[]> uncompressed_page(new uint8_t[uncompressed_bytes]);
+        RETURN_IF_ERROR(decompressor.decompress_to(uncompressed_page.get()));
+
+        // Assgin uncompressed page to page and page slice
+        page = std::move(uncompressed_page);
+        page_slice = Slice(page.get(), uncompressed_bytes);
+    }
     // insert this into cache and return the cache handle
-    cache->insert(cache_key, data, &cache_handle);
+    cache->insert(cache_key, page_slice, &cache_handle);
+    page.release();
     *handle = PageHandle(std::move(cache_handle));
 
     return Status::OK();

@@ -63,6 +63,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         DCHECK(type_info != nullptr);
 
         ColumnWriterOptions opts;
+        opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
         std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, type_info, is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(writer.release());
