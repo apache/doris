@@ -253,12 +253,10 @@ Status FileColumnIterator::seek_to_ordinal(rowid_t rid) {
         // current page contains this row, we just
     } else {
         // we need to seek to
-        LOG(INFO) << "seek to ordinal:" << rid;
         RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
         _page.reset(new ParsedPage());
         RETURN_IF_ERROR(_read_page(_page_iter, _page.get()));
     }
-    LOG(INFO) << "seek to ordinal. parsed page:" << _page->first_rowid << ", num rows in page:" << _page->num_rows;
     _seek_to_pos_in_page(_page.get(), rid - _page->first_rowid);
     _current_rowid = rid;
     return Status::OK();
@@ -296,9 +294,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
     ColumnBlockView column_view(dst);
     size_t remaining = *n;
     while (remaining > 0) {
-        LOG(INFO) << "page remaining:" << _page->remaining() << ", has remaining:" << _page->has_remaining() << ", _page->offset_in_page:" << _page->offset_in_page;
         if (!_page->has_remaining()) {
-            LOG(INFO) << "load next page";
             bool eos = false;
             RETURN_IF_ERROR(_load_next_page(&eos));
             if (eos) {
@@ -316,7 +312,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
             // If this is not null, we read data from page in batch.
             // This would be bad in case that data is arranged one by one, which
             // will lead too many function calls to PageDecoder
-            LOG(INFO) << "the reader is nullable, nrows_to_read:" << nrows_to_read;
             while (nrows_to_read > 0) {
                 bool is_null = false;
                 size_t this_run = _page->null_decoder.GetNextRun(&is_null, nrows_to_read);
@@ -336,7 +331,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 _current_rowid += this_run;
             }
         } else {
-            LOG(INFO) << "the reader is not nullable, nrows_to_read:" << nrows_to_read;
             RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, &column_view));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
@@ -363,7 +357,6 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
     _page.reset(new ParsedPage());
     RETURN_IF_ERROR(_read_page(_page_iter, _page.get()));
     _seek_to_pos_in_page(_page.get(), 0);
-    LOG(INFO) << "load next page remaining:" << _page->first_rowid << ", num rows:" << _page->num_rows << ", offset:" << _page->offset_in_page;
     *eos = false;
     return Status::OK();
 }
@@ -372,7 +365,6 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 // it ready to read
 Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page) {
     page->page_pointer = iter.page();
-    LOG(INFO) << "page pointer offset:" << page->page_pointer.offset << ", size:" << page->page_pointer.size;
     RETURN_IF_ERROR(_reader->read_page(page->page_pointer, &page->page_handle));
     // TODO(zc): read page from file
     Slice data = page->page_handle.data();
@@ -385,7 +377,6 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     if (!get_varint32(&data, &page->num_rows)) {
         return Status::Corruption("Bad page, failed to decode rows count");
     }
-    LOG(INFO) << "decoded page first rowid:" << page->first_rowid << ", num rows:" << page->num_rows;
     if (_reader->is_nullable()) {
         uint32_t null_bitmap_size = 0;
         if (!get_varint32(&data, &null_bitmap_size)) {

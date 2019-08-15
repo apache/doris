@@ -33,7 +33,6 @@ Status OrdinalPageIndex::load() {
     _num_pages = decode_fixed32_le(ptr);
     ptr += 4;
     rowid_t row_number = decode_fixed32_le(ptr);
-    LOG(INFO) << "decode ordinal row num:" << row_number << ", num pages:" << _num_pages;
     ptr += 4;
 
     // add a additional rowid for row id compute convenience

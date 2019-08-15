@@ -245,7 +245,6 @@ Status ColumnWriter::_write_data_page(Page* page) {
     put_varint32(&header, page->first_rowid);
     // 2. row count
     put_varint32(&header, page->num_rows);
-    LOG(INFO) << "write page first rowid:" << page->first_rowid << ", page num rows:" << page->num_rows;
     if (_is_nullable) {
         put_varint32(&header, page->null_bitmap.size);
     }
@@ -258,7 +257,6 @@ Status ColumnWriter::_write_data_page(Page* page) {
 
     PagePointer pp;
     RETURN_IF_ERROR(_write_physical_page(&origin_data, &pp));
-    LOG(INFO) << "write page pointer offset:" << pp.offset << ", size:" << pp.size;
     _ordinal_index_builer->append_entry(page->first_rowid, pp);
     return Status::OK();
 }
@@ -315,7 +313,6 @@ Status ColumnWriter::_finish_current_page() {
     Page* page = new Page();
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
-    LOG(INFO) << "page first rowid:" << page->first_rowid << ", page num rows:" << page->num_rows;
     page->data = _page_builder->finish();
     _page_builder->release();
     _page_builder->reset();

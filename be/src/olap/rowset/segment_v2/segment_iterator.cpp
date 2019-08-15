@@ -307,7 +307,6 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     RowRanges cover_row_ranges(std::move(RowRanges::create_single(_cur_rowid, _row_ranges.to())));
     RowRanges left_row_ranges;
     RowRanges::ranges_intersection(_row_ranges, cover_row_ranges, &left_row_ranges);
-    LOG(INFO) << "_row ranges:" << _row_ranges.to_string() << ", cover_row_ranges:" << cover_row_ranges.to_string() << ", left_row_ranges:" << left_row_ranges.to_string();
     size_t rows_to_read = std::min((size_t)block->capacity(), left_row_ranges.count());
     block->resize(rows_to_read);
     if (rows_to_read == 0) {
@@ -329,7 +328,6 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             }
         }
         size_t to_read_in_range = std::min(rows_left, size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
-        LOG(INFO) << "_cur_range_id:" << _cur_range_id << ", rows_left:" << rows_left << ", to_read_in_range:" << to_read_in_range;
         RETURN_IF_ERROR(_next_batch(block, &to_read_in_range));
         _cur_rowid += to_read_in_range;
         rows_left -= to_read_in_range;

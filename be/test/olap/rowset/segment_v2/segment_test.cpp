@@ -301,7 +301,6 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
     {
         std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, num_rows_per_block));
         st = segment->open();
-        LOG(INFO) << "segment open, msg=" << st.to_string();
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
@@ -337,7 +336,6 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
-                LOG(INFO) << "rows read:" << rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
                     auto cid = block.schema()->column_ids()[j];
