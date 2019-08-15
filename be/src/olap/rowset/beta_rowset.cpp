@@ -25,6 +25,10 @@
 
 namespace doris {
 
+std::string BetaRowset::segment_file_path(const std::string& dir, RowsetId rowset_id, int segment_id) {
+    return strings::Substitute("$0/$1_$2.dat", dir, rowset_id, segment_id);
+}
+
 BetaRowset::BetaRowset(const TabletSchema* schema,
                        string rowset_path,
                        DataDir* data_dir,
@@ -53,11 +57,10 @@ std::shared_ptr<RowsetReader> BetaRowset::create_reader() {
 
 OLAPStatus BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
-    // TODO should we rename the method to remove_files() to be more specific?
     LOG(INFO) << "begin to remove files in rowset " << unique_id();
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
-        std::string path = _segment_file_path(_rowset_path, i);
+        std::string path = segment_file_path(_rowset_path, rowset_id(), i);
         LOG(INFO) << "deleting " << path;
         if (::remove(path.c_str()) != 0) {
             char errmsg[64];
@@ -73,39 +76,36 @@ OLAPStatus BetaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::make_snapshot(const std::string& snapshot_path, std::vector<std::string>* success_links) {
-    // TODO should we rename this method to `hard_link_files_to` to be more general?
+OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
-        std::string dst_link_path = _segment_file_path(snapshot_path, i);
+        std::string dst_link_path = segment_file_path(dir, new_rowset_id, i);
         if (check_dir_existed(dst_link_path)) {
-            LOG(WARNING) << "failed to make snapshot, file already exist: " << dst_link_path;
+            LOG(WARNING) << "failed to create hard link, file already exist: " << dst_link_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
-        std::string src_file_path = _segment_file_path(_rowset_path, i);
+        std::string src_file_path = segment_file_path(_rowset_path, rowset_id(), i);
         if (link(src_file_path.c_str(), dst_link_path.c_str()) != 0) {
             LOG(WARNING) << "fail to create hard link. from=" << src_file_path << ", "
                          << "to=" << dst_link_path << ", " << "errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_links->push_back(dst_link_path);
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::copy_files_to_path(const std::string& dest_path, std::vector<std::string>* success_files) {
+OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
     for (int i = 0; i < num_segments(); ++i) {
-        std::string dst_path = _segment_file_path(dest_path, i);
+        std::string dst_path = segment_file_path(dir, rowset_id(), i);
         if (check_dir_existed(dst_path)) {
             LOG(WARNING) << "file already exist: " << dst_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
-        std::string src_path = _segment_file_path(_rowset_path, i);
+        std::string src_path = segment_file_path(_rowset_path, rowset_id(), i);
         if (copy_file(src_path, dst_path) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to copy file. from=" << src_path << ", to=" << dst_path
                          << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_files->push_back(dst_path);
     }
     return OLAP_SUCCESS;
 }
@@ -113,13 +113,9 @@ OLAPStatus BetaRowset::copy_files_to_path(const std::string& dest_path, std::vec
 bool BetaRowset::check_path(const std::string& path) {
     std::set<std::string> valid_paths;
     for (int i = 0; i < num_segments(); ++i) {
-        valid_paths.insert(_segment_file_path(_rowset_path, i));
+        valid_paths.insert(segment_file_path(_rowset_path, rowset_id(), i));
     }
     return valid_paths.find(path) != valid_paths.end();
-}
-
-std::string BetaRowset::_segment_file_path(const std::string& dir, int segment_id) {
-    return strings::Substitute("$0/$1_$2.dat", dir, rowset_id(), segment_id);
 }
 
 } // namespace doris

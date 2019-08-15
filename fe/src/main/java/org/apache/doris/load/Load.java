@@ -299,8 +299,9 @@ public class Load {
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
-        DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths, columnNames,
-                                                    columnSeparator, formatType, false, null);
+        DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths,
+                                                                             columnNames,
+                                                                             columnSeparator, formatType, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -360,56 +361,6 @@ public class Load {
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
-        addLoadJob(job, db);
-    }
-
-    // for insert select from or create as stmt
-    public void addLoadJob(String label, String dbName,
-                           long tableId, Map<Long, Integer> indexIdToSchemaHash,
-                           long transactionId,
-                           List<String> fileList, long timestamp) throws DdlException {
-        // get db and table
-        Database db = Catalog.getInstance().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
-
-        OlapTable table = null;
-        db.readLock();
-        try {
-            table = (OlapTable) db.getTable(tableId);
-        } finally {
-            db.readUnlock();
-        }
-        if (table == null) {
-            throw new DdlException("Table[" + tableId + "] does not exist");
-        }
-
-        // create job
-        DataDescription desc = new DataDescription(table.getName(), null, Lists.newArrayList(""),
-                                                   null, null, false, null);
-        LoadStmt stmt = new LoadStmt(new LabelName(dbName, label), Lists.newArrayList(desc), null, null, null);
-        LoadJob job = createLoadJob(stmt, EtlJobType.INSERT, db, timestamp);
-
-        // add schema hash
-        for (Map.Entry<Long, Integer> entry : indexIdToSchemaHash.entrySet()) {
-            job.getTableLoadInfo(tableId).addIndexSchemaHash(entry.getKey(), entry.getValue());
-        }
-
-        // file size use -1 temporarily
-        Map<String, Long> fileMap = Maps.newHashMap();
-        for (String filePath : fileList) {
-            fileMap.put(filePath, -1L);
-        }
-
-        // update job info to etl finish
-        EtlStatus status = job.getEtlJobStatus();
-        status.setState(TEtlState.FINISHED);
-        status.setFileMap(fileMap);
-        job.setState(JobState.ETL);
-        job.setTransactionId(transactionId);
-
-        // add load job
         addLoadJob(job, db);
     }
 
@@ -722,7 +673,7 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnMapping();
+            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnToHadoopFunction();
             for (Column column : tableSchema) {
                 String columnName = column.getName();
                 if (columnNames.contains(columnName)) {
@@ -784,7 +735,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                                                mappingColumn, dataDescription.isPullLoad());
+                                                                mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }

@@ -690,7 +690,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
 
         // if full clone success, need to update cumulative layer point
         if (!is_incremental_clone && res == OLAP_SUCCESS) {
-            tablet->set_cumulative_layer_point(cloned_tablet_meta.cumulative_layer_point());
+            tablet->set_cumulative_layer_point(-1);
         }
 
     } while (0);

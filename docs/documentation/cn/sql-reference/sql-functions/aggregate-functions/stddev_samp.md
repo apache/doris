@@ -1,14 +1,13 @@
 # STDDEV_SAMP
-
-## Syntax
+## description
+### Syntax
 
 `STDDEV_SAMP(expr)`
 
-## Description
 
 返回expr表达式的样本标准差
 
-## Examples
+## example
 ```
 MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 +--------------------------+
@@ -17,3 +16,5 @@ MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 |        2.372044195280762 |
 +--------------------------+
 ```
+##keyword
+STDDEV_SAMP,STDDEV,SAMP

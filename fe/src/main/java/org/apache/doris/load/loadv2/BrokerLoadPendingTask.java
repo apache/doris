@@ -45,6 +45,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                                  Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
                                  BrokerDesc brokerDesc) {
         super(loadTaskCallback);
+        this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.tableToBrokerFileList = tableToBrokerFileList;
         this.brokerDesc = brokerDesc;

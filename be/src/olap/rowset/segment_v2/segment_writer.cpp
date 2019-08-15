@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 
 #include "env/env.h" // Env
+#include "olap/row.h" // ContiguousRow
 #include "olap/row_block.h" // RowBlock
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -30,7 +31,7 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(std::string fname, uint32_t segment_id,
-                             const std::shared_ptr<TabletSchema>& tablet_schema,
+                             const TabletSchema* tablet_schema,
                              const SegmentWriterOptions& opts)
         : _fname(std::move(fname)),
         _segment_id(segment_id),
@@ -88,6 +89,7 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
+template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 uint64_t SegmentWriter::estimate_segment_size() {
     return 0;

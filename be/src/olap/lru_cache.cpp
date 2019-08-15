@@ -353,6 +353,11 @@ void* ShardedLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
 }
 
+Slice ShardedLRUCache::value_slice(Handle* handle) {
+    auto lru_handle = reinterpret_cast<LRUHandle*>(handle);
+    return Slice((char*)lru_handle->value, lru_handle->charge);
+}
+
 uint64_t ShardedLRUCache::new_id() {
     MutexLock l(&_id_mutex);
     return ++(_last_id);

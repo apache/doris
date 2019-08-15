@@ -1,16 +1,15 @@
 # str_to_date
-
-## Syntax
+## description
+### Syntax
 
 `DATETIME STR_TO_DATE(VARCHAR str, VARCHAR format)`
 
-## Description
 
 通过format指定的方式将str转化为DATE类型，如果转化结果不对返回NULL
 
 支持的format格式与date_format一致
 
-## Examples
+## example
 
 ```
 mysql> select str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');
@@ -26,4 +25,5 @@ mysql> select str_to_date('200442 Monday', '%X%V %W');
 +-----------------------------------------+
 | 2004-10-18                              |
 +-----------------------------------------+
-```
+##keyword
+STR_TO_DATE,STR,TO,DATE

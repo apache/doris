@@ -1,16 +1,15 @@
 # timediff
-
-## Syntax
+## description
+### Syntax
 
 `TIME TIMEDIFF(DATETIME expr1, DATETIME expr2)`
 
-## Description
 
 TIMEDIFF返回两个DATETIME之间的差值
 
 TIMEDIFF函数返回表示为时间值的expr1 - expr2的结果，返回值为TIME类型
 
-## Examples
+## example
 
 ```
 mysql> SELECT TIMEDIFF(now(),utc_timestamp());
@@ -34,3 +33,5 @@ mysql> SELECT TIMEDIFF('2019-01-01 00:00:00', NULL);
 | NULL                                  |
 +---------------------------------------+
 ```
+##keyword
+TIMEDIFF

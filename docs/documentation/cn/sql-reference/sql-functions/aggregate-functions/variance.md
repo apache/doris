@@ -1,14 +1,13 @@
 # VARIANCE,VAR_POP,VARIANCE_POP
-
-## Syntax
+## description
+### Syntax
 
 `VARIANCE(expr)`
 
-## Description
 
 返回expr表达式的方差
 
-## Examples
+## example
 ```
 MySQL > select variance(scan_rows) from log_statis group by datetime;
 +-----------------------+
@@ -23,4 +22,5 @@ MySQL > select var_pop(scan_rows) from log_statis group by datetime;
 +----------------------+
 |   5.6230744719006163 |
 +----------------------+
-```
+##keyword
+VARIANCE,VAR_POP,VARIANCE_POP,VAR,POP

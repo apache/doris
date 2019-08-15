@@ -1512,6 +1512,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         expr.write(output);
     }
 
+    /**
+     * The expr result may be null
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);

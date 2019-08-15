@@ -51,7 +51,7 @@ import mockit.Mocked;
 
 public class LoadManagerTest {
     private LoadManager loadManager;
-    private static final String methodName = "getIdToLoadJobs";
+    private final String fieldName = "idToLoadJob";
 
     @Before
     public void setUp() throws Exception {
@@ -123,8 +123,8 @@ public class LoadManagerTest {
 
         LoadManager newLoadManager = deserializeFromFile(file);
 
-        Map<Long, LoadJob> loadJobs = Deencapsulation.invoke(loadManager, methodName);
-        Map<Long, LoadJob> newLoadJobs = Deencapsulation.invoke(newLoadManager, methodName);
+        Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);
+        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
         Assert.assertEquals(loadJobs, newLoadJobs);
     }
 
@@ -155,7 +155,7 @@ public class LoadManagerTest {
         File file = serializeToFile(loadManager);
 
         LoadManager newLoadManager = deserializeFromFile(file);
-        Map<Long, LoadJob> newLoadJobs = Deencapsulation.invoke(newLoadManager, methodName);
+        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
 
         Assert.assertEquals(0, newLoadJobs.size());
     }

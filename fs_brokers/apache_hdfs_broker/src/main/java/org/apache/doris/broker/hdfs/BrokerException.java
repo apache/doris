@@ -63,7 +63,7 @@ public class BrokerException extends RuntimeException {
     
     public TBrokerOperationStatus generateFailedOperationStatus() {
         TBrokerOperationStatus errorStatus = new TBrokerOperationStatus(errorCode);
-        errorStatus.setMessage(super.getMessage() + ", cause by: " + getCause() != null ? getCause().getMessage() : "null");
+        errorStatus.setMessage(super.getMessage() + ", cause by: " + (getCause() != null ? getCause().getMessage() : "null"));
         return errorStatus;
     }
 }

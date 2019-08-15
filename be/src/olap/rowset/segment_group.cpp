@@ -707,49 +707,12 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
-                                       std::vector<std::string>* success_links) {
+OLAPStatus SegmentGroup::copy_files_to(const std::string& dir) {
     if (_empty) {
         return OLAP_SUCCESS;
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string snapshot_data_file_name = construct_data_file_path(snapshot_path, segment_id);
-        if (check_dir_existed(snapshot_data_file_name)) {
-            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
-                         << " file=" << snapshot_data_file_name;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string cur_data_file_name = construct_data_file_path(segment_id);
-        if (link(cur_data_file_name.c_str(), snapshot_data_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << cur_data_file_name << ", "
-                << "to=" << snapshot_data_file_name << ", " << "errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
-        }
-        success_links->push_back(snapshot_data_file_name);
-        std::string snapshot_index_file_name = construct_index_file_path(snapshot_path, segment_id);
-        if (check_dir_existed(snapshot_index_file_name)) {
-            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
-                         << " file=" << snapshot_index_file_name;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string cur_index_file_name = construct_index_file_path(segment_id);
-        if (link(cur_index_file_name.c_str(), snapshot_index_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << cur_index_file_name << ", "
-                << "to=" << snapshot_index_file_name << ", " << "errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
-        }
-        success_links->push_back(snapshot_index_file_name);
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
-                                            std::vector<std::string>* success_files) {
-    if (_empty) {
-        return OLAP_SUCCESS;
-    }
-    for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string dest_data_file = construct_data_file_path(dest_path, segment_id);
+        std::string dest_data_file = construct_data_file_path(dir, segment_id);
         if (check_dir_existed(dest_data_file)) {
             LOG(WARNING) << "file already exists:" << dest_data_file;
             return OLAP_ERR_FILE_ALREADY_EXIST;
@@ -761,8 +724,7 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
                          << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_files->push_back(dest_data_file);
-        std::string dest_index_file = construct_index_file_path(dest_path, segment_id);
+        std::string dest_index_file = construct_index_file_path(dir, segment_id);
         if (check_dir_existed(dest_index_file)) {
             LOG(WARNING) << "file already exists:" << dest_index_file;
             return OLAP_ERR_FILE_ALREADY_EXIST;
@@ -774,7 +736,6 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
                          << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_files->push_back(dest_index_file);
     }
     return OLAP_SUCCESS;
 }

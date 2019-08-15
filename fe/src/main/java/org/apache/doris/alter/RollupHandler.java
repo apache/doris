@@ -361,6 +361,7 @@ public class RollupHandler extends AlterHandler {
                     long rollupReplicaId = catalog.getNextId();
                     long backendId = baseReplica.getBackendId();
                     if (baseReplica.getState() == ReplicaState.CLONE 
+                            || baseReplica.getState() == ReplicaState.DECOMMISSION
                             || baseReplica.getLastFailedVersion() > 0) {
                         // just skip it.
                         continue;

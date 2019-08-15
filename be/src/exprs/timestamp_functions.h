@@ -35,23 +35,6 @@ class TupleRow;
 class TimestampFunctions {
 public:
     static void init();
-    /// Returns the current time.
-    static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
-    /// Converts 'tv_val' to a unix time_t
-    static doris_udf::IntVal to_unix(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& tv_val);
-    /// Parses 'string_val' based on the format 'fmt'.
-    static doris_udf::IntVal to_unix(
-        doris_udf::FunctionContext* context, const doris_udf::StringVal& string_val,
-        const doris_udf::StringVal& fmt);
-    /// Return a timestamp string from a unix time_t
-    /// Optional second argument is the format of the string.
-    /// TIME is the integer type of the unix time argument.
-    static doris_udf::StringVal from_unix(
-        doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time);
-    static doris_udf::StringVal from_unix(
-        doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time,
-        const doris_udf::StringVal& fmt);
 
     // Functions to extract parts of the timestamp, return integers.
     static doris_udf::IntVal year(
@@ -76,9 +59,6 @@ public:
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
 
     // Date/time functions.
-    static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
-    static doris_udf::DateTimeVal curtime(doris_udf::FunctionContext* context);
-    static doris_udf::DateTimeVal utc_timestamp(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal to_date(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal date_diff(
@@ -87,7 +67,6 @@ public:
     static doris_udf::DoubleVal time_diff(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
         const doris_udf::DateTimeVal& ts_val2);
-
     static doris_udf::DateTimeVal years_add(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
         const doris_udf::IntVal& count);
@@ -136,7 +115,6 @@ public:
     static doris_udf::DateTimeVal micros_sub(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
         const doris_udf::IntVal& count);
-
     static doris_udf::StringVal date_format(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
         const doris_udf::StringVal& format);
@@ -152,18 +130,37 @@ public:
     static doris_udf::StringVal day_name(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
 
+    // TimeZone correlation functions.
     static doris_udf::DateTimeVal timestamp(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);
-
     // Helper for add/sub functions on the time portion.
     template <TimeUnit unit>
     static doris_udf::DateTimeVal timestamp_time_op(
             doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
             const doris_udf::IntVal& count, bool is_add);
-
-    // Convert a timestamp to or from a particular timezone based time.
-    static void* from_utc(Expr* e, TupleRow* row);
-    static void* to_utc(Expr* e, TupleRow* row);
+    static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
+    static doris_udf::DoubleVal curtime(doris_udf::FunctionContext* context);
+    static doris_udf::DateTimeVal utc_timestamp(doris_udf::FunctionContext* context);
+    /// Returns the current time.
+    static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
+    /// Converts 'tv_val' to a unix time_t
+    static doris_udf::IntVal to_unix(
+            doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& tv_val);
+    /// Parses 'string_val' based on the format 'fmt'.
+    static doris_udf::IntVal to_unix(
+            doris_udf::FunctionContext* context, const doris_udf::StringVal& string_val,
+            const doris_udf::StringVal& fmt);
+    /// Return a timestamp string from a unix time_t
+    /// Optional second argument is the format of the string.
+    /// TIME is the integer type of the unix time argument.
+    static doris_udf::StringVal from_unix(
+            doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time);
+    static doris_udf::StringVal from_unix(
+            doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time,
+            const doris_udf::StringVal& fmt);
+    static doris_udf::DateTimeVal convert_tz(doris_udf::FunctionContext* ctx,
+            const doris_udf::DateTimeVal& ts_val, const doris_udf::StringVal& from_tz,
+            const doris_udf::StringVal& to_tz);
 
     // Helper function to check date/time format strings.
     // TODO: eventually return format converted from Java to Boost.
@@ -171,23 +168,7 @@ public:
 
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);
-
 };
-
-// Functions to load and access the timestamp database.
-class TimezoneDatabase {
-public:
-    TimezoneDatabase();
-    ~TimezoneDatabase();
-
-    static boost::local_time::time_zone_ptr find_timezone(const std::string& tz);
-
-private:
-    static const char* _s_timezone_database_str;
-    static boost::local_time::tz_database _s_tz_database;
-    static std::vector<std::string> _s_tz_region_list;
-};
-
 }
 
 #endif

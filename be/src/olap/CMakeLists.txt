@@ -30,6 +30,7 @@ add_library(Olap STATIC
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
     byte_buffer.cpp
+    compaction.cpp
     comparison_predicate.cpp
     compress.cpp
     cumulative_compaction.cpp
@@ -53,6 +54,7 @@ add_library(Olap STATIC
     olap_server.cpp
     options.cpp
     out_stream.cpp
+    page_cache.cpp
     push_handler.cpp
     reader.cpp
     row_block.cpp
@@ -75,6 +77,7 @@ add_library(Olap STATIC
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
+    tablet_sync_service.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp

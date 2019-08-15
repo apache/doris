@@ -32,7 +32,7 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
         LOG(FATAL) << "tablet schema does not have cumulative_layer_point."
                    << " tablet id = " << tablet_meta_pb.tablet_id();
     }
-    olap_header->set_cumulative_layer_point(tablet_meta_pb.cumulative_layer_point());
+    olap_header->set_cumulative_layer_point(-1);
     if (!tablet_meta_pb.schema().has_num_short_key_columns()) {
         LOG(FATAL) << "tablet schema does not have num_short_key_columns."
                    << " tablet id = " << tablet_meta_pb.tablet_id();
@@ -99,7 +99,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         tablet_meta_pb->set_shard_id(olap_header.shard());
     }
     tablet_meta_pb->set_creation_time(olap_header.creation_time());
-    tablet_meta_pb->set_cumulative_layer_point(olap_header.cumulative_layer_point());
+    tablet_meta_pb->set_cumulative_layer_point(-1);
 
     TabletSchemaPB* schema = tablet_meta_pb->mutable_schema();
     for (auto& column_msg : olap_header.column()) {

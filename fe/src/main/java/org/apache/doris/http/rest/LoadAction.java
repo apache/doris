@@ -42,10 +42,6 @@ import io.netty.handler.codec.http.HttpMethod;
 public class LoadAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(LoadAction.class);
 
-    public static final String CLUSTER_NAME_PARAM = "cluster";
-    public static final String DB_NAME_PARAM = "db";
-    public static final String TABLE_NAME_PARAM = "table";
-    public static final String LABEL_NAME_PARAM = "label";
     public static final String SUB_LABEL_NAME_PARAM = "sub_label";
 
     private ExecuteEnv execEnv;
@@ -65,11 +61,11 @@ public class LoadAction extends RestBaseAction {
         ExecuteEnv execEnv = ExecuteEnv.getInstance();
         LoadAction action = new LoadAction(controller, execEnv);
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_load", action);
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", action);
 
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_stream_load",
-                new LoadAction(controller, execEnv, true));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load",
+                                   new LoadAction(controller, execEnv, true));
     }
 
     @Override
@@ -86,19 +82,19 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No cluster selected.");
         }
 
-        String dbName = request.getSingleParameter(DB_NAME_PARAM);
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }
 
-        String tableName = request.getSingleParameter(TABLE_NAME_PARAM);
+        String tableName = request.getSingleParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No table selected.");
         }
         
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
 
-        String label = request.getSingleParameter(LABEL_NAME_PARAM);
+        String label = request.getSingleParameter(LABEL_KEY);
         if (!isStreamLoad) {
             if (Strings.isNullOrEmpty(label)) {
                 throw new DdlException("No label selected.");

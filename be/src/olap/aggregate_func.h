@@ -291,23 +291,20 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         // TODO(zc): refactor HLL implementation
         *reinterpret_cast<bool*>(dst) = false;
         Slice* slice = reinterpret_cast<Slice*>(dst + 1);
-        size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
-        HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
+        HllContext* context = *reinterpret_cast<HllContext**>(slice->data - sizeof(HllContext*));
         HllSetHelper::init_context(context);
         context->has_value = true;
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
-        Slice* l_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-        size_t hll_ptr = *(size_t*)(l_slice->data - sizeof(HllContext*));
-        HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
+        auto l_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        auto context = *reinterpret_cast<HllContext**>(l_slice->data - sizeof(HllContext*));
         HllSetHelper::fill_set((const char*)src.cell_ptr(), context);
     }
 
     static void finalize(char* data, Arena* arena) {
-        Slice* slice = reinterpret_cast<Slice*>(data);
-        size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
-        HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
+        auto slice = reinterpret_cast<Slice*>(data);
+        auto context = *reinterpret_cast<HllContext**>(slice->data - sizeof(HllContext*));
         std::map<int, uint8_t> index_to_value;
         if (context->has_sparse_or_full ||
                 context->hash64_set->size() > HLL_EXPLICLIT_INT64_NUM) {

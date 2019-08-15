@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
@@ -27,6 +29,7 @@ import org.junit.Test;
 
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mocked;
 
 public class CreateUserStmtTest {
 
@@ -42,12 +45,16 @@ public class CreateUserStmtTest {
     }
 
     @Test
-    public void testToString(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+    public void testToString(@Injectable Analyzer analyzer,
+                             @Mocked PaloAuth paloAuth) throws UserException, AnalysisException {
 
         new Expectations() {
             {
                 analyzer.getClusterName();
                 result = "testCluster";
+                paloAuth.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, PaloAuth.PrivLevel.GLOBAL, PaloAuth
+                        .PrivLevel.DATABASE);
+                result = true;
             }
         };
 

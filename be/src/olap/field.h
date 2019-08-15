@@ -199,9 +199,15 @@ public:
     template<typename DstCellType, typename SrcCellType>
     void agg_init(DstCellType* dst, const SrcCellType& src) const;
 
-    // copy filed content from src to dest without nullbyte
-    inline void copy_content(char* dest, const char* src, MemPool* mem_pool) const {
-        _type_info->deep_copy(dest, src, mem_pool);
+    // deep copy filed content from `src` to `dst` without null-byte
+    inline void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
+        _type_info->deep_copy(dst, src, mem_pool);
+    }
+
+    // shallow copy filed content from `src` to `dst` without null-byte.
+    // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
+    inline void shallow_copy_content(char* dst, const char* src) const {
+        _type_info->shallow_copy(dst, src);
     }
 
     // Copy srouce content to destination in index format.
