@@ -33,7 +33,8 @@ namespace segment_v2 {
 // the binary format is like that
 // Header | Content
 // Header: 
-//      number of elements (4 Bytes)
+//      number of pages (4 Bytes)
+//      number of rows (4 Bytes)
 // Content:
 //      array of index_pair
 // index_pair:
@@ -43,8 +44,8 @@ class OrdinalPageIndexBuilder {
 public:
     OrdinalPageIndexBuilder() : _num_pages(0) {
         _buffer.reserve(4 * 1024);
-        // reserve space for number of elements
-        _buffer.resize(4);
+        // reserve space for number of pages
+        _buffer.resize(8);
     }
 
     void append_entry(rowid_t rid, const PagePointer& page) {
@@ -55,9 +56,11 @@ public:
         _num_pages++;
     }
 
-    Slice finish() {
-        // encoded number of elements
+    Slice finish(rowid_t row_num) {
+        // encoded number of pages
         encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
+        // encoded number of rows
+        encode_fixed32_le((uint8_t*)_buffer.data() + 4, row_num);
         return Slice(_buffer);
     }
 
@@ -103,10 +106,11 @@ public:
         return _rowids[page_index];
     }
 
-    rowid_t get_last_row_id(int page_index, size_t column_row_count) const {
+    rowid_t get_last_row_id(int page_index) const {
+        // because add additional number of rows as the last rowid
+        // so just return next_page_first_id - 1
         int next_page_index = page_index + 1;
-        return (next_page_index >= _num_pages) ?
-                column_row_count : get_first_row_id(next_page_index) - 1;
+        return get_first_row_id(next_page_index) - 1;
     }
 
     int32_t num_pages() const {
@@ -114,7 +118,7 @@ public:
     }
 
 private:
-    uint32_t _header_size() const { return 4; }
+    uint32_t _header_size() const { return 8; }
 
 private:
     friend OrdinalPageIndexIterator;
@@ -123,6 +127,7 @@ private:
 
     // valid after laod
     int32_t _num_pages;
+    // the last row id is additional, set to number of rows
     rowid_t* _rowids;
     PagePointer* _pages;
 };

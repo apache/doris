@@ -44,12 +44,16 @@ TEST_F(OrdinalPageIndexTest, normal) {
         builder.append_entry(1 + 4096 * i, {16 * 1024 * i, 16 * 1024});
     }
 
-    auto slice = builder.finish();
+    auto slice = builder.finish(16 * 1024 * 4096 + 1);
     LOG(INFO) << "index block's size=" << slice.size;
 
     OrdinalPageIndex index(slice);
     auto st = index.load();
     ASSERT_TRUE(st.ok());
+    ASSERT_EQ(1, index.get_first_row_id(0));
+    ASSERT_EQ(4096, index.get_last_row_id(0));
+    ASSERT_EQ((16 * 1024 - 1) * 4096 + 1, index.get_first_row_id(16 * 1024 - 1));
+    ASSERT_EQ(16 * 1024 * 4096, index.get_last_row_id(16 * 1024 - 1));
 
     PagePointer page;
     {

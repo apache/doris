@@ -24,7 +24,7 @@
 #include "util/slice.h"
 #include "util/faststring.h"
 #include "olap/olap_cond.h"
-#include "olap/rowset/segment_v2/zone_map.h"
+#include "gen_cpp/segment_v2.pb.h"
 
 namespace doris {
 
@@ -45,13 +45,16 @@ public:
         _buffer.resize(4);
     }
 
-    void append_entry(const ZoneMap& page_zone_map) {
-        // use BinaryPlainPageBuilder?
+    Status append_entry(const ZoneMapPB& page_zone_map) {
         std::string serialized_zone_map;
-        page_zone_map.serialize(&serialized_zone_map);
+        bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
+        if (!ret) {
+            return Status::InternalError("serialize zone map failed");
+        }
         put_varint32(&_buffer, serialized_zone_map.size());
         _buffer.append(serialized_zone_map.data(), serialized_zone_map.size());
         _num_pages++;
+        return Status::OK();
     }
 
     Slice finish() {
@@ -69,17 +72,16 @@ private:
 class ColumnZoneMap {
 public:
     ColumnZoneMap(const Slice& data)
-        : _data(data), _loaded(false), _num_pages(0) {
+        : _data(data), _num_pages(0) {
     }
     
     Status load();
 
-    std::vector<ZoneMap> get_column_zone_map() const {
+    const std::vector<ZoneMapPB>& get_column_zone_map() const {
         return _page_zone_maps;
     }
 
     int32_t num_pages() const {
-        DCHECK(_loaded) << "column zone map is not loaded";
         return _num_pages;
     }
 
@@ -89,9 +91,8 @@ private:
     FieldType _type;
 
     // valid after load
-    bool _loaded;
     int32_t _num_pages;
-    std::vector<ZoneMap> _page_zone_maps;
+    std::vector<ZoneMapPB> _page_zone_maps;
 };
 
 } // namespace segment_v2

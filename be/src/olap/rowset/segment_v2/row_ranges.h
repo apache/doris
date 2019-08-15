@@ -27,11 +27,13 @@
 namespace doris {
 namespace segment_v2 {
 
-class Range {
+// RowRange stands for range[From, To), From is inclusive,
+// To is exclusive. It is used for row id range calculation.
+class RowRange {
 public:
     // Returns true if if two ranges are overlapped or false.
     // The union range will be returned through range.
-    static bool range_union(const Range& left, const Range& right, Range* range) {
+    static bool range_union(const RowRange& left, const RowRange& right, RowRange* range) {
         if (left._from <= right._from) {
             if (left._to >= right._from) {
                 range->_from = left._from;
@@ -51,7 +53,7 @@ public:
 
     // Returns true if the two ranges are overlapped or false.
     // The intersection of the two ranges is returned through range.
-    static bool range_intersection(const Range& left, const Range& right, Range* range) {
+    static bool range_intersection(const RowRange& left, const RowRange& right, RowRange* range) {
         if (left._from <= right._from) {
             if (left._to > right._from) {
                 range->_from = right._from;
@@ -69,27 +71,18 @@ public:
         return false;
     }
 
-    Range() {
-        _from = 0;
-        _to = 0;
-    }
+    RowRange() : _from(0), _to(0) { }
 
-    Range(const Range& other) {
-        _from = other._from;
-        _to = other._to;
-    }
+    RowRange(const RowRange& other) : _from(other._from), _to(other._to) { }
 
-    Range& operator=(const Range& other) {
+    RowRange& operator=(const RowRange& other) {
         _from = other._from;
         _to = other._to;
         return *this;
     }
 
     // Creates a range of [from, to) (from inclusive and to exclusive; empty ranges are invalid)
-    Range(int64_t from, int64_t to) {
-        _from = from;
-        _to = to;
-    }
+    RowRange(int64_t from, int64_t to) : _from(from), _to(to) { }
 
     bool is_valid() const {
         return _from < _to;
@@ -99,11 +92,11 @@ public:
         return _to - _from;
     }
 
-    bool is_before(const Range& other) const {
+    bool is_before(const RowRange& other) const {
         return _to <= other._from;
     }
 
-    bool is_after(const Range& other) const {
+    bool is_after(const RowRange& other) const {
         return _from >= other._to;
     }
 
@@ -126,50 +119,40 @@ private:
 
 class RowRanges {
 public:
-    RowRanges() : _cur_range_id(0) { }
+    RowRanges() { }
 
-    RowRanges(RowRanges&& other) {
-        _ranges = std::move(other._ranges);
-        _cur_range_id = other._cur_range_id;
-    }
+    RowRanges(RowRanges&& other) : _ranges(std::move(other._ranges)) { }
 
     RowRanges& operator=(RowRanges&& other) {
         if (this != &other) {
             _ranges = std::move(other._ranges);
-            _cur_range_id = other._cur_range_id;
         }
         return *this;
     }
 
-    /*
-    * Creates a new RowRanges object with the single range [0, row_count - 1].
-    */
+    // Creates a new RowRanges object with the single range [0, row_count).
     static RowRanges create_single(uint64_t row_count) {
         RowRanges ranges;
-        ranges.add(Range(0, row_count - 1));
+        ranges.add(RowRange(0, row_count));
         return ranges;
     }
 
-    /*
-    * Creates a new RowRanges object with the single range [from, to].
-    */
-    static RowRanges create_single(uint64_t from, uint64_t to) {
+    // Creates a new RowRanges object with the single range [from, to).
+    static RowRanges create_single(int64_t from, int64_t to) {
         DCHECK(from <= to);
         RowRanges ranges;
-        ranges.add(Range(from, to));
+        ranges.add(RowRange(from, to));
         return ranges;
     }
 
-    /*
-    * Calculates the union of the two specified RowRanges object. The union of two range is calculated if there are
-    * elements between them. Otherwise, the two disjunct ranges are stored separately.
-    * For example:
-    * [113, 241] ∪ [221, 340] = [113, 330]
-    * [113, 230] ∪ [231, 340] = [113, 340]
-    * while
-    * [113, 230] ∪ [232, 340] = [113, 230], [232, 340]
-    *
-    */
+    
+    // Calculates the union of the two specified RowRanges object. The union of two range is calculated if there are
+    // elements between them. Otherwise, the two disjunct ranges are stored separately.
+    // For example:
+    // [113, 241] ∪ [221, 340] = [113, 330]
+    // [113, 230] ∪ [231, 340] = [113, 340]
+    // while
+    // [113, 230] ∪ [232, 340] = [113, 230], [232, 340]
     static void ranges_union(const RowRanges& left, const RowRanges& right, RowRanges* result) {
         RowRanges tmp_range;
         auto it1 = left._ranges.begin();
@@ -195,31 +178,30 @@ public:
         *result = std::move(tmp_range);
     }
 
-    /*
-    * Calculates the intersection of the two specified RowRanges object. Two ranges intersect if they have common
-    * elements otherwise the result is empty.
-    * For example:
-    * [113, 241] ∩ [221, 340] = [221, 241]
-    * while
-    * [113, 230] ∩ [231, 340] = <EMPTY>
-    *
-    * The result RowRanges object will contain all the row indexes there were contained in both of the specified objects
-    */
+    
+    // Calculates the intersection of the two specified RowRanges object. Two ranges intersect if they have common
+    // elements otherwise the result is empty.
+    // For example:
+    // [113, 241] ∩ [221, 340] = [221, 241]
+    // while
+    // [113, 230] ∩ [231, 340] = <EMPTY>
+    //
+    // The result RowRanges object will contain all the row indexes there were contained in both of the specified objects
     static void ranges_intersection(const RowRanges& left, const RowRanges& right, RowRanges* result) {
         RowRanges tmp_range;
+        int right_index = 0;
         for (auto it1 = left._ranges.begin(); it1 != left._ranges.end(); ++it1) {
-            const Range& range1 = *it1;
-            int right_index = 0;
+            const RowRange& range1 = *it1;
             for (int i = right_index; i < right._ranges.size(); ++i) {
-                const Range& range2 = right._ranges[i];
+                const RowRange& range2 = right._ranges[i];
                 if (range1.is_before(range2)) {
                     break;
                 } else if (range1.is_after(range2)) {
                     right_index = i + 1;
                     continue;
                 }
-                Range merge_range;
-                bool ret = Range::range_intersection(range1, range2, &merge_range);
+                RowRange merge_range;
+                bool ret = RowRange::range_intersection(range1, range2, &merge_range);
                 DCHECK(ret);
                 tmp_range.add(merge_range);
             }
@@ -241,7 +223,7 @@ public:
 
     bool contain(rowid_t from, rowid_t to) {
         // binary search
-        Range tmp_range = Range(from, to);
+        RowRange tmp_range = RowRange(from, to);
         int32_t start = 0;
         int32_t end = _ranges.size();
         while (start <= end) {
@@ -257,38 +239,30 @@ public:
         return false;
     }
 
-    uint64_t from() {
+    int64_t from() {
         DCHECK(!is_empty());
         return _ranges[0].from();
     }
 
-    uint64_t to() {
+    int64_t to() {
         DCHECK(!is_empty());
         return _ranges[_ranges.size() - 1].to();
     }
 
-    void next() {
-        ++_cur_range_id;
+    size_t range_size() {
+        return _ranges.size();
     }
 
-    void reset() {
-        _cur_range_id = 0;
+    int64_t get_range_from(size_t range_index) {
+        return _ranges[range_index].from();
     }
 
-    bool has_next() {
-        return _cur_range_id < _ranges.size();
+    int64_t get_range_to(size_t range_index) {
+        return _ranges[range_index].to();
     }
 
-    size_t current_range_count() {
-        return _ranges[_cur_range_id - 1].count();
-    }
-
-    uint64_t current_range_from() {
-        return _ranges[_cur_range_id - 1].from();
-    }
-
-    uint64_t current_range_to() {
-        return _ranges[_cur_range_id - 1].to();
+    size_t get_range_count(size_t range_index) {
+        return _ranges[range_index].count();
     }
 
     std::string to_string() {
@@ -300,19 +274,17 @@ public:
     }
 
 private:
-    /*
-    * Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
-    * trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
-    * the last one or might be overlapped with some of the last ones.
-    * (*) [a, b] < [c, d] if b < c
-    */
-    void add(const Range& range) {
-        Range range_to_add = range;
+    // Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
+    // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
+    // the last one or might be overlapped with some of the last ones.
+    // (*) [a, b] < [c, d] if b < c
+    void add(const RowRange& range) {
+        RowRange range_to_add = range;
         for (int i = _ranges.size() - 1; i >= 0; --i) {
-            const Range last = _ranges[i];
+            const RowRange last = _ranges[i];
             DCHECK(!last.is_after(range));
-            Range u;
-            bool ret = Range::range_union(last, range_to_add, &u);
+            RowRange u;
+            bool ret = RowRange::range_union(last, range_to_add, &u);
             if (!ret) {
                 // range do not intersect with the last
                 break;
@@ -324,8 +296,7 @@ private:
     }
 
 private:
-    std::vector<Range> _ranges;
-    uint32_t _cur_range_id;
+    std::vector<RowRange> _ranges;
 };
 
 } // namespace segment_v2

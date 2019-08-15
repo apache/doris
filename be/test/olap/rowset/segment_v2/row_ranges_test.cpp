@@ -30,9 +30,9 @@ public:
 
 // Test for int
 TEST_F(RowRangesTest, TestRange) {
-    Range range1(10, 20);
-    Range range2(15, 25);
-    Range range3(30, 40);
+    RowRange range1(10, 20);
+    RowRange range2(15, 25);
+    RowRange range3(30, 40);
     ASSERT_TRUE(range1.is_valid());
     ASSERT_EQ(10, range1.from());
     ASSERT_EQ(20, range1.to());
@@ -40,23 +40,23 @@ TEST_F(RowRangesTest, TestRange) {
     ASSERT_TRUE(range1.is_before(range3));
     ASSERT_FALSE(range1.is_after(range2));
     ASSERT_TRUE(range3.is_after(range1));
-    Range tmp;
-    Range::range_intersection(range1, range2, &tmp);
+    RowRange tmp;
+    RowRange::range_intersection(range1, range2, &tmp);
     ASSERT_TRUE(tmp.is_valid());
     ASSERT_EQ(5, tmp.count());
     ASSERT_TRUE(tmp.is_valid());
-    Range tmp2;
-    Range::range_intersection(range1, range3, &tmp2);
+    RowRange tmp2;
+    RowRange::range_intersection(range1, range3, &tmp2);
     ASSERT_FALSE(tmp2.is_valid());
-    Range tmp3;
-    Range::range_union(range1, range3, &tmp3);
+    RowRange tmp3;
+    RowRange::range_union(range1, range3, &tmp3);
     ASSERT_FALSE(tmp3.is_valid());
-    Range range4(0, 0);
+    RowRange range4(0, 0);
     ASSERT_FALSE(range4.is_valid());
-    Range range5(20, 25);
-    Range tmp4;
-    ASSERT_FALSE(Range::range_intersection(range1, range5, &tmp4));
-    ASSERT_TRUE(Range::range_union(range1, range5, &tmp4));
+    RowRange range5(20, 25);
+    RowRange tmp4;
+    ASSERT_FALSE(RowRange::range_intersection(range1, range5, &tmp4));
+    ASSERT_TRUE(RowRange::range_union(range1, range5, &tmp4));
     ASSERT_EQ(15, tmp4.count());
     ASSERT_EQ(10, tmp4.from());
     ASSERT_EQ(25, tmp4.to());
@@ -73,7 +73,6 @@ TEST_F(RowRangesTest, TestRowRanges) {
     RowRanges::ranges_intersection(row_ranges1, row_ranges2, &row_ranges_merge);
     ASSERT_EQ(0, row_ranges_merge.count());
     ASSERT_TRUE(row_ranges_merge.is_empty());
-    ASSERT_FALSE(row_ranges_merge.has_next());
 
     RowRanges row_ranges_merge2;
     RowRanges::ranges_intersection(row_ranges1, row_ranges3, &row_ranges_merge2);
@@ -82,17 +81,14 @@ TEST_F(RowRangesTest, TestRowRanges) {
     ASSERT_TRUE(row_ranges_merge2.contain(16, 19));
     ASSERT_EQ(15, row_ranges_merge2.from());
     ASSERT_EQ(20, row_ranges_merge2.to());
-    ASSERT_TRUE(row_ranges_merge2.has_next());
-    row_ranges_merge2.next();
-    ASSERT_EQ(15, row_ranges_merge2.current_range_from());
-    ASSERT_EQ(20, row_ranges_merge2.current_range_to());
-    ASSERT_EQ(5, row_ranges_merge2.current_range_count());
+    ASSERT_EQ(15, row_ranges_merge2.get_range_from(0));
+    ASSERT_EQ(20, row_ranges_merge2.get_range_to(0));
+    ASSERT_EQ(5, row_ranges_merge2.get_range_count(0));
 
     RowRanges row_ranges_merge3;
     RowRanges::ranges_intersection(row_ranges1, row_ranges4, &row_ranges_merge3);
     ASSERT_EQ(0, row_ranges_merge3.count());
     ASSERT_TRUE(row_ranges_merge3.is_empty());
-    ASSERT_FALSE(row_ranges_merge3.has_next());
 
     RowRanges row_ranges_union;
     RowRanges::ranges_union(row_ranges1, row_ranges2, &row_ranges_union);
@@ -103,11 +99,9 @@ TEST_F(RowRangesTest, TestRowRanges) {
     ASSERT_TRUE(row_ranges_union.contain(16, 19));
     ASSERT_EQ(10, row_ranges_union.from());
     ASSERT_EQ(50, row_ranges_union.to());
-    ASSERT_TRUE(row_ranges_union.has_next());
-    row_ranges_union.next();
-    ASSERT_EQ(10, row_ranges_union.current_range_from());
-    ASSERT_EQ(30, row_ranges_union.current_range_to());
-    ASSERT_EQ(20, row_ranges_union.current_range_count());
+    ASSERT_EQ(10, row_ranges_union.get_range_from(0));
+    ASSERT_EQ(30, row_ranges_union.get_range_to(0));
+    ASSERT_EQ(20, row_ranges_union.get_range_count(0));
 }
 
 }

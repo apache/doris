@@ -23,9 +23,11 @@
 
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "olap/olap_cond.h" // for CondColumn
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
+#include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 
 namespace doris {
 
@@ -33,7 +35,6 @@ class ColumnBlock;
 class Arena;
 class RandomAccessFile;
 class TypeInfo;
-class BlockCompressionCodec;
 
 namespace segment_v2 {
 
@@ -44,8 +45,7 @@ class ParsedPage;
 class ColumnIterator;
 
 struct ColumnReaderOptions {
-    // If verify checksum when read page
-    bool verify_checksum = true;
+    bool verify_checksum = false;
 };
 
 // Used to read one column's data. And user should pass ColumnData meta
@@ -72,21 +72,21 @@ public:
     Status read_page(const PagePointer& pp, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
+    bool has_checksum() const { return _meta.has_checksum(); }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
     const TypeInfo* type_info() const { return _type_info; }
 
-    const OrdinalPageIndex* get_ordinal_index() const {
-        return _ordinal_index.get();
-    }
-
-    const ColumnZoneMap* get_zone_map() const {
-        return _column_zone_map.get();
-    }
+    bool has_zone_map() { return _meta.has_zone_map_page(); }
+    void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
 
 private:
     Status _init_ordinal_index();
 
     Status _init_column_zone_map();
+
+    void _get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes);
+
+    void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     // input param
@@ -98,7 +98,6 @@ private:
 
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
-    const BlockCompressionCodec* _compress_codec = nullptr;
 
     // get page pointer from index
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;

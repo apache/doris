@@ -29,25 +29,25 @@ public:
         ColumnZoneMapBuilder builder;
         WrapperField *min_value = WrapperField::create_by_type(type);
         WrapperField *max_value = WrapperField::create_by_type(type);
-        ZoneMap zone_map;
-        zone_map.set_is_null(false);
+        ZoneMapPB zone_map;
+        zone_map.set_null_flag(false);
 
         min_value->from_string(values[0]);
         max_value->from_string(values[1]);
-        zone_map.set_min_value(min_value->serialize());
-        zone_map.set_max_value(max_value->serialize());
+        zone_map.set_min(min_value->serialize());
+        zone_map.set_max(max_value->serialize());
         builder.append_entry(zone_map);
 
         min_value->from_string(values[2]);
         max_value->from_string(values[3]);
-        zone_map.set_min_value(min_value->serialize());
-        zone_map.set_max_value(max_value->serialize());
+        zone_map.set_min(min_value->serialize());
+        zone_map.set_max(max_value->serialize());
         builder.append_entry(zone_map);
 
         min_value->from_string(values[4]);
         max_value->from_string(values[5]);
-        zone_map.set_min_value(min_value->serialize());
-        zone_map.set_max_value(max_value->serialize());
+        zone_map.set_min(min_value->serialize());
+        zone_map.set_max(max_value->serialize());
         builder.append_entry(zone_map);
 
         Slice data = builder.finish();
@@ -57,22 +57,22 @@ public:
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(3, column_zone_map.num_pages());
 
-        std::vector<ZoneMap> zone_maps(std::move(column_zone_map.get_column_zone_map()));
+        const std::vector<ZoneMapPB>& zone_maps = column_zone_map.get_column_zone_map();
         ASSERT_EQ(3, zone_maps.size());
 
-        min_value->deserialize(zone_maps[0].min_value());
+        min_value->deserialize(zone_maps[0].min());
         ASSERT_EQ(values[0], min_value->to_string());
-        max_value->deserialize(zone_maps[0].max_value());
+        max_value->deserialize(zone_maps[0].max());
         ASSERT_EQ(values[1], max_value->to_string());
 
-        min_value->deserialize(zone_maps[1].min_value());
+        min_value->deserialize(zone_maps[1].min());
         ASSERT_EQ(values[2], min_value->to_string());
-        max_value->deserialize(zone_maps[1].max_value());
+        max_value->deserialize(zone_maps[1].max());
         ASSERT_EQ(values[3], max_value->to_string());
 
-        min_value->deserialize(zone_maps[2].min_value());
+        min_value->deserialize(zone_maps[2].min());
         ASSERT_EQ(values[4], min_value->to_string());
-        max_value->deserialize(zone_maps[2].max_value());
+        max_value->deserialize(zone_maps[2].max());
         ASSERT_EQ(values[5], max_value->to_string());
 
         delete min_value;

@@ -270,8 +270,8 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
     SegmentWriterOptions opts;
     opts.num_rows_per_block = num_rows_per_block;
 
-    std::string fname = dname + "/int_case";
-    SegmentWriter writer(fname, 0, tablet_schema, opts);
+    std::string fname = dname + "/int_case2";
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
     auto st = writer.init(10);
     ASSERT_TRUE(st.ok());
 
@@ -317,16 +317,17 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             condition.__set_condition_op("<");
             std::vector<std::string> vals = {"100"};
             condition.__set_condition_values(vals);
-            Conditions conditions;
-            conditions.set_tablet_schema(tablet_schema.get());
-            conditions.append_condition(condition);
-            read_opts.conditions = &conditions;
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+            read_opts.conditions = conditions;
             st = iter->init(read_opts);
             ASSERT_TRUE(st.ok());
 
             Arena arena;
             RowBlockV2 block(schema, 1024, &arena);
 
+            // only first page will be read because of zone map
             int left = 16 * 1024;
 
             int rowid = 0;
@@ -336,6 +337,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
+                LOG(INFO) << "rows read:" << rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
                     auto cid = block.schema()->column_ids()[j];
@@ -343,7 +345,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
                         ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
-                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
                     }
                 }
                 rowid += rows_read;
@@ -351,6 +353,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             ASSERT_EQ(16 * 1024, rowid);
         }
     }
+    FileUtils::remove_all(dname);
 }
 
 }

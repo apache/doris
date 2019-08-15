@@ -32,7 +32,7 @@ struct StorageReadOptions {
     // lower_bound defines the smallest key at which iterator will
     // return data.
     // If lower_bound is null, won't return
-    std::shared_ptr<RowCursor> lower_bound = nullptr;
+    std::shared_ptr<RowCursor> lower_bound;
 
     // If include_lower_bound is true, data equal with lower_bound will
     // be read
@@ -40,7 +40,7 @@ struct StorageReadOptions {
 
     // upper_bound defines the extend upto which the iterator can return
     // data.
-    std::shared_ptr<RowCursor> upper_bound = nullptr;
+    std::shared_ptr<RowCursor> upper_bound;
 
     // If include_upper_bound is true, data equal with upper_bound will
     // be read
@@ -48,7 +48,7 @@ struct StorageReadOptions {
 
     // reader's column predicates
     // used to filter data by zone map/bloom filter/second index
-    Conditions* conditions = nullptr;
+    std::shared_ptr<Conditions> conditions;
 };
 
 // Used to read data in RowBlockV2 one by one

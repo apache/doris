@@ -16,26 +16,37 @@
 // under the License.
 
 #include "olap/rowset/segment_v2/column_zone_map.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 namespace segment_v2 {
 
 Status ColumnZoneMap::load() {
     DCHECK_GE(_data.size, 4) << "block size must greate than header";
-    _num_pages = decode_fixed32_le((const uint8_t*)_data.data);
-    _data.remove_prefix(4);
+    if (_data.size <= 4) {
+        return Status::Corruption(strings::Substitute("block size must greate than header:$0", _data.size));
+    }
+    Slice data(_data);
+    _num_pages = decode_fixed32_le((const uint8_t*)data.data);
+    data.remove_prefix(4);
     _page_zone_maps.reserve(_num_pages);
     for (int i = 0; i < _num_pages; ++i) {
         uint32_t zone_map_length = 0;
-        get_varint32(&_data, &zone_map_length);
-        DCHECK(zone_map_length > 0);
-        ZoneMap zone_map;
-        zone_map.deserialize(std::string(_data.data, zone_map_length));
+        get_varint32(&data, &zone_map_length);
+        if (zone_map_length == 0) {
+            return Status::Corruption(strings::Substitute("invalid zone map length:$0", zone_map_length));
+        }
+        ZoneMapPB zone_map;
+        bool ret = zone_map.ParseFromString(std::string(data.data, zone_map_length));
+        if (!ret) {
+            return Status::InternalError("parse zone map failed");
+        }
         _page_zone_maps.emplace_back(zone_map);
-        _data.remove_prefix(zone_map_length);
+        data.remove_prefix(zone_map_length);
     }
-    DCHECK(_data.size == 0) << "there is additional data.";
-    _loaded = true;
+    if (data.size != 0) {
+        return Status::Corruption(strings::Substitute("there is additional data. size:$0", data.size));
+    }
     return Status::OK();
 }
 

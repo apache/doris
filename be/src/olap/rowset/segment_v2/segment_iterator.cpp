@@ -36,6 +36,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
                                  const Schema& schema)
         : _segment(std::move(segment)),
         _schema(schema),
+        _cur_range_id(0),
         _column_iterators(_schema.num_columns(), nullptr) {
 }
 
@@ -49,8 +50,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     DorisMetrics::segment_read_total.increment(1);
     _opts = opts;
     RETURN_IF_ERROR(_init_short_key_range());
-    RETURN_IF_ERROR(_init_column_iterators());
     RETURN_IF_ERROR(_init_row_ranges());
+    RETURN_IF_ERROR(_init_column_iterators());
     return Status::OK();
 }
 
@@ -59,6 +60,8 @@ Status SegmentIterator::_init_short_key_range() {
     DorisMetrics::segment_row_total.increment(num_rows());
     _lower_rowid = 0;
     _upper_rowid = num_rows();
+    // initial short key row ranges: [0, num_rows())
+    _row_ranges = RowRanges::create_single(_lower_rowid, _upper_rowid);
 
     // fast path for empty segment
     if (_upper_rowid == 0) {
@@ -83,6 +86,8 @@ Status SegmentIterator::_init_short_key_range() {
         RETURN_IF_ERROR(_lookup_ordinal(
                 *_opts.lower_bound, _opts.include_lower_bound, _upper_rowid, &_lower_rowid));
     }
+    // seeked short key row ranges: [_lower_rowid, _upper_rowid)
+    _row_ranges = RowRanges::create_single(_lower_rowid, _upper_rowid);
     DorisMetrics::segment_rows_by_short_key.increment(_upper_rowid - _lower_rowid);
 
     return Status::OK();
@@ -125,19 +130,17 @@ Status SegmentIterator::_init_row_ranges() {
         _row_ranges = RowRanges();
         return Status::OK();
     }
-    // short key range is [_lower_rowid, _upper_rowid)
-    RowRanges short_key_row_ranges(std::move(RowRanges::create_single(_lower_rowid, _upper_rowid)));
+
     if (_opts.conditions != nullptr) {
-        RETURN_IF_ERROR(_get_row_ranges_from_zone_map());
+        RowRanges zone_map_row_ranges;
+        RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
+        RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
         // TODO(hkp): get row ranges from bloom filter and secondary index
-        RowRanges::ranges_intersection(_row_ranges, short_key_row_ranges, &_row_ranges);
-    } else {
-        _row_ranges = std::move(short_key_row_ranges);
     }
 
-    if (_row_ranges.has_next()) {
-        _row_ranges.next();
-        _cur_rowid = _row_ranges.current_range_from();
+    if (!_row_ranges.is_empty()) {
+        _cur_range_id = 0;
+        _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -145,56 +148,27 @@ Status SegmentIterator::_init_row_ranges() {
     return Status::OK();
 }
 
-Status SegmentIterator::_get_row_ranges_from_zone_map() {
-    Conditions* conditions = _opts.conditions;
-    for (auto& column_condition : conditions->columns()) {
+Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
+    RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
+    for (auto& column_condition : _opts.conditions->columns()) {
         int32_t column_id = column_condition.first;
         // get row ranges from zone map
-        const ColumnZoneMap* column_zone_map = _segment->_column_readers[column_id]->get_zone_map();
-        if (column_zone_map == nullptr) {
+        if (!_segment->_column_readers[column_id]->has_zone_map()) {
             // there is no zone map for this column
             continue;
         }
-        std::vector<uint32_t> page_indexes;
-        const TypeInfo* type_info = _segment->_column_readers[column_id]->type_info();
-        _get_filtered_pages(type_info->type(), column_zone_map, column_condition.second, &page_indexes);
-        const OrdinalPageIndex* column_ordinal_index = _segment->_column_readers[column_id]->get_ordinal_index();
-        _calculate_row_ranges(column_ordinal_index, page_indexes, &_row_ranges);
+        // get row ranges by zone map of this column
+        RowRanges column_zone_map_row_ranges;
+        _segment->_column_readers[column_id]->get_row_ranges_by_zone_map(column_condition.second, &column_zone_map_row_ranges);
+        // intersection different columns's row ranges to get final row ranges by zone map
+        RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
     }
-    DorisMetrics::segment_rows_read_by_zone_map.increment(_row_ranges.count());
-    return Status::OK();
-}
-
-Status SegmentIterator::_get_filtered_pages(FieldType type, const ColumnZoneMap* column_zone_map,
-        CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
-    DCHECK(page_indexes != nullptr);
-    std::vector<ZoneMap> zone_maps(std::move(column_zone_map->get_column_zone_map()));
-    int32_t page_size = column_zone_map->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
-    for (int32_t i = 0; i < page_size; ++i) {
-        min_value->deserialize(zone_maps[i].min_value());
-        max_value->deserialize(zone_maps[i].max_value());
-        if (cond_column->eval({min_value.get(), max_value.get()})) {
-            page_indexes->push_back(i);
-        }
-    }
-    return Status::OK();
-}
-
-Status SegmentIterator::_calculate_row_ranges(const OrdinalPageIndex* ordinal_index,
-        const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
-    for (auto i : page_indexes) {
-        rowid_t page_first_id = ordinal_index->get_first_row_id(i);
-        rowid_t page_last_id = ordinal_index->get_last_row_id(i, _segment->num_rows()) + 1;
-        RowRanges page_row_ranges(std::move(RowRanges::create_single(page_first_id, page_last_id)));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
-    }
+    *zone_map_row_ranges = std::move(origin_row_ranges);
+    DorisMetrics::segment_rows_read_by_zone_map.increment(zone_map_row_ranges->count());
     return Status::OK();
 }
 
 Status SegmentIterator::_init_column_iterators() {
-    _cur_rowid = _lower_rowid;
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -333,6 +307,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     RowRanges cover_row_ranges(std::move(RowRanges::create_single(_cur_rowid, _row_ranges.to())));
     RowRanges left_row_ranges;
     RowRanges::ranges_intersection(_row_ranges, cover_row_ranges, &left_row_ranges);
+    LOG(INFO) << "_row ranges:" << _row_ranges.to_string() << ", cover_row_ranges:" << cover_row_ranges.to_string() << ", left_row_ranges:" << left_row_ranges.to_string();
     size_t rows_to_read = std::min((size_t)block->capacity(), left_row_ranges.count());
     block->resize(rows_to_read);
     if (rows_to_read == 0) {
@@ -340,20 +315,21 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     }
     size_t rows_left = rows_to_read;
     while (rows_left > 0) {
-        if (_cur_rowid >= _row_ranges.current_range_to()) {
-            // step to next range
-            if (_row_ranges.has_next()) {
-                _row_ranges.next();
-                _cur_rowid = _row_ranges.current_range_from();
+        if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
+            // step to next row range
+            if (_cur_range_id < _row_ranges.range_size() - 1) {
+                ++_cur_range_id;
+                _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
                 for (auto cid : block->schema()->column_ids()) {
                     _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
                 }
             } else {
                 return Status::RuntimeError(Substitute("invalid row ranges, _cur_rowid:$0, range_to:$1, rows_left:$2",
-                        _cur_rowid, _row_ranges.current_range_to(), rows_left));
+                        _cur_rowid, _row_ranges.get_range_to(_cur_range_id), rows_left));
             }
         }
-        size_t to_read_in_range = std::min(rows_left, _row_ranges.current_range_to() - _cur_rowid);
+        size_t to_read_in_range = std::min(rows_left, size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
+        LOG(INFO) << "_cur_range_id:" << _cur_range_id << ", rows_left:" << rows_left << ", to_read_in_range:" << to_read_in_range;
         RETURN_IF_ERROR(_next_batch(block, &to_read_in_range));
         _cur_rowid += to_read_in_range;
         rows_left -= to_read_in_range;
