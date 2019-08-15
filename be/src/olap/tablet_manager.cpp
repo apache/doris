@@ -294,8 +294,27 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
+
+    TabletSharedPtr ref_tablet = nullptr;
+    bool is_schema_change_tablet = false;
+    // if the CreateTabletReq has base_tablet_id then it is a alter tablet request
+    if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
+        is_schema_change_tablet = true;
+        ref_tablet = _get_tablet_with_no_lock(request.base_tablet_id, request.base_schema_hash);
+        if (ref_tablet == nullptr) {
+            LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.tablet_id
+                         << ", new_schema_hash=" << request.tablet_schema.schema_hash
+                         << ", because could not find base tablet, base_tablet_id=" << request.base_tablet_id
+                         << ", base_schema_hash=" << request.base_schema_hash;
+            return OLAP_ERR_TABLE_CREATE_META_ERROR;
+        }
+        // schema change should use the same data dir
+        stores.clear();
+        stores.push_back(ref_tablet->data_dir());
+    }
     // set alter type to schema change. it is useless
-    TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, false, nullptr, stores);
+    TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, 
+        is_schema_change_tablet, ref_tablet, stores);
     if (tablet == nullptr) {
         res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
         LOG(WARNING) << "fail to create tablet. res=" << res;
