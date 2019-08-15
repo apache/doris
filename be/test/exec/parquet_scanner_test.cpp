@@ -438,6 +438,7 @@ TEST_F(ParquetSannerTest, normal) {
 
         std::vector<std::string> columns_from_path{"value"};
         range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(19);
 #if 1
         range.path = "./be/test/exec/test_data/parquet_scanner/localfile.parquet";
         range.file_type = TFileType::FILE_LOCAL;
