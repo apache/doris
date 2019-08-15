@@ -56,6 +56,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.apache.doris.analysis.CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS;
+
 /**
  * KafkaRoutineLoadJob is a kind of RoutineLoadJob which fetch data from kafka.
  * The progress which is super class property is seems like "{"partition1": offset1, "partition2": offset2}"
@@ -129,6 +131,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             } else {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
+        }
+        if (convertedCustomProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
+            kafkaDefaultOffSet = convertedCustomProperties.get(KAFKA_DEFAULT_OFFSETS);
         }
     }
 
@@ -371,12 +376,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
                 // if offset is not assigned, start from OFFSET_END
                 long beginOffSet = KafkaProgress.OFFSET_END_VAL;
-                if(!kafkaDefaultOffSet.isEmpty()) {
-                    if(kafkaDefaultOffSet.equals(KafkaProgress.OFFSET_BEGINNING)) {
+                if (!kafkaDefaultOffSet.isEmpty()) {
+                    if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
                         beginOffSet = KafkaProgress.OFFSET_BEGINNING_VAL;
-                    }else if(kafkaDefaultOffSet.equals(KafkaProgress.OFFSET_END)) {
+                    } else if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
                         beginOffSet = KafkaProgress.OFFSET_END_VAL;
-                    }else {
+                    } else {
                         beginOffSet = KafkaProgress.OFFSET_END_VAL;
                     }
                 }
@@ -401,9 +406,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (!stmt.getCustomKafkaProperties().isEmpty()) {
             setCustomKafkaProperties(stmt.getCustomKafkaProperties());
         }
-        if(!stmt.getKafkaDefaultOffset().isEmpty()) {
-            setKafkaDefaultOffSet(stmt.getKafkaDefaultOffset());
-        }
     }
 
     // this is a unprotected method which is called in the initialization function
@@ -416,9 +418,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
         this.customProperties = kafkaProperties;
-    }
-    private void setKafkaDefaultOffSet(String kafkaDefaultOffSet) throws LoadException {
-        this.kafkaDefaultOffSet = kafkaDefaultOffSet;
     }
     @Override
     protected String dataSourcePropertiesJsonToString() {
