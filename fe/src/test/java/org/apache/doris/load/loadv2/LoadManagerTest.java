@@ -116,7 +116,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
@@ -145,7 +145,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         //make job1 don't serialize
