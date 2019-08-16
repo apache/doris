@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -43,6 +44,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Joiner;
@@ -702,6 +704,12 @@ public class InsertStmt extends DdlStmt {
     public void finalize() throws UserException {
         if (targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).finalize();
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+            if (txnState == null) {
+                throw new DdlException("txn does not exist: " + transactionId);
+            }
+            txnState.addTableIndexes((OlapTable) targetTable);
         }
     }
 

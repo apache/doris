@@ -672,7 +672,7 @@ public class RollupHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            rollupJobV2 = getAlterJobV2(olapTable.getId());
+            rollupJobV2 = getUnfinishedAlterJobV2(olapTable.getId());
             if (rollupJobV2 == null) {
                 rollupJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(rollupJob, olapTable.getId());

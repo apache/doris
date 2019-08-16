@@ -1360,7 +1360,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            schemaChangeJobV2 = getAlterJobV2(olapTable.getId());
+            schemaChangeJobV2 = getUnfinishedAlterJobV2(olapTable.getId());
             if (schemaChangeJobV2 == null) {
                 schemaChangeJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());

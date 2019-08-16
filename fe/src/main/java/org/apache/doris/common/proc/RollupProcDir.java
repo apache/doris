@@ -72,18 +72,18 @@ public class RollupProcDir implements ProcDirInterface {
     @Override
     public ProcNodeInterface lookup(String jobIdStr) throws AnalysisException {
         if (Strings.isNullOrEmpty(jobIdStr)) {
-            throw new AnalysisException("Table id is null");
+            throw new AnalysisException("Job id is null");
         }
 
         long jobId = -1L;
         try {
             jobId = Long.valueOf(jobIdStr);
         } catch (Exception e) {
-            throw new AnalysisException("Table id is invalid");
+            throw new AnalysisException("Job id is invalid");
         }
 
         Preconditions.checkState(jobId != -1L);
-        AlterJobV2 job = rollupHandler.getAlterJobV2(jobId);
+        AlterJobV2 job = rollupHandler.getUnfinishedAlterJobV2(jobId);
         if (job == null) {
             return null;
         }

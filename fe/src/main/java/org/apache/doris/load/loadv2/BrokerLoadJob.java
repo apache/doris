@@ -360,12 +360,20 @@ public class BrokerLoadJob extends LoadJob {
                                                            strictMode, transactionId, this);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(tableId),
-                          attachment.getFileNumByTable(tableId));
-                // Add tasks into list and pool
+                task.init(loadId, attachment.getFileStatusByTable(tableId), attachment.getFileNumByTable(tableId));
                 idToTasks.put(task.getSignature(), task);
                 loadStatistic.numLoadedRowsMap.put(loadId, new AtomicLong(0));
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+
+                // save all related tables and rollups in transaction state
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + transactionId);
+                }
+                txnState.addTableIndexes(table);
+            }
+            // submit all tasks together
+            for (LoadTask loadTask : idToTasks.values()) {
+                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
             }
         } finally {
             db.readUnlock();

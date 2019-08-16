@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -141,6 +142,11 @@ public class TransactionState implements Writable {
     // optional
     private TxnCommitAttachment txnCommitAttachment;
     
+    // this map should be set when load execution begin, so that when the txn commit, it will know
+    // which tables and rollups it loaded.
+    // tbl id -> (index ids)
+    private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
+
     private String errorLogUrl = null;
 
     public TransactionState() {
@@ -408,6 +414,23 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    public void addTableIndexes(OlapTable table) {
+        Set<Long> indexIds = loadedTblIndexes.get(table.getId());
+        if (indexIds == null) {
+            indexIds = Sets.newHashSet();
+            loadedTblIndexes.put(table.getId(), indexIds);
+        }
+        // always rewrite the index ids
+        indexIds.clear();
+        for (Long indexId : table.getIndexIdToSchema().keySet()) {
+            indexIds.add(indexId);
+        }
+    }
+
+    public Map<Long, Set<Long>> getLoadedTblIndexes() {
+        return loadedTblIndexes;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("TransactionState. ");

@@ -328,7 +328,20 @@ public class GlobalTransactionMgr {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
                 }
-                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+
+                List<MaterializedIndex> allIndices = null;
+                if (transactionState.getLoadedTblIndexes().isEmpty()) {
+                    allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                } else {
+                    allIndices = Lists.newArrayList();
+                    for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
+                        MaterializedIndex index = partition.getIndex(indexId);
+                        if (index != null) {
+                            allIndices.add(index);
+                        }
+                    }
+                }
+
                 if (table.getState() == OlapTableState.ROLLUP || table.getState() == OlapTableState.SCHEMA_CHANGE) {
                     /*
                      * This is just a optimization that do our best to not let publish version tasks
@@ -640,8 +653,20 @@ public class GlobalTransactionMgr {
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
 
-                    List<MaterializedIndex> allInices = partition.getMaterializedIndices(IndexExtState.ALL);
-                    for (MaterializedIndex index : allInices) {
+                    List<MaterializedIndex> allIndices = null;
+                    if (transactionState.getLoadedTblIndexes().isEmpty()) {
+                        allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                    } else {
+                        allIndices = Lists.newArrayList();
+                        for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
+                            MaterializedIndex index = partition.getIndex(indexId);
+                            if (index != null) {
+                                allIndices.add(index);
+                            }
+                        }
+                    }
+
+                    for (MaterializedIndex index : allIndices) {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {

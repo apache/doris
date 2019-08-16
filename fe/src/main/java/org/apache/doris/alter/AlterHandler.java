@@ -90,9 +90,11 @@ public abstract class AlterHandler extends Daemon {
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
     }
 
-    public AlterJobV2 getAlterJobV2(long tblId) {
+    public AlterJobV2 getUnfinishedAlterJobV2(long tblId) {
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
-            if (alterJob.getTableId() == tblId && alterJob.getJobState() == AlterJobV2.JobState.RUNNING) {
+            if (alterJob.getTableId() == tblId
+                    && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
+                    && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
                 return alterJob;
             }
         }

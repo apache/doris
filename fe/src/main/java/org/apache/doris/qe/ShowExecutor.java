@@ -932,7 +932,7 @@ public class ShowExecutor {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
                                                 + " in db " + showRoutineLoadStmt.getDbFullName()
-                                                + " include history " + showRoutineLoadStmt.isIncludeHistory());
+                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }

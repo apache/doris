@@ -80,6 +80,10 @@ public class StreamLoadPlanner {
         descTable = analyzer.getDescTbl();
     }
 
+    public OlapTable getDestTable() {
+        return destTable;
+    }
+
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         // construct tuple descriptor, used for scanNode and dataSink
