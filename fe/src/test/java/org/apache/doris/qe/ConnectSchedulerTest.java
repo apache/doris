@@ -153,23 +153,4 @@ public class ConnectSchedulerTest {
         ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
         Assert.assertTrue(scheduler.submit(context));
     }
-
-    @Test
-    public void testNegotiateFail() throws InterruptedException, IOException {
-        ConnectScheduler scheduler = new ConnectScheduler(10);
-        PowerMock.mockStatic(MysqlProto.class);
-        EasyMock.expect(MysqlProto.negotiate(EasyMock.anyObject(ConnectContext.class))).andReturn(false).anyTimes();
-        PowerMock.replay(MysqlProto.class);
-        Assert.assertTrue(scheduler.submit(new ConnectContext(EasyMock.createMock(SocketChannel.class))));
-    }
-
-    @Test
-    public void testNegotiateIOException() throws InterruptedException, IOException {
-        ConnectScheduler scheduler = new ConnectScheduler(10);
-        PowerMock.mockStatic(MysqlProto.class);
-        EasyMock.expect(MysqlProto.negotiate(EasyMock.anyObject(ConnectContext.class)))
-                .andThrow(new IOException("failed")).anyTimes();
-        PowerMock.replay(MysqlProto.class);
-        Assert.assertTrue(scheduler.submit(new ConnectContext(EasyMock.createMock(SocketChannel.class))));
-    }
 }
