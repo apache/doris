@@ -87,7 +87,7 @@ public:
 private:
     const BlockCompressionCodec* _codec;
 
-    // If space saving is lower than _min_space_saving, compress will return orgin data
+    // If space saving is lower than _min_space_saving, compress will return origin data
     double _min_space_saving;
 
     // used to store compressed data

@@ -43,7 +43,8 @@ class ParsedPage;
 class ColumnIterator;
 
 struct ColumnReaderOptions {
-    bool verify_checksum = false;
+    // If verify checksum when read page
+    bool verify_checksum = true;
 };
 
 // Used to read one column's data. And user should pass ColumnData meta
@@ -70,7 +71,6 @@ public:
     Status read_page(const PagePointer& pp, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
-    bool has_checksum() const { return _meta.has_checksum(); }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
     const TypeInfo* type_info() const { return _type_info; }
 

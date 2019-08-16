@@ -37,7 +37,6 @@ namespace segment_v2 {
 struct ColumnWriterOptions {
     EncodingTypePB encoding_type = DEFAULT_ENCODING;
     CompressionTypePB compression_type = segment_v2::CompressionTypePB::LZ4F;
-    bool need_checksum = false;
     size_t data_page_size = 64 * 1024;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
@@ -128,7 +127,6 @@ private:
     Status _append_data(const uint8_t** ptr, size_t num_rows);
     Status _finish_current_page();
     Status _write_raw_data(const std::vector<Slice>& data, size_t* bytes_written);
-    uint32_t _compute_checksum(const std::vector<Slice>& data);
 
     Status _write_data_page(Page* page);
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);

@@ -31,6 +31,7 @@
 #include "util/faststring.h" // for fastring
 #include "util/rle_encoding.h" // for RleEncoder
 #include "util/block_compression.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -194,7 +195,6 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_encoding(_opts.encoding_type);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
-    meta->set_has_checksum(_opts.need_checksum);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
 }
 
@@ -224,6 +224,15 @@ Status ColumnWriter::_write_data_page(Page* page) {
     return Status::OK();
 }
 
+// compute checksum for page's content
+static uint32_t _compute_checksum(const std::vector<Slice>& slices) {
+    uint32_t checksum = 0;
+    for (auto& slice : slices) {
+        checksum = HashUtil::crc_hash(slice.data, slice.size, checksum);
+    }
+    return checksum;
+}
+
 // write a physical page in to files
 Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
@@ -237,13 +246,11 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
         output_data = &compressed_data;
     }
 
-    // checksum
+    // always compute checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    if (_opts.need_checksum) {
-        uint32_t checksum = _compute_checksum(*output_data);
-        encode_fixed32_le(checksum_buf, checksum);
-        output_data->emplace_back(checksum_buf, sizeof(uint32_t));
-    }
+    uint32_t checksum = _compute_checksum(*output_data);
+    encode_fixed32_le(checksum_buf, checksum);
+    output_data->emplace_back(checksum_buf, sizeof(uint32_t));
 
     // remember the offset
     pp->offset = _output_file->size();
@@ -253,11 +260,6 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
     pp->size = bytes_written;
 
     return Status::OK();
-}
-
-uint32_t ColumnWriter::_compute_checksum(const std::vector<Slice>& data) {
-    // TODO(zc): compute checksum
-    return 0;
 }
 
 // write raw data into file, this is the only place to write data

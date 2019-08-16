@@ -23,6 +23,7 @@
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/short_key_index.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -154,8 +155,8 @@ Status SegmentWriter::_write_footer() {
     std::string footer_info_buf;
     // put footer's size
     put_fixed32_le(&footer_info_buf, footer_buf.size());
-    // TODO(zc): compute checksum for footer
-    uint32_t checksum = 0;
+    // compute footer's checksum
+    uint32_t checksum = HashUtil::crc_hash(footer_buf.data(), footer_buf.size(), 0);
     put_fixed32_le(&footer_info_buf, checksum);
 
     // I think we don't need to put a tail magic.
