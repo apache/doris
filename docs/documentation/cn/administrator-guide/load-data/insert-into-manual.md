@@ -54,7 +54,28 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 
 Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令的返回行为。
 
-如果导入失败，则返回语句执行失败。如果导入成功，则返回语句执行成功，还会附加返回一个 Label 字段。
+如果导入失败，则返回语句执行失败。示例如下：
+
+```ERROR 1064 (HY000): all partitions have no load data. url: http://ip:port/api/_load_error_log?file=__shard_14/error_log_insert_stmt_f435264d82f342e4-a33764f5f0dfbf00_f435264d82f342e4_a33764f5f0dfbf00```
+
+其中 url 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
+
+如果导入成功，则返回语句执行成功。示例如下：
+
+```
+Query OK, 100 row affected, 0 warning (0.22 sec)
+```
+
+导入可能部分成功，则还会附加一个 Label 字段。示例如下：
+
+```
+Query OK, 100 row affected, 1 warning (0.23 sec)
+{'label':'7d66c457-658b-4a3e-bdcf-8beee872ef2c'}
+```
+
+其中 affected 表示导入的行数。warning 表示失败的行数。用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
+
+如果没有任何数据，也会返回成功，且 affected 和 warning 都是 0。
 
 Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。Insert Into 的 Label 则是由系统生成的，用户可以拿着这个 Label 通过查询导入命令异步获取导入状态。
     
@@ -74,7 +95,13 @@ Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一�
 
 + enable\_insert\_strict
 
-    Insert Into 导入本身不能控制导入可容忍的错误率。用户只能通过 `enable_insert_strict` 这个 Session 参数用来控制。当该参数设置为 false 时，表示至少有一条数据被正确导入，则返回成功。当该参数设置为 false 时，表示如果有一条数据错误，则导入失败。默认为 false。可通过 `SET enable_insert_strict = true;` 来设置。 
+    Insert Into 导入本身不能控制导入可容忍的错误率。用户只能通过 `enable_insert_strict` 这个 Session 参数用来控制。
+
+    当该参数设置为 false 时，表示至少有一条数据被正确导入，则返回成功。如果有失败数据，则还会返回一个 Label。
+
+    当该参数设置为 false 时，表示如果有一条数据错误，则导入失败。
+
+    默认为 false。可通过 `SET enable_insert_strict = true;` 来设置。 
         
 + query\_timeout
 
@@ -132,6 +159,14 @@ bj_store_sales schema:
 
 * 查看错误行
 
-    由于 Insert Into 无法控制错误率，只能通过 `enable_insert_strict` 设置为完全容忍错误数据或完全忽略错误数据。因此如果 `enable_insert_strict` 设为 true，则 Insert Into 可能会失败。而如果 `enable_insert_strict` 设为 false，则可能出现仅导入了部分合格数据的情况。但无论以上哪种情况，Doris 目前无法提供查看不合格数据行的功能。因此用户无法通过 Insert Into 语句来查看具体的导入错误。
+    由于 Insert Into 无法控制错误率，只能通过 `enable_insert_strict` 设置为完全容忍错误数据或完全忽略错误数据。因此如果 `enable_insert_strict` 设为 true，则 Insert Into 可能会失败。而如果 `enable_insert_strict` 设为 false，则可能出现仅导入了部分合格数据的情况。
 
-    错误的原因通常如：源数据列长度超过目的数据列长度、列类型不匹配、分区不匹配、列顺序不匹配等等。当依然无法检查出问题时。目前只能建议先运行 Insert Into 语句中的 SELECT 命令将数据导出到一个文件中，然后在通过 Stream load 的方式导入这个文件，来查看具体的错误。
+    当返回结果中提供了 url 字段时，可以通过以下命令查看错误行：
+
+    ```SHOW LOAD WARNINGS ON "url";```
+
+    示例：
+
+    ```SHOW LOAD WARNINGS ON "http://ip:port/api/_load_error_log?file=__shard_13/error_log_insert_stmt_d2cac0a0a16d482d-9041c949a4b71605_d2cac0a0a16d482d_9041c949a4b71605";```
+
+    错误的原因通常如：源数据列长度超过目的数据列长度、列类型不匹配、分区不匹配、列顺序不匹配等等。

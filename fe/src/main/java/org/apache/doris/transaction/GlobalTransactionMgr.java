@@ -251,7 +251,8 @@ public class GlobalTransactionMgr {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionCommitFailedException(transactionState.getReason());
+            throw new TransactionCommitFailedException(
+                    transactionState == null ? "transaction not found" : transactionState.getReason());
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
