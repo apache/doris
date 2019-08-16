@@ -1544,7 +1544,7 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
-    // timestamp should between 1900-01-01 00:00:00 ~ 9999-12-31 23:59:59
+    // timestamp should between 1970-01-01 00:00:00 ~ 9999-12-31 23:59:59
     if (timestamp < 0 || timestamp > 253402271999L) {
         return false;
     }
