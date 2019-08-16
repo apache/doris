@@ -99,9 +99,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         st = reader.init();
         ASSERT_TRUE(st.ok());
 
-        const OrdinalPageIndex* ordinal_index = reader.get_ordinal_index();
-        const ColumnZoneMap* column_zone_map = reader.get_zone_map();
-        ASSERT_EQ(ordinal_index->num_pages(), column_zone_map->get_column_zone_map().size());
+        ASSERT_EQ(reader._ordinal_index->num_pages(), reader._column_zone_map->get_column_zone_map().size());
 
         ColumnIterator* iter = nullptr;
         st = reader.new_iterator(&iter);
