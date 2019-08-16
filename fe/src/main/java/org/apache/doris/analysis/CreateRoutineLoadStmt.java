@@ -94,6 +94,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
+    public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -136,6 +137,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+
+
     //custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
@@ -211,6 +214,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
     }
+
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -401,7 +405,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-
         // check custom kafka property
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {
