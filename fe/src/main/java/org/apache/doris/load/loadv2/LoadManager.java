@@ -256,7 +256,7 @@ public class LoadManager implements Writable{
     }
 
     public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
@@ -267,7 +267,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob;
         switch (jobType) {
             case INSERT:
-                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg);
+                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
                 break;
             default:
                 return;
