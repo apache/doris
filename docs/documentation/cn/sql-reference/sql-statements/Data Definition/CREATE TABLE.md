@@ -27,7 +27,7 @@
                             BIGINT（8字节）
                                 范围：-2^63 + 1 ~ 2^63 - 1
                             LARGEINT（16字节）
-                                范围：0 ~ 2^127 - 1
+                                范围：-2^127 + 1 ~ 2^127 - 1
                             FLOAT（4字节）
                                 支持科学计数法
                             DOUBLE（12字节）
@@ -78,7 +78,7 @@
         2) 如果是 broker，表示表的访问需要通过指定的broker, 需要在 properties 提供以下信息：
             PROPERTIES (
             "broker_name" = "broker_name",
-            "paths" = "file_path1[,file_path2]",
+            "path" = "file_path1[,file_path2]",
             "column_separator" = "value_separator"
             "line_delimiter" = "value_delimiter"
             )
@@ -89,7 +89,7 @@
             )
             这个根据不同的Broker类型，需要传入的内容也不相同
         注意：
-            "paths" 中如果有多个文件，用逗号[,]分割。如果文件名中包含逗号，那么使用 %2c 来替代。如果文件名中包含 %，使用 %25 代替
+            "path" 中如果有多个文件，用逗号[,]分割。如果文件名中包含逗号，那么使用 %2c 来替代。如果文件名中包含 %，使用 %25 代替
             现在文件内容格式支持CSV，支持GZ，BZ2，LZ4，LZO(LZOP) 压缩格式。
     
     3. key_desc
