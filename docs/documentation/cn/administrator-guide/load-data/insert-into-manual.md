@@ -75,6 +75,8 @@ Query OK, 100 row affected, 1 warning (0.23 sec)
 
 其中 affected 表示导入的行数。warning 表示失败的行数。用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
 
+如果没有任何数据，也会返回成功，且 affected 和 warning 都是 0。
+
 Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。Insert Into 的 Label 则是由系统生成的，用户可以拿着这个 Label 通过查询导入命令异步获取导入状态。
     
 ## 相关系统配置

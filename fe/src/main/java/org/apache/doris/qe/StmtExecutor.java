@@ -644,6 +644,12 @@ public class StmtExecutor {
                 return;
             }
 
+            if (loadedRows == 0 && filteredRows == 0) {
+                // if no data, just return ok
+                context.getState().setOk();
+                return;
+            }
+
             Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
