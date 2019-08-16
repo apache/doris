@@ -291,6 +291,7 @@ public class DataDescription {
         }
         List<Expr> paramExprs = functionCallExpr.getParams().exprs();
         List<String> args = Lists.newArrayList();
+
         for (Expr paramExpr : paramExprs) {
             if (paramExpr instanceof SlotRef) {
                 SlotRef slot = (SlotRef) paramExpr;
@@ -301,10 +302,8 @@ public class DataDescription {
             } else if (paramExpr instanceof NullLiteral) {
                 args.add(null);
             } else {
-                if (isHadoopLoad) {
-                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
-                }
-                continue;
+                // hadoop function only support slot, string and null parameters
+                throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
             }
         }
 

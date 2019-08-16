@@ -29,6 +29,7 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -337,22 +338,57 @@ public class BrokerScanNode extends ScanNode {
                 SlotRef slotRef = new SlotRef(null, columnName);
                 // We will convert this to IF(`col` != child0, `col`, child1),
                 // because we need the if return type equal to `col`, we use NE
-                //
-                exprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
-                exprs.add(slotRef);
-                if (funcExpr.hasChild(1)) {
-                    exprs.add(funcExpr.getChild(1));
-                } else {
-                    if (column.getDefaultValue() != null) {
-                        exprs.add(new StringLiteral(column.getDefaultValue()));
+
+                /*
+                 * We will convert this based on different cases:
+                 * case 1: k1 = replace_value(null, anyval);
+                 *     to: k1 = if (k1 is not null, k1, anyval);
+                 * 
+                 * case 2: k1 = replace_value(anyval1, anyval2);
+                 *     to: k1 = if (k1 is not null, if(k1 != anyval1, k1, anyval2), null);
+                 */
+                if (funcExpr.getChild(0) instanceof NullLiteral) {
+                    // case 1
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    exprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        exprs.add(funcExpr.getChild(1));
                     } else {
-                        if (column.isAllowNull()) {
-                            exprs.add(NullLiteral.create(Type.VARCHAR));
+                        if (column.getDefaultValue() != null) {
+                            exprs.add(new StringLiteral(column.getDefaultValue()));
                         } else {
-                            throw new UserException("Column(" + columnName + ") has no default value.");
+                            if (column.isAllowNull()) {
+                                exprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
                         }
                     }
+                } else {
+                    // case 2
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    List<Expr> innerIfExprs = Lists.newArrayList();
+                    innerIfExprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
+                    innerIfExprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        innerIfExprs.add(funcExpr.getChild(1));
+                    } else {
+                        if (column.getDefaultValue() != null) {
+                            innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                        } else {
+                            if (column.isAllowNull()) {
+                                innerIfExprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
+                        }
+                    }
+                    FunctionCallExpr innerIfFn = new FunctionCallExpr("if", innerIfExprs);
+                    exprs.add(innerIfFn);
+                    exprs.add(NullLiteral.create(Type.VARCHAR));
                 }
+
+                LOG.debug("replace_value expr: {}", exprs);
                 FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
                 return newFn;
             } else if (funcName.equalsIgnoreCase("strftime")) {
