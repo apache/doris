@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -645,7 +646,9 @@ public class StmtExecutor {
             }
 
             if (loadedRows == 0 && filteredRows == 0) {
-                // if no data, just return ok
+                // if no data, just abort txn and return ok
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getTransactionId(),
+                        TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                 context.getState().setOk();
                 return;
             }
