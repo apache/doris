@@ -2,17 +2,17 @@
 
 ## Mentors (4)
 
-|id	|githubUsername	|public name	|
+|Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
 |wave	|dave2wave	|Dave Fisher	|
-|lukehan	|	|Luke Han	
+|lukehan	|lukehan|Luke Han	
 |shaofengshi	|shaofengshi|	Shao Feng Shi	|
 |ningjiang	|WillemJiang	|Willem Ning Jiang|
 
 ## PPMC (9)
 (the listing below excludes mentors)
 
-|id	|githubUsername	|public name	|
+|Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
 |lingbin|	lingbin	|Bin Ling	|
 |lichaoyong	|chaoyli	|Chaoyong Li	|
@@ -26,7 +26,7 @@
 
 ## Committers (10)
 
-|id	|githubUsername	|public name	|
+|Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
 |lingbin|	lingbin	|Bin Ling	|
 |lichaoyong	|chaoyli	|Chaoyong Li	|
