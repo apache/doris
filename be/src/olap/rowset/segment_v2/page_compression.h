@@ -30,37 +30,36 @@ class BlockCompressionCodec;
 
 namespace segment_v2 {
 
-// Helper to decompress a compressed page.
-// Compressed page is composed of
-// CompressedData | Footer
-// CompressedData: binary
-// Footer : uncompressed data length(fixed32)
-// Usage: 
-//      Slice compressed_data;
-//      PageDecompressor decompressor(compressed_data, codec);
-//      RETURN_IF_ERROR(decompressor.init());
-//      Slice uncompressed_slice;
-//      RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_slice));
-//      // usage 
-//      if (uncompressed_slice.data != compressed_slice.data) {
-//          delete[] uncompressed_slice.data;
-//      }
+// Utility class for parsing and decompressing compressed page.
+// Format of compressed page := Data, UncompressedSize(fixed32)
+// When sizeof(Data) == UncompressedSize, it means Data is stored in uncompressed
+// form, thus decompression is not needed.
+// Otherwise Data is in compressed form and should be decompressed.
+// The type of compression codec for Data is stored elsewhere and should
+// be passed into the constructor.
+// Usage example:
+//     // page_size refers to page read from storage
+//     PageDecompressor decompressor(page_slice, codec);
+//     // points to decompressed Data of the page (without footer)
+//     Slice uncompressed_slice;
+//     RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_slice));
+//     // use uncompressed_slice
+//     // we have a new buffer for decompressed page
+//     if (uncompressed_slice.data != page_slice.data) {
+//         delete[] uncompressed_bytes.data;
+//     }
 class PageDecompressor {
 public:
     PageDecompressor(const Slice& data, const BlockCompressionCodec* codec)
         : _data(data), _codec(codec) {
     }
-
-    // Parse and validate compressed page's footer.
-    // Only this funciton is executed successfully, uncompressed_bytes
-    // and decompress_to can be called.
-    // Return error if this page is corrupt.
-    Status init();
     
-    // This client will set uncompress content to input param. In normal case
-    // client should call delete[] content.data to free heap memory. However
+    // This client will set uncompress content to input param.
+    // In normal case(content.data != input_data.data) client should
+    // call delete[] content.data to free heap memory. However
     // when the data is not compressed, this function will return input data
-    // directly. In this case, client should not free content.
+    // directly. In this case content.data == input_data.data,
+    // client should not free content.
     Status decompress_to(Slice* content);
 private:
     Slice _data;

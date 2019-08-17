@@ -85,8 +85,6 @@ TEST_F(PageCompressionTest, normal) {
 
         // decompress
         PageDecompressor decompressor(compressed_data, codec);
-        st = decompressor.init();
-        ASSERT_TRUE(st.ok());
 
         {
             Slice check_slice;
@@ -126,8 +124,6 @@ TEST_F(PageCompressionTest, bad_case) {
         Slice bad_compressed_slice(compressed_data.data(), compressed_data.size() - 1);
         // decompress
         PageDecompressor decompressor(bad_compressed_slice, codec);
-        st = decompressor.init();
-        ASSERT_TRUE(st.ok());
 
         {
             Slice check_slice;

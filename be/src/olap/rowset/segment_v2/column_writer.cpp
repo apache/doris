@@ -224,15 +224,6 @@ Status ColumnWriter::_write_data_page(Page* page) {
     return Status::OK();
 }
 
-// compute checksum for page's content
-static uint32_t _compute_checksum(const std::vector<Slice>& slices) {
-    uint32_t checksum = 0;
-    for (auto& slice : slices) {
-        checksum = HashUtil::crc_hash(slice.data, slice.size, checksum);
-    }
-    return checksum;
-}
-
 // write a physical page in to files
 Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
@@ -248,7 +239,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
 
     // always compute checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = _compute_checksum(*output_data);
+    uint32_t checksum = HashUtil::crc_hash(*output_data, 0);
     encode_fixed32_le(checksum_buf, checksum);
     output_data->emplace_back(checksum_buf, sizeof(uint32_t));
 

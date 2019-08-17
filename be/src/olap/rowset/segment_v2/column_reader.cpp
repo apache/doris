@@ -137,7 +137,6 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
 
     if (_compress_codec != nullptr) {
         PageDecompressor decompressor(page_slice, _compress_codec);
-        RETURN_IF_ERROR(decompressor.init());
 
         Slice uncompressed_page;
         RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
