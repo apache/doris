@@ -459,6 +459,14 @@ public class RollupHandler extends AlterHandler {
 
         for (AlterJob alterJob : alterJobs.values()) {
             RollupJob rollupJob = (RollupJob) alterJob;
+            if (rollupJob.getState() != JobState.FINISHING 
+                    && rollupJob.getState() != JobState.FINISHED 
+                    && rollupJob.getState() != JobState.CANCELLED) {
+                // cancel the old alter table job
+                cancelledJobs.add(rollupJob);
+                continue;
+            }
+            
             if (rollupJob.getTransactionId() < 0) {
                 // it means this is an old type job and current version is real time load version
                 // then kill this job

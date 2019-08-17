@@ -30,6 +30,7 @@ import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -298,7 +299,7 @@ public class BackupHandler extends Daemon implements Writable {
                 }
 
                 // copy a table with selected partitions for calculating the signature
-                OlapTable copiedTbl = olapTbl.selectiveCopy(tblRef.getPartitions(), true);
+                OlapTable copiedTbl = olapTbl.selectiveCopy(tblRef.getPartitions(), true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Failed to copy table " + tblName + " with selected partitions");

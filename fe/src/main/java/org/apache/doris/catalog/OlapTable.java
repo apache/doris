@@ -958,7 +958,7 @@ public class OlapTable extends Table {
         return true;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied)) {
             LOG.warn("failed to copy olap table: " + getName());
@@ -970,7 +970,7 @@ public class OlapTable extends Table {
             for (Partition partition : copied.getPartitions()) {
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                     idx.setState(IndexState.NORMAL);
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {

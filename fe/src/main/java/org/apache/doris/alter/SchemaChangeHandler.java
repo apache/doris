@@ -1108,6 +1108,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (AlterJob alterJob : alterJobs.values()) {
             SchemaChangeJob schemaChangeJob = (SchemaChangeJob) alterJob;
+            if (schemaChangeJob.getState() != JobState.FINISHING 
+                    && schemaChangeJob.getState() != JobState.FINISHED 
+                    && schemaChangeJob.getState() != JobState.CANCELLED) {
+                // cancel the old alter table job
+                cancelledJobs.add(schemaChangeJob);
+                continue;
+            }
             // it means this is an old type job and current version is real time load version
             // then kill this job
             if (alterJob.getTransactionId() < 0) {

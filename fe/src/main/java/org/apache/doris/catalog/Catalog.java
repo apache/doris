@@ -5939,7 +5939,7 @@ public class Catalog {
                 }
             }
             
-            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true);
+            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
 
         } finally {
             db.readUnlock();

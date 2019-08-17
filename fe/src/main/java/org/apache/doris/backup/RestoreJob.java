@@ -875,7 +875,7 @@ public class RestoreJob extends AbstractJob {
             BackupPartitionInfo backupPartInfo, boolean overwrite) {
         for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
-                      localTbl.getIndexNameById(localIdx.getId()));
+                    localTbl.getIndexNameById(localIdx.getId()));
             BackupIndexInfo backupIdxInfo = backupPartInfo.getIdx(localTbl.getIndexNameById(localIdx.getId()));
             Preconditions.checkState(backupIdxInfo.tablets.size() == localIdx.getTablets().size());
             for (int i = 0; i < localIdx.getTablets().size(); i++) {
