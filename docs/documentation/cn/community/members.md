@@ -1,6 +1,6 @@
 # PMC Members & Committer
 
-## Mentors
+## Mentors (4)
 
 |id	|githubUsername	|public name	|
 |--------|-----------|----------|
@@ -10,7 +10,7 @@
 |ningjiang	|WillemJiang	|Willem Ning Jiang|
 
 
-## PPMC (13)
+## PPMC (9)
 (the listing below excludes mentors)
 
 参见下表：
@@ -27,5 +27,17 @@
 |sijie	|sijie	|Sijie Guo	|
 |zshao	|zshao	|Zheng Shao|
 
-## Committers (13)
-All committers are members of the PPMC
+## Committers (10)
+
+|id	|githubUsername	|public name	|
+|--------|-----------|----------|
+|lingbin|	lingbin	|Bin Ling	|
+|lichaoyong	|chaoyli	|Chaoyong Li	|
+|zhaoc	|imay	|Chun Zhao	|
+|lide	|lide-reed, doris-ci	|De Li	|
+|chenhao	|chenhao7253886	|Hao Chen	|
+|morningman	|morningman	|Mingyu Chen|
+|maruyue	||	Ruyue Ma	|
+|sijie	|sijie	|Sijie Guo	|
+|zshao	|zshao	|Zheng Shao|
+|kangkaisen|kangkaisen|Kaisen Kang|

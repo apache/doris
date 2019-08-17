@@ -28,6 +28,8 @@ Broker 在 Doris 系统架构中的位置如下：
 
 ## 支持的存储系统
 
+不同的 Broker 类型支持不同的存储系统。
+
 1. 社区版 HDFS
 
     * 支持通过 ugi 简单认证访问
@@ -46,7 +48,7 @@ Broker 在 Doris 系统架构中的位置如下：
 
 1. Broker Load
 
-    Broker Load 功能通过 Broker 进程读取远端存储上的文件数据并导入到 Palo 中。示例如下：
+    Broker Load 功能通过 Broker 进程读取远端存储上的文件数据并导入到 Doris 中。示例如下：
     
     ```
     LOAD LABEL example_db.label6
@@ -58,11 +60,11 @@ Broker 在 Doris 系统架构中的位置如下：
     (
         "bos_endpoint" = "http://bj.bcebos.com",
         "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "bos_secret_accesskey"="yyyyyyyyyyyyyyyyyyyy"
+        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyy"
     )
     ```
 
-    其中 `WITH BROKER` 以及之后的 properties map 用于提供 Broker 相关信息。
+    其中 `WITH BROKER` 以及之后的 Property Map 用于提供 Broker 相关信息。
     
 2. 数据导出（Export）
 
@@ -73,12 +75,12 @@ Broker 在 Doris 系统架构中的位置如下：
     TO "hdfs://hdfs_host:port/a/b/c" 
     WITH BROKER "broker_name" 
     (
-        "username"="xxx",
-        "password"="yyy"
+        "username" = "xxx",
+        "password" = "yyy"
     );
     ```
 
-    其中 `WITH BROKER` 以及之后的 properties map 用于提供 Broker 相关信息。
+    其中 `WITH BROKER` 以及之后的 Property Map 用于提供 Broker 相关信息。
 
 3. 创建用于备份恢复的仓库（Create Repository）
 
@@ -87,12 +89,12 @@ Broker 在 Doris 系统架构中的位置如下：
     ```
     CREATE REPOSITORY `bos_repo`
     WITH BROKER `broker_name`
-    ON LOCATION "bos://palo_backup"
+    ON LOCATION "bos://doris_backup"
     PROPERTIES
     (
         "bos_endpoint" = "http://gz.bcebos.com",
         "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
-        "bos_secret_accesskey"="70999999999999de274d59eaa980a"
+        "bos_secret_accesskey" = "70999999999999de274d59eaa980a"
     );
     ```
     
@@ -106,16 +108,18 @@ Broker 的信息包括 **名称（Broker name）** 和 **认证信息** 两部�
 ```
 WITH BROKER "broker_name" 
 (
-    "username"="xxx",
-    "password"="yyy"
+    "username" = "xxx",
+    "password" = "yyy",
+    "other_prop" = "prop_value",
+    ...
 );
 ```
 
 ### 名称
 
-通常用户需要通过操作命令中的 `WITH BROKER "broker_name"` 子句来指定一个已经存在的 Broker Name。Broker Name 是用户在添加 Broker 进程时指定的一个名称。一个名称通常对应一个或多个 Broker 进程。Doris 会根据名称选择可用的 Broker 进程。
+通常用户需要通过操作命令中的 `WITH BROKER "broker_name"` 子句来指定一个已经存在的 Broker Name。Broker Name 是用户在通过 `ALTER SYSTEM ADD BROKER` 命令添加 Broker 进程时指定的一个名称。一个名称通常对应一个或多个 Broker 进程。Doris 会根据名称选择可用的 Broker 进程。用户可以通过 `SHOW BROKER` 命令查看当前集群中已经存在的 Broker。
 
-**注：Broker Name 只是一个用户自定义名称，不代表 Broker 的类型**
+**注：Broker Name 只是一个用户自定义名称，不代表 Broker 的类型。**
 
 ### 认证信息
 
@@ -129,8 +133,8 @@ WITH BROKER "broker_name"
     
     ```
     (
-        "username"="user",
-        "password"="passwd"
+        "username" = "user",
+        "password" = "passwd"
     );
     ```
 
@@ -139,9 +143,9 @@ WITH BROKER "broker_name"
 
     该认证方式需提供以下信息：
     
-    * `hadoop.security.authentication`：指定认证方式为 kerberos
-    * `kerberos_principal`：指定 kerberos 的 principal
-    * `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。
+    * `hadoop.security.authentication`：指定认证方式为 kerberos。
+    * `kerberos_principal`：指定 kerberos 的 principal。
+    * `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
     * `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
     示例如下：
@@ -149,15 +153,15 @@ WITH BROKER "broker_name"
     ```
     (
         "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal"="doris@YOUR.COM",
-        "kerberos_keytab"="/home/palo/palo.keytab"
+        "kerberos_principal" = "doris@YOUR.COM",
+        "kerberos_keytab" = "/home/doris/my.keytab"
     )
     ```
     ```
     (
         "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal"="doris@YOUR.COM",
-        "kerberos_keytab_content"="ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
+        "kerberos_principal" = "doris@YOUR.COM",
+        "kerberos_keytab_content" = "ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
     )
     ```
     
@@ -165,10 +169,10 @@ WITH BROKER "broker_name"
 
     这个配置用于访问以 HA 模式部署的 HDFS 集群。
     
-    * `dfs.nameservices`：指定 hdfs 服务的名字，自定义，如："dfs.nameservices" = "my_ha"
-    * `dfs.ha.namenodes.xxx`：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 `dfs.nameservices` 中自定义的名字，如 "dfs.ha.namenodes.my_ha" = "my_nn"
+    * `dfs.nameservices`：指定 hdfs 服务的名字，自定义，如："dfs.nameservices" = "my_ha"。
+    * `dfs.ha.namenodes.xxx`：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 `dfs.nameservices` 中自定义的名字，如 "dfs.ha.namenodes.my_ha" = "my_nn"。
     * `dfs.namenode.rpc-address.xxx.nn`：指定 namenode 的rpc地址信息。其中 nn 表示 `dfs.ha.namenodes.xxx` 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"。
-    * `dfs.client.failover.proxy.provider`：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+    * `dfs.client.failover.proxy.provider`：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider。
 
     示例如下：
     
@@ -217,7 +221,7 @@ WITH BROKER "broker_name"
     (
         "bos_endpoint" = "http://bj.bcebos.com",
         "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "bos_secret_accesskey"="yyyyyyyyyyyyyyyyyyyyyyyyyy"
+        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
     )
     ```
 
