@@ -9,11 +9,8 @@
 |shaofengshi	|shaofengshi|	Shao Feng Shi	|
 |ningjiang	|WillemJiang	|Willem Ning Jiang|
 
-
 ## PPMC (9)
 (the listing below excludes mentors)
-
-参见下表：
 
 |id	|githubUsername	|public name	|
 |--------|-----------|----------|
@@ -23,7 +20,7 @@
 |lide	|lide-reed, doris-ci	|De Li	|
 |chenhao	|chenhao7253886	|Hao Chen	|
 |morningman	|morningman	|Mingyu Chen|
-|maruyue	||	Ruyue Ma	|
+|maruyue	|maruyue|	Ruyue Ma	|
 |sijie	|sijie	|Sijie Guo	|
 |zshao	|zshao	|Zheng Shao|
 
@@ -37,7 +34,7 @@
 |lide	|lide-reed, doris-ci	|De Li	|
 |chenhao	|chenhao7253886	|Hao Chen	|
 |morningman	|morningman	|Mingyu Chen|
-|maruyue	||	Ruyue Ma	|
+|maruyue	|maruyue|	Ruyue Ma	|
 |sijie	|sijie	|Sijie Guo	|
 |zshao	|zshao	|Zheng Shao|
 |kangkaisen|kangkaisen|Kaisen Kang|
