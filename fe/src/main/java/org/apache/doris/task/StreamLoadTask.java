@@ -172,7 +172,11 @@ public class StreamLoadTask {
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         // copy the columnExprDescs, cause it may be changed when planning.
         // so we keep the columnExprDescs in routine load job as origin.
-        columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        if (routineLoadJob.getColumnDescs() != null) {
+            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        } else {
+            columnExprDescs = null;
+        }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());

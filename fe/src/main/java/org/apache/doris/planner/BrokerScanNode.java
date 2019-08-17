@@ -411,6 +411,11 @@ public class BrokerScanNode extends ScanNode {
 
                 return dateFormatFunc;
             } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
+                /*
+                 * change to:
+                 * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(value), "%Y-01-01 00:00:00"))
+                 */
+                
                 FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
                 List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
                 FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
