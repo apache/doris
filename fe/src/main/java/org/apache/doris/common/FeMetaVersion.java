@@ -126,6 +126,4 @@ public final class FeMetaVersion {
     public static final int VERSION_57 = 57;
     // broker load support function, persist origin stmt in broker load
     public static final int VERSION_58 = 58;
-    // broker load support parsing columns from file path
-    public static final int VERSION_59 = 59;
 }
