@@ -226,7 +226,8 @@ public class Coordinator {
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
-        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+        // this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);
+        this.queryGlobals.setTime_zone("Africa/Abidjan");
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;
