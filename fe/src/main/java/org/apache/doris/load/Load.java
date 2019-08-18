@@ -655,9 +655,9 @@ public class Load {
             List<String> assignColumnNames = Lists.newArrayList();
             if (dataDescription.getColumnNames() != null) {
                 assignColumnNames.addAll(dataDescription.getColumnNames());
-            }
-            if (dataDescription.getColumnsFromPath() != null) {
-                assignColumnNames.addAll(dataDescription.getColumnsFromPath());
+                if (dataDescription.getColumnsFromPath() != null) {
+                    assignColumnNames.addAll(dataDescription.getColumnsFromPath());
+                }
             }
             if (assignColumnNames.isEmpty()) {
                 // use table columns

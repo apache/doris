@@ -103,5 +103,12 @@ public class BrokerUtilTest {
             fail();
         }
 
+        path = "/path/to/dir/k2==v2=//k1=v1/";
+        try {
+            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
+            fail();
+        } catch (UserException ignored) {
+        }
+
     }
 }

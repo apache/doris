@@ -215,12 +215,15 @@ public class DataDescription {
      * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
+        if (columns == null && columnsFromPath != null) {
+            throw new AnalysisException("Can not specify columns_from_path without column_list");
+        }
         List<String> columnList = Lists.newArrayList();
         if (columns != null) {
             columnList.addAll(columns);
-        }
-        if (columnsFromPath != null) {
-            columnList.addAll(columnsFromPath);
+            if (columnsFromPath != null) {
+                columnList.addAll(columnsFromPath);
+            }
         }
         if (columnList.isEmpty()) {
             return;
