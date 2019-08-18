@@ -81,12 +81,6 @@ private:
     void split_line(
         const Slice& line, std::vector<Slice>* values);
 
-    // Writes a slot in _tuple from an value containing text data.
-    bool write_slot(
-        const std::string& column_name, const TColumnType& column_type,
-        const Slice& value, const SlotDescriptor* slot,
-        Tuple* tuple, MemPool* tuple_pool, std::stringstream* error_msg);
-
     void fill_fix_length_string(
         const Slice& value, MemPool* pool,
         char** new_value_p, int new_value_length);
