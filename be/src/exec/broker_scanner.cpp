@@ -49,6 +49,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         // _splittable(params.splittable),
         _value_separator(static_cast<char>(params.column_separator)),
         _line_delimiter(static_cast<char>(params.line_delimiter)),
+        _fillnull(params.fillnull),
         _cur_file_reader(nullptr),
         _cur_line_reader(nullptr),
         _cur_decompressor(nullptr),
@@ -472,22 +473,25 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     // range of current file
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
-        std::stringstream error_msg;
-        error_msg << "actual column number is less than schema column number. "
-            << "actual number: " << values.size() << " sep: " << _value_separator << ", "
-            << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string(line.data, line.size),
-                                         error_msg.str());
-        _counter->num_rows_filtered++;
-        return false;
-    } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
+    if (_fillnull == "0") {
+        if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
+            std::stringstream error_msg;
+            error_msg << "actual column number is less than schema column number. "
+                << "actual number: " << values.size() << " sep: " << _value_separator << ", "
+                << "schema number: " << _src_slot_descs.size() << "; ";
+            _state->append_error_msg_to_file(std::string(line.data, line.size),
+                                             error_msg.str());
+            _counter->num_rows_filtered++;
+            return false;
+        }
+    }
+    if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
             << "schema number: " << _src_slot_descs.size() << "; ";
         _state->append_error_msg_to_file(std::string(line.data, line.size),
-                                         error_msg.str());
+                                     error_msg.str());
         _counter->num_rows_filtered++;
         return false;
     }
@@ -504,6 +508,17 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->ptr = value.data;
         str_slot->len = value.size;
+    }
+
+    if (_fillnull == "1") {
+        int fillnullSize = _src_slot_descs.size() - columns_from_path.size();
+        for (int i=values.size(); i < fillnullSize; ++i) {
+            auto slot_desc = _src_slot_descs[i];
+            if (slot_desc->is_nullable()) {
+                _src_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
+            }
+        }
     }
 
     fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);

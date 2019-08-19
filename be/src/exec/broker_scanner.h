@@ -113,6 +113,7 @@ private:;
 
     char _value_separator;
     char _line_delimiter;
+    std::string _fillnull;
 
     // Reader
     FileReader* _cur_file_reader;

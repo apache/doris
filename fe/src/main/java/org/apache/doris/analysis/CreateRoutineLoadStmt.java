@@ -87,6 +87,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_INTERVAL_SEC_PROPERTY = "max_batch_interval";
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
+    public static final String DEFAULT_FILLNULL = "fillnull";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -105,6 +106,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(DEFAULT_FILLNULL)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -131,6 +133,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private String fillnull = "0";
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -198,6 +201,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public long getMaxBatchSize() {
         return maxBatchSizeBytes;
     }
+
+    public String getFillnull() { return fillnull; }
 
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
@@ -308,6 +313,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        String tmpFillnull = jobProperties.get(DEFAULT_FILLNULL);
+        if (!Strings.isNullOrEmpty(tmpFillnull)) {
+            fillnull = tmpFillnull;
+        }
     }
 
     private void checkDataSourceProperties() throws AnalysisException {

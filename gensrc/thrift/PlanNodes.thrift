@@ -150,6 +150,7 @@ struct TBrokerScanRangeParams {
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
     10: optional bool strict_mode
+    11: optional string fillnull
 }
 
 // Broker scan range

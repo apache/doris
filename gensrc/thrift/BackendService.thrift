@@ -85,6 +85,7 @@ struct TRoutineLoadTask {
     11: optional i64 max_batch_size
     12: optional TKafkaLoadInfo kafka_load_info
     13: optional PaloInternalService.TExecPlanFragmentParams params
+    14: optional string fillnull
 }
 
 struct TKafkaMetaProxyRequest {
