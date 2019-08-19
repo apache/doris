@@ -179,4 +179,18 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
     }
     return true;
 }
+
+void BaseScanner::fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path) {
+    // values of columns from path can not be null
+    for (int i = 0; i < columns_from_path.size(); ++i) {
+        auto slot_desc = _src_slot_descs.at(i + start);
+        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string& column_from_path = columns_from_path[i];
+        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
+        str_slot->len = column_from_path.size();
+    }
+}
+
 }

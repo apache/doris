@@ -153,7 +153,33 @@ void BrokerScanNodeTest::init_desc_table() {
         slot_desc.nullIndicatorByte = 0;
         slot_desc.nullIndicatorBit = -1;
         slot_desc.colName = "k3";
-        slot_desc.slotIdx = 2;
+        slot_desc.slotIdx = 3;
+        slot_desc.isMaterialized = true;
+
+        t_desc_table.slotDescriptors.push_back(slot_desc);
+    }
+    // k4(partitioned column)
+    {
+        TSlotDescriptor slot_desc;
+
+        slot_desc.id = next_slot_id++;
+        slot_desc.parent = 0;
+        TTypeDesc type;
+        {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType scalar_type;
+            scalar_type.__set_type(TPrimitiveType::INT);
+            node.__set_scalar_type(scalar_type);
+            type.types.push_back(node);
+        }
+        slot_desc.slotType = type;
+        slot_desc.columnPos = 1;
+        slot_desc.byteOffset = 12;
+        slot_desc.nullIndicatorByte = 0;
+        slot_desc.nullIndicatorBit = -1;
+        slot_desc.colName = "k4";
+        slot_desc.slotIdx = 4;
         slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
@@ -164,7 +190,7 @@ void BrokerScanNodeTest::init_desc_table() {
         // TTupleDescriptor dest
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
-        t_tuple_desc.byteSize = 12;
+        t_tuple_desc.byteSize = 16;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -251,7 +277,34 @@ void BrokerScanNodeTest::init_desc_table() {
         slot_desc.nullIndicatorByte = 0;
         slot_desc.nullIndicatorBit = -1;
         slot_desc.colName = "k3";
-        slot_desc.slotIdx = 2;
+        slot_desc.slotIdx = 3;
+        slot_desc.isMaterialized = true;
+
+        t_desc_table.slotDescriptors.push_back(slot_desc);
+    }
+    // k4(partitioned column)
+    {
+        TSlotDescriptor slot_desc;
+
+        slot_desc.id = next_slot_id++;
+        slot_desc.parent = 1;
+        TTypeDesc type;
+        {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType scalar_type;
+            scalar_type.__set_type(TPrimitiveType::VARCHAR);
+            scalar_type.__set_len(65535);
+            node.__set_scalar_type(scalar_type);
+            type.types.push_back(node);
+        }
+        slot_desc.slotType = type;
+        slot_desc.columnPos = 1;
+        slot_desc.byteOffset = 48;
+        slot_desc.nullIndicatorByte = 0;
+        slot_desc.nullIndicatorBit = -1;
+        slot_desc.colName = "k4";
+        slot_desc.slotIdx = 4;
         slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
@@ -261,7 +314,7 @@ void BrokerScanNodeTest::init_desc_table() {
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 1;
-        t_tuple_desc.byteSize = 48;
+        t_tuple_desc.byteSize = 60;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -276,7 +329,7 @@ void BrokerScanNodeTest::init_desc_table() {
 void BrokerScanNodeTest::init() {
     _params.column_separator = ',';
     _params.line_delimiter = '\n';
-    
+
     TTypeDesc int_type;
     {
         TTypeNode node;
@@ -297,7 +350,7 @@ void BrokerScanNodeTest::init() {
         varchar_type.types.push_back(node);
     }
 
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         TExprNode cast_expr;
         cast_expr.node_type = TExprNodeType::CAST_EXPR;
         cast_expr.type = int_type;
@@ -319,7 +372,7 @@ void BrokerScanNodeTest::init() {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = 4 + i;
+        slot_ref.slot_ref.slot_id = 5 + i;
         slot_ref.slot_ref.tuple_id = 1;
 
         TExpr expr;
@@ -327,7 +380,7 @@ void BrokerScanNodeTest::init() {
         expr.nodes.push_back(slot_ref);
 
         _params.expr_of_dest_slot.emplace(i + 1, expr);
-        _params.src_slot_ids.push_back(4 + i);
+        _params.src_slot_ids.push_back(5 + i);
     }
     // _params.__isset.expr_of_dest_slot = true;
     _params.__set_dest_tuple_id(0);
@@ -367,6 +420,9 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
+        std::vector<std::string> columns_from_path{"1"};
+        range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
@@ -386,6 +442,9 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
+        std::vector<std::string> columns_from_path{"2"};
+        range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
 
         scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
@@ -394,7 +453,7 @@ TEST_F(BrokerScanNodeTest, normal) {
     }
 
     scan_node.set_scan_ranges(scan_ranges);
-    
+
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
