@@ -186,6 +186,14 @@ public:
         return total_size;
     }
 
+    static std::string to_string(const std::vector<Slice>& slices) {
+        std::string buf;
+        for (auto& slice : slices) {
+            buf.append(slice.data, slice.size);
+        }
+        return buf;
+    }
+
 };
 
 /// Check whether two slices are identical.

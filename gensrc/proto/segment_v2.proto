@@ -84,10 +84,8 @@ message ColumnMetaPB {
     optional CompressionTypePB compression = 5;
     // if this column can be nullable
     optional bool is_nullable = 6;
-    // if this column has checksum for each page
-    optional bool has_checksum = 7;
     // ordinal index page
-    optional PagePointerPB ordinal_index_page = 8;
+    optional PagePointerPB ordinal_index_page = 7;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;

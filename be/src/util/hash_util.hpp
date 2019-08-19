@@ -20,6 +20,7 @@
 
 #include "common/logging.h"
 #include "common/compiler_util.h"
+#include "util/slice.h"
 
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains
@@ -271,6 +272,13 @@ public:
 
     }
 
+    // Compute crc32 for vector of Slice
+    static uint32_t crc_hash(const std::vector<Slice>& slices, uint32_t checksum) {
+        for (auto& slice : slices) {
+            checksum = HashUtil::crc_hash(slice.data, slice.size, checksum);
+        }
+        return checksum;
+    }
 };
 
 }
