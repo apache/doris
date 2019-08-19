@@ -392,6 +392,7 @@ public class BrokerScanNode extends ScanNode {
                 FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
                 return newFn;
             } else if (funcName.equalsIgnoreCase("strftime")) {
+                // FROM_UNIXTIME(val)
                 FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
                 List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
                 FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
@@ -399,6 +400,7 @@ public class BrokerScanNode extends ScanNode {
 
                 return fromUnixFunc;
             } else if (funcName.equalsIgnoreCase("time_format")) {
+                // DATE_FORMAT(STR_TO_DATE(dt_str, dt_fmt))
                 FunctionName strToDateName = new FunctionName("STR_TO_DATE");
                 List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
                 FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
