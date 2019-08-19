@@ -47,7 +47,7 @@ import java.util.regex.Pattern;
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
-    private static final Pattern hasTimePart = Pattern.compile("^.*[HhIiklrSsT]+.*$");
+    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsT]+.*$");
 
     private DateLiteral() {
         super();
@@ -117,7 +117,7 @@ public class DateLiteral extends LiteralExpr {
             second = dateTime.getSecondOfMinute();
             this.type = type;
         } catch (Exception ex) {
-            throw new AnalysisException(ex.getMessage());
+            throw new AnalysisException("date literal [" + s + "] is valid");
         }
     }
 
@@ -148,7 +148,6 @@ public class DateLiteral extends LiteralExpr {
     // Date column and Datetime column's hash value is not same.
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        //String value = TimeUtils.format(date, type);
         String value = getStringValue();
         ByteBuffer buffer;
         try {
@@ -179,7 +178,6 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        //return TimeUtils.format(date, type);
         if (type == Type.DATE) {
             return String.format("%04d", year) + "-" +
                     String.format("%02d", month) + "-" +
@@ -226,8 +224,7 @@ public class DateLiteral extends LiteralExpr {
         super.write(out);
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;
-        long tmp = ((ymd << 17) | hms) << 24 + microsecond;
-        long packed_datetime =  tmp;
+        long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
         out.writeLong(packed_datetime);
     }
 
@@ -270,14 +267,12 @@ public class DateLiteral extends LiteralExpr {
     public long unixTime(TimeZone timeZone) throws ParseException {
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         dateFormat.setTimeZone(timeZone);
-        long timestamp = dateFormat.parse(getStringValue()).getTime();
-        return timestamp;
+        return dateFormat.parse(getStringValue()).getTime();
     }
 
     public static DateLiteral dateParser(String date, String pattern) throws AnalysisException{
         DateLiteral dateLiteral = new DateLiteral();
-
-        if(hasTimePart.matcher(pattern).matches()) {
+        if(HAS_TIME_PART.matcher(pattern).matches()) {
             dateLiteral.setType(Type.DATETIME);
         } else {
             dateLiteral.setType(Type.DATE);
@@ -311,10 +306,8 @@ public class DateLiteral extends LiteralExpr {
                 .toString(FormatBuilder(pattern).toFormatter());
     }
 
-
     private static DateTimeFormatterBuilder FormatBuilder(String pattern) throws AnalysisException{
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        //String formatString = fmtLiteral.getStringValue();
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -478,7 +471,6 @@ public class DateLiteral extends LiteralExpr {
     public void setMicrosecond(long microsecond) {
         this.microsecond = microsecond;
     }
-
 
     private long year;
     private long month;
