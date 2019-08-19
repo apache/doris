@@ -1800,7 +1800,7 @@ public class SingleNodePlanner {
         return false;
     }
 
-    private boolean putPredicatesOnFrom(SelectStmt stmt, Analyzer analyzer, List<Expr> predicates) throws AnalysisException {
+    private void putPredicatesOnFrom(SelectStmt stmt, Analyzer analyzer, List<Expr> predicates) throws AnalysisException {
         final List<TupleId> tableTupleIds = Lists.newArrayList();
         for (TableRef tableRef : stmt.getTableRefs()) {
             tableTupleIds.add(tableRef.getId());
@@ -1813,7 +1813,6 @@ public class SingleNodePlanner {
             predicate.getIds(predicateTupleIds, null);
             analyzer.registerConjunct(predicate, predicateTupleIds);
         }
-        return true;
     }
 
     /**
