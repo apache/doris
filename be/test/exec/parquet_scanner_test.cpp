@@ -68,14 +68,14 @@ private:
 
 #define TUPLE_ID_DST 0
 #define TUPLE_ID_SRC 1
-#define CLOMN_NUMBERS 19
+#define CLOMN_NUMBERS 20
 #define DST_TUPLE_SLOT_ID_START 1
-#define SRC_TUPLE_SLOT_ID_START 20
+#define SRC_TUPLE_SLOT_ID_START 21
 int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     const char *clomnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
                                 "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
                                 "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt"};
+                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
     for (int i = 0; i < CLOMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
@@ -201,7 +201,7 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
     const char *clomnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
                                 "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
                                 "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt"};
+                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
     for (int i = 3; i < CLOMN_NUMBERS; i++, byteOffset+=16)
     {
         TSlotDescriptor slot_desc;
@@ -435,6 +435,10 @@ TEST_F(ParquetSannerTest, normal) {
         range.size = -1;
         range.format_type = TFileFormatType::FORMAT_PARQUET;
         range.splittable = true;
+
+        std::vector<std::string> columns_from_path{"value"};
+        range.__set_columns_from_path(columns_from_path);
+        range.__set_num_of_columns_from_file(19);
 #if 1
         range.path = "./be/test/exec/test_data/parquet_scanner/localfile.parquet";
         range.file_type = TFileType::FILE_LOCAL;
