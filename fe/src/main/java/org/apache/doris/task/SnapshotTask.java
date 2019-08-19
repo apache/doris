@@ -29,13 +29,13 @@ public class SnapshotTask extends AgentTask {
 
     private int schemaHash;
 
-    private long timeout;
+    private long timeoutMs;
 
     private boolean isRestoreTask;
 
     public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId,
             long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version, long versionHash, int schemaHash, long timeout, boolean isRestoreTask) {
+            long version, long versionHash, int schemaHash, long timeoutMs, boolean isRestoreTask) {
         super(resourceInfo, backendId, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId, tabletId,
                 signature);
 
@@ -45,7 +45,7 @@ public class SnapshotTask extends AgentTask {
         this.versionHash = versionHash;
         this.schemaHash = schemaHash;
 
-        this.timeout = timeout;
+        this.timeoutMs = timeoutMs;
 
         this.isRestoreTask = isRestoreTask;
     }
@@ -66,8 +66,8 @@ public class SnapshotTask extends AgentTask {
         return schemaHash;
     }
 
-    public long getTimeout() {
-        return timeout;
+    public long getTimeoutMs() {
+        return timeoutMs;
     }
 
     public boolean isRestoreTask() {
@@ -80,6 +80,7 @@ public class SnapshotTask extends AgentTask {
         request.setVersion_hash(versionHash);
         request.setList_files(true);
         request.setPreferred_snapshot_version(2);
+        request.setTimeout(timeoutMs / 1000);
         return request;
     }
 }

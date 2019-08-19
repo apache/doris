@@ -606,8 +606,8 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "start trash and snapshot sweep.";
 
-    const uint32_t snapshot_expire = config::snapshot_expire_time_sec;
-    const uint32_t trash_expire = config::trash_file_expire_time_sec;
+    const int32_t snapshot_expire = config::snapshot_expire_time_sec;
+    const int32_t trash_expire = config::trash_file_expire_time_sec;
     const double guard_space = config::disk_capacity_insufficient_percentage / 100.0;
     std::vector<DataDirInfo> data_dir_infos;
     res = get_all_data_dir_info(&data_dir_infos);
@@ -679,7 +679,7 @@ void StorageEngine::_clean_unused_txns() {
 }
 
 OLAPStatus StorageEngine::_do_sweep(
-        const string& scan_root, const time_t& local_now, const uint32_t expire) {
+        const string& scan_root, const time_t& local_now, const int32_t expire) {
     OLAPStatus res = OLAP_SUCCESS;
     if (!check_dir_existed(scan_root)) {
         // dir not existed. no need to sweep trash.
@@ -700,7 +700,17 @@ OLAPStatus StorageEngine::_do_sweep(
                 res = OLAP_ERR_OS_ERROR;
                 continue;
             }
-            if (difftime(local_now, mktime(&local_tm_create)) >= expire) {
+
+            int32_t actual_expire = expire;
+            // try get timeout in dir name, the old snapshot dir does not contain timeout
+            // eg: 20190818221123.3.86400, the 86400 is timeout, in second
+            size_t pos = dir_name.find('.', str_time.size() + 1);
+            if (pos != string::npos) {
+                actual_expire = std::stoi(dir_name.substr(pos + 1));
+            }
+            VLOG(10) << "get actual expire time " << actual_expire << " of dir: " << dir_name;
+
+            if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 if (remove_all_dir(path_name) != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to remove file or directory. path=" << path_name;
                     res = OLAP_ERR_OS_ERROR;
