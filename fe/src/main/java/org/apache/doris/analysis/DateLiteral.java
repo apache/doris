@@ -488,13 +488,13 @@ public class DateLiteral extends LiteralExpr {
         //date = new Date(in.readLong());
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             long packed_time = in.readLong();
-            microsecond = (int) (packed_time % (1L << 24));
-            int ymdhms = (int) (packed_time >> 24);
-            int ymd = ymdhms >> 17;
-            int hms = ymdhms % (1 << 17);
+            microsecond = (packed_time % (1L << 24));
+            long ymdhms = (packed_time >> 24);
+            long ymd = ymdhms >> 17;
+            long hms = ymdhms % (1 << 17);
 
             day = ymd % (1 << 5);
-            int ym = ymd >> 5;
+            long ym = ymd >> 5;
             month = ym % 13;
             year = ym / 13;
             year %= 10000;
