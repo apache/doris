@@ -217,19 +217,28 @@ public class DataDescription {
     }
 
     /**
-     * Analyze parsedExprMap and columnToHadoopFunction from columns and columnMappingList
-     * Example: columns (col1, tmp_col2, tmp_col3) set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
-     * Result: parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null,
-     * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
+     * Analyze parsedExprMap and columnToHadoopFunction from columns, columns from path and columnMappingList
+     * Example: 
+     *      columns (col1, tmp_col2, tmp_col3) 
+     *      columns from path as (col4, col5)
+     *      set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
+     * Result: 
+     * 
+     *      parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null, "col4": null, "col5": null,
+     *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
+     *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}                 
      */
     private void analyzeColumns() throws AnalysisException {
-        // used to check duplicated column name in COLUMNS
+        if ((columns == null || columns.isEmpty()) && (columnMappingList != null && !columnMappingList.isEmpty())) {
+            throw new AnalysisException("Can not specify columns_from_path without column_list");
+        }
+
+        // used to check duplicated column name in COLUMNS and COLUMNS FROM PATH
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
-        // merge columns exprs from columns and columnMappingList
-        // Step1: analyze columns
+        // merge columns exprs from columns, columns from path and columnMappingList
+        // 1. analyze columns
         if (columns != null && !columns.isEmpty()) {
-            // Step1: analyze columns
             for (String columnName : columns) {
                 if (!columnNames.add(columnName)) {
                     throw new AnalysisException("Duplicate column: " + columnName);
@@ -239,7 +248,21 @@ public class DataDescription {
             }
         }
 
-        // Step2: analyze column mapping
+        // 2. analyze columns from path
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            if (isHadoopLoad) {
+                throw new AnalysisException("Hadoop load does not support specifying columns from path");
+            }
+            for (String columnName : columnsFromPath) {
+                if (!columnNames.add(columnName)) {
+                    throw new AnalysisException("Duplicate column: " + columnName);
+                }
+                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
+                parsedColumnExprList.add(importColumnDesc);
+            }
+        }
+
+        // 3: analyze column mapping
         if (columnMappingList == null || columnMappingList.isEmpty()) {
             return;
         }

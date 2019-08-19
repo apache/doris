@@ -230,14 +230,19 @@ public class BrokerScanNode extends ScanNode {
      */
     private void initColumns(ParamCreateContext context) throws UserException {
         List<String> sourceFileColumns = context.fileGroup.getFileFieldNames();
+        List<String> pathColumns = context.fileGroup.getColumnsFromPath();
         List<ImportColumnDesc> originColumnNameToExprList = context.fileGroup.getColumnExprList();
-        // originColumnNameToExprList must has emlements. because it is always filled by user or by system 
+        // originColumnNameToExprList must has elements. because it is always filled by user or by system
         Preconditions.checkState(originColumnNameToExprList != null && !originColumnNameToExprList.isEmpty());
 
-        // 1. create source slots
+        // 1. create source slots, from sourceFileColumns and pathColumns
         context.tupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.slotDescByName = Maps.newHashMap();
-        for (String sourceColName : sourceFileColumns) {
+        List<String> allColumns = Lists.newArrayList(sourceFileColumns);
+        if (pathColumns != null) {
+            allColumns.addAll(pathColumns);
+        }
+        for (String sourceColName : allColumns) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.tupleDescriptor);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
