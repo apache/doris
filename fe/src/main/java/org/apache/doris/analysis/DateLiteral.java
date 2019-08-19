@@ -19,11 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -57,7 +55,7 @@ public class DateLiteral extends LiteralExpr {
         super();
     }
 
-    public DateLiteral(Type type, boolean isMax) {
+    public DateLiteral(Type type, boolean isMax) throws AnalysisException{
         super();
         this.type = type;
         if (type == Type.DATE) {
@@ -76,7 +74,7 @@ public class DateLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    public DateLiteral(String s, Type type) {
+    public DateLiteral(String s, Type type) throws AnalysisException{
         super();
         init(s, type);
         analysisDone();
@@ -99,25 +97,29 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(this);
     }
 
-    public static DateLiteral createMinValue(Type type) {
+    public static DateLiteral createMinValue(Type type) throws AnalysisException{
         DateLiteral dateLiteral = new DateLiteral(type, false);
         return dateLiteral;
     }
 
     //private void init(String s, Type type) throws AnalysisException {
-    private void init(String s, Type type) {
-        Preconditions.checkArgument(type.isDateType());
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        LocalDateTime datetime = builder.toFormatter().parseLocalDateTime(s);
+    private void init(String s, Type type) throws AnalysisException {
+        try {
+            Preconditions.checkArgument(type.isDateType());
+            DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+            LocalDateTime datetime = builder.toFormatter().parseLocalDateTime(s);
 
-        year = datetime.getYear();
-        month = datetime.getMonthOfYear();
-        day = datetime.getDayOfMonth();
+            year = datetime.getYear();
+            month = datetime.getMonthOfYear();
+            day = datetime.getDayOfMonth();
 
-        hour = datetime.getHourOfDay();
-        minute = datetime.getMinuteOfHour();
-        second = datetime.getSecondOfMinute();
-        this.type = type;
+            hour = datetime.getHourOfDay();
+            minute = datetime.getMinuteOfHour();
+            second = datetime.getSecondOfMinute();
+            this.type = type;
+        } catch (Exception ex) {
+            throw new AnalysisException(ex.getMessage());
+        }
 
         /*
         date = TimeUtils.parseDate(s, type);
@@ -262,7 +264,11 @@ public class DateLiteral extends LiteralExpr {
         } else {
             Date date = new Date(in.readLong());
             String date_str = TimeUtils.format(date, Type.DATETIME);
-            init(date_str, Type.DATETIME);
+            try {
+                init(date_str, Type.DATETIME);
+            } catch (AnalysisException ex) {
+                throw new IOException(ex.getMessage());
+            }
         }
     }
 
