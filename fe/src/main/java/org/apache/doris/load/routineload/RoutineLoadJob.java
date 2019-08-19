@@ -33,6 +33,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -92,6 +93,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final boolean DEFAULT_STRICT_MODE = true;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -141,6 +143,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
+    protected boolean strictMode = DEFAULT_STRICT_MODE; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     protected LoadDataSourceType dataSourceType;
     // max number of error data in max batch rows * 10
@@ -241,6 +244,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
+        this.strictMode = stmt.isStrictMode();
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -364,6 +368,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public ColumnSeparator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
     }
 
     public RoutineLoadProgress getProgress() {
@@ -1113,6 +1121,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(abortedTaskNum);
 
         Text.writeString(out, origStmt);
+        out.writeBoolean(strictMode);
     }
 
     @Override
@@ -1159,6 +1168,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         abortedTaskNum = in.readLong();
 
         origStmt = Text.readString(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+            strictMode = in.readBoolean();
+        }
 
         // parse the origin stmt to get routine load desc
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt)));

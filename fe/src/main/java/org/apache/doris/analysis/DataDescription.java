@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -278,12 +279,14 @@ public class DataDescription {
             }
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
-            analyzeColumnToHadoopFunction(column, child1);
-
+            if (child1 instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, child1);
+            }
         }
     }
 
     private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
+        Preconditions.checkState(child1 instanceof FunctionCallExpr); 
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
         String functionName = functionCallExpr.getFnName().getFunction();
         if (!hadoopSupportFunctionName.contains(functionName.toLowerCase())) {
