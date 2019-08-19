@@ -43,7 +43,7 @@ Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, Slice* 
 
 class Lz4BlockCompression : public BlockCompressionCodec {
 public:
-    static Lz4BlockCompression* instance() {
+    static const Lz4BlockCompression* instance() {
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
@@ -79,7 +79,7 @@ public:
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 public:
-    static Lz4fBlockCompression* instance() {
+    static const Lz4fBlockCompression* instance() {
         static Lz4fBlockCompression s_instance;
         return &s_instance;
     }
@@ -154,7 +154,7 @@ private:
                 Substitute("Fail to do LZ4F compress end, res=$0", LZ4F_getErrorName(wbytes)));
         }
         offset += wbytes;
-        output->size = wbytes;
+        output->size = offset;
         return Status::OK();
     }
 
@@ -262,7 +262,7 @@ private:
 
 class SnappyBlockCompression : public BlockCompressionCodec {
 public:
-    static SnappyBlockCompression* instance() {
+    static const SnappyBlockCompression* instance() {
         static SnappyBlockCompression s_instance;
         return &s_instance;
     }
@@ -296,7 +296,7 @@ public:
 
 class ZlibBlockCompression : public BlockCompressionCodec {
 public:
-    static ZlibBlockCompression* instance() {
+    static const ZlibBlockCompression* instance() {
         static ZlibBlockCompression s_instance;
         return &s_instance;
     }
@@ -319,7 +319,8 @@ public:
         auto zres = deflateInit(&zstrm, Z_DEFAULT_COMPRESSION);
         if (zres != Z_OK) {
             return Status::InvalidArgument(
-                Substitute("Fail to do ZLib stream compress, error=$0", zError(zres)));
+                Substitute("Fail to do ZLib stream compress, error=$0, res=$1",
+                           zError(zres), zres));
         }
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data;
@@ -333,9 +334,10 @@ public:
             int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
 
             zres = deflate(&zstrm, flush);
-            if (zres != Z_OK || zres != Z_STREAM_END) {
+            if (zres != Z_OK && zres != Z_STREAM_END) {
                 return Status::InvalidArgument(
-                    Substitute("Fail to do ZLib stream compress, error=$0", zError(zres)));
+                    Substitute("Fail to do ZLib stream compress, error=$0, res=$1",
+                               zError(zres), zres));
             }
         }
 
@@ -361,7 +363,7 @@ public:
 };
 
 Status get_block_compression_codec(
-        segment_v2::CompressionTypePB type, BlockCompressionCodec** codec) {
+        segment_v2::CompressionTypePB type, const BlockCompressionCodec** codec) {
     switch (type) {
     case segment_v2::CompressionTypePB::NO_COMPRESSION:
         *codec = nullptr;
