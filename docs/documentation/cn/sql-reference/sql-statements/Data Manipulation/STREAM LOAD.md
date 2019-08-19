@@ -40,6 +40,8 @@
         partitions: 用于指定这次导入所设计的partition。如果用户能够确定数据对应的partition，推荐指定该项。不满足这些分区的数据将被过滤掉。
         比如指定导入到p1, p2分区，-H "partitions: p1, p2"
 
+        timeout: 指定导入的超时时间。单位秒。默认是 600 秒。可设置范围为 1 秒 ~ 259200 秒。
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
         Status: 导入最后的状态。
@@ -66,8 +68,8 @@
     
 ## example
 
-    1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重
-        curl --location-trusted -u root -H "label:123" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒
+        curl --location-trusted -u root -H "label:123" -H "timeout:100" -T testData http://host:port/api/testDb/testTbl/_stream_load
         
     2. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重, 并且只导入k1等于20180601的数据
         curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load

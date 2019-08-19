@@ -238,6 +238,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 
+    if (!http_req->header(HTTP_TIMEOUT).empty()) {
+        ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+    }
+
     // begin transaction
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
 
