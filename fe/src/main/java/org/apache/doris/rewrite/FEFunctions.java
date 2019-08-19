@@ -28,8 +28,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
@@ -79,7 +79,7 @@ public class FEFunctions {
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         Date d = new Date(getTime(date));
         d = DateUtils.addDays(d, (int) day.getLongValue());
-        return new DateLiteral(DateFormatUtils.format(d, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
+        return new DateLiteral(dateFormat(d, "%Y-%m-%d %H:%i:%s", true), Type.DATETIME);
     }
 
     @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -94,7 +94,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue());
+        String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue(), true);
         return new StringLiteral(result);
     }
 
@@ -219,26 +219,27 @@ public class FEFunctions {
             }
         }
 
-        Date retDate = new Date(builder.toFormatter().withLocale(Locale.ENGLISH).parseMillis(date.getStringValue()));
+        Date retDate = new Date(builder.toFormatter().withZone(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())).withLocale(Locale.ENGLISH).parseMillis(date.getStringValue()));
+        //Date retDate = new Date(date2.getTime() +
+        //        DateTimeZone.forID("Asia/Shanghai").getOffset(0) - TimeUtils.getTimeZone().getOffset(0));
+
         if (hasTimePart) {
-            return new DateLiteral(DateFormatUtils.format(retDate, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
+            return new DateLiteral(dateFormat(retDate, "%Y-%m-%d %H:%i:%s", false), Type.DATETIME);
         } else {
-            return new DateLiteral(DateFormatUtils.format(retDate, "yyyy-MM-dd"), Type.DATE);
+            return new DateLiteral(dateFormat(retDate, "%Y-%m-%d", false), Type.DATE);
         }
     }
 
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        Date d = new Date(getTime(date));
-        d = DateUtils.addDays(d, -(int) day.getLongValue());
-        return new DateLiteral(DateFormatUtils.format(d, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
+        return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
     @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
-        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
+        instance.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.YEAR), Type.INT);
     }
@@ -247,7 +248,7 @@ public class FEFunctions {
     public static IntLiteral month(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
-        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
+        instance.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.MONTH) + 1, Type.INT);
     }
@@ -256,14 +257,15 @@ public class FEFunctions {
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         Calendar instance = Calendar.getInstance();
-        instance.setTimeZone(TimeZone.getTimeZone("+08:00"));
         instance.setTimeInMillis(timestamp);
+        instance.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
         return new IntLiteral(instance.get(Calendar.DAY_OF_MONTH), Type.INT);
     }
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
+        timestamp += DateTimeZone.forID("Asia/Shanghai").getOffset(0) - TimeUtils.getTimeZone().getOffset(0);        
         return new IntLiteral(timestamp / 1000, Type.INT);
     }
 
@@ -274,9 +276,8 @@ public class FEFunctions {
             throw new AnalysisException("unixtime should larger than zero");
         }
         Date date = new Date(unixTime.getLongValue() * 1000);
-        return new StringLiteral(dateFormat(date, "%Y-%m-%d %H:%i:%S"));
+        return new StringLiteral(dateFormat(date, "%Y-%m-%d %H:%i:%s", true));
     }
-
     @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         //if unixTime < 0, we should return null, throw a exception and let BE process
@@ -285,23 +286,22 @@ public class FEFunctions {
         }
         Date date = new Date(unixTime.getLongValue() * 1000);
         //currently, doris BE only support "yyyy-MM-dd HH:mm:ss" and "yyyy-MM-dd" format
-        return new StringLiteral(DateFormatUtils.format(date, fmtLiteral.getStringValue()));
+        return new StringLiteral(dateFormat(date, fmtLiteral.getStringValue(), false));
+        //return new StringLiteral(DateFormatUtils.format(date, fmtLiteral.getStringValue()));
     }
-
     private static long getTime(LiteralExpr expr) throws AnalysisException {
         if (expr instanceof DateLiteral) {
             return expr.getLongValue();
         } else {
             String[] parsePatterns = {"yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"};
-            SimpleDateFormat parser = null;
+            
+            SimpleDateFormat parser = new SimpleDateFormat(parsePatterns[0]);
+            //parser.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
             ParsePosition pos = new ParsePosition(0);
+            
             for (int i = 0; i < parsePatterns.length; ++i) {
-                if (i == 0) {
-                    parser = new SimpleDateFormat(parsePatterns[0]);
-                    parser.setTimeZone(TimeZone.getTimeZone("+08:00"));
-                } else {
-                    parser.applyPattern(parsePatterns[i]);
-                }
+                parser.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                parser.applyPattern(parsePatterns[i]);
                 pos.setIndex(0);
                 Date date = parser.parse(expr.getStringValue(), pos);
                 if (date != null && pos.getIndex() == expr.getStringValue().length()) {
@@ -323,10 +323,14 @@ public class FEFunctions {
         return firstDay;
     }
 
-    private  static String dateFormat(Date date,  String pattern) {
+    private  static String dateFormat(Date date,  String pattern, boolean isLiteral) {
         DateTimeFormatterBuilder formatterBuilder = new DateTimeFormatterBuilder();
         Calendar calendar = Calendar.getInstance();
-        calendar.setTimeZone(TimeZone.getTimeZone("+08:00"));
+        if (isLiteral){
+            calendar.setTimeZone(TimeZone.getTimeZone("+08:00"));
+        } else {
+            calendar.setTimeZone(TimeUtils.getTimeZone());
+        }
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
             char character = pattern.charAt(i);
@@ -513,7 +517,11 @@ public class FEFunctions {
             }
         }
         DateTimeFormatter formatter = formatterBuilder.toFormatter();
-        return formatter.withZone(DateTimeZone.forID("+08:00")).withLocale(Locale.US).print(date.getTime());
+        if (isLiteral) {
+            return formatter.withZone(DateTimeZone.forID("+08:00")).withLocale(Locale.US).print(date.getTime());
+        } else {
+            return formatter.withZone(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())).withLocale(Locale.US).print(date.getTime());
+        }
     }
 
     /**
