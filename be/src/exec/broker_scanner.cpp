@@ -97,7 +97,6 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            _counter->num_rows_total++;
             if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
                 break;
             }
@@ -382,64 +381,6 @@ bool is_null(const Slice& slice) {
     return slice.size == 2 &&
         slice.data[0] == '\\' &&
         slice.data[1] == 'N';
-}
-
-// Writes a slot in _tuple from an value containing text data.
-bool BrokerScanner::write_slot(
-        const std::string& column_name, const TColumnType& column_type,
-        const Slice& value, const SlotDescriptor* slot,
-        Tuple* tuple, MemPool* tuple_pool,
-        std::stringstream* error_msg) {
-
-    if (value.size == 0 && !slot->type().is_string_type()) {
-        (*error_msg) << "the length of input should not be 0. "
-                << "column_name: " << column_name << "; "
-                << "type: " << slot->type();
-        return false;
-    }
-
-    char* value_to_convert = value.data;
-    size_t value_to_convert_length = value.size;
-
-    // Fill all the spaces if it is 'TYPE_CHAR' type
-    if (slot->type().is_string_type()) {
-        int char_len = column_type.len;
-        if (value.size > char_len) {
-            (*error_msg) << "the length of input is too long than schema. "
-                    << "column_name: " << column_name << "; "
-                    << "input_str: [" << value.to_string() << "] "
-                    << "type: " << slot->type() << "; "
-                    << "schema length: " << char_len << "; "
-                    << "actual length: " << value.size << "; ";
-            return false;
-        }
-        if (slot->type().type == TYPE_CHAR && value.size < char_len) {
-            if (!is_null(value)) {
-                fill_fix_length_string(
-                        value, tuple_pool,
-                        &value_to_convert, char_len);
-                value_to_convert_length = char_len;
-            }
-        }
-    } else if (slot->type().is_decimal_type()) {
-        bool is_success = check_decimal_input(
-            value, column_type.precision, column_type.scale, error_msg);
-        if (is_success == false) {
-            return false;
-        }
-    }
-
-    if (!_text_converter->write_slot(
-            slot, tuple, value_to_convert, value_to_convert_length,
-            true, false, tuple_pool)) {
-        (*error_msg) << "convert csv string to "
-            << slot->type() << " failed. "
-            << "column_name: " << column_name << "; "
-            << "input_str: [" << value.to_string() << "]; ";
-        return false;
-    }
-
-    return true;
 }
 
 // Convert one row to this tuple
