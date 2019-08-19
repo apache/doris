@@ -618,7 +618,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_wait_in_flight_packet_timer, _wait_in_flight_packet_ns);
         COUNTER_SET(_serialize_batch_timer, _serialize_batch_ns);
-        state->update_num_rows_load_total(_number_input_rows);
+        // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
+        int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() + state->num_rows_load_unselected();
+        state->update_num_rows_load_total(num_rows_load_total);
         state->update_num_rows_load_filtered(_number_filtered_rows);
 
         // print log of add batch time of all node, for tracing load performance easily
