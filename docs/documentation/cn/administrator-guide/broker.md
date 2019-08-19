@@ -32,11 +32,11 @@ Broker 在 Doris 系统架构中的位置如下：
 
 1. 社区版 HDFS
 
-    * 支持通过 ugi 简单认证访问
+    * 支持简单认证访问
     * 支持通过 kerberos 认证访问
     * 支持 HDFS HA 模式访问
 
-2. 百度 AFS（开源版本不支持）
+2. 百度 HDFS/AFS（开源版本不支持）
 
     * 支持通过 ugi 简单认证访问
 
@@ -129,15 +129,18 @@ WITH BROKER "broker_name"
 
 1. 简单认证
 
-    简单认证需提供 username 和 password，即访问 HDFS 使用的 ugi 信息。示例如下：
+    简单认证即 Hadoop 配置 `hadoop.security.authentication` 为 `simple`。
+
+    使用系统用户访问 HDFS。或者在 Broker 启动的环境变量中添加：```HADOOP_USER_NAME```。
     
     ```
     (
         "username" = "user",
-        "password" = "passwd"
+        "password" = ""
     );
     ```
 
+    密码置空即可。
 
 2. Kerberos 认证
 
@@ -225,9 +228,17 @@ WITH BROKER "broker_name"
     )
     ```
 
-#### 百度 AFS 和 HDFS
+#### 百度 HDFS/AFS
 
 **（开源版本不支持）**
 
-百度 AFS 和 HDFS 仅支持简单认证访问，可参考 **社区 HDFS** 的简单认证方式。
+百度 AFS 和 HDFS 仅支持使用 ugi 的简单认证访问。示例如下：
 
+```
+(
+    "username" = "user",
+    "password" = "passwd"
+);
+```
+
+其中 user 和 passwd 为 Hadoop 的 UGI 配置。
