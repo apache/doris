@@ -94,7 +94,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
 
         ColumnReaderOptions reader_opts;
-        ColumnReader reader(reader_opts, meta, rfile.get());
+        ColumnReader reader(reader_opts, meta, num_rows, rfile.get());
 
         st = reader.init();
         ASSERT_TRUE(st.ok());

@@ -34,7 +34,6 @@ namespace segment_v2 {
 // Header | Content
 // Header: 
 //      number of pages (4 Bytes)
-//      number of rows (4 Bytes)
 // Content:
 //      array of index_pair
 // index_pair:
@@ -45,7 +44,7 @@ public:
     OrdinalPageIndexBuilder() : _num_pages(0) {
         _buffer.reserve(4 * 1024);
         // reserve space for number of pages
-        _buffer.resize(8);
+        _buffer.resize(4);
     }
 
     void append_entry(rowid_t rid, const PagePointer& page) {
@@ -56,11 +55,9 @@ public:
         _num_pages++;
     }
 
-    Slice finish(rowid_t row_num) {
+    Slice finish() {
         // encoded number of pages
         encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
-        // encoded number of rows
-        encode_fixed32_le((uint8_t*)_buffer.data() + 4, row_num);
         return Slice(_buffer);
     }
 
@@ -88,8 +85,8 @@ private:
 // Page index 
 class OrdinalPageIndex {
 public:
-    OrdinalPageIndex(const Slice& data)
-        : _data(data), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
+    OrdinalPageIndex(const Slice& data, uint64_t num_rows)
+        : _data(data), _num_rows(num_rows), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
     }
     ~OrdinalPageIndex();
     
@@ -124,6 +121,7 @@ private:
     friend OrdinalPageIndexIterator;
 
     Slice _data;
+    uint64_t _num_rows;
 
     // valid after laod
     int32_t _num_pages;

@@ -183,7 +183,7 @@ public:
         if (is_null) {
             return;
         }
-        _type_info->copy_with_arena(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
+        _type_info->deep_copy_by_arena(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
     }
 
     // This function will initialize destination with source.
@@ -205,8 +205,8 @@ public:
     }
 
     // copy filed content from src to dest without nullbyte
-    inline void copy_content(char* dest, const char* src, Arena* arena) const {
-        _type_info->copy_with_arena(dest, src, arena);
+    inline void deep_copy_content(char* dest, const char* src, Arena* arena) const {
+        _type_info->deep_copy_by_arena(dest, src, arena);
     }
 
     // Copy srouce content to destination in index format.

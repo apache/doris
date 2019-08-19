@@ -155,6 +155,7 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
 
         if (_opts.need_zone_map) {
             for (int i = 0; i < num_written; ++i) {
+                // TODO(hkp): optimize can be done here to reduce memcpy when the column is sorted
                 if (!_page_min_value->is_null()
                         && _page_min_value->field()->compare(_page_min_value->cell_ptr(), start_ptr) > 0) {
                     _page_min_value->copy(start_ptr);
@@ -210,7 +211,7 @@ Status ColumnWriter::write_data() {
 }
 
 Status ColumnWriter::write_ordinal_index() {
-    Slice data = _ordinal_index_builer->finish(_next_rowid);
+    Slice data = _ordinal_index_builer->finish();
     std::vector<Slice> slices{data};
     return _write_physical_page(&slices, &_ordinal_index_pp);
 }

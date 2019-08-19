@@ -50,18 +50,19 @@ public:
     }
 
     bool is_page_full() override {
-        return _size_estimate > _options.data_page_size
-            || _prepared_size > _options.data_page_size;
+        // data_page_size is 0, do not limit the page size
+        return _options.data_page_size != 0 && (_size_estimate > _options.data_page_size
+            || _prepared_size > _options.data_page_size);
     }
 
-    Status add(const uint8_t *vals, size_t *count) override {
+    Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
         DCHECK_GT(*count, 0);
         size_t i = 0;
 
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
-            const Slice *src = reinterpret_cast<const Slice *>(vals);
+            const Slice *src = reinterpret_cast<const Slice*>(vals);
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
@@ -187,7 +188,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t *n, ColumnBlockView *dst) override {
+    Status next_batch(size_t* n, ColumnBlockView* dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
             *n = 0;

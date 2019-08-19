@@ -32,8 +32,6 @@ Status OrdinalPageIndex::load() {
 
     _num_pages = decode_fixed32_le(ptr);
     ptr += 4;
-    rowid_t row_number = decode_fixed32_le(ptr);
-    ptr += 4;
 
     // add a additional rowid for row id compute convenience
     _rowids = new rowid_t[_num_pages + 1];
@@ -49,7 +47,7 @@ Status OrdinalPageIndex::load() {
         }
     }
     // set the additional last row id as number of rows
-    _rowids[_num_pages] = row_number;
+    _rowids[_num_pages] = _num_rows;
     return Status::OK();
 }
 

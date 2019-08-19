@@ -24,6 +24,7 @@
 #include "util/slice.h"
 #include "util/faststring.h"
 #include "olap/olap_cond.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "gen_cpp/segment_v2.pb.h"
 
 namespace doris {
@@ -39,10 +40,14 @@ namespace segment_v2 {
 //      array of page zone map
 class ColumnZoneMapBuilder {
 public:
-    ColumnZoneMapBuilder() : _num_pages(0) {
-        _buffer.reserve(4 * 1024);
-        // reserve space for number of elements
-        _buffer.resize(4);
+    ColumnZoneMapBuilder() : _page_builder(nullptr) {
+        PageBuilderOptions options;
+        options.data_page_size = 0;
+        _page_builder = new BinaryPlainPageBuilder(options);
+    }
+
+    ~ColumnZoneMapBuilder() {
+        delete _page_builder;
     }
 
     Status append_entry(const ZoneMapPB& page_zone_map) {
@@ -51,31 +56,46 @@ public:
         if (!ret) {
             return Status::InternalError("serialize zone map failed");
         }
-        put_varint32(&_buffer, serialized_zone_map.size());
-        _buffer.append(serialized_zone_map.data(), serialized_zone_map.size());
-        _num_pages++;
+        Slice data(serialized_zone_map.data(), serialized_zone_map.size());
+        size_t num = 1;
+        RETURN_IF_ERROR(_page_builder->add((const uint8_t*)&data, &num));
         return Status::OK();
     }
 
     Slice finish() {
-        // encoded number of elements
-        encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
-        return Slice(_buffer.data(), _buffer.size());
+        return _page_builder->finish();
     }
 
 private:
-    faststring _buffer;
-    uint32_t _num_pages;
+    BinaryPlainPageBuilder* _page_builder;
 };
 
 // ColumnZoneMap
 class ColumnZoneMap {
 public:
     ColumnZoneMap(const Slice& data)
-        : _data(data), _num_pages(0) {
+        : _data(data), _page_decoder(nullptr), _num_pages(0) {
+        _page_decoder = new BinaryPlainPageDecoder(_data, PageDecoderOptions());
+    }
+
+    ~ColumnZoneMap() {
+        delete _page_decoder;
     }
     
-    Status load();
+    Status load() {
+        RETURN_IF_ERROR(_page_decoder->init());
+        _num_pages = _page_decoder->count();
+        for (int i = 0; i < _num_pages; ++i) {
+            Slice data = _page_decoder->string_at_index(i);
+            ZoneMapPB zone_map;
+            bool ret = zone_map.ParseFromString(std::string(data.data, data.size));
+            if (!ret) {
+                return Status::InternalError("parse zone map failed");
+            }
+            _page_zone_maps.emplace_back(zone_map);
+        }
+        return Status::OK();
+    }
 
     const std::vector<ZoneMapPB>& get_column_zone_map() const {
         return _page_zone_maps;
@@ -87,8 +107,7 @@ public:
 
 private:
     Slice _data;
-    int32_t _column_id;
-    FieldType _type;
+    BinaryPlainPageDecoder* _page_decoder;
 
     // valid after load
     int32_t _num_pages;

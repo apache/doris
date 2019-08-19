@@ -153,7 +153,7 @@ public:
 
     void copy(const char* value) {
         set_is_null(false);
-        _rep->copy_content((char*)cell_ptr(), value, &_arena);
+        _rep->deep_copy_content((char*)cell_ptr(), value, &_arena);
     }
 
 

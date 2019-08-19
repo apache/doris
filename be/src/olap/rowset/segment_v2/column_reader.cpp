@@ -72,9 +72,11 @@ struct ParsedPage {
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
                            const ColumnMetaPB& meta,
+                           uint64_t num_rows,
                            RandomAccessFile* file)
         : _opts(opts),
         _meta(meta),
+        _num_rows(num_rows),
         _file(file) {
 }
 
@@ -194,7 +196,7 @@ Status ColumnReader::_init_ordinal_index() {
     PageHandle ph;
     RETURN_IF_ERROR(read_page(pp, &ph));
 
-    _ordinal_index.reset(new OrdinalPageIndex(ph.data()));
+    _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
 
     return Status::OK();

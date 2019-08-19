@@ -47,7 +47,7 @@ struct StorageReadOptions {
     bool include_upper_bound = false;
 
     // reader's column predicates
-    // used to filter data by zone map/bloom filter/second index
+    // used by zone map/bloom filter/secondary index to prune data
     std::shared_ptr<Conditions> conditions;
 };
 

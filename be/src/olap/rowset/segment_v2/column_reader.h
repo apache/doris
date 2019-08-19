@@ -56,7 +56,8 @@ struct ColumnReaderOptions {
 // This will cache data shared by all reader
 class ColumnReader {
 public:
-    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, RandomAccessFile* file);
+    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+            uint64_t num_rows, RandomAccessFile* file);
     ~ColumnReader();
 
     Status init();
@@ -94,6 +95,7 @@ private:
     // we need colun data to parse column data.
     // use shared_ptr here is to make things simple
     ColumnMetaPB _meta;
+    uint64_t _num_rows;
     RandomAccessFile* _file = nullptr;
 
     const TypeInfo* _type_info = nullptr;
