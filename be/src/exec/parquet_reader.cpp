@@ -34,8 +34,8 @@ namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader) :
-           _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file) :
+           _num_of_columns_from_file(num_of_columns_from_file), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -122,16 +122,18 @@ inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc
 Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs)
 {
     _parquet_column_ids.clear();
-    for (auto slot_desc : tuple_slot_descs) {
+    for (int i = 0; i < _num_of_columns_from_file; i++) {
+        auto slot_desc = tuple_slot_descs.at(i);
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
-        if (iter == _map_column.end()) {
+        if (iter != _map_column.end()) {
+            _parquet_column_ids.emplace_back(iter->second);
+        } else {
             std::stringstream str_error;
             str_error << "Invalid Column Name:" << slot_desc->col_name();
             LOG(WARNING) << str_error.str();
             return Status::InvalidArgument(str_error.str());
         }
-        _parquet_column_ids.emplace_back(iter->second);
     }
     return Status::OK();
 }
@@ -206,7 +208,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     const uint8_t *value = nullptr;
     int column_index = 0;
     try {
-        size_t slots = tuple_slot_descs.size();
+        size_t slots = _parquet_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
             column_index = i;// column index in batch record
@@ -393,6 +395,35 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     } else {
                         std::string value = decimal_array->FormatValue(_current_line_of_group);
                         fill_slot(tuple, slot_desc, mem_pool, (const uint8_t*)value.c_str(), value.length());
+                    }
+                    break;
+                }
+                case arrow::Type::type::DATE32: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) * 24 * 60 * 60);
+                        struct tm local;
+                        localtime_r(&timestamp, &local);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", &local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
+                    }
+                    break;
+                }
+                case arrow::Type::type::DATE64: {
+                    auto ts_array = std::dynamic_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
+                    if (ts_array->IsNull(_current_line_of_group)) {
+                        RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+                    } else {
+                        // convert milliseconds to seconds
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000);
+                        struct tm local;
+                        localtime_r(&timestamp, &local);
+                        char* to = reinterpret_cast<char*>(&tmp_buf);
+                        wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", &local);
+                        fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
                     break;
                 }

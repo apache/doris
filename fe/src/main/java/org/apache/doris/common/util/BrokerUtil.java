@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
@@ -36,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.util.Collections;
 import java.util.List;
 
 public class BrokerUtil {
@@ -97,6 +99,44 @@ public class BrokerUtil {
 
     public static String printBroker(String brokerName, TNetworkAddress address) {
         return brokerName + "[" + address.toString() + "]";
+    }
+
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+        if (columnsFromPath == null || columnsFromPath.isEmpty()) {
+            return Collections.emptyList();
+        }
+        String[] strings = filePath.split("/");
+        if (strings.length < 2) {
+            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+        }
+        String[] columns = new String[columnsFromPath.size()];
+        int size = 0;
+        for (int i = strings.length - 2; i >= 0; i--) {
+            String str = strings[i];
+            if (str != null && str.isEmpty()) {
+                continue;
+            }
+            if (str == null || !str.contains("=")) {
+                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            }
+            String[] pair = str.split("=", 2);
+            if (pair.length != 2) {
+                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            }
+            int index = columnsFromPath.indexOf(pair[0]);
+            if (index == -1) {
+                continue;
+            }
+            columns[index] = pair[1];
+            size++;
+            if (size >= columnsFromPath.size()) {
+                break;
+            }
+        }
+        if (size != columnsFromPath.size()) {
+            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+        }
+        return Lists.newArrayList(columns);
     }
 
 }
