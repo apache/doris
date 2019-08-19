@@ -78,7 +78,7 @@ public class FEFunctions {
         DateLiteral dateLiteral = (DateLiteral) date;
 
         DateLiteral result = new DateLiteral(dateLiteral);
-        result.setDay(dateLiteral.getDay() - 1);
+        result.setDay(dateLiteral.getDay() + day.getLongValue());
         return result;
     }
 
@@ -126,7 +126,8 @@ public class FEFunctions {
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         try {
-            return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()), Type.INT);
+            System.out.println("unix " + ((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()));
+            return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()) / 1000, Type.INT);
         } catch (ParseException e) {
             throw new AnalysisException(e.getLocalizedMessage());
         }

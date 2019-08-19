@@ -90,11 +90,12 @@ public class FEFunctionsTest {
     @Test
     public void daysAddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
+        System.out.println(actualResult.getStringValue());
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
     

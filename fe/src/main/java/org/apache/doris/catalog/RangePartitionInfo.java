@@ -178,6 +178,7 @@ public class RangePartitionInfo extends PartitionInfo {
         Range<PartitionKey> range = null;
         try {
             range = checkAndCreateRange(desc);
+            System.out.println(range.toString());
             idToRange.put(partitionId, range);
         } catch (IllegalArgumentException e) {
             // Range.closedOpen may throw this if (lower > upper)
