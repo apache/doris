@@ -30,14 +30,17 @@ namespace doris {
 
 class TypeInfo;
 class WritableFile;
+class BlockCompressionCodec;
 
 namespace segment_v2 {
 
 struct ColumnWriterOptions {
     EncodingTypePB encoding_type = DEFAULT_ENCODING;
-    CompressionTypePB compression_type = NO_COMPRESSION;
-    bool need_checksum = false;
+    CompressionTypePB compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t data_page_size = 64 * 1024;
+    // store compressed page only when space saving is above the threshold.
+    // space saving = 1 - compressed_size / uncompressed_size
+    double compression_min_space_saving = 0.1;
 };
 
 class EncodingInfo;
@@ -124,7 +127,6 @@ private:
     Status _append_data(const uint8_t** ptr, size_t num_rows);
     Status _finish_current_page();
     Status _write_raw_data(const std::vector<Slice>& data, size_t* bytes_written);
-    uint32_t _compute_checksum(const std::vector<Slice>& data);
 
     Status _write_data_page(Page* page);
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
@@ -140,8 +142,7 @@ private:
     rowid_t _next_rowid = 0;
 
     const EncodingInfo* _encoding_info = nullptr;
-    // const CompressionCodec* _codec = nullptr;
-    // TODO(zc): compression type
+    const BlockCompressionCodec* _compress_codec = nullptr;
 
     std::unique_ptr<PageBuilder> _page_builder;
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;

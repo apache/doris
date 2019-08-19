@@ -492,6 +492,8 @@ public class BrokerLoadJob extends LoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
+        // The data source info also need to be replayed
+        // because the load properties of old broker load has been saved in here.
         dataSourceInfo.readFields(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {

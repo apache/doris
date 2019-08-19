@@ -136,7 +136,6 @@ public class TimeUtils {
     }
 
     public static synchronized String longToTimeString(long timeStamp) {
-        //return longToTimeString(timeStamp, DATETIME_FORMAT);
         TimeZone timeZone = getTimeZone();
         SimpleDateFormat dateFormatTimeZone = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         dateFormatTimeZone.setTimeZone(timeZone);

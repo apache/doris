@@ -156,8 +156,7 @@
                 示例：
 
                     "kafka_partitions" = "0,1,2,3",
-                    "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
-            
+                    "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END" 
             4. property
 
                 指定自定义kafka参数。
@@ -170,7 +169,7 @@
                     "property.client.id" = "12345",
                     "property.ssl.ca.location" = "FILE:ca.pem"
 
-                使用 SSL 连接 Kafka 时，需要指定以下参数：
+                1.使用 SSL 连接 Kafka 时，需要指定以下参数：
 
                 "property.security.protocol" = "ssl",
                 "property.ssl.ca.location" = "FILE:ca.pem",
@@ -189,6 +188,14 @@
 
                 分别用于指定 client 的 public key，private key 以及 private key 的密码。
                 
+                
+                2.指定kafka partition的默认起始offset
+                如果没有指定kafka_partitions/kafka_offsets,默认消费所有分区,此时可以指定kafka_default_offsets指定起始 offset。默认为 OFFSET_END，即从末尾开始订阅。
+                值为
+                    1) OFFSET_BEGINNING: 从有数据的位置开始订阅。
+                    2) OFFSET_END: 从末尾开始订阅。
+                    示例：
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
 
     7. 导入数据格式样例
 

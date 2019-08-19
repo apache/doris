@@ -68,8 +68,8 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
     if (candidate_rowsets.size() <= 1) {
-        LOG(WARNING) << "There is no enough rowsets to cumulative compaction."
-                     << ", the size of rowsets to compact=" << candidate_rowsets.size()
+        LOG(WARNING) << "There is no enough rowsets to cumulative compaction. "
+                     << "The size of rowsets to compact=" << candidate_rowsets.size()
                      << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
@@ -114,10 +114,6 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
-    for (auto& rowset : _input_rowsets) {
-        _input_rowsets_size += rowset->data_disk_size();
-        _input_row_num += rowset->num_rows();
-    }
     return OLAP_SUCCESS;
 }
 

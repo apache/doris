@@ -99,6 +99,8 @@ public class LoadAction extends RestBaseAction {
             if (Strings.isNullOrEmpty(label)) {
                 throw new DdlException("No label selected.");
             }
+        } else {
+            label = request.getRequest().headers().get(LABEL_KEY);
         }
  
         // check auth

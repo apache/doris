@@ -536,23 +536,7 @@ public class FunctionCallExpr extends Expr {
             LOG.warn("fn {} not exists", fnName.getFunction());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
-        /*
-        if (fnName.getFunction().equals("from_unixtime")) {
-            // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
-            if (children.size() > 1) {
-                final StringLiteral formatExpr = (StringLiteral) children.get(1);
-                final String dateFormat1 = "yyyy-MM-dd HH:mm:ss";
-                final String dateFormat2 = "yyyy-MM-dd";
-                if (!formatExpr.getStringValue().equals(dateFormat1)
-                        && !formatExpr.getStringValue().equals(dateFormat2)) {
-                    throw new AnalysisException(new StringBuilder("format does't support, try ")
-                                                .append("'").append(dateFormat1).append("'")
-                                                .append(" or ")
-                                                .append("'").append(dateFormat2).append("'.").toString());
-                }
-            }
-        }
-        */
+        
         if (fn.getFunctionName().getFunction().equals("time_diff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             return;

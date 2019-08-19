@@ -70,7 +70,9 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -592,6 +594,9 @@ public class StmtExecutor {
         long createTime = System.currentTimeMillis();
         UUID uuid = UUID.randomUUID();
         Throwable throwable = null;
+
+        long loadedRows = 0;
+        int filteredRows = 0;
         try {
             // assign request_id
             context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
@@ -612,35 +617,38 @@ public class StmtExecutor {
             if (!coord.getExecStatus().ok()) {
                 String errMsg = coord.getExecStatus().getErrorMsg();
                 LOG.warn("insert failed: {}", errMsg);
-
-                // hide host info
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
                 ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
 
-            LOG.info("delta files is {}", coord.getDeltaUrls());
+            LOG.debug("delta files is {}", coord.getDeltaUrls());
 
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
+                loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+            }
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
+                filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+            }
+
+            // if in strict mode, insert will fail if there are filtered rows
             if (context.getSessionVariable().getEnableInsertStrict()) {
-                Map<String, String> counters = coord.getLoadCounters();
-                String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
-                if (strValue != null && Long.valueOf(strValue) > 0) {
-                    throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                if (filteredRows > 0) {
+                    context.getState().setError("Insert has filtered data in strict mode, tracking_url="
                             + coord.getTrackingUrl());
+                    return;
                 }
             }
 
             if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
                 // no need to add load job.
                 // MySQL table is already being inserted.
-                context.getState().setOk();
+                context.getState().setOk(loadedRows, filteredRows, null);
                 return;
             }
 
-            if (insertStmt.getQueryStmt() != null && (coord.getCommitInfos() == null || coord.getCommitInfos().isEmpty())) {
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getTransactionId(), "select stmt return empty set when insert");
+            if (loadedRows == 0 && filteredRows == 0) {
+                // if no data, just abort txn and return ok
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getTransactionId(),
+                        TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                 context.getState().setOk();
                 return;
             }
@@ -663,9 +671,13 @@ public class StmtExecutor {
             }
 
             if (!Config.using_old_load_usage_pattern) {
-                // if not using old usage pattern, the exception will be thrown to user directly without
-                // a label
-                throw t;
+                // if not using old usage pattern, the exception will be thrown to user directly without a label
+                StringBuilder sb = new StringBuilder(t.getMessage());
+                if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                    sb.append(". url: " + coord.getTrackingUrl());
+                }
+                context.getState().setError(sb.toString());
+                return;
             }
 
             /*
@@ -676,8 +688,11 @@ public class StmtExecutor {
             throwable = t;
         }
 
-        // record insert info for show load stmt
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
+        // record insert info for show load stmt if
+        // 1. NOT a streaming insert(deprecated)
+        // 2. using_old_load_usage_pattern is set to true, means a label will be returned for user to show load.
+        // 3. has filtered rows. so a label should be returned for user to show
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         uuid.toString(),
@@ -685,7 +700,8 @@ public class StmtExecutor {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        throwable == null ? "" : throwable.getMessage()
+                        throwable == null ? "" : throwable.getMessage(),
+                        coord.getTrackingUrl()
                 );
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
@@ -696,10 +712,11 @@ public class StmtExecutor {
 
             // set to OK, which means the insert load job is successfully submitted.
             // and user can check the job's status by label.
-            context.getState().setOk("{'label':'" + uuid.toString() + "'}");
+            context.getState().setOk(loadedRows, filteredRows, "{'label':'" + uuid.toString() + "'}");
         } else {
-            // just return OK without label, which means this job is successfully done
-            context.getState().setOk();
+            // just return OK without label, which means this job is successfully done without any error
+            Preconditions.checkState(loadedRows > 0 && filteredRows == 0);
+            context.getState().setOk(loadedRows, filteredRows, null);
         }
     }
 

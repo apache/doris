@@ -56,6 +56,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.apache.doris.analysis.CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS;
+
 /**
  * KafkaRoutineLoadJob is a kind of RoutineLoadJob which fetch data from kafka.
  * The progress which is super class property is seems like "{"partition1": offset1, "partition2": offset2}"
@@ -71,6 +73,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
+    // optional, user want to set default offset when new partiton add or offset not set.
+    private String kafkaDefaultOffSet = "";
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
@@ -127,6 +131,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             } else {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
+        }
+        if (convertedCustomProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
+            kafkaDefaultOffSet = convertedCustomProperties.remove(KAFKA_DEFAULT_OFFSETS);
         }
     }
 
@@ -368,11 +375,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : currentKafkaPartitions) {
             if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
                 // if offset is not assigned, start from OFFSET_END
-                ((KafkaProgress) progress).addPartitionOffset(Pair.create(kafkaPartition, KafkaProgress.OFFSET_END_VAL));
+                long beginOffSet = KafkaProgress.OFFSET_END_VAL;
+                if (!kafkaDefaultOffSet.isEmpty()) {
+                    if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
+                        beginOffSet = KafkaProgress.OFFSET_BEGINNING_VAL;
+                    } else if (kafkaDefaultOffSet.equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
+                        beginOffSet = KafkaProgress.OFFSET_END_VAL;
+                    } else {
+                        beginOffSet = KafkaProgress.OFFSET_END_VAL;
+                    }
+                }
+                ((KafkaProgress) progress).addPartitionOffset(Pair.create(kafkaPartition, beginOffSet));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                       .add("kafka_partition_id", kafkaPartition)
-                                      .add("begin_offset", KafkaProgress.OFFSET_END)
+                                      .add("begin_offset", beginOffSet)
                                       .add("msg", "The new partition has been added in job"));
                 }
             }
@@ -402,7 +419,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
         this.customProperties = kafkaProperties;
     }
-
     @Override
     protected String dataSourcePropertiesJsonToString() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();

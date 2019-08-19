@@ -126,7 +126,6 @@ public class FEFunctions {
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         try {
-            System.out.println("unix " + ((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()));
             return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()) / 1000, Type.INT);
         } catch (ParseException e) {
             throw new AnalysisException(e.getLocalizedMessage());
@@ -135,8 +134,9 @@ public class FEFunctions {
 
     @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
-        //if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
+        long ts = unixTime.getLongValue();
+        // if unixTime < 0 or larger than 9999-12-31 23:59:59, we should return null, throw a exception and let BE process
+        if (ts < 0 || ts > 253402271999L) {
             throw new AnalysisException("unixtime should larger than zero");
         }
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -146,8 +146,9 @@ public class FEFunctions {
     }
     @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
-        //if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
+        long ts = unixTime.getLongValue();
+        // if unixTime < 0 or larger than 9999-12-31 23:59:59, we should return null, throw a exception and let BE process
+        if (ts < 0 || ts > 253402271999L) {
             throw new AnalysisException("unixtime should larger than zero");
         }
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");

@@ -268,7 +268,7 @@ private:
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 
-    int64_t _cumulative_point;
+    std::atomic<int64_t> _cumulative_point;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 

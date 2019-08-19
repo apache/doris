@@ -40,7 +40,7 @@ namespace doris {
 
 BrokerScanner::BrokerScanner(RuntimeState* state,
                              RuntimeProfile* profile,
-                             const TBrokerScanRangeParams& params, 
+                             const TBrokerScanRangeParams& params,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
                              ScannerCounter* counter) : BaseScanner(state, profile, params, counter),
@@ -73,7 +73,7 @@ Status BrokerScanner::open() {
 
 Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    // Get one line 
+    // Get one line
     while (!_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
@@ -97,7 +97,6 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            _counter->num_rows_total++;
             if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
                 break;
             }
@@ -120,7 +119,7 @@ Status BrokerScanner::open_next_reader() {
     RETURN_IF_ERROR(open_file_reader());
     RETURN_IF_ERROR(open_line_reader());
     _next_range++;
-    
+
     return Status::OK();
 }
 
@@ -379,67 +378,9 @@ bool BrokerScanner::check_decimal_input(
 }
 
 bool is_null(const Slice& slice) {
-    return slice.size == 2 && 
-        slice.data[0] == '\\' && 
+    return slice.size == 2 &&
+        slice.data[0] == '\\' &&
         slice.data[1] == 'N';
-}
-
-// Writes a slot in _tuple from an value containing text data.
-bool BrokerScanner::write_slot(
-        const std::string& column_name, const TColumnType& column_type,
-        const Slice& value, const SlotDescriptor* slot,
-        Tuple* tuple, MemPool* tuple_pool,
-        std::stringstream* error_msg) {
-
-    if (value.size == 0 && !slot->type().is_string_type()) {
-        (*error_msg) << "the length of input should not be 0. "
-                << "column_name: " << column_name << "; "
-                << "type: " << slot->type();
-        return false;
-    }
-
-    char* value_to_convert = value.data;
-    size_t value_to_convert_length = value.size;
-
-    // Fill all the spaces if it is 'TYPE_CHAR' type
-    if (slot->type().is_string_type()) {
-        int char_len = column_type.len;
-        if (value.size > char_len) {
-            (*error_msg) << "the length of input is too long than schema. "
-                    << "column_name: " << column_name << "; "
-                    << "input_str: [" << value.to_string() << "] "
-                    << "type: " << slot->type() << "; "
-                    << "schema length: " << char_len << "; "
-                    << "actual length: " << value.size << "; ";
-            return false;
-        }
-        if (slot->type().type == TYPE_CHAR && value.size < char_len) {
-            if (!is_null(value)) {
-                fill_fix_length_string(
-                        value, tuple_pool,
-                        &value_to_convert, char_len);
-                value_to_convert_length = char_len;
-            }
-        }
-    } else if (slot->type().is_decimal_type()) {
-        bool is_success = check_decimal_input(
-            value, column_type.precision, column_type.scale, error_msg);
-        if (is_success == false) {
-            return false;
-        }
-    }
-
-    if (!_text_converter->write_slot(
-            slot, tuple, value_to_convert, value_to_convert_length,
-            true, false, tuple_pool)) {
-        (*error_msg) << "convert csv string to "
-            << slot->type() << " failed. "
-            << "column_name: " << column_name << "; "
-            << "input_str: [" << value.to_string() << "]; ";
-        return false;
-    }
-
-    return true;
 }
 
 // Convert one row to this tuple
@@ -469,7 +410,10 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         split_line(line, &values);
     }
 
-    if (values.size() < _src_slot_descs.size()) {
+    // range of current file
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
+    const std::vector<std::string>& columns_from_path = range.columns_from_path;
+    if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -478,7 +422,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() > _src_slot_descs.size()) {
+    } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -502,6 +446,8 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         str_slot->ptr = value.data;
         str_slot->len = value.size;
     }
+
+    fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
 
     return true;
 }
