@@ -58,6 +58,7 @@ public class StreamLoadTask {
     private String path;
     private boolean negative;
     private int timeout = Config.stream_load_default_timeout_second;
+    private String fillnull="0";
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -143,6 +144,10 @@ public class StreamLoadTask {
         if (request.isSetTimeout()) {
             timeout = request.getTimeout();
         }
+//        if(request.isSetFillnull()) {
+//            fillnull =request.getFillnull();
+//        }
+
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -153,11 +158,14 @@ public class StreamLoadTask {
         return streamLoadTask;
     }
 
+
+
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         columnExprDesc = routineLoadJob.getColumnDescs();
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
+        fillnull = routineLoadJob.getFillnull();
     }
 
     private void setColumnToColumnExpr(String columns) throws UserException {
@@ -217,4 +225,5 @@ public class StreamLoadTask {
         columnSeparator = new ColumnSeparator(oriSeparator);
         columnSeparator.analyze();
     }
+    public String getFillnull() { return fillnull; }
 }

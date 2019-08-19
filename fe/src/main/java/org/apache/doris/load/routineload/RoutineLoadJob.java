@@ -92,6 +92,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final String DEFAULT_FILLNULL = "0";
 
     protected static final String STAR_STRING = "*";
      /*
@@ -157,6 +158,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchIntervalS = DEFAULT_MAX_INTERVAL_SECOND;
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
+    protected String fillnull = DEFAULT_FILLNULL;
 
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
@@ -241,6 +243,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
+        this.fillnull = stmt.getFillnull();
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -381,6 +384,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public long getMaxBatchSizeBytes() {
         return maxBatchSizeBytes;
     }
+    public String getFillnull() { return fillnull; }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
         readLock();
@@ -1042,6 +1046,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
         jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put("fillnull", fillnull);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
@@ -1113,6 +1118,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(abortedTaskNum);
 
         Text.writeString(out, origStmt);
+        Text.writeString(out,fillnull);
     }
 
     @Override
@@ -1159,7 +1165,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         abortedTaskNum = in.readLong();
 
         origStmt = Text.readString(in);
-
+        fillnull = Text.readString(in);
         // parse the origin stmt to get routine load desc
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt)));
         CreateRoutineLoadStmt stmt = null;

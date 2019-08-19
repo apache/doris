@@ -49,6 +49,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         // _splittable(params.splittable),
         _value_separator(static_cast<char>(params.column_separator)),
         _line_delimiter(static_cast<char>(params.line_delimiter)),
+        _fillnull(params.fillnull),
         _cur_file_reader(nullptr),
         _cur_line_reader(nullptr),
         _cur_decompressor(nullptr),
@@ -468,17 +469,19 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     {
         split_line(line, &values);
     }
-
-    if (values.size() < _src_slot_descs.size()) {
-        std::stringstream error_msg;
-        error_msg << "actual column number is less than schema column number. "
-            << "actual number: " << values.size() << " sep: " << _value_separator << ", "
-            << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string(line.data, line.size),
-                                         error_msg.str());
-        _counter->num_rows_filtered++;
-        return false;
-    } else if (values.size() > _src_slot_descs.size()) {
+    if (_fillnull == "0") {
+        if (values.size() < _src_slot_descs.size()) {
+            std::stringstream error_msg;
+            error_msg << "actual column number is less than schema column number. "
+                << "actual number: " << values.size() << " sep: " << _value_separator << ", "
+                << "schema number: " << _src_slot_descs.size() << "; ";
+            _state->append_error_msg_to_file(std::string(line.data, line.size),
+                                             error_msg.str());
+            _counter->num_rows_filtered++;
+            return false;
+        }
+    }
+    if (values.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -502,7 +505,15 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         str_slot->ptr = value.data;
         str_slot->len = value.size;
     }
-
+    if (_fillnull == "1") {
+        for(int i=values.size();i< _src_slot_descs.size();++i) {
+            auto slot_desc = _src_slot_descs[i];
+            if (slot_desc->is_nullable()) {
+                _src_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
+            }
+        }
+    }
     return true;
 }
 

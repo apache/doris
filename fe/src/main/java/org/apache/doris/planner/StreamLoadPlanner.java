@@ -152,7 +152,6 @@ public class StreamLoadPlanner {
                 params.setLoad_error_hub_info(info);
             }
         }
-
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
