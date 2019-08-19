@@ -58,15 +58,15 @@ public class DateLiteral extends LiteralExpr {
         this.type = type;
         if (type == Type.DATE) {
             if (isMax) {
-                init("1900-01-01", Type.DATE);
-            } else {
                 init("9999-12-31", Type.DATE);
+            } else {
+                init("1900-01-01", Type.DATE);
             }
         } else {
             if (isMax) {
-                init("1900-01-01 00:00:00", Type.DATETIME);
-            } else {
                 init("9999-12-31 23:59:59", Type.DATETIME);
+            } else {
+                init("1900-01-01 00:00:00", Type.DATETIME);
             }
         }
         analysisDone();
@@ -107,7 +107,7 @@ public class DateLiteral extends LiteralExpr {
             if (type == Type.DATE) {
                 dateTime = FormatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(s);
             } else {
-                dateTime = FormatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(s);
+                dateTime = FormatBuilder("%Y-%m-%d %H:%i:%s").toFormatter().parseLocalDateTime(s);
             }
             year = dateTime.getYear();
             month = dateTime.getMonthOfYear();
@@ -179,7 +179,6 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        //return TimeUtils.format(date, type);
         if (type == Type.DATE) {
             return String.format("%04d", year) + "-" +
                     String.format("%02d", month) + "-" +
@@ -268,7 +267,12 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public long unixTime(TimeZone timeZone) throws ParseException {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        SimpleDateFormat dateFormat;
+        if (type == Type.DATE) {
+            dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        } else {
+            dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        }
         dateFormat.setTimeZone(timeZone);
         long timestamp = dateFormat.parse(getStringValue()).getTime();
         return timestamp;
