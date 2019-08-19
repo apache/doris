@@ -100,8 +100,7 @@ public class FEFunctions {
 
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
-        DateLiteral dateLiteral = DateLiteral.dateParser(date.getStringValue(), fmtLiteral.getStringValue());
-        return dateLiteral;
+        return DateLiteral.dateParser(date.getStringValue(), fmtLiteral.getStringValue());
     }
 
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -127,7 +126,6 @@ public class FEFunctions {
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         try {
-
             return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()), Type.INT);
         } catch (ParseException e) {
             throw new AnalysisException(e.getLocalizedMessage());
@@ -155,8 +153,8 @@ public class FEFunctions {
         dateFormat.setTimeZone(TimeUtils.getTimeZone());
         String dateLiteral = dateFormat.format(new Date(unixTime.getLongValue() * 1000));
 
-        DateLiteral d = new DateLiteral(dateLiteral, Type.DATETIME);
-        return new StringLiteral(d.dateFormat(fmtLiteral.getStringValue()));
+        DateLiteral dl = new DateLiteral(dateLiteral, Type.DATETIME);
+        return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {

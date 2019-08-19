@@ -42,75 +42,12 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import java.util.regex.Pattern;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
-    public long getHour() {
-        return hour;
-    }
-
-    public void setHour(long hour) {
-        this.hour = hour;
-    }
-
-    //private Date date;
-    long hour;
-
-    public long getMinute() {
-        return minute;
-    }
-
-    public void setMinute(long minute) {
-        this.minute = minute;
-    }
-
-    public long getSecond() {
-        return second;
-    }
-
-    public void setSecond(long second) {
-        this.second = second;
-    }
-
-    public long getYear() {
-        return year;
-    }
-
-    public void setYear(long year) {
-        this.year = year;
-    }
-
-    public long getMonth() {
-        return month;
-    }
-
-    public void setMonth(long month) {
-        this.month = month;
-    }
-
-    public long getDay() {
-        return day;
-    }
-
-    public void setDay(long day) {
-        this.day = day;
-    }
-
-    public long getMicrosecond() {
-        return microsecond;
-    }
-
-    public void setMicrosecond(long microsecond) {
-        this.microsecond = microsecond;
-    }
-
-    long minute;
-    long second;
-    long year;
-    long month;
-    long day;
-    long microsecond;
+    private static final Pattern hasTimePart = Pattern.compile("^.*[HhIiklrSsT]+.*$");
 
     private DateLiteral() {
         super();
@@ -150,7 +87,8 @@ public class DateLiteral extends LiteralExpr {
         month = other.month;
         day = other.day;
         microsecond = other.microsecond;
-        //date = other.date;
+
+        type = other.type;
     }
 
     @Override
@@ -159,218 +97,28 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public static DateLiteral createMinValue(Type type) throws AnalysisException{
-        DateLiteral dateLiteral = new DateLiteral(type, false);
-        return dateLiteral;
+        return new DateLiteral(type, false);
     }
 
-    public long unixTime(TimeZone timeZone) throws ParseException {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        dateFormat.setTimeZone(timeZone);
-        long timestamp = dateFormat.parse(getStringValue()).getTime();
-        return timestamp;
-    }
-
-    public static DateLiteral dateParser(String date, String pattern) throws AnalysisException{
-        DateLiteral dateLiteral = new DateLiteral();
-
-        LocalDateTime dateTime = FormatBuilder(pattern).toFormatter().parseLocalDateTime(date);
-        dateLiteral.setYear(dateTime.getYear());
-        dateLiteral.setMonth(dateTime.getMonthOfYear());
-        dateLiteral.setDay(dateTime.getDayOfMonth());
-        dateLiteral.setHour(dateTime.getHourOfDay());
-        dateLiteral.setMinute(dateTime.getMinuteOfHour());
-        dateLiteral.setSecond(dateTime.getSecondOfMinute());
-        return dateLiteral;
-    }
-
-    public String dateFormat(String pattern) throws AnalysisException{
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        if (type == Type.DATE) {
-            builder.appendYear(4, 4).appendLiteral("-").
-                    appendMonthOfYear(2).appendLiteral("-").appendDayOfMonth(2);
-        } else {
-            builder.appendYear(4, 4).appendLiteral("-").
-                    appendMonthOfYear(2).appendLiteral("-")
-                    .appendDayOfMonth(2).appendLiteral(" ")
-                    .appendHourOfDay(2).appendLiteral(":")
-                    .appendMinuteOfHour(2).appendLiteral(":")
-                    .appendSecondOfMinute(2);
-        }
-
-        return builder.toFormatter().parseLocalDateTime(getStringValue())
-                    .toString(FormatBuilder(pattern).toFormatter());
-    }
-
-
-    private static DateTimeFormatterBuilder FormatBuilder(String pattern) throws AnalysisException{
-        boolean hasTimePart = false;
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        //String formatString = fmtLiteral.getStringValue();
-        boolean escaped = false;
-        for (int i = 0; i < pattern.length(); i++) {
-            char character = pattern.charAt(i);
-            if (escaped) {
-                switch (character) {
-                    case 'a': // %a Abbreviated weekday name (Sun..Sat)
-                        builder.appendDayOfWeekShortText();
-                        break;
-                    case 'b': // %b Abbreviated month name (Jan..Dec)
-                        builder.appendMonthOfYearShortText();
-                        break;
-                    case 'c': // %c Month, numeric (0..12)
-                        builder.appendMonthOfYear(1);
-                        break;
-                    case 'd': // %d Day of the month, numeric (00..31)
-                        builder.appendDayOfMonth(2);
-                        break;
-                    case 'e': // %e Day of the month, numeric (0..31)
-                        builder.appendDayOfMonth(1);
-                        break;
-                    case 'H': // %H Hour (00..23)
-                        builder.appendHourOfDay(2);
-                        hasTimePart = true;
-                        break;
-                    case 'h': // %h Hour (01..12)
-                    case 'I': // %I Hour (01..12)
-                        builder.appendClockhourOfHalfday(2);
-                        hasTimePart = true;
-                        break;
-                    case 'i': // %i Minutes, numeric (00..59)
-                        builder.appendMinuteOfHour(2);
-                        hasTimePart = true;
-                        break;
-                    case 'j': // %j Day of year (001..366)
-                        builder.appendDayOfYear(3);
-                        break;
-                    case 'k': // %k Hour (0..23)
-                        builder.appendHourOfDay(1);
-                        hasTimePart = true;
-                        break;
-                    case 'l': // %l Hour (1..12)
-                        builder.appendClockhourOfHalfday(1);
-                        hasTimePart = true;
-                        break;
-                    case 'M': // %M Month name (January..December)
-                        builder.appendMonthOfYearText();
-                        break;
-                    case 'm': // %m Month, numeric (00..12)
-                        builder.appendMonthOfYear(2);
-                        break;
-                    case 'p': // %p AM or PM
-                        builder.appendHalfdayOfDayText();
-                        break;
-                    case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendClockhourOfHalfday(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
-                                .appendSecondOfMinute(2)
-                                .appendLiteral(' ')
-                                .appendHalfdayOfDayText();
-                        hasTimePart = true;
-                        break;
-                    case 'S': // %S Seconds (00..59)
-                    case 's': // %s Seconds (00..59)
-                        builder.appendSecondOfMinute(2);
-                        hasTimePart = true;
-                        break;
-                    case 'T': // %T Time, 24-hour (hh:mm:ss)
-                        builder.appendHourOfDay(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
-                                .appendSecondOfMinute(2);
-                        hasTimePart = true;
-                        break;
-                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
-                        builder.appendWeekOfWeekyear(2);
-                        break;
-                    case 'x': // %x Year for the week, where Monday is the first day of the week, numeric, four digits; used with %v
-                        builder.appendWeekyear(4, 4);
-                        break;
-                    case 'W': // %W Weekday name (Sunday..Saturday)
-                        builder.appendDayOfWeekText();
-                        break;
-                    case 'Y': // %Y Year, numeric, four digits
-                        builder.appendYear(4, 4);
-                        break;
-                    case 'y': // %y Year, numeric (two digits)
-                        builder.appendTwoDigitYear(2020);
-                        break;
-                    case 'f': // %f Microseconds (000000..999999)
-                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
-                    case 'U': // %U Week (00..53), where Sunday is the first day of the week
-                    case 'u': // %u Week (00..53), where Monday is the first day of the week
-                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                    case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
-                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                        throw new AnalysisException(String.format("%%%s not supported in date format string", character));
-                    case '%': // %% A literal "%" character
-                        builder.appendLiteral('%');
-                        break;
-                    default: // %<x> The literal character represented by <x>
-                        builder.appendLiteral(character);
-                        break;
-                }
-                escaped = false;
-            } else if (character == '%') {
-                escaped = true;
-            } else {
-                builder.appendLiteral(character);
-            }
-        }
-        return builder;
-    }
-
-
-    //private void init(String s, Type type) throws AnalysisException {
     private void init(String s, Type type) throws AnalysisException {
         try {
             Preconditions.checkArgument(type.isDateType());
-            DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+            LocalDateTime dateTime;
             if (type == Type.DATE) {
-                builder.appendYear(4, 4).appendLiteral("-").
-                        appendMonthOfYear(2).appendLiteral("-").appendDayOfMonth(2);
-                LocalDateTime datetime = builder.toFormatter().parseLocalDateTime(s);
-                year = datetime.getYear();
-                month = datetime.getMonthOfYear();
-                day = datetime.getDayOfMonth();
+                dateTime = FormatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(s);
             } else {
-                builder.appendYear(4, 4).appendLiteral("-").
-                        appendMonthOfYear(2).appendLiteral("-")
-                        .appendDayOfMonth(2).appendLiteral(" ")
-                        .appendHourOfDay(2).appendLiteral(":")
-                        .appendMinuteOfHour(2).appendLiteral(":")
-                        .appendSecondOfMinute(2);
-
-                LocalDateTime datetime = builder.toFormatter().parseLocalDateTime(s);
-                year = datetime.getYear();
-                month = datetime.getMonthOfYear();
-                day = datetime.getDayOfMonth();
-                hour = datetime.getHourOfDay();
-                minute = datetime.getMinuteOfHour();
-                second = datetime.getSecondOfMinute();
+                dateTime = FormatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(s);
             }
+            year = dateTime.getYear();
+            month = dateTime.getMonthOfYear();
+            day = dateTime.getDayOfMonth();
+            hour = dateTime.getHourOfDay();
+            minute = dateTime.getMinuteOfHour();
+            second = dateTime.getSecondOfMinute();
             this.type = type;
         } catch (Exception ex) {
             throw new AnalysisException(ex.getMessage());
         }
-
-        /*
-        date = TimeUtils.parseDate(s, type);
-        if (type.isScalarType(PrimitiveType.DATE)) {
-            if (date.compareTo(TimeUtils.MAX_DATE) > 0 || date.compareTo(TimeUtils.MIN_DATE) < 0) {
-                throw new AnalysisException("Date type column should range from [" + TimeUtils.MIN_DATE + "] to ["
-                        + TimeUtils.MAX_DATE + "]");
-            }
-        } else {
-            if (date.compareTo(TimeUtils.MAX_DATETIME) > 0 || date.compareTo(TimeUtils.MIN_DATETIME) < 0) {
-                throw new AnalysisException("Datetime type column should range from [" + TimeUtils.MIN_DATETIME
-                        + "] to [" + TimeUtils.MAX_DATETIME + "]");
-            }
-        }
-        this.type = type;
-        */
     }
 
     @Override
@@ -387,8 +135,14 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public Object getRealValue() {
-        return getStringValue();
-        //return TimeUtils.dateTransform(date.getTime(), type);
+        if (type == Type.DATE) {
+            return year * 16 * 32L + month * 32 + day;
+        } else if (type == Type.DATETIME) {
+            return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+        } else {
+            Preconditions.checkState(false, "invalid date type: " + type);
+            return -1L;
+        }
     }
 
     // Date column and Datetime column's hash value is not same.
@@ -455,11 +209,6 @@ public class DateLiteral extends LiteralExpr {
         msg.node_type = TExprNodeType.DATE_LITERAL;
         msg.date_literal = new TDateLiteral(getStringValue());
     }
-    /*
-    public Date getValue() {
-        return date;
-    }
-    */
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
@@ -485,7 +234,6 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        //date = new Date(in.readLong());
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             long packed_time = in.readLong();
             microsecond = (packed_time % (1L << 24));
@@ -518,4 +266,225 @@ public class DateLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
+
+    public long unixTime(TimeZone timeZone) throws ParseException {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        dateFormat.setTimeZone(timeZone);
+        long timestamp = dateFormat.parse(getStringValue()).getTime();
+        return timestamp;
+    }
+
+    public static DateLiteral dateParser(String date, String pattern) throws AnalysisException{
+        DateLiteral dateLiteral = new DateLiteral();
+
+        if(hasTimePart.matcher(pattern).matches()) {
+            dateLiteral.setType(Type.DATETIME);
+        } else {
+            dateLiteral.setType(Type.DATE);
+        }
+
+        LocalDateTime dateTime = FormatBuilder(pattern).toFormatter().parseLocalDateTime(date);
+        dateLiteral.setYear(dateTime.getYear());
+        dateLiteral.setMonth(dateTime.getMonthOfYear());
+        dateLiteral.setDay(dateTime.getDayOfMonth());
+        dateLiteral.setHour(dateTime.getHourOfDay());
+        dateLiteral.setMinute(dateTime.getMinuteOfHour());
+        dateLiteral.setSecond(dateTime.getSecondOfMinute());
+        return dateLiteral;
+    }
+
+    public String dateFormat(String pattern) throws AnalysisException{
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        if (type == Type.DATE) {
+            builder.appendYear(4, 4).appendLiteral("-").
+                    appendMonthOfYear(2).appendLiteral("-").appendDayOfMonth(2);
+        } else {
+            builder.appendYear(4, 4).appendLiteral("-").
+                    appendMonthOfYear(2).appendLiteral("-")
+                    .appendDayOfMonth(2).appendLiteral(" ")
+                    .appendHourOfDay(2).appendLiteral(":")
+                    .appendMinuteOfHour(2).appendLiteral(":")
+                    .appendSecondOfMinute(2);
+        }
+
+        return builder.toFormatter().parseLocalDateTime(getStringValue())
+                .toString(FormatBuilder(pattern).toFormatter());
+    }
+
+
+    private static DateTimeFormatterBuilder FormatBuilder(String pattern) throws AnalysisException{
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        //String formatString = fmtLiteral.getStringValue();
+        boolean escaped = false;
+        for (int i = 0; i < pattern.length(); i++) {
+            char character = pattern.charAt(i);
+            if (escaped) {
+                switch (character) {
+                    case 'a': // %a Abbreviated weekday name (Sun..Sat)
+                        builder.appendDayOfWeekShortText();
+                        break;
+                    case 'b': // %b Abbreviated month name (Jan..Dec)
+                        builder.appendMonthOfYearShortText();
+                        break;
+                    case 'c': // %c Month, numeric (0..12)
+                        builder.appendMonthOfYear(1);
+                        break;
+                    case 'd': // %d Day of the month, numeric (00..31)
+                        builder.appendDayOfMonth(2);
+                        break;
+                    case 'e': // %e Day of the month, numeric (0..31)
+                        builder.appendDayOfMonth(1);
+                        break;
+                    case 'H': // %H Hour (00..23)
+                        builder.appendHourOfDay(2);
+                        break;
+                    case 'h': // %h Hour (01..12)
+                    case 'I': // %I Hour (01..12)
+                        builder.appendClockhourOfHalfday(2);
+                        break;
+                    case 'i': // %i Minutes, numeric (00..59)
+                        builder.appendMinuteOfHour(2);
+                        break;
+                    case 'j': // %j Day of year (001..366)
+                        builder.appendDayOfYear(3);
+                        break;
+                    case 'k': // %k Hour (0..23)
+                        builder.appendHourOfDay(1);
+                        break;
+                    case 'l': // %l Hour (1..12)
+                        builder.appendClockhourOfHalfday(1);
+                        break;
+                    case 'M': // %M Month name (January..December)
+                        builder.appendMonthOfYearText();
+                        break;
+                    case 'm': // %m Month, numeric (00..12)
+                        builder.appendMonthOfYear(2);
+                        break;
+                    case 'p': // %p AM or PM
+                        builder.appendHalfdayOfDayText();
+                        break;
+                    case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
+                        builder.appendClockhourOfHalfday(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2)
+                                .appendLiteral(' ')
+                                .appendHalfdayOfDayText();
+                        break;
+                    case 'S': // %S Seconds (00..59)
+                    case 's': // %s Seconds (00..59)
+                        builder.appendSecondOfMinute(2);
+                        break;
+                    case 'T': // %T Time, 24-hour (hh:mm:ss)
+                        builder.appendHourOfDay(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2);
+                        break;
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                        builder.appendWeekOfWeekyear(2);
+                        break;
+                    case 'x': // %x Year for the week, where Monday is the first day of the week, numeric, four digits; used with %v
+                        builder.appendWeekyear(4, 4);
+                        break;
+                    case 'W': // %W Weekday name (Sunday..Saturday)
+                        builder.appendDayOfWeekText();
+                        break;
+                    case 'Y': // %Y Year, numeric, four digits
+                        builder.appendYear(4, 4);
+                        break;
+                    case 'y': // %y Year, numeric (two digits)
+                        builder.appendTwoDigitYear(2020);
+                        break;
+                    case 'f': // %f Microseconds (000000..999999)
+                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
+                    case 'U': // %U Week (00..53), where Sunday is the first day of the week
+                    case 'u': // %u Week (00..53), where Monday is the first day of the week
+                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
+                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
+                        throw new AnalysisException(String.format("%%%s not supported in date format string", character));
+                    case '%': // %% A literal "%" character
+                        builder.appendLiteral('%');
+                        break;
+                    default: // %<x> The literal character represented by <x>
+                        builder.appendLiteral(character);
+                        break;
+                }
+                escaped = false;
+            } else if (character == '%') {
+                escaped = true;
+            } else {
+                builder.appendLiteral(character);
+            }
+        }
+        return builder;
+    }
+
+    public long getHour() {
+        return hour;
+    }
+
+    public void setHour(long hour) {
+        this.hour = hour;
+    }
+
+    public long getMinute() {
+        return minute;
+    }
+
+    public void setMinute(long minute) {
+        this.minute = minute;
+    }
+
+    public long getSecond() {
+        return second;
+    }
+
+    public void setSecond(long second) {
+        this.second = second;
+    }
+
+    public long getYear() {
+        return year;
+    }
+
+    public void setYear(long year) {
+        this.year = year;
+    }
+
+    public long getMonth() {
+        return month;
+    }
+
+    public void setMonth(long month) {
+        this.month = month;
+    }
+
+    public long getDay() {
+        return day;
+    }
+
+    public void setDay(long day) {
+        this.day = day;
+    }
+
+    public long getMicrosecond() {
+        return microsecond;
+    }
+
+    public void setMicrosecond(long microsecond) {
+        this.microsecond = microsecond;
+    }
+
+
+    private long year;
+    private long month;
+    private long day;
+    private long hour;
+    private long minute;
+    private long second;
+    private long microsecond;
 }
