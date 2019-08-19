@@ -60,6 +60,7 @@ public class LoadStmt extends DdlStmt {
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";

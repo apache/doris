@@ -216,7 +216,7 @@ public class Coordinator {
 
     // Used for broker load task/export task coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
+            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster, String timezone) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -226,8 +226,7 @@ public class Coordinator {
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
-        // this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);
-        this.queryGlobals.setTime_zone("Africa/Abidjan");
+        this.queryGlobals.setTime_zone(timezone);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;

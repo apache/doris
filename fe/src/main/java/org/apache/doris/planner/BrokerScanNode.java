@@ -133,6 +133,7 @@ public class BrokerScanNode extends ScanNode {
         public TupleDescriptor tupleDescriptor;
         public Map<String, Expr> exprMap;
         public Map<String, SlotDescriptor> slotDescByName;
+        public String timezone;
     }
 
     private List<ParamCreateContext> paramCreateContexts;
@@ -168,6 +169,7 @@ public class BrokerScanNode extends ScanNode {
         for (BrokerFileGroup fileGroup : fileGroups) {
             ParamCreateContext context = new ParamCreateContext();
             context.fileGroup = fileGroup;
+            context.timezone = analyzer.getTimezone();
             try {
                 initParams(context);
             } catch (AnalysisException e) {
@@ -278,7 +280,7 @@ public class BrokerScanNode extends ScanNode {
             Preconditions.checkNotNull(col, columnName);
             String realColName = col.getName();
             if (columnExpr != null) {
-                columnExpr = transformHadoopFunctionExpr(columnName, columnExpr);
+                columnExpr = transformHadoopFunctionExpr(columnName, columnExpr, context.timezone);
                 context.exprMap.put(realColName, columnExpr);
             }
         }
@@ -322,7 +324,7 @@ public class BrokerScanNode extends ScanNode {
      * @return
      * @throws UserException
      */
-    private Expr transformHadoopFunctionExpr(String columnName, Expr originExpr) throws UserException {
+    private Expr transformHadoopFunctionExpr(String columnName, Expr originExpr, String timezone) throws UserException {
         Column column = targetTable.getColumn(columnName);
         if (column == null) {
             throw new UserException("Unknown column(" + columnName + ")");
@@ -415,14 +417,17 @@ public class BrokerScanNode extends ScanNode {
             } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
                 /*
                  * change to:
-                 * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(value), "%Y-01-01 00:00:00"))
+                 * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(ts), "%Y-01-01 00:00:00"));
+                 * 
                  */
                 
+                // FROM_UNIXTIME
                 FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
                 List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
                 FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
                         fromUnixName, new FunctionParams(false, fromUnixArgs));
 
+                // DATE_FORMAT
                 StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
                 StringLiteral format;
                 if (precision.getStringValue().equalsIgnoreCase("year")) {
@@ -441,6 +446,7 @@ public class BrokerScanNode extends ScanNode {
                 FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
                         dateFormatName, new FunctionParams(false, dateFormatArgs));
 
+                // UNIX_TIMESTAMP
                 FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
                 List<Expr> unixTimeArgs = Lists.newArrayList();
                 unixTimeArgs.add(dateFormatFunc);

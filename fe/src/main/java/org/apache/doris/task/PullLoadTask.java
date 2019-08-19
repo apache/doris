@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -210,7 +211,7 @@ public class PullLoadTask {
             UUID uuid = UUID.randomUUID();
             queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             curCoordinator = new Coordinator(jobId, queryId, planner.getDescTable(),
-                    planner.getFragments(), planner.getScanNodes(), db.getClusterName());
+                    planner.getFragments(), planner.getScanNodes(), db.getClusterName(), TimeUtils.DEFAULT_TIME_ZONE);
             curCoordinator.setQueryType(TQueryType.LOAD);
             curCoordinator.setExecMemoryLimit(execMemLimit);
             curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));

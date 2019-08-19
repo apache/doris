@@ -94,9 +94,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long timeoutSecond = Config.broker_load_default_timeout_second;
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
+    protected boolean strictMode = true;
+    protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     @Deprecated
     protected boolean deleteFlag = false;
-    protected boolean strictMode = true;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -302,6 +303,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             if (properties.containsKey(LoadStmt.STRICT_MODE)) {
                 strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
+            }
+
+            if (properties.containsKey(LoadStmt.TIMEZONE)) {
+                timezone = properties.get(LoadStmt.TIMEZONE);
+                TimeUtils.checkTimeZoneValid(timezone);
             }
         }
     }
@@ -880,6 +886,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             out.writeBoolean(true);
             authorizationInfo.write(out);
         }
+        Text.writeString(out, timezone);
     }
 
     @Override
@@ -919,6 +926,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 authorizationInfo = new AuthorizationInfo();
                 authorizationInfo.readFields(in);
             }
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+            timezone = Text.readString(in);
         }
     }
 }
