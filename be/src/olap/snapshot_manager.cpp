@@ -362,7 +362,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string snapshot_id_path;
     int64_t timeout_s = config::snapshot_expire_time_sec;
     if (request.__isset.timeout) {
-        timeout_s = request.__isset.timeout;
+        timeout_s = request.timeout;
     }
     res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {

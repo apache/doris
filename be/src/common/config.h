@@ -212,8 +212,8 @@ namespace config {
     // inc_rowset expired interval
     CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
-    CONF_Int32(max_garbage_sweep_interval, "43200");
-    CONF_Int32(min_garbage_sweep_interval, "200");
+    CONF_Int32(max_garbage_sweep_interval, "14400");
+    CONF_Int32(min_garbage_sweep_interval, "180");
     CONF_Int32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
     CONF_Int32(trash_file_expire_time_sec, "259200");
