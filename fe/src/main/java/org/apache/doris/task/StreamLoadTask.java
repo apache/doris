@@ -57,6 +57,7 @@ public class StreamLoadTask {
     private String partitions;
     private String path;
     private boolean negative;
+    private boolean strictMode = true;
     private int timeout = Config.stream_load_default_timeout_second;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
@@ -106,6 +107,10 @@ public class StreamLoadTask {
         return negative;
     }
 
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
     public int getTimeout() {
         return timeout;
     }
@@ -143,6 +148,9 @@ public class StreamLoadTask {
         if (request.isSetTimeout()) {
             timeout = request.getTimeout();
         }
+        if (request.isSetStrictMode()) {
+            strictMode = request.isStrictMode();
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -158,6 +166,7 @@ public class StreamLoadTask {
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
+        strictMode = routineLoadJob.isStrictMode();
     }
 
     private void setColumnToColumnExpr(String columns) throws UserException {
