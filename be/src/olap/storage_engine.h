@@ -122,8 +122,6 @@ public:
     // @brief 获取所有root_path信息
     OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos);
 
-    void get_all_available_root_path(std::vector<std::string>* available_paths);
-
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
