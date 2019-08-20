@@ -25,5 +25,8 @@ mysql> select str_to_date('200442 Monday', '%X%V %W');
 +-----------------------------------------+
 | 2004-10-18                              |
 +-----------------------------------------+
+```
+
 ##keyword
-STR_TO_DATE,STR,TO,DATE
+
+    STR_TO_DATE,STR,TO,DATE
