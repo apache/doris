@@ -182,7 +182,9 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
     导入任务的超时时间(以秒为单位)，导入任务在设定的 timeout 时间内未完成则会被系统取消，变成 CANCELLED。
     
-    目前 Stream load 并不支持自定义导入的 timeout 时间，所有 Stream load 导入的超时时间是统一的，默认的 timeout 时间为300秒。如果导入的源文件无法再规定时间内完成导入，则需要调整 FE 的参数```stream_load_default_timeout_second```。
+    默认的 timeout 时间为 600 秒。如果导入的源文件无法再规定时间内完成导入，用户可以在 stream load 请求中设置单独的超时时间。
+
+    或者调整 FE 的参数```stream_load_default_timeout_second``` 来设置全局的默认超时时间。
 
 ### BE 配置
 
