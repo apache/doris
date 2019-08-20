@@ -777,7 +777,11 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     }
     auto timeout_it = params.find(TIMEOUT_KEY);
     if (timeout_it != params.end()) {
-        ctx->timeout_second = std::stoi(timeout_it->second);
+        try {
+            ctx->timeout_second = std::stoi(timeout_it->second);
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
     }
     
     LOG(INFO) << "new income mini load request." << ctx->brief()
