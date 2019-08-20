@@ -112,7 +112,7 @@ public class BrokerScanNode extends ScanNode {
     private Table targetTable;
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
-    private boolean strictMode;
+    private boolean strictMode = true;
 
     private List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
