@@ -512,7 +512,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
     if (_fillnull == "1") {
         int fillnullSize = _src_slot_descs.size() - columns_from_path.size();
-        for (int i=values.size(); i < fillnullSize; ++i) {
+        for (int i = values.size(); i < fillnullSize; ++i) {
             auto slot_desc = _src_slot_descs[i];
             if (slot_desc->is_nullable()) {
                 _src_tuple->set_null(slot_desc->null_indicator_offset());
