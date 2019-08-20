@@ -69,6 +69,10 @@ Doris 会首先在指定的远端存储的路径中，建立一个名为 `__dori
 
 当所有数据都导出后，Doris 会将这些文件 rename 到用户指定的路径中。
 
+### Broker 参数
+
+Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](./broker.md)
+
 ## 使用示例
 
 Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
