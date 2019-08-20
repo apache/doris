@@ -239,7 +239,11 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
-        ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+        try {
+            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
     }
 
     // begin transaction
