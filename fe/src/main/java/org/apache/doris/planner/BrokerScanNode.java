@@ -68,6 +68,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -205,7 +206,7 @@ public class BrokerScanNode extends ScanNode {
         this.strictMode = strictMode;
     }
 
-    private void createPartitionInfos() throws AnalysisException {
+    private void createPartitionInfos(List<Long> targetPartitionIds) throws AnalysisException {
         if (partitionInfos != null) {
             return;
         }
@@ -218,7 +219,7 @@ public class BrokerScanNode extends ScanNode {
 
         partitionExprs = Lists.newArrayList();
         partitionInfos = DataSplitSink.EtlRangePartitionInfo.createParts(
-                (OlapTable) targetTable, exprByName, null, partitionExprs);
+                (OlapTable) targetTable, exprByName, Sets.newHashSet(targetPartitionIds), partitionExprs);
     }
 
     // Called from init, construct source tuple information
@@ -235,7 +236,7 @@ public class BrokerScanNode extends ScanNode {
         List<Long> partitionIds = fileGroup.getPartitionIds();
         if (partitionIds != null && partitionIds.size() > 0) {
             params.setPartition_ids(partitionIds);
-            createPartitionInfos();
+            createPartitionInfos(partitionIds);
         }
 
         params.setProperties(brokerDesc.getProperties());
