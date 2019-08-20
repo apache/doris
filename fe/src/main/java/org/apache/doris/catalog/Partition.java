@@ -344,7 +344,7 @@ public class Partition extends MetaObject implements Writable {
             idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
         }
         
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
             int shadowIndexCount = in.readInt();
             for (int i = 0; i < shadowIndexCount; i++) {
                 MaterializedIndex shadowIndex = MaterializedIndex.read(in);

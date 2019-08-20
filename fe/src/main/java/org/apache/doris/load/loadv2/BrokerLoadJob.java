@@ -508,7 +508,7 @@ public class BrokerLoadJob extends LoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_58) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_60) {
             dataSourceInfo.readFields(in);
         }
 
