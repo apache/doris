@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -33,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -92,6 +94,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final boolean DEFAULT_STRICT_MODE = true;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -147,6 +150,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+    // include strict mode
+    protected Map<String, String> jobProperties = Maps.newHashMap();
 
     /*
      * The following 3 variables control the max execute time of a single task.
@@ -241,6 +246,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
+        jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -364,6 +370,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public ColumnSeparator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public boolean isStrictMode() {
+        String value = jobProperties.get(LoadStmt.STRICT_MODE);
+        if (value == null) {
+            return DEFAULT_STRICT_MODE;
+        }
+        return Boolean.valueOf(value);
     }
 
     public RoutineLoadProgress getProgress() {
@@ -1113,6 +1127,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(abortedTaskNum);
 
         Text.writeString(out, origStmt);
+        out.writeInt(jobProperties.size());
+        for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     @Override
@@ -1159,6 +1178,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         abortedTaskNum = in.readLong();
 
         origStmt = Text.readString(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                jobProperties.put(key, value);
+            }
+        } else {
+            // The behaviors of old broker load could not be changed
+            jobProperties.put(LoadStmt.STRICT_MODE, Boolean.toString(false));
+        }
 
         // parse the origin stmt to get routine load desc
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt)));

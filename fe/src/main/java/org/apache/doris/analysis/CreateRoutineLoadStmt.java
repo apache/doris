@@ -105,6 +105,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(LoadStmt.STRICT_MODE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -131,6 +132,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private boolean strictMode = true;
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -197,6 +199,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public long getMaxBatchSize() {
         return maxBatchSizeBytes;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
     }
 
     public String getKafkaBrokerList() {
@@ -308,6 +314,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+                                                      RoutineLoadJob.DEFAULT_STRICT_MODE,
+                                                      LoadStmt.STRICT_MODE + " should be a boolean");
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
