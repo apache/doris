@@ -1171,6 +1171,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             strictMode = in.readBoolean();
+        } else {
+            // The behaviors of old broker load could not be changed
+            strictMode = false;
         }
 
         // parse the origin stmt to get routine load desc

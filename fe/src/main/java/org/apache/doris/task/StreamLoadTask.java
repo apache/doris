@@ -57,7 +57,7 @@ public class StreamLoadTask {
     private String partitions;
     private String path;
     private boolean negative;
-    private boolean strictMode = RoutineLoadJob.DEFAULT_STRICT_MODE;
+    private boolean strictMode = true;
     private int timeout = Config.stream_load_default_timeout_second;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
