@@ -26,7 +26,7 @@ Doris 数据模型上目前分为三类: AGGREGATE KEY, UNIQUE KEY, DUPLICATE KE
     
 2. UNIQUE KEY
 
-    UNIQUE KEY 相同时，新记录覆盖旧记录。目前 UNIQUE KEY 实现上和 GGREGATE KEY 的 REPLACE 聚合方法一样，二者本质上相同。适用于有更新需求的分析业务。
+    UNIQUE KEY 相同时，新记录覆盖旧记录。目前 UNIQUE KEY 实现上和 AGGREGATE KEY 的 REPLACE 聚合方法一样，二者本质上相同。适用于有更新需求的分析业务。
     
     ```
     CREATE TABLE sales_order
