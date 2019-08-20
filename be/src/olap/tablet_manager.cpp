@@ -724,12 +724,15 @@ void TabletManager::get_tablet_stat(TTabletStatResult& result) {
 
     // get current time
     int64_t current_time = UnixMillis();
-    WriteLock wlock(&_tablet_map_lock);
+
     // update cache if too old
-    if (current_time - _tablet_stat_cache_update_time_ms >
-        config::tablet_stat_cache_update_interval_second * 1000) {
-        VLOG(3) << "update tablet stat.";
-        _build_tablet_stat();
+    {
+        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
+        if (current_time - _tablet_stat_cache_update_time_ms >
+                config::tablet_stat_cache_update_interval_second * 1000) {
+            VLOG(3) << "update tablet stat.";
+            _build_tablet_stat();
+        }
     }
 
     result.__set_tablets_stats(_tablet_stat_cache);
@@ -1176,6 +1179,8 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
 
 void TabletManager::_build_tablet_stat() {
     _tablet_stat_cache.clear();
+
+    ReadLock rdlock(&_tablet_map_lock);
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
             continue;
