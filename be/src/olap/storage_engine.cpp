@@ -231,7 +231,6 @@ void StorageEngine::_update_storage_medium_type_count() {
     }
 }
 
-
 OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -263,16 +262,6 @@ void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
 
     it->second->set_is_used(is_used);
     _update_storage_medium_type_count();
-}
-
-void StorageEngine::get_all_available_root_path(std::vector<std::string>* available_paths) {
-    available_paths->clear();
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& it : _store_map) {
-        if (it.second->is_used()) {
-            available_paths->push_back(it.first);
-        }
-    }
 }
 
 template<bool include_unused>
