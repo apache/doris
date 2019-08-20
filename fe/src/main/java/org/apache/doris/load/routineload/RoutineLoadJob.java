@@ -1182,7 +1182,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             int size = in.readInt();
             for (int i = 0; i < size; i++) {
-                jobProperties.put(Text.readString(in), Text.readString(in));
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                jobProperties.put(key, value);
             }
         } else {
             // The behaviors of old broker load could not be changed
