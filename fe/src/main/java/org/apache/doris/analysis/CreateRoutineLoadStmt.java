@@ -94,6 +94,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
+    public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -104,6 +105,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(LoadStmt.STRICT_MODE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -130,12 +132,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private boolean strictMode = true;
 
     // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+
+
     //custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
@@ -196,6 +201,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxBatchSizeBytes;
     }
 
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
     }
@@ -211,6 +220,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
     }
+
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -304,6 +314,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+                                                      RoutineLoadJob.DEFAULT_STRICT_MODE,
+                                                      LoadStmt.STRICT_MODE + " should be a boolean");
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
@@ -401,7 +415,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-
         // check custom kafka property
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {

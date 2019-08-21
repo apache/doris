@@ -61,6 +61,6 @@ public:
 //
 // Return not OK, if error happens.
 Status get_block_compression_codec(
-    segment_v2::CompressionTypePB type, BlockCompressionCodec** codec);
+    segment_v2::CompressionTypePB type, const BlockCompressionCodec** codec);
 
 }

@@ -50,8 +50,8 @@ public class InsertLoadJob extends LoadJob {
         this.jobType = EtlJobType.INSERT;
     }
 
-    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg)
-            throws MetaNotFoundException {
+    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg,
+            String trackingUrl) throws MetaNotFoundException {
         super(dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
@@ -68,6 +68,7 @@ public class InsertLoadJob extends LoadJob {
         this.jobType = EtlJobType.INSERT;
         this.timeoutSecond = Config.insert_load_default_timeout_second;
         this.authorizationInfo = gatherAuthInfo();
+        this.loadingStatus.setTrackingUrl(trackingUrl);
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {

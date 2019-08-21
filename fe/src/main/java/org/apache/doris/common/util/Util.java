@@ -391,5 +391,19 @@ public class Util {
 
         return result;
     }
+
+    public static boolean getBooleanPropertyOrDefault(String valStr, boolean defaultVal, String hintMsg)
+            throws AnalysisException {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+
+        try {
+            boolean result = Boolean.valueOf(valStr);
+            return result;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(hintMsg);
+        }
+    }
 }
 

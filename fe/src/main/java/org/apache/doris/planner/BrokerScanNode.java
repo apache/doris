@@ -38,7 +38,6 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -113,7 +112,7 @@ public class BrokerScanNode extends ScanNode {
     private Table targetTable;
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
-    private boolean strictMode;
+    private boolean strictMode = true;
 
     private List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
@@ -124,8 +123,6 @@ public class BrokerScanNode extends ScanNode {
     private int nextBe = 0;
 
     private Analyzer analyzer;
-
-    private List<DataSplitSink.EtlRangePartitionInfo> partitionInfos;
     private List<Expr> partitionExprs;
 
     private static class ParamCreateContext {
@@ -139,7 +136,7 @@ public class BrokerScanNode extends ScanNode {
     private List<ParamCreateContext> paramCreateContexts;
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
@@ -205,22 +202,6 @@ public class BrokerScanNode extends ScanNode {
         this.strictMode = strictMode;
     }
 
-    private void createPartitionInfos() throws AnalysisException {
-        if (partitionInfos != null) {
-            return;
-        }
-
-        Map<String, Expr> exprByName = Maps.newHashMap();
-
-        for (SlotDescriptor slotDesc : desc.getSlots()) {
-            exprByName.put(slotDesc.getColumn().getName(), new SlotRef(slotDesc));
-        }
-
-        partitionExprs = Lists.newArrayList();
-        partitionInfos = DataSplitSink.EtlRangePartitionInfo.createParts(
-                (OlapTable) targetTable, exprByName, null, partitionExprs);
-    }
-
     // Called from init, construct source tuple information
     private void initParams(ParamCreateContext context) throws AnalysisException, UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
@@ -230,14 +211,6 @@ public class BrokerScanNode extends ScanNode {
         params.setColumn_separator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
         params.setLine_delimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
         params.setStrict_mode(strictMode);
-
-        // Parse partition information
-        List<Long> partitionIds = fileGroup.getPartitionIds();
-        if (partitionIds != null && partitionIds.size() > 0) {
-            params.setPartition_ids(partitionIds);
-            createPartitionInfos();
-        }
-
         params.setProperties(brokerDesc.getProperties());
         initColumns(context);
     }
@@ -296,6 +269,7 @@ public class BrokerScanNode extends ScanNode {
                 slotDesc.setIsMaterialized(true);
                 // same as ISSUE A
                 slotDesc.setIsNullable(true);
+                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
@@ -309,7 +283,7 @@ public class BrokerScanNode extends ScanNode {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
                     throw new UserException("unknown reference column, column=" + entry.getKey()
-                                                    + ", reference=" + slot.getColumnName());
+                            + ", reference=" + slot.getColumnName());
                 }
                 smap.getLhs().add(slot);
                 smap.getRhs().add(new SlotRef(slotDesc));
@@ -469,7 +443,7 @@ public class BrokerScanNode extends ScanNode {
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new UserException("Unknown slot ref("
-                                                            + destSlotDesc.getColumn().getName() + ") in source file");
+                                    + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
                 }
@@ -479,12 +453,12 @@ public class BrokerScanNode extends ScanNode {
             if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 if (!(expr instanceof FunctionCallExpr)) {
                     throw new AnalysisException("HLL column must use hll_hash function, like "
-                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
                 if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
                     throw new AnalysisException("HLL column must use hll_hash function, like "
-                                                        + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 expr.setType(Type.HLL);
             }
@@ -636,31 +610,35 @@ public class BrokerScanNode extends ScanNode {
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
-            String fileFormat,
-            TBrokerScanRangeParams params,
+            ParamCreateContext context,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
         }
 
-        TScanRangeLocations curLocations = newLocations(params, brokerDesc.getName());
+        TScanRangeLocations curLocations = newLocations(context.params, brokerDesc.getName());
         long curInstanceBytes = 0;
         long curFileOffset = 0;
         for (int i = 0; i < fileStatuses.size(); ) {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            TFileFormatType formatType = formatType(fileFormat, fileStatus.path);
+            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                    context.fileGroup.getColumnsFromPath());
+            int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                            rangeBytes, columnsFromPath, numberOfColumnsFromFile);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                            leftBytes, columnsFromPath, numberOfColumnsFromFile);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -668,11 +646,12 @@ public class BrokerScanNode extends ScanNode {
 
                 // New one scan
                 locationsList.add(curLocations);
-                curLocations = newLocations(params, brokerDesc.getName());
+                curLocations = newLocations(context.params, brokerDesc.getName());
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType, leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                        leftBytes, columnsFromPath, numberOfColumnsFromFile);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -687,7 +666,8 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
-            TFileFormatType formatType, long rangeBytes) {
+                                                   TFileFormatType formatType, long rangeBytes,
+                                                   List<String> columnsFromPath, int numberOfColumnsFromFile) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFile_type(TFileType.FILE_BROKER);
         rangeDesc.setFormat_type(formatType);
@@ -696,6 +676,8 @@ public class BrokerScanNode extends ScanNode {
         rangeDesc.setStart_offset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setFile_size(fileStatus.size);
+        rangeDesc.setNum_of_columns_from_file(numberOfColumnsFromFile);
+        rangeDesc.setColumns_from_path(columnsFromPath);
         return rangeDesc;
     }
 
@@ -714,7 +696,7 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
+            processFileGroup(context, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {
@@ -733,10 +715,6 @@ public class BrokerScanNode extends ScanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.BROKER_SCAN_NODE;
         TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
-        if (partitionInfos != null) {
-            brokerScanNode.setPartition_exprs(Expr.treesToThrift(partitionExprs));
-            brokerScanNode.setPartition_infos(DataSplitSink.EtlRangePartitionInfo.listToNonDistThrift(partitionInfos));
-        }
         msg.setBroker_scan_node(brokerScanNode);
     }
 
@@ -766,3 +744,5 @@ public class BrokerScanNode extends ScanNode {
     }
 
 }
+
+

@@ -651,11 +651,15 @@ public class Load {
             for (Column column : tableSchema) {
                 nameToTableColumn.put(column.getName(), column);
             }
-
-            // source columns
             List<String> columnNames = Lists.newArrayList();
-            List<String> assignColumnNames = dataDescription.getColumnNames();
-            if (assignColumnNames == null) {
+            List<String> assignColumnNames = Lists.newArrayList();
+            if (dataDescription.getColumnNames() != null) {
+                assignColumnNames.addAll(dataDescription.getColumnNames());
+                if (dataDescription.getColumnsFromPath() != null) {
+                    assignColumnNames.addAll(dataDescription.getColumnsFromPath());
+                }
+            }
+            if (assignColumnNames.isEmpty()) {
                 // use table columns
                 for (Column column : tableSchema) {
                     columnNames.add(column.getName());

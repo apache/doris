@@ -18,3 +18,7 @@ mysql> select current_time();
 | 15:25:47       |
 +----------------+
 ```
+
+## keyword
+
+    CURTIME,CURRENT_TIME

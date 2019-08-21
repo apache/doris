@@ -238,6 +238,14 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 
+    if (!http_req->header(HTTP_TIMEOUT).empty()) {
+        try {
+            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
+    }
+
     // begin transaction
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
 
@@ -326,6 +334,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             request.__set_negative(true);
     } else {
         request.__set_negative(false);
+    }
+    if (!http_req->header(HTTP_STRICT_MODE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "false")) {
+            request.__set_strictMode(false);
+        } else if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "true")) {
+            request.__set_strictMode(true);
+        } else {
+            return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
+        }
     }
 
     // plan this load

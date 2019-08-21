@@ -54,12 +54,15 @@
         max_filter_ratio:   用于指定允许过滤不规范数据的最大比例，默认是0，不允许过滤
                             自定义指定应该如下：'max_filter_ratio=0.2'，含义是允许20%的错误率
 
-        timeout:            指定 load 作业的超时时间，单位是秒。当load执行时间超过该阈值时，会自动取消。默认超时时间是 86400 秒。
+        timeout:            指定 load 作业的超时时间，单位是秒。当load执行时间超过该阈值时，会自动取消。默认超时时间是 600 秒。
                             建议指定 timeout 时间小于 86400 秒。
                             
         hll:                用于指定数据里面和表里面的HLL列的对应关系，表中的列和数据里面指定的列
                             （如果不指定columns，则数据列面的列也可以是表里面的其它非HLL列）通过","分割
                             指定多个hll列使用“:”分割，例如: 'hll1,cuid:hll2,device'
+
+        strict_mode:        指定当前导入是否使用严格模式，默认为 true。严格模式下，非空原始数据在列类型转化后结果为 NULL 的会被过滤。
+                            指定方式为 'strict_mode=false'
     
     NOTE: 
         1. 此种导入方式当前是在一台机器上完成导入工作，因而不宜进行数据量较大的导入工作。
@@ -79,7 +82,7 @@
         curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123
 
     2. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表（用户是test_cluster中的）。超时时间是 3600 秒
-        curl --location-trusted -u root@test_cluster:root -T testData http://fe.host:port/api/testDb/testTbl/_load?label=123&timeout=3600
+        curl --location-trusted -u root@test_cluster:root -T testData http://fe.host:port/api/testDb/testTbl/_load?label=123\&timeout=3600
 
     3. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率（用户是defalut_cluster中的）
         curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123\&max_filter_ratio=0.2
@@ -98,6 +101,9 @@
     7. 查看提交后的导入情况
 
         curl -u root http://host:port/api/testDb/_load_info?label=123
+
+    8. 指定非严格模式导入
+        curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123\&strict_mode=false
 
 ## keyword
     MINI, LOAD

@@ -26,9 +26,12 @@
 #include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/types.h" // for TypeInfo
 #include "util/faststring.h" // for fastring
 #include "util/rle_encoding.h" // for RleEncoder
+#include "util/block_compression.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -87,7 +90,7 @@ ColumnWriter::~ColumnWriter() {
 Status ColumnWriter::init() {
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _opts.encoding_type, &_encoding_info));
     if (_opts.compression_type != NO_COMPRESSION) {
-        // TODO(zc):
+        RETURN_IF_ERROR(get_block_compression_codec(_opts.compression_type, &_compress_codec));
     }
 
     // create page builder
@@ -192,7 +195,6 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_encoding(_opts.encoding_type);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
-    meta->set_has_checksum(_opts.need_checksum);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
 }
 
@@ -226,18 +228,20 @@ Status ColumnWriter::_write_data_page(Page* page) {
 Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
-    // TODO(zc): support compress
-    // if (_need_compress) {
-    //     output_data = &compressed_data;
-    // }
 
-    // checksum
-    uint8_t checksum_buf[sizeof(uint32_t)];
-    if (_opts.need_checksum) {
-        uint32_t checksum = _compute_checksum(*output_data);
-        encode_fixed32_le(checksum_buf, checksum);
-        output_data->emplace_back(checksum_buf, sizeof(uint32_t));
+    // Put compressor out of if block, because we should use compressor's
+    // content until this function finished.
+    PageCompressor compressor(_compress_codec);
+    if (_compress_codec != nullptr) {
+        RETURN_IF_ERROR(compressor.compress(*origin_data, &compressed_data));
+        output_data = &compressed_data;
     }
+
+    // always compute checksum
+    uint8_t checksum_buf[sizeof(uint32_t)];
+    uint32_t checksum = HashUtil::crc_hash(*output_data, 0);
+    encode_fixed32_le(checksum_buf, checksum);
+    output_data->emplace_back(checksum_buf, sizeof(uint32_t));
 
     // remember the offset
     pp->offset = _output_file->size();
@@ -247,11 +251,6 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
     pp->size = bytes_written;
 
     return Status::OK();
-}
-
-uint32_t ColumnWriter::_compute_checksum(const std::vector<Slice>& data) {
-    // TODO(zc): compute checksum
-    return 0;
 }
 
 // write raw data into file, this is the only place to write data

@@ -23,12 +23,15 @@
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
 #include "olap/column_block.h" // for ColumnBlockView
 #include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
+#include "util/block_compression.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -85,7 +88,9 @@ Status ColumnReader::init() {
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
 
-    // TODO(zc): do with compress type
+    // Get compress codec
+    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
+
     RETURN_IF_ERROR(_init_ordinal_index());
 
     return Status::OK();
@@ -106,30 +111,46 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
         return Status::OK();
     }
     // Now we read this from file. we 
-    size_t data_size = pp.size;
-    if (has_checksum() && data_size < sizeof(uint32_t)) {
-        return Status::Corruption("Bad page, page size is too small");
-    }
-    if (has_checksum()) {
-        data_size -= sizeof(uint32_t);
-    }
-    uint8_t* buf = new uint8_t[data_size];
-    Slice data(buf, data_size);
-
-    uint8_t checksum_buf[sizeof(uint32_t)];
-    Slice slices[2] = { data, Slice(checksum_buf, 4) };
-
-    bool verify_checksum = has_checksum() && _opts.verify_checksum;
-    RETURN_IF_ERROR(_file->readv_at(pp.offset, slices, verify_checksum ? 2 : 1));
-
-    if (verify_checksum) {
-        // TODO(zc): verify checksum
+    size_t page_size = pp.size;
+    if (page_size < sizeof(uint32_t)) {
+        return Status::Corruption(Substitute("Bad page, page size is too small, size=$0", page_size));
     }
 
-    // TODO(zc): compress
-    
+    // Now we use this buffer to store page from storage, if this page is compressed
+    // this buffer will assigned uncompressed page, and origin content will be freed.
+    std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
+    Slice page_slice(page.get(), page_size);
+    RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+
+    size_t data_size = page_size - 4;
+    if (_opts.verify_checksum) {
+        uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
+        uint32_t actual = HashUtil::crc_hash(page_slice.data, page_slice.size - 4, 0);
+        if (expect != actual) {
+            return Status::Corruption(
+                Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
+        }
+    }
+
+    // remove page's suffix
+    page_slice.size = data_size;
+
+    if (_compress_codec != nullptr) {
+        PageDecompressor decompressor(page_slice, _compress_codec);
+
+        Slice uncompressed_page;
+        RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
+
+        // If decompressor create new heap memory for uncompressed data,
+        // assign this uncompressed page to page and page slice
+        if (uncompressed_page.data != page_slice.data) {
+            page.reset((uint8_t*)uncompressed_page.data);
+        }
+        page_slice = uncompressed_page;
+    }
     // insert this into cache and return the cache handle
-    cache->insert(cache_key, data, &cache_handle);
+    cache->insert(cache_key, page_slice, &cache_handle);
+    page.release();
     *handle = PageHandle(std::move(cache_handle));
 
     return Status::OK();

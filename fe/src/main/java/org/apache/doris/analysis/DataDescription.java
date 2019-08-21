@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -53,21 +54,22 @@ import java.util.TreeSet;
 //          [COLUMNS TERMINATED BY separator]
 //          [FORMAT AS format]
 //          [(tmp_col1, tmp_col2, col3, ...)]
+//          [COLUMNS FROM PATH AS (col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xxx))]
 
 /**
  * The transform of columns should be added after the keyword named COLUMNS.
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
- * It old way of transform will be removed gradually. It 
+ * It old way of transform will be removed gradually. It
  */
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     public static String FUNCTION_HASH_HLL = "hll_hash";
     private static final List<String> hadoopSupportFunctionName = Arrays.asList("strftime", "time_format",
-                                                                                "alignment_timestamp",
-                                                                                "default_value", "md5sum",
-                                                                                "replace_value", "now",
-                                                                                "hll_hash");
+            "alignment_timestamp",
+            "default_value", "md5sum",
+            "replace_value", "now",
+            "hll_hash");
     private final String tableName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
@@ -75,6 +77,7 @@ public class DataDescription {
     private final List<String> columns;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
+    private final List<String> columnsFromPath;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -101,12 +104,25 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList);
+    }
+
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           ColumnSeparator columnSeparator,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.columns = columns;
         this.columnSeparator = columnSeparator;
         this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -133,6 +149,10 @@ public class DataDescription {
 
     public String getFileFormat() {
         return fileFormat;
+    }
+
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
     }
 
     public String getColumnSeparator() {
@@ -196,15 +216,26 @@ public class DataDescription {
      * "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if (columns == null || columns.isEmpty()) {
+        if (columns == null && columnsFromPath != null) {
+            throw new AnalysisException("Can not specify columns_from_path without column_list");
+        }
+        List<String> columnList = Lists.newArrayList();
+        if (columns != null) {
+            columnList.addAll(columns);
+            if (columnsFromPath != null) {
+                columnList.addAll(columnsFromPath);
+            }
+        }
+        if (columnList.isEmpty()) {
             return;
         }
         // merge columns exprs from columns and columnMappingList
         // used to check duplicated column name
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        // Order of parsedColumnExprList: columns(fileFieldNames) + columnsFromPath
         parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
-        for (String columnName : columns) {
+        for (String columnName : columnList) {
             if (!columnNames.add(columnName)) {
                 throw new AnalysisException("Duplicate column : " + columnName);
             }
@@ -224,17 +255,17 @@ public class DataDescription {
 
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "Expr: " + columnExpr.toSql());
+                        + "Expr: " + columnExpr.toSql());
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "The mapping operator error, op: " + predicate.getOp());
+                        + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
             if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                                                    + "The mapping column error. column: " + child0.toSql());
+                        + "The mapping column error. column: " + child0.toSql());
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnNames.add(column)) {
@@ -244,16 +275,18 @@ public class DataDescription {
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException("Hadoop load only supports the designated function. "
-                                                    + "The error mapping function is:" + child1.toSql());
+                        + "The error mapping function is:" + child1.toSql());
             }
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
-            analyzeColumnToHadoopFunction(column, child1);
-
+            if (child1 instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, child1);
+            }
         }
     }
 
     private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
+        Preconditions.checkState(child1 instanceof FunctionCallExpr); 
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
         String functionName = functionCallExpr.getFnName().getFunction();
         if (!hadoopSupportFunctionName.contains(functionName.toLowerCase())) {
@@ -444,10 +477,10 @@ public class DataDescription {
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
-                                                                PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), tableName);
         }
     }
 
@@ -490,6 +523,10 @@ public class DataDescription {
         }
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        }
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            sb.append(" COLUMNS FROM PATH AS (");
+            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
         if (columns != null && !columns.isEmpty()) {
             sb.append(" (");

@@ -25,14 +25,16 @@ import com.google.common.base.Strings;
 public class MysqlOkPacket extends MysqlPacket {
     private static final int PACKET_OK_INDICATOR = 0X00;
     // TODO(zhaochun): following are not used in palo
-    private static final long AFFECT_ROWS = 0;
     private static final long LAST_INSERT_ID = 0;
     private static final int STATUS_FLAGS = 0;
-    private static final int WARNINGS = 0;
     private final String infoMessage;
+    private long affectedRows = 0;
+    private int warningRows = 0;
 
     public MysqlOkPacket(QueryState state) {
         infoMessage = state.getInfoMessage();
+        affectedRows = state.getAffectedRows();
+        warningRows = state.getWarningRows();
     }
 
     @Override
@@ -41,11 +43,11 @@ public class MysqlOkPacket extends MysqlPacket {
         MysqlCapability capability = serializer.getCapability();
 
         serializer.writeInt1(PACKET_OK_INDICATOR);
-        serializer.writeVInt(AFFECT_ROWS);
+        serializer.writeVInt(affectedRows);
         serializer.writeVInt(LAST_INSERT_ID);
         if (capability.isProtocol41()) {
             serializer.writeInt2(STATUS_FLAGS);
-            serializer.writeInt2(WARNINGS);
+            serializer.writeInt2(warningRows);
         } else if (capability.isTransactions()) {
             serializer.writeInt2(STATUS_FLAGS);
         }
