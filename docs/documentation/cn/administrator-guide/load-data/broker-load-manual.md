@@ -255,6 +255,7 @@ mysql> show load order by createtime desc limit 1\G
  LoadStartTime: 2019-07-27 11:46:44
 LoadFinishTime: 2019-07-27 11:50:16
            URL: http://192.168.1.1:8040/api/_load_error_log?file=__shard_4/error_log_insert_stmt_4bb00753932c491a-a6da6e2725415317_4bb00753932c491a_a6da6e2725415317
+    LoadedRows: 82393000
 ```
 
 下面主要介绍了查看导入命令返回结果集中参数意义：
@@ -288,6 +289,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 + Type
 
     导入任务的类型。Broker load 的 type 取值只有 BROKER。    
+
 + EtlInfo
 
     主要显示了导入的数据量指标 ```dpp.norm.ALL 和 dpp.abnorm.ALL```。用户可以根据这两个指标验证当前导入任务的错误率是否超过 max\_filter\_ratio。
@@ -327,6 +329,10 @@ LoadFinishTime: 2019-07-27 11:50:16
 + URL
 
     导入任务的错误数据样例，访问 URL 地址既可获取本次导入的错误数据样例。当本次导入不存在错误数据时，URL 字段则为 N/A。
+
++ LoadedRows
+
+    导入过程中，该数据每 5 秒更新一次，显示当前已处理的行数。该行数仅用于展示当前的进度，不代表最终实际的处理行数。实际处理行数以 EtlInfo 中显示的为准。
 
 ### 取消导入
 
