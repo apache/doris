@@ -146,7 +146,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
 
@@ -164,7 +164,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -231,7 +231,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
             }
             LOG.warn("failed to create rollup replicas for job: {}, {}", jobId, errMsg);
-            cancel("Create rollup replicas failed. Error: " + errMsg);
+            cancelImpl("Create rollup replicas failed. Error: " + errMsg);
             return;
         }
 
@@ -241,7 +241,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -290,7 +290,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
         
@@ -298,7 +298,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -362,7 +362,7 @@ public class RollupJobV2 extends AlterJobV2 {
          */
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
 
@@ -370,7 +370,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -399,7 +399,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                         LOG.warn("rollup tablet {} has few healthy replicas: {}, rollup job: {}",
                                 rollupTablet.getId(), replicas, jobId);
-                        cancel("rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
+                        cancelImpl("rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
                         return;
                     }
                 } // end for tablets
@@ -432,11 +432,11 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     /*
-     * cancel() can be called any time any place.
+     * cancelImpl() can be called any time any place.
      * We need to clean any possible residual of this job.
      */
     @Override
-    public synchronized boolean cancel(String errMsg) {
+    protected boolean cancelImpl(String errMsg) {
         if (jobState.isFinalState()) {
             return false;
         }

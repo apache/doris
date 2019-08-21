@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,7 +39,7 @@ import java.util.List;
  * Version 2 of AlterJob, for replacing the old version of AlterJob.
  * This base class of RollupJob and SchemaChangeJob
  */
-public class AlterJobV2 implements Writable {
+public abstract class AlterJobV2 implements Writable {
     private static final Logger LOG = LogManager.getLogger(AlterJobV2.class);
 
     public enum JobState {
@@ -133,7 +132,7 @@ public class AlterJobV2 implements Writable {
      */
     public synchronized void run() {
         if (isTimeout()) {
-            cancel("Timeout");
+            cancelImpl("Timeout");
             return;
         }
 
@@ -152,29 +151,23 @@ public class AlterJobV2 implements Writable {
         }
     }
 
-    protected void runPendingJob() {
-        throw new NotImplementedException();
+    public final boolean cancel(String errMsg) {
+        synchronized (this) {
+            return cancelImpl(errMsg);
+        }
     }
 
-    protected void runWaitingTxnJob() {
-        throw new NotImplementedException();
-    }
+    protected abstract void runPendingJob();
 
-    protected void runRunningJob() {
-        throw new NotImplementedException();
-    }
+    protected abstract void runWaitingTxnJob();
 
-    public synchronized boolean cancel(String errMsg) {
-        throw new NotImplementedException();
-    }
+    protected abstract void runRunningJob();
 
-    protected void getInfo(List<List<Comparable>> infos) {
-        throw new NotImplementedException();
-    }
+    protected abstract boolean cancelImpl(String errMsg);
 
-    public void replay(AlterJobV2 replayedJob) {
-        throw new NotImplementedException();
-    }
+    protected abstract void getInfo(List<List<Comparable>> infos);
+
+    public abstract void replay(AlterJobV2 replayedJob);
 
     public static AlterJobV2 read(DataInput in) throws IOException {
         JobType type = JobType.valueOf(Text.readString(in));

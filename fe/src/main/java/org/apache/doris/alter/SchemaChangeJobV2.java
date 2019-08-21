@@ -511,7 +511,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * We need to clean any possible residual of this job.
      */
     @Override
-    public synchronized boolean cancel(String errMsg) {
+    protected synchronized boolean cancelImpl(String errMsg) {
         if (jobState.isFinalState()) {
             return false;
         }
