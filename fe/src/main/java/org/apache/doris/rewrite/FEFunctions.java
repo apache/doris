@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-
 import com.google.common.base.Preconditions;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
