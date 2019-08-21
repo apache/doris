@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -237,8 +238,14 @@ public class BrokerLoadJob extends LoadJob {
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
+                if (loadTask instanceof LoadLoadingTask) {
+                    numLoadedRows.remove(((LoadLoadingTask) loadTask).getLoadId());
+                }
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
+                if (loadTask instanceof LoadLoadingTask) {
+                    numLoadedRows.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
+                }
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
                 return;
             }
@@ -356,6 +363,7 @@ public class BrokerLoadJob extends LoadJob {
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
                 idToTasks.put(task.getSignature(), task);
+                numLoadedRows.put(loadId, new AtomicLong(0));
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
             }
         } finally {

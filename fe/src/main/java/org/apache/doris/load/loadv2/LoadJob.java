@@ -68,6 +68,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
@@ -117,6 +118,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     // only for persistence param
     private boolean isJobTypeRead = false;
+
+    // number of rows processed on BE, this number will be updated periodically by query report.
+    // A load job may has several load tasks, so the map key is load task's plan load id.
+    protected Map<TUniqueId, AtomicLong> numLoadedRows = Maps.newConcurrentMap();
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -189,6 +194,21 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public long getTransactionId() {
         return transactionId;
+    }
+
+    public void updateLoadedRows(TUniqueId loadId, long loadedRows) {
+        AtomicLong atomicLong = numLoadedRows.get(loadId);
+        if (atomicLong != null) {
+            atomicLong.set(loadedRows);
+        }
+    }
+
+    public long getNumLoadedRows() {
+        long total = 0;
+        for (AtomicLong atomicLong : numLoadedRows.values()) {
+            total += atomicLong.get();
+        }
+        return total;
     }
 
     /**
@@ -467,6 +487,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
+        numLoadedRows.clear();
 
         // set failMsg and state
         this.failMsg = failMsg;
@@ -600,6 +621,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
+            jobInfo.add(getNumLoadedRows());
             return jobInfo;
         } finally {
             readUnlock();

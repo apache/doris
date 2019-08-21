@@ -367,6 +367,8 @@ struct TReportExecStatusParams {
   13: optional list<string> export_files 
 
   14: optional list<Types.TTabletCommitInfo> commitInfos
+
+  15: optional i64 loaded_rows
 }
 
 struct TFeResult {

@@ -39,6 +39,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -544,16 +545,6 @@ public class LoadManager implements Writable{
         lock.writeLock().unlock();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
-
-        out.writeInt(loadJobs.size());
-        for (LoadJob loadJob : loadJobs) {
-            loadJob.write(out);
-        }
-    }
-
     // If load job will be removed by cleaner later, it will not be saved in image.
     private boolean needSave(LoadJob loadJob) {
         if (!loadJob.isCompleted()) {
@@ -566,6 +557,23 @@ public class LoadManager implements Writable{
         }
 
         return false;
+    }
+
+    public void updateJobLoadedRows(Long jobId, TUniqueId loadId, long loadedRows) {
+        LoadJob job = idToLoadJob.get(jobId);
+        if (job != null) {
+            job.updateLoadedRows(loadId, loadedRows);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
+
+        out.writeInt(loadJobs.size());
+        for (LoadJob loadJob : loadJobs) {
+            loadJob.write(out);
+        }
     }
 
     @Override
