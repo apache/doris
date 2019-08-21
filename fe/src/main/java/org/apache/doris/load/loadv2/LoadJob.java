@@ -307,7 +307,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             if (properties.containsKey(LoadStmt.TIMEZONE)) {
                 timezone = properties.get(LoadStmt.TIMEZONE);
-                TimeUtils.checkTimeZoneValid(timezone);
             }
         }
     }

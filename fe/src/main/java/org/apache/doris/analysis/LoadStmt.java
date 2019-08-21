@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 
@@ -93,6 +94,7 @@ public class LoadStmt extends DdlStmt {
             .add(CLUSTER_PROPERTY)
             .add(STRICT_MODE)
             .add(VERSION)
+            .add(TIMEZONE)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -196,6 +198,11 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        // time zone
+        final String timezone = properties.get(STRICT_MODE);
+        if (timezone != null) {
+            TimeUtils.checkTimeZoneValid(timezone);
+        }
     }
 
     private void analyzeVersion() throws AnalysisException {

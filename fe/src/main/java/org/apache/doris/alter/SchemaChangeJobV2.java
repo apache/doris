@@ -157,7 +157,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("begin to send create replica tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
 
@@ -175,7 +175,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -247,7 +247,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
             }
             LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);
-            cancel("Create replicas failed. Error: " + errMsg);
+            cancelImpl("Create replicas failed. Error: " + errMsg);
             return;
         }
 
@@ -257,7 +257,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -316,7 +316,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
         
@@ -324,7 +324,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -395,7 +395,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          */
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancel("Databasee " + dbId + " does not exist");
+            cancelImpl("Databasee " + dbId + " does not exist");
             return;
         }
 
@@ -403,7 +403,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancel("Table " + tableId + " does not exist");
+                cancelImpl("Table " + tableId + " does not exist");
                 return;
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -433,7 +433,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}",
                                     shadowTablet.getId(), replicas, jobId);
-                            cancel("shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
+                            cancelImpl("shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                             return;
                         }
                     } // end for tablets
@@ -507,7 +507,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     /*
-     * cancel() can be called any time any place.
+     * cancelImpl() can be called any time any place.
      * We need to clean any possible residual of this job.
      */
     @Override

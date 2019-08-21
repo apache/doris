@@ -48,7 +48,7 @@ struct WriteRequest {
     bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
     // slots are in order of tablet's schema
-    std::vector<SlotDescriptor*>* slots;
+    const std::vector<SlotDescriptor*>* slots;
 };
 
 class DeltaWriter {

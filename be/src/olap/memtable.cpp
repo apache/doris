@@ -27,7 +27,7 @@
 namespace doris {
 
 MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
-                   std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+                   const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
     : _schema(schema),
       _tablet_schema(tablet_schema),
