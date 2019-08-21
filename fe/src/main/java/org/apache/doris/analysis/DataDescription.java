@@ -229,7 +229,7 @@ public class DataDescription {
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}                 
      */
     private void analyzeColumns() throws AnalysisException {
-        if ((columns == null || columns.isEmpty()) && (columnMappingList != null && !columnMappingList.isEmpty())) {
+        if ((columns == null || columns.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
         }
 
