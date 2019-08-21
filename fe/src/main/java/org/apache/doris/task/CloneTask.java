@@ -38,18 +38,21 @@ public class CloneTask extends AgentTask {
 
     private long srcPathHash = -1;
     private long destPathHash = -1;
+    
+    private int timeoutS;
 
     private int taskVersion = VERSION_1;
 
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                      long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
-                     long visibleVersion, long visibleVersionHash) {
+                     long visibleVersion, long visibleVersionHash, int timeoutS) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.schemaHash = schemaHash;
         this.srcBackends = srcBackends;
         this.storageMedium = storageMedium;
         this.visibleVersion = visibleVersion;
         this.visibleVersionHash = visibleVersionHash;
+        this.timeoutS = timeoutS;
     }
 
     public int getSchemaHash() {
@@ -88,6 +91,7 @@ public class CloneTask extends AgentTask {
             request.setSrc_path_hash(srcPathHash);
             request.setDest_path_hash(destPathHash);
         }
+        request.setTimeout_s(timeoutS);
 
         return request;
     }
