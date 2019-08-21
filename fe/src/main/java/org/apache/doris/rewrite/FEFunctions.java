@@ -30,8 +30,6 @@ import com.google.common.base.Preconditions;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joda.time.LocalDateTime;
-import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -76,26 +74,7 @@ public class FEFunctions {
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
-        if (dateLiteral.getType() == Type.DATE) {
-            builder.appendYear(4, 4).appendLiteral("-").
-                    appendMonthOfYear(2).appendLiteral("-").appendDayOfMonth(2);
-        } else {
-            builder.appendYear(4, 4).appendLiteral("-").
-                    appendMonthOfYear(2).appendLiteral("-")
-                    .appendDayOfMonth(2).appendLiteral(" ")
-                    .appendHourOfDay(2).appendLiteral(":")
-                    .appendMinuteOfHour(2).appendLiteral(":")
-                    .appendSecondOfMinute(2);
-        }
-        LocalDateTime dateTime = 
-            builder.toFormatter().parseLocalDateTime(dateLiteral.getStringValue()).plusDays((int) day.getLongValue());
-        if (dateLiteral.getType() == Type.DATE) {
-            return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
-        } else {
-            return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
-                    dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());
-        }
+        return dateLiteral.plusDays((int) day.getLongValue());
     }
 
     @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")

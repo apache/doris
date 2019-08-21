@@ -55,6 +55,11 @@ public class DateLiteral extends LiteralExpr {
             new DateLiteral(9999, 12, 31, 23, 59, 59);
     //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsT]+.*$");
+    //Date Literal persist type in meta
+    private enum DateLiteralType {
+        DATETIME,
+        DATE                        
+    }
 
     private DateLiteral() {
         super();
@@ -250,7 +255,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
 
-    private long make_packed_datetime () {
+    private long makePackedDatetime() {
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;
         long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
@@ -260,10 +265,18 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        out.writeLong(make_packed_datetime());
+        //set flag bit in meta, 0 is DATETIME and 1 is DATE
+        if (this.type == Type.DATETIME) {
+            out.writeShort(DateLiteralType.DATETIME.ordinal());
+        } else if (this.type == Type.DATE) {
+            out.writeShort(DateLiteralType.DATE.ordinal());
+        } else {
+            throw new IOException("Error date literal type : " + type);
+        }
+        out.writeLong(makePackedDatetime());
     }
 
-    private void from_packed_datetime (long packed_time) {
+    private void fromPackedDatetime(long packed_time) {
         microsecond = (packed_time % (1L << 24));
         long ymdhms = (packed_time >> 24);
         long ymd = ymdhms >> 17;
@@ -277,14 +290,24 @@ public class DateLiteral extends LiteralExpr {
         second = hms % (1 << 6);
         minute = (hms >> 6) % (1 << 6);
         hour = (hms >> 12);
+        // set default date literal type to DATETIME
+        // date literal read from meta will set type by flag bit;
         this.type = Type.DATETIME;
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
-            from_packed_datetime(in.readLong());
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
+            short date_literal_type = in.readShort();
+            fromPackedDatetime(in.readLong());
+            if (date_literal_type == DateLiteralType.DATETIME.ordinal()) {
+                this.type = Type.DATETIME;
+            } else if (date_literal_type == DateLiteralType.DATE.ordinal()) {
+                this.type = Type.DATE;
+            } else {
+                throw new IOException("Error date literal type : " + type);
+            }
         } else {
             Date date = new Date(in.readLong());
             String date_str = TimeUtils.format(date, Type.DATETIME);
@@ -453,6 +476,20 @@ public class DateLiteral extends LiteralExpr {
             }
         }
         return builder;
+    }
+
+    public DateLiteral plusDays(int day) throws AnalysisException {
+        LocalDateTime dateTime;
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        if (type == Type.DATE) {
+            dateTime = formatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(getStringValue()).plusDays(day);                                        
+        } else {
+            dateTime = formatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(getStringValue()).plusDays(day);
+        }
+        DateLiteral dateLiteral = new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
+                dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());                                
+        dateLiteral.setType(type);
+        return dateLiteral;
     }
 
     public long getYear() {
