@@ -60,26 +60,26 @@ public class DateLiteral extends LiteralExpr {
         super();
     }
 
-    public DateLiteral(Type type, boolean isMax) throws AnalysisException{
+    public DateLiteral(Type type, boolean isMax) throws AnalysisException {
         super();
         this.type = type;
         if (type == Type.DATE) {
             if (isMax) {
-                copy(MIN_DATE);
-            } else {
                 copy(MAX_DATE);
+            } else {
+                copy(MIN_DATE);
             }
         } else {
             if (isMax) {
-                copy(MIN_DATETIME);
-            } else {
                 copy(MAX_DATETIME);
+            } else {
+                copy(MIN_DATETIME);
             }
         }
         analysisDone();
     }
 
-    public DateLiteral(String s, Type type) throws AnalysisException{
+    public DateLiteral(String s, Type type) throws AnalysisException {
         super();
         init(s, type);
         analysisDone();
@@ -117,7 +117,7 @@ public class DateLiteral extends LiteralExpr {
         type = other.type;
     }
 
-    public static DateLiteral createMinValue(Type type) throws AnalysisException{
+    public static DateLiteral createMinValue(Type type) throws AnalysisException {
         return new DateLiteral(type, false);
     }
 
@@ -128,7 +128,7 @@ public class DateLiteral extends LiteralExpr {
             if (type == Type.DATE) {
                 dateTime = formatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(s);
             } else {
-                dateTime = formatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(s);
+                dateTime = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter().parseLocalDateTime(s);
             }
             year = dateTime.getYear();
             month = dateTime.getMonthOfYear();
@@ -243,7 +243,7 @@ public class DateLiteral extends LiteralExpr {
         if (targetType.isDateType()) {
             return this;
         } else if (targetType.isStringType()) {
-            return new StringLiteral(getStringValue()); 
+            return new StringLiteral(getStringValue());
         }
         Preconditions.checkState(false);
         return this;
@@ -256,6 +256,7 @@ public class DateLiteral extends LiteralExpr {
         long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
         return packed_datetime;
     }
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -307,7 +308,7 @@ public class DateLiteral extends LiteralExpr {
         return dateFormat.parse(String.valueOf(getLongValue())).getTime();
     }
 
-    public static DateLiteral dateParser(String date, String pattern) throws AnalysisException{
+    public static DateLiteral dateParser(String date, String pattern) throws AnalysisException {
         LocalDateTime dateTime = formatBuilder(pattern).toFormatter().parseLocalDateTime(date);
         DateLiteral dateLiteral = new DateLiteral(
                 dateTime.getYear(),
@@ -326,7 +327,7 @@ public class DateLiteral extends LiteralExpr {
 
     //Return the date stored in the dateliteral as pattern format.
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
-    public String dateFormat(String pattern) throws AnalysisException{
+    public String dateFormat(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         if (type == Type.DATE) {
             builder.appendYear(4, 4).appendLiteral("-").
@@ -344,7 +345,7 @@ public class DateLiteral extends LiteralExpr {
                 .toString(formatBuilder(pattern).toFormatter());
     }
 
-    private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException{
+    private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {

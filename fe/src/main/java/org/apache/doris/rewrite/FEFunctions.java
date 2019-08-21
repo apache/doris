@@ -88,10 +88,14 @@ public class FEFunctions {
                     .appendMinuteOfHour(2).appendLiteral(":")
                     .appendSecondOfMinute(2);
         }
-        LocalDateTime dateTime = builder.toFormatter().parseLocalDateTime(dateLiteral.getStringValue());
-        dateTime.plusDays((int) day.getLongValue());
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
-                dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());
+        LocalDateTime dateTime = 
+            builder.toFormatter().parseLocalDateTime(dateLiteral.getStringValue()).plusDays((int) day.getLongValue());
+        if (dateLiteral.getType() == Type.DATE) {
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
+        } else {
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
+                    dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());
+        }
     }
 
     @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -138,7 +142,7 @@ public class FEFunctions {
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         try {
-            return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()), Type.INT);
+            return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()) / 1000, Type.INT);
         } catch (ParseException e) {
             throw new AnalysisException(e.getLocalizedMessage());
         }
