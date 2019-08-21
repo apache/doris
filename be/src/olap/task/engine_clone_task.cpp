@@ -323,6 +323,10 @@ AgentStatus EngineCloneTask::_clone_copy(
             } 
             snapshot_request.__set_missing_version(snapshot_versions);
         }
+        if (clone_req.__isset.timeout_s) {
+            snapshot_request.__set_timeout(clone_req.timeout_s);
+        }
+
         agent_client.make_snapshot(
                 snapshot_request,
                 &make_snapshot_result);

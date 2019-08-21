@@ -35,6 +35,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
@@ -152,9 +153,9 @@ public class BackupJob extends AbstractJob {
         Preconditions.checkState(request.isSetSnapshot_files());
         // snapshot path does not contains last 'tablet_id' and 'schema_hash' dir
         // eg:
-        //      /path/to/your/be/data/snapshot/20180410102311.0/
+        //      /path/to/your/be/data/snapshot/20180410102311.0.86400/
         // Full path will look like:
-        //      /path/to/your/be/data/snapshot/20180410102311.0/10006/352781111/
+        //      /path/to/your/be/data/snapshot/20180410102311.0.86400/10006/352781111/
         SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
                 task.getSchemaHash(), request.getSnapshot_path(),
@@ -583,12 +584,32 @@ public class BackupJob extends AbstractJob {
         // meta info and job info has been saved to local file, this can be cleaned to reduce log size
         backupMeta = null;
         jobInfo = null;
+
+        // release all snapshots before clearing the snapshotInfos.
+        releaseSnapshots();
+
         snapshotInfos.clear();
 
         // log
         catalog.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
+    }
+
+    private void releaseSnapshots() {
+        if (snapshotInfos.isEmpty()) {
+            return;
+        }
+        // we do not care about the release snapshot tasks' success or failure,
+        // the GC thread on BE will sweep the snapshot, finally.
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
+                    info.getTabletId(), info.getPath());
+            batchTask.addTask(releaseTask);
+        }
+        AgentTaskExecutor.submit(batchTask);
+        LOG.info("send {} release snapshot tasks, job: {}", snapshotInfos.size(), this);
     }
 
     private void uploadMetaAndJobInfoFile() {
@@ -683,6 +704,8 @@ public class BackupJob extends AbstractJob {
                 LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
             }
         }
+
+        releaseSnapshots();
 
         BackupJobState curState = state;
         finishedTime = System.currentTimeMillis();
