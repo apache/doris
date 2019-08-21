@@ -17,26 +17,26 @@
 
 package org.apache.doris.external;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TNetworkAddress;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 public class EsIndexState {
     
@@ -112,7 +112,7 @@ public class EsIndexState {
                     partitionSetting == null ? "" : partitionSetting.toString());
             if (partitionSetting != null && partitionSetting.has("upperbound")) {
                 String upperBound = partitionSetting.getString("upperbound");
-                List<String> upperValues = Stream.of(upperBound).collect(Collectors.toList());
+                List<PartitionValue> upperValues = Lists.newArrayList(new PartitionValue(upperBound));
                 PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(upperValues);
                 // use index name as partition name
                 SingleRangePartitionDesc desc = new SingleRangePartitionDesc(false, 

@@ -32,86 +32,122 @@ import java.util.List;
 // 用于表达在创建表、创建rollup中key range partition中所使用的key信息
 // 在知道具体列信息后，可以转成PartitionKey，仅仅在语法解析中短暂的有意义
 public class PartitionKeyDesc implements Writable {
-    // public static final PartitionKeyDesc MAX_VALUE = new PartitionKeyDesc();
-    // lower values only be used for restore
-    private List<String> lowerValues;
-    private List<String> upperValues;
+    public enum PartitionRangeType {
+        INVALID,
+        LESS_THAN,
+        FIXED
+    }
 
+    private List<PartitionValue> lowerValues;
+    private List<PartitionValue> upperValues;
+    private PartitionRangeType partitionType;
     public static PartitionKeyDesc createMaxKeyDesc() {
         return new PartitionKeyDesc();
     }
 
     public PartitionKeyDesc() {
-        lowerValues = Lists.newArrayList();
-        upperValues = Lists.newArrayList();
+        partitionType = PartitionRangeType.LESS_THAN; //LESS_THAN is default type.
     }
 
     // used by SQL parser
-    public PartitionKeyDesc(List<String> upperValues) {
-        this.lowerValues = Lists.newArrayList();
+    public PartitionKeyDesc(List<PartitionValue> upperValues) {
         this.upperValues = upperValues;
+        partitionType = PartitionRangeType.LESS_THAN;
     }
 
-    public PartitionKeyDesc(List<String> lowerValues, List<String> upperValues) {
+    public PartitionKeyDesc(List<PartitionValue> lowerValues, List<PartitionValue> upperValues) {
         this.lowerValues = lowerValues;
         this.upperValues = upperValues;
+        partitionType = PartitionRangeType.FIXED;
     }
 
-    public void setLowerValues(List<String> lowerValues) {
+    public void setLowerValues(List<PartitionValue> lowerValues) {
         this.lowerValues = lowerValues;
     }
 
-    public List<String> getLowerValues() {
+    public List<PartitionValue> getLowerValues() {
         return lowerValues;
     }
 
-    public List<String> getUpperValues() {
+    public List<PartitionValue> getUpperValues() {
         return upperValues;
     }
 
     public boolean isMax() {
-        return upperValues.isEmpty();
+        return lowerValues == null && upperValues == null;
+    }
+
+    public boolean hasLowerValues() {
+        return lowerValues != null;
+    }
+
+    public boolean hasUpperValues() {
+        return upperValues != null;
+    }
+
+    public PartitionRangeType getPartitionType () {
+        return partitionType;
     }
 
     public String toSql() {
         if (this.isMax()) {
             return "MAXVALUE";
         }
-        StringBuilder sb = new StringBuilder("(");
-        Joiner.on(", ").appendTo(sb, Lists.transform(upperValues, new Function<String, String>() {
-            @Override
-            public String apply(String s) {
-                return "'" + s + "'";
-            }
-        })).append(")");
-        return sb.toString();
+
+        if (upperValues != null) {
+            StringBuilder sb = new StringBuilder("(");
+            Joiner.on(", ").appendTo(sb, Lists.transform(upperValues, new Function<PartitionValue, String>() {
+                @Override
+                public String apply(PartitionValue v) {
+                    return "'" + v.getStringValue() + "'";
+                }
+            })).append(")");
+            return sb.toString();
+        } else {
+            return "()";
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        int count = lowerValues.size();
+        int count = lowerValues == null ? 0 : lowerValues.size();
         out.writeInt(count);
-        for (String value : lowerValues) {
-            Text.writeString(out, value);
+        if (count > 0) {
+            for (PartitionValue value : lowerValues) {
+                Text.writeString(out, value.getStringValue());
+            }
         }
 
-        count = upperValues.size();
+        count = upperValues == null ? 0: upperValues.size();
         out.writeInt(count);
-        for (String value : upperValues) {
-            Text.writeString(out, value);
+        if (count > 0) {
+            for (PartitionValue value : upperValues) {
+                Text.writeString(out, value.getStringValue());
+            }
         }
+
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
-            lowerValues.add(Text.readString(in));
+            String v = Text.readString(in);
+            if (v.equals("MAXVALUE")) {
+                lowerValues.add(new PartitionValue());
+            } else {
+                lowerValues.add(new PartitionValue(v));
+            }
         }
 
         count = in.readInt();
         for (int i = 0; i < count; i++) {
-            upperValues.add(Text.readString(in));
+            String v = Text.readString(in);
+            if (v.equals("MAXVALUE")) {
+                upperValues.add(new PartitionValue());
+            } else {
+                upperValues.add(new PartitionValue(v));
+            }
         }
     }
 }

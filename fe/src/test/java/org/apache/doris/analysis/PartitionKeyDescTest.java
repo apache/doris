@@ -25,12 +25,12 @@ import org.junit.Test;
 import java.util.List;
 
 public class PartitionKeyDescTest {
-    private List<String> values;
+    private List<PartitionValue> values;
 
     // value of key is ["1", "abc"]
     @Before
     public void setUp() {
-        values = Lists.newArrayList("1", "abc");
+        values = Lists.newArrayList(new PartitionValue("1"), new PartitionValue("abc"));
     }
 
     @Test
@@ -45,7 +45,7 @@ public class PartitionKeyDescTest {
     public void testMax() {
         PartitionKeyDesc desc = PartitionKeyDesc.createMaxKeyDesc();
 
-        Assert.assertTrue(desc.getUpperValues().isEmpty());
+        Assert.assertNull(desc.getUpperValues());
         Assert.assertEquals("MAXVALUE", desc.toSql());
     }
 }
