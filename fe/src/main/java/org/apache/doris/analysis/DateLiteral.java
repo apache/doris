@@ -47,6 +47,13 @@ import java.util.regex.Pattern;
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
+    private static final DateLiteral MIN_DATE = new DateLiteral(1900, 1, 1);
+    private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
+    private static final DateLiteral MIN_DATETIME =
+            new DateLiteral(1900, 1, 1, 0, 0, 0);
+    private static final DateLiteral MAX_DATETIME =
+            new DateLiteral(9999, 12, 31, 23, 59, 59);
+    //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsT]+.*$");
 
     private DateLiteral() {
@@ -58,15 +65,15 @@ public class DateLiteral extends LiteralExpr {
         this.type = type;
         if (type == Type.DATE) {
             if (isMax) {
-                init("1900-01-01", Type.DATE);
+                copy(MIN_DATE);
             } else {
-                init("9999-12-31", Type.DATE);
+                copy(MAX_DATE);
             }
         } else {
             if (isMax) {
-                init("1900-01-01 00:00:00", Type.DATETIME);
+                copy(MIN_DATETIME);
             } else {
-                init("9999-12-31 23:59:59", Type.DATETIME);
+                copy(MAX_DATETIME);
             }
         }
         analysisDone();
@@ -78,6 +85,26 @@ public class DateLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public DateLiteral(long year, long month, long day) {
+        this.hour = 0;
+        this.minute = 0;
+        this.second = 0;
+        this.year = year;
+        this.month = month;
+        this.day = day;
+        this.type = Type.DATE;
+    }
+
+    public DateLiteral(long year, long month, long day, long hour, long minute, long second) {
+        this.hour = hour;
+        this.minute = minute;
+        this.second = second;
+        this.year = year;
+        this.month = month;
+        this.day = day;
+        this.type = Type.DATETIME;
+    }
+
     public DateLiteral(DateLiteral other) {
         super(other);
         hour = other.hour;
@@ -87,13 +114,7 @@ public class DateLiteral extends LiteralExpr {
         month = other.month;
         day = other.day;
         microsecond = other.microsecond;
-
         type = other.type;
-    }
-
-    @Override
-    public Expr clone() {
-        return new DateLiteral(this);
     }
 
     public static DateLiteral createMinValue(Type type) throws AnalysisException{
@@ -105,9 +126,9 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             LocalDateTime dateTime;
             if (type == Type.DATE) {
-                dateTime = FormatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(s);
+                dateTime = formatBuilder("%Y-%m-%d").toFormatter().parseLocalDateTime(s);
             } else {
-                dateTime = FormatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(s);
+                dateTime = formatBuilder("%Y-%m-%d %H-%i-%s").toFormatter().parseLocalDateTime(s);
             }
             year = dateTime.getYear();
             month = dateTime.getMonthOfYear();
@@ -121,13 +142,29 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    private void copy(DateLiteral other) {
+        hour = other.hour;
+        minute = other.minute;
+        second = other.second;
+        year = other.year;
+        month = other.month;
+        day = other.day;
+        microsecond = other.microsecond;
+        type = other.type;
+    }
+
+    @Override
+    public Expr clone() {
+        return new DateLiteral(this);
+    }
+
     @Override
     public boolean isMinValue() {
         switch (type.getPrimitiveType()) {
             case DATE:
-                return this.getStringValue().compareTo("1900-01-01") == 0;
+                return this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
             case DATETIME:
-                return this.getStringValue().compareTo("1900-01-01 00:00:00") == 0;
+                return this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
             default:
                 return false;
         }
@@ -179,16 +216,9 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         if (type == Type.DATE) {
-            return String.format("%04d", year) + "-" +
-                    String.format("%02d", month) + "-" +
-                    String.format("%02d", day);
+            return String.format("%04d-%02d-%02d", year, month, day);
         } else {
-            return String.format("%04d", year) + "-" +
-                    String.format("%02d", month) + "-" +
-                    String.format("%02d", day) + " " +
-                    String.format("%02d", hour) + ":" +
-                    String.format("%02d",minute) + ":" +
-                    String.format("%02d",second);
+            return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
     }
 
@@ -219,34 +249,41 @@ public class DateLiteral extends LiteralExpr {
         return this;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
+
+    private long make_packed_datetime () {
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;
         long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
-        out.writeLong(packed_datetime);
+        return packed_datetime;
+    }
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+        out.writeLong(make_packed_datetime());
+    }
+
+    private void from_packed_datetime (long packed_time) {
+        microsecond = (packed_time % (1L << 24));
+        long ymdhms = (packed_time >> 24);
+        long ymd = ymdhms >> 17;
+        long hms = ymdhms % (1 << 17);
+
+        day = ymd % (1 << 5);
+        long ym = ymd >> 5;
+        month = ym % 13;
+        year = ym / 13;
+        year %= 10000;
+        second = hms % (1 << 6);
+        minute = (hms >> 6) % (1 << 6);
+        hour = (hms >> 12);
+        this.type = Type.DATETIME;
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
-            long packed_time = in.readLong();
-            microsecond = (packed_time % (1L << 24));
-            long ymdhms = (packed_time >> 24);
-            long ymd = ymdhms >> 17;
-            long hms = ymdhms % (1 << 17);
-
-            day = ymd % (1 << 5);
-            long ym = ymd >> 5;
-            month = ym % 13;
-            year = ym / 13;
-            year %= 10000;
-            second = hms % (1 << 6);
-            minute = (hms >> 6) % (1 << 6);
-            hour = (hms >> 12);
-            this.type = Type.DATETIME;
+            from_packed_datetime(in.readLong());
         } else {
             Date date = new Date(in.readLong());
             String date_str = TimeUtils.format(date, Type.DATETIME);
@@ -265,29 +302,30 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public long unixTime(TimeZone timeZone) throws ParseException {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMddHHmmss");
         dateFormat.setTimeZone(timeZone);
-        return dateFormat.parse(getStringValue()).getTime();
+        return dateFormat.parse(String.valueOf(getLongValue())).getTime();
     }
 
     public static DateLiteral dateParser(String date, String pattern) throws AnalysisException{
-        DateLiteral dateLiteral = new DateLiteral();
+        LocalDateTime dateTime = formatBuilder(pattern).toFormatter().parseLocalDateTime(date);
+        DateLiteral dateLiteral = new DateLiteral(
+                dateTime.getYear(),
+                dateTime.getMonthOfYear(),
+                dateTime.getDayOfMonth(),
+                dateTime.getHourOfDay(),
+                dateTime.getMinuteOfHour(),
+                dateTime.getSecondOfMinute());
         if(HAS_TIME_PART.matcher(pattern).matches()) {
             dateLiteral.setType(Type.DATETIME);
         } else {
             dateLiteral.setType(Type.DATE);
         }
-
-        LocalDateTime dateTime = FormatBuilder(pattern).toFormatter().parseLocalDateTime(date);
-        dateLiteral.setYear(dateTime.getYear());
-        dateLiteral.setMonth(dateTime.getMonthOfYear());
-        dateLiteral.setDay(dateTime.getDayOfMonth());
-        dateLiteral.setHour(dateTime.getHourOfDay());
-        dateLiteral.setMinute(dateTime.getMinuteOfHour());
-        dateLiteral.setSecond(dateTime.getSecondOfMinute());
         return dateLiteral;
     }
 
+    //Return the date stored in the dateliteral as pattern format.
+    //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException{
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         if (type == Type.DATE) {
@@ -303,10 +341,10 @@ public class DateLiteral extends LiteralExpr {
         }
 
         return builder.toFormatter().parseLocalDateTime(getStringValue())
-                .toString(FormatBuilder(pattern).toFormatter());
+                .toString(formatBuilder(pattern).toFormatter());
     }
 
-    private static DateTimeFormatterBuilder FormatBuilder(String pattern) throws AnalysisException{
+    private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException{
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
@@ -416,60 +454,28 @@ public class DateLiteral extends LiteralExpr {
         return builder;
     }
 
-    public long getHour() {
-        return hour;
-    }
-
-    public void setHour(long hour) {
-        this.hour = hour;
-    }
-
-    public long getMinute() {
-        return minute;
-    }
-
-    public void setMinute(long minute) {
-        this.minute = minute;
-    }
-
-    public long getSecond() {
-        return second;
-    }
-
-    public void setSecond(long second) {
-        this.second = second;
-    }
-
     public long getYear() {
         return year;
-    }
-
-    public void setYear(long year) {
-        this.year = year;
     }
 
     public long getMonth() {
         return month;
     }
 
-    public void setMonth(long month) {
-        this.month = month;
-    }
-
     public long getDay() {
         return day;
     }
 
-    public void setDay(long day) {
-        this.day = day;
+    public long getHour() {
+        return hour;
     }
 
-    public long getMicrosecond() {
-        return microsecond;
+    public long getMinute() {
+        return minute;
     }
 
-    public void setMicrosecond(long microsecond) {
-        this.microsecond = microsecond;
+    public long getSecond() {
+        return second;
     }
 
     private long year;

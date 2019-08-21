@@ -31,12 +31,13 @@ import com.google.common.base.Preconditions;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.LocalDateTime;
+import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
 import java.util.Date;
 
 /**
@@ -76,10 +77,22 @@ public class FEFunctions {
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-
-        DateLiteral result = new DateLiteral(dateLiteral);
-        result.setDay(dateLiteral.getDay() - 1);
-        return result;
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        if (dateLiteral.getType() == Type.DATE) {
+            builder.appendYear(4, 4).appendLiteral("-").
+                    appendMonthOfYear(2).appendLiteral("-").appendDayOfMonth(2);
+        } else {
+            builder.appendYear(4, 4).appendLiteral("-").
+                    appendMonthOfYear(2).appendLiteral("-")
+                    .appendDayOfMonth(2).appendLiteral(" ")
+                    .appendHourOfDay(2).appendLiteral(":")
+                    .appendMinuteOfHour(2).appendLiteral(":")
+                    .appendSecondOfMinute(2);
+        }
+        LocalDateTime dateTime = builder.toFormatter().parseLocalDateTime(dateLiteral.getStringValue());
+        dateTime.plusDays((int) day.getLongValue());
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
+                dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());
     }
 
     @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -155,17 +168,6 @@ public class FEFunctions {
 
         DateLiteral dl = new DateLiteral(dateLiteral, Type.DATETIME);
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
-    }
-
-    private static int calFirstWeekDay(int year, int firstWeekDay) {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(year, Calendar.JANUARY,1);
-        int firstDay = 1;
-        calendar.set(Calendar.DAY_OF_MONTH, firstDay);
-        while (calendar.get(Calendar.DAY_OF_WEEK) != firstWeekDay) {
-            calendar.set(Calendar.DAY_OF_MONTH, ++firstDay);
-        }
-        return firstDay;
     }
 
     /**
