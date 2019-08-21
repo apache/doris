@@ -59,61 +59,6 @@ public:
         return _rep->from_string(_field_buf + 1, value_string);
     }
 
-    // serialize field content to string
-    // include the null flag
-    // support string type
-    std::string serialize() {
-        std::string dst;
-        char* value_buf = _field_buf;
-        size_t size = _length;
-        // append null flag
-        dst.append(value_buf, 1);
-        value_buf += 1;
-        size -= 1;
-        if (_is_string_type) {
-            Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
-            StringLengthType var_len = slice->size;
-            value_buf = slice->data;
-            size = var_len;
-            if (_rep->type() == OLAP_FIELD_TYPE_VARCHAR
-                    || _rep->type() == OLAP_FIELD_TYPE_HLL) {
-                // append varchar length
-                dst.append((char*)&var_len, sizeof(StringLengthType));
-            } 
-        }
-        dst.append(value_buf, size);
-        return dst;
-    }
-
-    // deserialize field content from string
-    // include the null flag
-    // support string type
-    void deserialize(const std::string& src) {
-        if (_is_string_type) {
-            // null flag
-            char* src_data = const_cast<char*>(src.data());
-            *((bool*)_field_buf) = *reinterpret_cast<bool*>(src_data);
-            Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
-            const char* data = src.c_str() + 1;
-            if (_rep->type() == OLAP_FIELD_TYPE_CHAR) {
-                slice->size = src.size() - 1;
-            } else {
-                StringLengthType var_len = *reinterpret_cast<StringLengthType*>(src_data + 1);
-                slice->size = var_len;
-                // skip the varchar length
-                data = data + sizeof(StringLengthType);
-            }
-            if (slice->size > _var_length) {
-                // origin memory will be released by arena
-                slice->data = _arena.Allocate(slice->size);
-            }
-            memcpy(slice->data, data, slice->size);
-        } else {
-            DCHECK(_length == src.size());
-            memcpy(_field_buf, src.c_str(), _length);
-        }
-    }
-
     // attach到一段buf
     void attach_buf(char* buf) {
         _field_buf = _owned_buf;

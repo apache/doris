@@ -74,9 +74,7 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
         : _opts(opts),
         _type_info(typeinfo),
         _is_nullable(is_nullable),
-        _output_file(output_file),
-        _page_min_value(nullptr),
-        _page_max_value(nullptr) {
+        _output_file(output_file) {
 }
 
 ColumnWriter::~ColumnWriter() {
@@ -87,8 +85,6 @@ ColumnWriter::~ColumnWriter() {
         delete page;
         page = next_page;
     }
-    delete _page_min_value;
-    delete _page_max_value;
 }
 
 Status ColumnWriter::init() {
@@ -109,16 +105,13 @@ Status ColumnWriter::init() {
     }
     _page_builder.reset(page_builder);
     // create ordinal builder
-    _ordinal_index_builer.reset(new OrdinalPageIndexBuilder());
+    _ordinal_index_builder.reset(new OrdinalPageIndexBuilder());
     // create null bitmap builder
     if (_is_nullable) {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
     }
     if (_opts.need_zone_map) {
-        _column_zone_map_builder.reset(new ColumnZoneMapBuilder());
-        _page_min_value = WrapperField::create_by_type(_type_info->type());
-        _page_max_value = WrapperField::create_by_type(_type_info->type());
-        _reset_page_zone_map();
+        _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_type_info));
     }
     return Status::OK();
 }
@@ -126,8 +119,8 @@ Status ColumnWriter::init() {
 Status ColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
-    if (_opts.need_zone_map && !_page_min_value->is_null()) {
-        _page_min_value->set_null();
+    if (_opts.need_zone_map) {
+        RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
     }
     return Status::OK();
 }
@@ -141,10 +134,12 @@ Status ColumnWriter::append(const void* data, size_t num_rows) {
 // to next data should be written
 Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
-    const char* start_ptr = reinterpret_cast<const char*>(*ptr);
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(_page_builder->add(*ptr, &num_written));
+        if (_opts.need_zone_map) {
+            RETURN_IF_ERROR(_column_zone_map_builder->add(*ptr, num_written));
+        }
 
         bool is_page_full = (num_written < remaining);
         remaining -= num_written;
@@ -156,20 +151,6 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
             _null_bitmap_builder->add_run(false, num_written);
         }
 
-        if (_opts.need_zone_map) {
-            for (int i = 0; i < num_written; ++i) {
-                // TODO(hkp): optimize can be done here to reduce memcpy when the column is sorted
-                if (!_page_min_value->is_null()
-                        && _page_min_value->field()->compare(_page_min_value->cell_ptr(), start_ptr) > 0) {
-                    _page_min_value->copy(start_ptr);
-                }
-                if (_page_max_value->is_null()
-                        || _page_max_value->field()->compare(_page_max_value->cell_ptr(), start_ptr) < 0) {
-                    _page_max_value->copy(start_ptr);
-                }
-                start_ptr += _type_info->size();
-            }
-        }
         if (is_page_full) {
             RETURN_IF_ERROR(_finish_current_page());
         }
@@ -187,8 +168,8 @@ Status ColumnWriter::append_nullable(
         if (is_null) {
             _null_bitmap_builder->add_run(true, this_run);
             _next_rowid += this_run;
-            if (_opts.need_zone_map && !_page_min_value->is_null()) {
-                _page_min_value->set_null();
+            if (_opts.need_zone_map) {
+                RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
             }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
@@ -207,14 +188,11 @@ Status ColumnWriter::write_data() {
         RETURN_IF_ERROR(_write_data_page(page));
         page = page->next;
     }
-    // write ordinal index
-    // auto slice = _ordinal_index_builer->finish();
-    // file->append
     return Status::OK();
 }
 
 Status ColumnWriter::write_ordinal_index() {
-    Slice data = _ordinal_index_builer->finish();
+    Slice data = _ordinal_index_builder->finish();
     std::vector<Slice> slices{data};
     return _write_physical_page(&slices, &_ordinal_index_pp);
 }
@@ -260,7 +238,7 @@ Status ColumnWriter::_write_data_page(Page* page) {
 
     PagePointer pp;
     RETURN_IF_ERROR(_write_physical_page(&origin_data, &pp));
-    _ordinal_index_builer->append_entry(page->first_rowid, pp);
+    _ordinal_index_builder->append_entry(page->first_rowid, pp);
     return Status::OK();
 }
 
@@ -326,20 +304,10 @@ Status ColumnWriter::_finish_current_page() {
 
     _push_back_page(page);
     if (_opts.need_zone_map) {
-        ZoneMapPB page_zone_map;
-        page_zone_map.set_min(_page_min_value->serialize());
-        page_zone_map.set_max(_page_max_value->serialize());
-        page_zone_map.set_null_flag(_page_min_value->is_null() && _page_max_value->is_null());
-        RETURN_IF_ERROR(_column_zone_map_builder->append_entry(page_zone_map));
-        _reset_page_zone_map();
+        RETURN_IF_ERROR(_column_zone_map_builder->flush());
     }
 
     return Status::OK();
-}
-
-void ColumnWriter::_reset_page_zone_map() {
-    _page_min_value->set_to_max();
-    _page_max_value->set_null();
 }
 
 }

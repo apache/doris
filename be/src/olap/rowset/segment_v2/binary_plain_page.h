@@ -62,7 +62,7 @@ public:
 
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
-            const Slice *src = reinterpret_cast<const Slice*>(vals);
+            auto src = reinterpret_cast<const Slice*>(vals);
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
@@ -111,7 +111,7 @@ public:
     //     release() should be called after finish
     //     reset() should be called after this function before reuse the builder
     void release() override {
-        uint8_t *ret = _buffer.release();
+        uint8_t* ret = _buffer.release();
         _buffer.reserve(_options.data_page_size);
         (void) ret;
     }
@@ -136,6 +136,8 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
+    BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) { }
+
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
             _options(options),
             _parsed(false),

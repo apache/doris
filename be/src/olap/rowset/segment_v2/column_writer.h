@@ -133,15 +133,12 @@ private:
 
     Status _write_data_page(Page* page);
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
-    void _reset_page_zone_map();
 
 private:
     ColumnWriterOptions _opts;
     const TypeInfo* _type_info = nullptr;
     bool _is_nullable;
     WritableFile* _output_file = nullptr;
-    WrapperField* _page_min_value = nullptr;
-    WrapperField* _page_max_value = nullptr;
 
     // cached generated pages,
     PageHead _pages;
@@ -153,7 +150,7 @@ private:
 
     std::unique_ptr<PageBuilder> _page_builder;
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
-    std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builer;
+    std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builder;
     std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
 
     PagePointer _ordinal_index_pp;
