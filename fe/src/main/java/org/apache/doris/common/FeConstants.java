@@ -33,6 +33,9 @@ public class FeConstants {
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
 
+    // set to true to skip some step when running FE unit test
+    public static boolean runningUnitTtest = false;
+
     // general model
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_60;

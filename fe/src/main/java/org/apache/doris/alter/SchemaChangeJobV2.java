@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -220,35 +221,37 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             db.readUnlock();
         }
 
-        // send all tasks and wait them finished
-        AgentTaskQueue.addBatchTask(batchTask);
-        AgentTaskExecutor.submit(batchTask);
-        // max timeout is 1 min
-        long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 60000);
-        boolean ok = false;
-        try {
-            ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            LOG.warn("InterruptedException: ", e);
-            ok = false;
-        }
-
-        if (!ok) {
-            // create replicas failed. just cancel the job
-            // clear tasks and show the failed replicas to user
-            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
-            String errMsg = null;
-            if (!countDownLatch.getStatus().ok()) {
-                errMsg = countDownLatch.getStatus().getErrorMsg();
-            } else {
-                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                // only show at most 3 results
-                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
-                errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
+        if (!FeConstants.runningUnitTtest) {
+            // send all tasks and wait them finished
+            AgentTaskQueue.addBatchTask(batchTask);
+            AgentTaskExecutor.submit(batchTask);
+            // max timeout is 1 min
+            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 60000);
+            boolean ok = false;
+            try {
+                ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+                ok = false;
             }
-            LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);
-            cancelImpl("Create replicas failed. Error: " + errMsg);
-            return;
+
+            if (!ok) {
+                // create replicas failed. just cancel the job
+                // clear tasks and show the failed replicas to user
+                AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
+                String errMsg = null;
+                if (!countDownLatch.getStatus().ok()) {
+                    errMsg = countDownLatch.getStatus().getErrorMsg();
+                } else {
+                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                    // only show at most 3 results
+                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                    errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
+                }
+                LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);
+                cancelImpl("Create replicas failed. Error: " + errMsg);
+                return;
+            }
         }
 
         // create all replicas success.
@@ -368,6 +371,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
         AgentTaskExecutor.submit(schemaChangeBatchTask);
+
         this.jobState = JobState.RUNNING;
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.

@@ -142,6 +142,15 @@ public class AgentTaskQueue {
         return signatureMap.get(signature);
     }
     
+    // this is just for unit test
+    public static synchronized List<AgentTask> getTask(TTaskType type) {
+        List<AgentTask> res = Lists.newArrayList();
+        for (Map<Long, AgentTask> agentTasks : tasks.column(TTaskType.ALTER).values()) {
+            res.addAll(agentTasks.values());
+        }
+        return res;
+    }
+
     public static synchronized List<AgentTask> getDiffTasks(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         List<AgentTask> diffTasks = new ArrayList<AgentTask>();
         if (!tasks.containsRow(backendId)) {
