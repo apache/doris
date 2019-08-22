@@ -58,6 +58,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -122,6 +123,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // number of rows processed on BE, this number will be updated periodically by query report.
     // A load job may has several load tasks, so the map key is load task's plan load id.
     protected Map<TUniqueId, AtomicLong> numLoadedRows = Maps.newConcurrentMap();
+    // number of file to be loaded
+    protected int fileNum = 0;
+    protected long totalFileSizeB = 0;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -203,12 +207,24 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public long getNumLoadedRows() {
+    public void setLoadFileInfo(int fileNum, long fileSize) {
+        this.fileNum = fileNum;
+        this.totalFileSizeB = fileSize;
+    }
+
+    public String getJobDetails() {
         long total = 0;
         for (AtomicLong atomicLong : numLoadedRows.values()) {
             total += atomicLong.get();
         }
-        return total;
+
+        Map<String, Object> details = Maps.newHashMap();
+        details.put("LoadedRows", total);
+        details.put("FileNumber", fileNum);
+        details.put("FileSize", totalFileSizeB);
+        details.put("TaskNumber", numLoadedRows.size());
+        Gson gson = new Gson();
+        return gson.toJson(details);
     }
 
     /**
@@ -621,7 +637,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
-            jobInfo.add(getNumLoadedRows());
+            jobInfo.add(getJobDetails());
             return jobInfo;
         } finally {
             readUnlock();
