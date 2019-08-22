@@ -239,12 +239,12 @@ public class BrokerLoadJob extends LoadJob {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
                 if (loadTask instanceof LoadLoadingTask) {
-                    numLoadedRows.remove(((LoadLoadingTask) loadTask).getLoadId());
+                    loadStatistic.numLoadedRowsMap.remove(((LoadLoadingTask) loadTask).getLoadId());
                 }
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 if (loadTask instanceof LoadLoadingTask) {
-                    numLoadedRows.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
+                    loadStatistic.numLoadedRowsMap.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
                 }
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
                 return;
@@ -363,7 +363,7 @@ public class BrokerLoadJob extends LoadJob {
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
                 idToTasks.put(task.getSignature(), task);
-                numLoadedRows.put(loadId, new AtomicLong(0));
+                loadStatistic.numLoadedRowsMap.put(loadId, new AtomicLong(0));
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
             }
         } finally {

@@ -120,17 +120,36 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // only for persistence param
     private boolean isJobTypeRead = false;
 
-    // number of rows processed on BE, this number will be updated periodically by query report.
-    // A load job may has several load tasks, so the map key is load task's plan load id.
-    protected Map<TUniqueId, AtomicLong> numLoadedRows = Maps.newConcurrentMap();
-    // number of file to be loaded
-    protected int fileNum = 0;
-    protected long totalFileSizeB = 0;
-
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     // this request id is only used for checking if a load begin request is a duplicate request.
     protected TUniqueId requestId;
+
+    protected LoadStatistic loadStatistic = new LoadStatistic();
+
+    public static class LoadStatistic {
+        // number of rows processed on BE, this number will be updated periodically by query report.
+        // A load job may has several load tasks, so the map key is load task's plan load id.
+        public Map<TUniqueId, AtomicLong> numLoadedRowsMap = Maps.newConcurrentMap();
+        // number of file to be loaded
+        public int fileNum = 0;
+        public long totalFileSizeB = 0;
+        
+        public String toJson() {
+            long total = 0;
+            for (AtomicLong atomicLong : numLoadedRowsMap.values()) {
+                total += atomicLong.get();
+            }
+
+            Map<String, Object> details = Maps.newHashMap();
+            details.put("LoadedRows", total);
+            details.put("FileNumber", fileNum);
+            details.put("FileSize", totalFileSizeB);
+            details.put("TaskNumber", numLoadedRowsMap.size());
+            Gson gson = new Gson();
+            return gson.toJson(details);
+        }
+    }
 
     // only for log replay
     public LoadJob() {
@@ -204,30 +223,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void updateLoadedRows(TUniqueId loadId, long loadedRows) {
-        AtomicLong atomicLong = numLoadedRows.get(loadId);
+        AtomicLong atomicLong = loadStatistic.numLoadedRowsMap.get(loadId);
         if (atomicLong != null) {
             atomicLong.set(loadedRows);
         }
     }
 
     public void setLoadFileInfo(int fileNum, long fileSize) {
-        this.fileNum = fileNum;
-        this.totalFileSizeB = fileSize;
-    }
-
-    public String getJobDetails() {
-        long total = 0;
-        for (AtomicLong atomicLong : numLoadedRows.values()) {
-            total += atomicLong.get();
-        }
-
-        Map<String, Object> details = Maps.newHashMap();
-        details.put("LoadedRows", total);
-        details.put("FileNumber", fileNum);
-        details.put("FileSize", totalFileSizeB);
-        details.put("TaskNumber", numLoadedRows.size());
-        Gson gson = new Gson();
-        return gson.toJson(details);
+        this.loadStatistic.fileNum = fileNum;
+        this.loadStatistic.totalFileSizeB = fileSize;
     }
 
     public TUniqueId getRequestId() {
@@ -510,7 +514,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
-        numLoadedRows.clear();
+        loadStatistic.numLoadedRowsMap.clear();
 
         // set failMsg and state
         this.failMsg = failMsg;
@@ -644,7 +648,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
-            jobInfo.add(getJobDetails());
+            jobInfo.add(loadStatistic.toJson());
             return jobInfo;
         } finally {
             readUnlock();
