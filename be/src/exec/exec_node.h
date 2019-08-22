@@ -401,7 +401,7 @@ private:
             stringstream str; \
             str << "Memory exceed limit. " << msg << " "; \
             str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
-            str << "You can change the limit by session variable exec_mem_limit."
+            str << "You can change the limit by session variable exec_mem_limit."; \
             return Status::MemoryLimitExceeded(str.str()); \
         } \
     } while (false)
