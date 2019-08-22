@@ -64,6 +64,7 @@ public class MiniLoadJob extends LoadJob {
         this.createTimestamp = request.getCreate_timestamp();
         this.loadStartTimestamp = createTimestamp;
         this.authorizationInfo = gatherAuthInfo();
+        this.requestId = requestId.getRequest_id();
     }
 
     @Override

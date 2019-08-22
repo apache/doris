@@ -44,6 +44,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Joiner;
@@ -107,22 +108,22 @@ public class GlobalTransactionMgr {
 
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
             long timeoutSecond) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1, timeoutSecond);
+        return beginTransaction(dbId, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
     /**
      * the app could specify the transaction id
      * 
-     * timestamp is used to judge that whether the request is a internal retry request
-     * if label already exist, and timestamp are equal, we return the exist tid, and consider this 'begin'
+     * requestId is used to judge that whether the request is a internal retry request
+     * if label already exist, and requestId are equal, we return the exist tid, and consider this 'begin'
      * as success.
-     * timestamp == -1 is for compatibility
+     * requestId == null is for compatibility
      *
      * @param coordinator
      * @throws BeginTransactionException
      * @throws IllegalTransactionParameterException
      */
-    public long beginTransaction(long dbId, String label, long timestamp,
+    public long beginTransaction(long dbId, String label, TUniqueId requestId,
             String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
@@ -145,10 +146,11 @@ public class GlobalTransactionMgr {
             Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
             if (txnLabels != null && txnLabels.containsKey(label)) {
                 // check timestamp
-                if (timestamp != -1) {
+                if (requestId != null) {
                     TransactionState existTxn = getTransactionState(txnLabels.get(label));
                     if (existTxn != null && existTxn.getTransactionStatus() == TransactionStatus.PREPARE
-                            && existTxn.getTimestamp() == timestamp) {
+                            && existTxn.getRequsetId() != null && existTxn.getRequsetId().equals(requestId)) {
+                        // this may be a retry request for same job, just return existing txn id.
                         return txnLabels.get(label);
                     }
                 }
@@ -161,7 +163,7 @@ public class GlobalTransactionMgr {
             }
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
-            TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
+            TransactionState transactionState = new TransactionState(dbId, tid, label, requestId, sourceType,
                     coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);

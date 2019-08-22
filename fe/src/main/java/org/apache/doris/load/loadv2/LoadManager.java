@@ -39,6 +39,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -96,7 +97,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), -1);
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), null);
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -134,7 +135,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp());
+            checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
             createLoadJob(loadJob);
             // Mini load job must be executed before release write lock.
@@ -184,7 +185,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(stmt.getLabel().getDbName());
         writeLock();
         try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), -1);
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), null);
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
         } finally {
             writeUnlock();
@@ -209,7 +210,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), -1);
+            checkLabelUsed(database.getId(), request.getLabel(), null);
             return Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(request);
         } finally {
             writeUnlock();
@@ -220,7 +221,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(fullDbName);
         writeLock();
         try {
-            checkLabelUsed(database.getId(), label, -1);
+            checkLabelUsed(database.getId(), label, null);
             Catalog.getCurrentCatalog().getLoadInstance()
                     .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
         } finally {
@@ -501,10 +502,10 @@ public class LoadManager implements Writable{
      *
      * @param dbId
      * @param label
-     * @param createTimestamp the create timestamp of stmt of request
+     * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
-    private void checkLabelUsed(long dbId, String label, long createTimestamp)
+    private void checkLabelUsed(long dbId, String label, TUniqueId requestId)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
@@ -517,9 +518,9 @@ public class LoadManager implements Writable{
                         labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
                     LoadJob loadJob = loadJobOptional.get();
-                    if (loadJob.getCreateTimestamp() == createTimestamp) {
+                    if (loadJob.getRequestId() != null && requestId != null && loadJob.getRequestId().equals(requestId)) {
                         throw new DuplicatedRequestException(String.valueOf(loadJob.getId()),
-                                                             "The request is duplicated with " + loadJob.getId());
+                                "The request is duplicated with " + loadJob.getId());
                     }
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
