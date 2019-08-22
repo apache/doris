@@ -32,14 +32,18 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 
 public class ShowTabletStmt extends ShowStmt {
-
     private String dbName;
     private String tableName;
     private long tabletId;
+    private LimitElement limitElement;
 
     private boolean isShowSingleTablet;
 
     public ShowTabletStmt(TableName dbTableName, long tabletId) {
+        this(dbTableName, tabletId, null);
+    }
+
+    public ShowTabletStmt(TableName dbTableName, long tabletId, LimitElement limitElement) {
         if (dbTableName == null) {
             this.dbName = null;
             this.tableName = null;
@@ -50,6 +54,7 @@ public class ShowTabletStmt extends ShowStmt {
             this.isShowSingleTablet = false;
         }
         this.tabletId = tabletId;
+        this.limitElement = limitElement;
     }
 
     public String getDbName() {
@@ -68,6 +73,14 @@ public class ShowTabletStmt extends ShowStmt {
         return isShowSingleTablet;
     }
 
+    public boolean hasOffset() { return limitElement != null && limitElement.hasLimit(); }
+
+    public long getOffset() { return limitElement.getOffset(); }
+    
+    public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
+
+    public long getLimit() { return  limitElement.getLimit(); }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -78,6 +91,9 @@ public class ShowTabletStmt extends ShowStmt {
             }
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        }
+        if (limitElement != null) {
+            limitElement.analyze(analyzer);
         }
 
         // check access
@@ -93,7 +109,14 @@ public class ShowTabletStmt extends ShowStmt {
         if (isShowSingleTablet) {
             sb.append(tabletId);
         } else {
-            sb.append("`").append(dbName).append("`.`").append(tableName).append("`");
+            sb.append(" from ").append("`").append(dbName).append("`.`").append(tableName).append("`");
+        }
+        if (limitElement != null) {
+            if (limitElement.hasOffset() && limitElement.hasLimit()) {
+                sb.append(" ").append(limitElement.getOffset()).append(",").append(limitElement.getLimit());
+            } else if (limitElement.hasLimit()){
+                sb.append(" ").append(limitElement.getLimit());
+            }
         }
         return sb.toString();
     }

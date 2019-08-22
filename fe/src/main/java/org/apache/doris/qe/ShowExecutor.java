@@ -1146,11 +1146,25 @@ public class ShowExecutor {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-
+                long sizeLimit = -1;
+                if (showStmt.hasOffset() && showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getOffset() + showStmt.getLimit();
+                } else if (showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getLimit();
+                }
+                boolean stop = false;
                 for (Partition partition : olapTable.getPartitions()) {
+                    if (stop) {
+                        break;
+                    }
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
                         rows.addAll(procDir.fetchResult().getRows());
+                        if (sizeLimit > -1 && rows.size() >= sizeLimit) {
+                            rows = rows.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                            stop = true;
+                            break;
+                        }
                     }
                 }
 
