@@ -221,7 +221,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             db.readUnlock();
         }
 
-        if (!FeConstants.runningUnitTtest) {
+        if (!FeConstants.runningUnitTest) {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);

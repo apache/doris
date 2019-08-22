@@ -34,7 +34,7 @@ public class FeConstants {
     public static double default_bloom_filter_fpp = 0.05;
 
     // set to true to skip some step when running FE unit test
-    public static boolean runningUnitTtest = false;
+    public static boolean runningUnitTest = false;
 
     // general model
     // Current meta data version. Use this version to write journals and image
