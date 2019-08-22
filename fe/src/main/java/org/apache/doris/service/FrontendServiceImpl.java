@@ -646,10 +646,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // begin
-        long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
+                db.getId(), request.getLabel(), request.getRequest_id(), "BE: " + clientIp,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 
