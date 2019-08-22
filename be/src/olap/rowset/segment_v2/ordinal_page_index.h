@@ -98,8 +98,8 @@ public:
     }
     OrdinalPageIndexIterator end() {
         return OrdinalPageIndexIterator(this, _num_pages);
-	}
-	rowid_t get_first_row_id(int page_index) const {
+    }
+    rowid_t get_first_row_id(int page_index) const {
         return _rowids[page_index];
     }
 

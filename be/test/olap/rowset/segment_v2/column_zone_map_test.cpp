@@ -52,16 +52,16 @@ public:
         ASSERT_EQ(3, zone_maps.size());
         ASSERT_EQ("aaaa", zone_maps[0].min());
         ASSERT_EQ("ffff", zone_maps[0].max());
-        ASSERT_EQ(false, zone_maps[0].null_flag());
-        ASSERT_EQ(true, zone_maps[0].non_null_flag());
+        ASSERT_EQ(false, zone_maps[0].exist_null());
+        ASSERT_EQ(true, zone_maps[0].exist_none_null());
 
         ASSERT_EQ("aaaaa", zone_maps[1].min());
         ASSERT_EQ("fffff", zone_maps[1].max());
-        ASSERT_EQ(true, zone_maps[1].null_flag());
-        ASSERT_EQ(true, zone_maps[1].non_null_flag());
+        ASSERT_EQ(true, zone_maps[1].exist_null());
+        ASSERT_EQ(true, zone_maps[1].exist_none_null());
 
-        ASSERT_EQ(true, zone_maps[2].null_flag());
-        ASSERT_EQ(false, zone_maps[2].non_null_flag());
+        ASSERT_EQ(true, zone_maps[2].exist_null());
+        ASSERT_EQ(false, zone_maps[2].exist_none_null());
     }
 };
 
@@ -94,16 +94,16 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     ASSERT_EQ(std::to_string(1), zone_maps[0].min());
     ASSERT_EQ(std::to_string(22), zone_maps[0].max());
-    ASSERT_EQ(false, zone_maps[0].null_flag());
-    ASSERT_EQ(true, zone_maps[0].non_null_flag());
+    ASSERT_EQ(false, zone_maps[0].exist_null());
+    ASSERT_EQ(true, zone_maps[0].exist_none_null());
 
     ASSERT_EQ(std::to_string(2), zone_maps[1].min());
     ASSERT_EQ(std::to_string(31), zone_maps[1].max());
-    ASSERT_EQ(true, zone_maps[1].null_flag());
-    ASSERT_EQ(true, zone_maps[1].non_null_flag());
+    ASSERT_EQ(true, zone_maps[1].exist_null());
+    ASSERT_EQ(true, zone_maps[1].exist_none_null());
 
-    ASSERT_EQ(true, zone_maps[2].null_flag());
-    ASSERT_EQ(false, zone_maps[2].non_null_flag());
+    ASSERT_EQ(true, zone_maps[2].exist_null());
+    ASSERT_EQ(false, zone_maps[2].exist_none_null());
 }
 
 // Test for string

@@ -173,14 +173,20 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
     for (int32_t i = 0; i < page_size; ++i) {
-        min_value->from_string(zone_maps[i].min());
-        max_value->from_string(zone_maps[i].max());
+        // min value and max value are valid if exisst_none_null is true
+        if (zone_maps[i].exist_none_null()) {
+            min_value->from_string(zone_maps[i].min());
+            max_value->from_string(zone_maps[i].max());
+        }
         // for compatible original Cond eval logic
         // TODO(hkp): optimize OlapCond
-        if (zone_maps[i].null_flag() && !zone_maps[i].non_null_flag()) {
-            // the page is all null
+        if (zone_maps[i].exist_null()) {
+            // for compatible, if exist null, original logic treat null as min
             min_value->set_null();
-            max_value->set_null();
+            if (!zone_maps[i].exist_none_null()) {
+                // for compatible OlapCond's 'is not null'
+                max_value->set_null();
+            }
         }
         if (cond_column->eval({min_value.get(), max_value.get()})) {
             page_indexes->push_back(i);

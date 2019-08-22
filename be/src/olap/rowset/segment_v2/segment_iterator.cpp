@@ -51,7 +51,12 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
     RETURN_IF_ERROR(_init_short_key_range());
     RETURN_IF_ERROR(_init_row_ranges());
+    if (!_row_ranges.is_empty()) {
+        _cur_range_id = 0;
+        _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
+    }
     RETURN_IF_ERROR(_init_column_iterators());
+
     return Status::OK();
 }
 
@@ -126,8 +131,7 @@ Status SegmentIterator::_prepare_seek() {
 
 Status SegmentIterator::_init_row_ranges() {
     if (_lower_rowid == _upper_rowid) {
-        // no data return;
-        _row_ranges = RowRanges();
+        // no data just return;
         return Status::OK();
     }
 
@@ -136,11 +140,6 @@ Status SegmentIterator::_init_row_ranges() {
         RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
         RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
         // TODO(hkp): get row ranges from bloom filter and secondary index
-    }
-
-    if (!_row_ranges.is_empty()) {
-        _cur_range_id = 0;
-        _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -279,7 +278,7 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
     size_t first_read = 0;
     for (int i = 0; i < block->schema()->column_ids().size(); ++i) {
         auto cid = block->schema()->column_ids()[i];
-        size_t num_rows = has_read ? first_read : block->num_rows();
+        size_t num_rows = has_read ? first_read : *rows_read;
         auto column_block = block->column_block(i);
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &column_block));
         if (!has_read) {
@@ -297,24 +296,13 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 }
 
 Status SegmentIterator::next_batch(RowBlockV2* block) {
-    // _cur_rowid is 10
-    // _row_ranges: [2-5], [8-15], [20-25]
-    // then, cover_row_ranges will be [10, 25]
-    // left_row_ranges will be [10-15], [20-25]
     if (_row_ranges.is_empty()) {
-        return Status::OK();
+        return Status::EndOfFile("no more data in segment");
     }
-    RowRanges cover_row_ranges(std::move(RowRanges::create_single(_cur_rowid, _row_ranges.to())));
-    RowRanges left_row_ranges;
-    RowRanges::ranges_intersection(_row_ranges, cover_row_ranges, &left_row_ranges);
-    size_t rows_to_read = std::min((size_t)block->capacity(), left_row_ranges.count());
-    block->resize(rows_to_read);
-    if (rows_to_read == 0) {
-        return Status::OK();
-    }
-    size_t rows_left = rows_to_read;
-    while (rows_left > 0) {
+    size_t rows_left = block->capacity();
+    while (rows_left > 0 && _cur_rowid < _row_ranges.to()) {
         if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
+            // current row range is read over,
             // step to next row range
             if (_cur_range_id < _row_ranges.range_size() - 1) {
                 ++_cur_range_id;
@@ -331,6 +319,10 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         RETURN_IF_ERROR(_next_batch(block, &to_read_in_range));
         _cur_rowid += to_read_in_range;
         rows_left -= to_read_in_range;
+    }
+    block->resize(block->capacity() - rows_left);
+    if (block->num_rows() == 0) {
+        return Status::EndOfFile("no more data in segment");
     }
     return Status::OK();
 }

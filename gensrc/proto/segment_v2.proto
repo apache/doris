@@ -72,9 +72,9 @@ message ZoneMapPB {
     // max value without null flag prefix
     optional bytes max = 2;
     // whether the zone has null value
-    optional bool null_flag = 3;
-    // whether the zone has non-null value
-    optional bool non_null_flag = 4;
+    optional bool exist_null = 3;
+    // whether the zone has none-null value
+    optional bool exist_none_null = 4;
 }
 
 message ColumnMetaPB {

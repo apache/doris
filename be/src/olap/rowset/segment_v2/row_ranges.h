@@ -73,14 +73,6 @@ public:
 
     RowRange() : _from(0), _to(0) { }
 
-    RowRange(const RowRange& other) : _from(other._from), _to(other._to) { }
-
-    RowRange& operator=(const RowRange& other) {
-        _from = other._from;
-        _to = other._to;
-        return *this;
-    }
-
     // Creates a range of [from, to) (from inclusive and to exclusive; empty ranges are invalid)
     RowRange(int64_t from, int64_t to) : _from(from), _to(to) { }
 
@@ -119,17 +111,6 @@ private:
 
 class RowRanges {
 public:
-    RowRanges() { }
-
-    RowRanges(RowRanges&& other) : _ranges(std::move(other._ranges)) { }
-
-    RowRanges& operator=(RowRanges&& other) {
-        if (this != &other) {
-            _ranges = std::move(other._ranges);
-        }
-        return *this;
-    }
-
     // Creates a new RowRanges object with the single range [0, row_count).
     static RowRanges create_single(uint64_t row_count) {
         RowRanges ranges;
@@ -149,10 +130,10 @@ public:
     // Calculates the union of the two specified RowRanges object. The union of two range is calculated if there are
     // elements between them. Otherwise, the two disjunct ranges are stored separately.
     // For example:
-    // [113, 241] ∪ [221, 340] = [113, 330]
-    // [113, 230] ∪ [231, 340] = [113, 340]
+    // [113, 241) ∪ [221, 340) = [113, 330)
+    // [113, 230) ∪ [230, 340) = [113, 340]
     // while
-    // [113, 230] ∪ [232, 340] = [113, 230], [232, 340]
+    // [113, 230) ∪ [231, 340) = [113, 230), [231, 340)
     static void ranges_union(const RowRanges& left, const RowRanges& right, RowRanges* result) {
         RowRanges tmp_range;
         auto it1 = left._ranges.begin();
@@ -182,9 +163,9 @@ public:
     // Calculates the intersection of the two specified RowRanges object. Two ranges intersect if they have common
     // elements otherwise the result is empty.
     // For example:
-    // [113, 241] ∩ [221, 340] = [221, 241]
+    // [113, 241) ∩ [221, 340) = [221, 241)
     // while
-    // [113, 230] ∩ [231, 340] = <EMPTY>
+    // [113, 230) ∩ [230, 340) = <EMPTY>
     //
     // The result RowRanges object will contain all the row indexes there were contained in both of the specified objects
     static void ranges_intersection(const RowRanges& left, const RowRanges& right, RowRanges* result) {
@@ -277,7 +258,6 @@ private:
     // Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
     // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
     // the last one or might be overlapped with some of the last ones.
-    // (*) [a, b] < [c, d] if b < c
     void add(const RowRange& range) {
         RowRange range_to_add = range;
         for (int i = _ranges.size() - 1; i >= 0; --i) {

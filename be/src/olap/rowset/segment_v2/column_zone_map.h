@@ -21,130 +21,64 @@
 #include <memory>
 
 #include "common/status.h"
-#include "util/coding.h"
 #include "util/slice.h"
-#include "util/faststring.h"
-#include "olap/olap_cond.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
 
 namespace doris {
 
 namespace segment_v2 {
 
+struct ZoneMap {
+    // min value of zone
+    char* min_value = nullptr;
+    // max value of zone
+    char* max_value = nullptr;
+
+    // if both exist_null and exist_none_null is false, means no rows.
+    // if exist_null is true and exist_none_null is false, means all rows is null.
+    // if exist_null is false and exist_none_null is true, means all rows is not null.
+    // if exist_null is true and exist_none_null is true, means some rows is null and others are not.
+    // exist_null means whether zone has null value
+    bool exist_null = false;
+    // exist_none_null means whether zone has none-null value
+    bool exist_none_null = false;
+};
+
 // This class encode column pages' zone map.
 // The binary is encoded by BinaryPlainPageBuilder
 class ColumnZoneMapBuilder {
 public:
-    ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_info(type_info),
-            _min_value(nullptr), _max_value(nullptr),
-            _null_flag(false), _non_null_flag(false) {
-        PageBuilderOptions options;
-        options.data_page_size = 0;
-        _page_builder.reset(new BinaryPlainPageBuilder(options));
-        _field.reset(Field::create_by_type(_type_info->type()));
-        _max_string_value = _arena.Allocate(OLAP_STRING_MAX_LENGTH);
-        _min_value = _arena.Allocate(_type_info->size());
-        // we should allocate max varchar length and set to max for min value
-        Slice* min_slice = (Slice*)_min_value;
-        min_slice->data = _max_string_value;
-        min_slice->size = OLAP_STRING_MAX_LENGTH;
-        _field->set_to_max(_min_value);
-        _max_value = _arena.Allocate(_type_info->size());
-        _field->set_to_min(_max_value);
-    }
+    ColumnZoneMapBuilder(const TypeInfo* type_info);
 
-    Status add(const uint8_t* vals, size_t count) {
-        if (vals != nullptr) {
-            for (int i = 0; i < count; ++i) {
-                if (_field->compare(_min_value, (char*)vals) > 0) {
-                    _field->deep_copy_content(_min_value, (const char*)vals, &_arena);
-                }
-                if (_field->compare(_max_value, (char*)vals) < 0) {
-                    _field->deep_copy_content(_max_value, (const char*)vals, &_arena);
-                }
-                vals += _type_info->size();
-                if (!_non_null_flag) {
-                    _non_null_flag = true;
-                }
-            }
-        } else {
-            if (!_null_flag) {
-                _null_flag = true;
-            }
-        }
-        return Status::OK();
-    }
+    Status add(const uint8_t* vals, size_t count);
 
-    Status flush() {
-        ZoneMapPB page_zone_map;
-        page_zone_map.set_min(_field->to_string(_min_value));
-        page_zone_map.set_max(_field->to_string(_max_value));
-        page_zone_map.set_null_flag(_null_flag);
-        page_zone_map.set_non_null_flag(_non_null_flag);
-        std::string serialized_zone_map;
-        bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
-        if (!ret) {
-            return Status::InternalError("serialize zone map failed");
-        }
-        Slice data(serialized_zone_map.data(), serialized_zone_map.size());
-        size_t num = 1;
-        RETURN_IF_ERROR(_page_builder->add((const uint8_t*)&data, &num));
-        // reset the variables
-        // we should allocate max varchar length and set to max for min value
-        Slice* min_slice = (Slice*)_min_value;
-        min_slice->data = _max_string_value;
-        min_slice->size = OLAP_STRING_MAX_LENGTH;
-        _field->set_to_max(_min_value);
-        _field->set_to_min(_max_value);
-        _null_flag = false;
-        _non_null_flag = false;
-        return Status::OK();
-    }
+    Status flush();
 
     Slice finish() {
         return _page_builder->finish();
     }
 
 private:
+    void _reset_zone_map();
+
+private:
     const TypeInfo* _type_info;
     std::unique_ptr<BinaryPlainPageBuilder> _page_builder;
     std::unique_ptr<Field> _field;
     // memory will be managed by arena
-    char* _min_value;
-    char* _max_value;
+    ZoneMap _zone_map;
     char* _max_string_value;
-    // if both _null_flag and _non_full_flag is false, means no rows.
-    // if _null_flag is true and _non_full_flag is false, means all rows is null.
-    // if _null_flag is false and _non_full_flag is true, means all rows is not null.
-    // if _null_flag is true and _non_full_flag is true, means some rows is null and others are not.
-    bool _null_flag;
-    bool _non_null_flag;
     Arena _arena;
 };
 
 // ColumnZoneMap
 class ColumnZoneMap {
 public:
-    ColumnZoneMap(const Slice& data)
-        : _data(data), _num_pages(0) { }
+    ColumnZoneMap(const Slice& data) : _data(data), _num_pages(0) { }
     
-    Status load() {
-        BinaryPlainPageDecoder page_decoder(_data);
-        RETURN_IF_ERROR(page_decoder.init());
-        _num_pages = page_decoder.count();
-        for (int i = 0; i < _num_pages; ++i) {
-            Slice data = page_decoder.string_at_index(i);
-            ZoneMapPB zone_map;
-            bool ret = zone_map.ParseFromString(std::string(data.data, data.size));
-            if (!ret) {
-                return Status::InternalError("parse zone map failed");
-            }
-            _page_zone_maps.emplace_back(zone_map);
-        }
-        return Status::OK();
-    }
+    Status load();
 
     const std::vector<ZoneMapPB>& get_column_zone_map() const {
         return _page_zone_maps;

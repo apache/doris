@@ -204,7 +204,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
         }
         // test seek, key (-2, -1)
@@ -243,7 +243,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
         }
     }
@@ -349,6 +349,9 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 rowid += rows_read;
             }
             ASSERT_EQ(16 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
         }
     }
     FileUtils::remove_all(dname);
