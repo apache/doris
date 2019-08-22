@@ -250,7 +250,7 @@ public:
         for (std::vector<MemTracker*>::iterator tracker = _limit_trackers.begin();
                 tracker != _limit_trackers.end(); ++tracker) {
             if ((*tracker)->limit_exceeded()) {
-                return tracker;
+                return *tracker;
             }
         }
         return NULL;
