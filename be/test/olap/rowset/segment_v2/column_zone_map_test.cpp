@@ -29,10 +29,14 @@ public:
         TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_CHAR);
         ColumnZoneMapBuilder builder(type_info);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
-        builder.add((const uint8_t *)&values1, values.size());
+        for (auto value : values1) {
+            builder.add((const uint8_t*)&value, 1);
+        }
         builder.flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
-        builder.add((const uint8_t *)&values2, values.size());
+        for (auto value : values2) {
+            builder.add((const uint8_t*)&value, 1);
+        }
         builder.add(nullptr, 1);
         builder.flush();
         for (int i = 0; i < 6; ++i) {
@@ -44,7 +48,7 @@ public:
         Status status = column_zone_map.load();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(3, column_zone_map.num_pages());
-        const std::vector<ZoneMapPB> &zone_maps = column_zone_map.get_column_zone_map();
+        const std::vector<ZoneMapPB>& zone_maps = column_zone_map.get_column_zone_map();
         ASSERT_EQ(3, zone_maps.size());
         ASSERT_EQ("aaaa", zone_maps[0].min());
         ASSERT_EQ("ffff", zone_maps[0].max());
@@ -66,10 +70,14 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_INT);
     ColumnZoneMapBuilder builder(type_info);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
-    builder.add((const uint8_t*)&values1, values.size());
+    for (auto value : values1) {
+        builder.add((const uint8_t*)&value, 1);
+    }
     builder.flush();
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
-    builder.add((const uint8_t*)&values2, values.size());
+    for (auto value : values2) {
+        builder.add((const uint8_t*)&value, 1);
+    }
     builder.add(nullptr, 1);
     builder.flush();
     for (int i = 0; i < 6; ++i) {
@@ -83,20 +91,14 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     ASSERT_EQ(3, column_zone_map.num_pages());
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.get_column_zone_map();
     ASSERT_EQ(3, zone_maps.size());
-    int32_t min = 1;
-    int32_t max = 22;
-    std::string min_str((char*)*min, 4);
-    ASSERT_EQ(min_str, zone_maps[0].min());
-    std::string max_str((char*)*max, 4);
-    ASSERT_EQ(max_str, zone_maps[0].max());
+
+    ASSERT_EQ(std::to_string(1), zone_maps[0].min());
+    ASSERT_EQ(std::to_string(22), zone_maps[0].max());
     ASSERT_EQ(false, zone_maps[0].null_flag());
     ASSERT_EQ(true, zone_maps[0].non_null_flag());
-    min = 2;
-    max = 31;
-    std::string min_str((char*)*min, 4);
-    ASSERT_EQ(min_str, zone_maps[1].min());
-    std::string max_str((char*)*max, 4);
-    ASSERT_EQ(max_str, zone_maps[1].max());
+
+    ASSERT_EQ(std::to_string(2), zone_maps[1].min());
+    ASSERT_EQ(std::to_string(31), zone_maps[1].max());
     ASSERT_EQ(true, zone_maps[1].null_flag());
     ASSERT_EQ(true, zone_maps[1].non_null_flag());
 

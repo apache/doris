@@ -25,6 +25,7 @@
 #include "util/slice.h"
 #include "util/faststring.h"
 #include "olap/olap_cond.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "gen_cpp/segment_v2.pb.h"
 
@@ -43,15 +44,20 @@ public:
         options.data_page_size = 0;
         _page_builder.reset(new BinaryPlainPageBuilder(options));
         _field.reset(Field::create_by_type(_type_info->type()));
+        _max_string_value = _arena.Allocate(OLAP_STRING_MAX_LENGTH);
         _min_value = _arena.Allocate(_type_info->size());
+        // we should allocate max varchar length and set to max for min value
+        Slice* min_slice = (Slice*)_min_value;
+        min_slice->data = _max_string_value;
+        min_slice->size = OLAP_STRING_MAX_LENGTH;
         _field->set_to_max(_min_value);
         _max_value = _arena.Allocate(_type_info->size());
         _field->set_to_min(_max_value);
     }
 
     Status add(const uint8_t* vals, size_t count) {
-        for (int i = 0; i < count; ++i) {
-            if (vals != nullptr) {
+        if (vals != nullptr) {
+            for (int i = 0; i < count; ++i) {
                 if (_field->compare(_min_value, (char*)vals) > 0) {
                     _field->deep_copy_content(_min_value, (const char*)vals, &_arena);
                 }
@@ -62,12 +68,11 @@ public:
                 if (!_non_null_flag) {
                     _non_null_flag = true;
                 }
-            } else {
-                if (!_null_flag) {
-                    _null_flag = true;
-                }
             }
-            
+        } else {
+            if (!_null_flag) {
+                _null_flag = true;
+            }
         }
         return Status::OK();
     }
@@ -87,6 +92,10 @@ public:
         size_t num = 1;
         RETURN_IF_ERROR(_page_builder->add((const uint8_t*)&data, &num));
         // reset the variables
+        // we should allocate max varchar length and set to max for min value
+        Slice* min_slice = (Slice*)_min_value;
+        min_slice->data = _max_string_value;
+        min_slice->size = OLAP_STRING_MAX_LENGTH;
         _field->set_to_max(_min_value);
         _field->set_to_min(_max_value);
         _null_flag = false;
@@ -105,6 +114,7 @@ private:
     // memory will be managed by arena
     char* _min_value;
     char* _max_value;
+    char* _max_string_value;
     // if both _null_flag and _non_full_flag is false, means no rows.
     // if _null_flag is true and _non_full_flag is false, means all rows is null.
     // if _null_flag is false and _non_full_flag is true, means all rows is not null.
