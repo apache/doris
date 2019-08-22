@@ -233,7 +233,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
         RETURN_IF_LIMIT_EXCEEDED(state, 
-                "The memory limit of hash join has been exceeded when it constructed the hash table.");
+                "Hash join was constructing the hash table.");
 
         // Call codegen version if possible
         if (_process_build_batch_fn == NULL) {
