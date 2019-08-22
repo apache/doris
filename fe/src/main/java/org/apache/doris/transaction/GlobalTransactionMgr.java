@@ -758,8 +758,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.debug("find a running txn with txn_id={}, less than schema change txn_id {}", 
-                            entry.getKey(), endTransactionId);
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
