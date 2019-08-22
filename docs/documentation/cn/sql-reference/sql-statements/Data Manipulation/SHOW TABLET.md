@@ -4,14 +4,21 @@
     语法：
         SHOW TABLET
         [FROM [db_name.]table_name | tablet_id]
+        [limit [offset,]size]
 
 ## example
     1. 显示指定 db 的下指定表所有 tablet 信息
         SHOW TABLET FROM example_db.table_name;
+
+        // 返回10行结果
+        SHOW TABLET FROM example_db.table_name limit 10;
+
+        // 从偏移5开始返回10行结果
+        SHOW TABLET FROM example_db.table_name limit 5,10;
         
     2. 显示指定 tablet id 为 10000 的 tablet 的父层级 id 信息
         SHOW TABLET 10000;
 
 ## keyword
-    SHOW,TABLET
+    SHOW,TABLET,LIMIT
 
