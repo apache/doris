@@ -135,7 +135,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp(), request.getRequest_id());
+            checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
             createLoadJob(loadJob);
             // Mini load job must be executed before release write lock.
