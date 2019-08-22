@@ -129,6 +129,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
+    // this request id is only used for checking if a load begin request is a duplicate request.
+    protected TUniqueId requestId;
+
     // only for log replay
     public LoadJob() {
     }
@@ -225,6 +228,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         details.put("TaskNumber", numLoadedRows.size());
         Gson gson = new Gson();
         return gson.toJson(details);
+    }
+
+    public TUniqueId getRequestId() {
+        return requestId;
     }
 
     /**

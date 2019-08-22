@@ -188,7 +188,7 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
                                   timeoutSecond);
     }

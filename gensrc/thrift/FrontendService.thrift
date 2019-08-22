@@ -457,7 +457,8 @@ struct TMiniLoadBeginRequest {
     9: optional i64 timeout_second
     10: optional double max_filter_ratio 
     11: optional i64 auth_code
-    12: optional i64 create_timestamp;
+    12: optional i64 create_timestamp
+    13: optional Types.TUniqueId request_id
 }
 
 struct TIsMethodSupportedRequest {
@@ -483,10 +484,11 @@ struct TLoadTxnBeginRequest {
     5: required string tbl
     6: optional string user_ip
     7: required string label
-    8: optional i64 timestamp
+    8: optional i64 timestamp   // deprecated, use request_id instead
     9: optional i64 auth_code
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
+    11: optional Types.TUniqueId request_id
 }
 
 struct TLoadTxnBeginResult {

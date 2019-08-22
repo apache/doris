@@ -648,6 +648,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
     request.__set_create_timestamp(UnixMillis());
+    request.__set_request_id(ctx->id.to_thrift());
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
