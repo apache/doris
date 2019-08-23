@@ -31,7 +31,7 @@ namespace segment_v2 {
 // To is exclusive. It is used for row id range calculation.
 class RowRange {
 public:
-    // Returns true if if two ranges are overlapped or false.
+    // Returns true if two ranges are overlapped or false.
     // The union range will be returned through range.
     static bool range_union(const RowRange& left, const RowRange& right, RowRange* range) {
         if (left._from <= right._from) {
@@ -101,7 +101,7 @@ public:
     }
 
     std::string to_string() const {
-        return strings::Substitute("[$0-$1]", _from, _to);
+        return strings::Substitute("[$0-$1)", _from, _to);
     }
 
 private:
