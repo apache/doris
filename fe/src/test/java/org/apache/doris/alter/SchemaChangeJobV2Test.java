@@ -105,6 +105,7 @@ public class SchemaChangeJobV2Test {
         addColumnClause.analyze(analyzer);
 
         FeConstants.runningUnitTest = true;
+        AgentTaskQueue.clearAllTasks();
     }
 
     @Test

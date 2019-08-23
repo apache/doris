@@ -173,7 +173,6 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
@@ -3301,10 +3300,7 @@ public class Catalog {
                 if (!ok || !countDownLatch.getStatus().ok()) {
                     errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
                     // clear tasks
-                    List<AgentTask> tasks = batchTask.getAllTasks();
-                    for (AgentTask task : tasks) {
-                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
-                    }
+                    AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
                     if (!countDownLatch.getStatus().ok()) {
                         errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();

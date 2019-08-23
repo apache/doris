@@ -186,7 +186,6 @@ abstract public class DorisHttpTestCase {
         return table;
     }
 
-
     private static Catalog newDelegateCatalog() {
         try {
             Catalog catalog = EasyMock.createMock(Catalog.class);
