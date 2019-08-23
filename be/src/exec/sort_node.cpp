@@ -146,7 +146,8 @@ Status SortNode::sort_input(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
         RETURN_IF_ERROR(_sorter->add_batch(&batch));
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_LIMIT_EXCEEDED(state);
+        RETURN_IF_LIMIT_EXCEEDED(state, 
+                "Sort node was getting next from the child.");
         // RETURN_IF_ERROR(QueryMaintenance(state));
     } while (!eos);
     RETURN_IF_ERROR(_sorter->input_done());
