@@ -632,6 +632,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Config.max_concurrent_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
         Assert.assertEquals(true, routineLoadManager.checkBeToTask(1L, "default"));
     }
