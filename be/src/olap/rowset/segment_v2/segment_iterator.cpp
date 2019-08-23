@@ -37,7 +37,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
         : _segment(std::move(segment)),
         _schema(schema),
         _cur_range_id(0),
-        _column_iterators(_schema.num_columns(), nullptr) {
+        _column_iterators(_schema.num_columns(), nullptr),
+        _cur_rowid(0) {
 }
 
 SegmentIterator::~SegmentIterator() {
@@ -296,31 +297,35 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 }
 
 Status SegmentIterator::next_batch(RowBlockV2* block) {
-    if (_row_ranges.is_empty()) {
+    if (_row_ranges.is_empty() || _cur_rowid >= _row_ranges.to()) {
+        block->resize(0);
         return Status::EndOfFile("no more data in segment");
     }
-    size_t rows_left = block->capacity();
-    while (rows_left > 0 && _cur_rowid < _row_ranges.to()) {
+    size_t rows_to_read = block->capacity();
+    while (rows_to_read > 0) {
         if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
             // current row range is read over,
+            if (_cur_range_id >= _row_ranges.range_size() - 1) {
+                // there is no more row range
+                break;
+            }
             // step to next row range
-            if (_cur_range_id < _row_ranges.range_size() - 1) {
-                ++_cur_range_id;
-                _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
-                for (auto cid : block->schema()->column_ids()) {
-                    _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
-                }
-            } else {
-                return Status::RuntimeError(Substitute("invalid row ranges, _cur_rowid:$0, range_to:$1, rows_left:$2",
-                        _cur_rowid, _row_ranges.get_range_to(_cur_range_id), rows_left));
+            ++_cur_range_id;
+            _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
+            if (_row_ranges.get_range_count(_cur_range_id) == 0) {
+                // current row range is empty, just skip seek
+                continue;
+            }
+            for (auto cid : block->schema()->column_ids()) {
+                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_cur_rowid));
             }
         }
-        size_t to_read_in_range = std::min(rows_left, size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
+        size_t to_read_in_range = std::min(rows_to_read, size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
         RETURN_IF_ERROR(_next_batch(block, &to_read_in_range));
         _cur_rowid += to_read_in_range;
-        rows_left -= to_read_in_range;
+        rows_to_read -= to_read_in_range;
     }
-    block->resize(block->capacity() - rows_left);
+    block->resize(block->capacity() - rows_to_read);
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
     }

@@ -44,14 +44,14 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
                 _field->deep_copy_content(_zone_map.max_value, (const char *)vals, &_arena);
             }
             vals += _type_info->size();
-            if (!_zone_map.exist_none_null) {
-                _zone_map.exist_none_null = true;
+            if (!_zone_map.has_not_null) {
+                _zone_map.has_not_null = true;
             }
         }
     }
     else {
-        if (!_zone_map.exist_null) {
-            _zone_map.exist_null = true;
+        if (!_zone_map.has_null) {
+            _zone_map.has_null = true;
         }
     }
     return Status::OK();
@@ -61,8 +61,8 @@ Status ColumnZoneMapBuilder::flush() {
     ZoneMapPB page_zone_map;
     page_zone_map.set_min(_field->to_string(_zone_map.min_value));
     page_zone_map.set_max(_field->to_string(_zone_map.max_value));
-    page_zone_map.set_exist_null(_zone_map.exist_null);
-    page_zone_map.set_exist_none_null(_zone_map.exist_none_null);
+    page_zone_map.set_has_null(_zone_map.has_null);
+    page_zone_map.set_has_not_null(_zone_map.has_not_null);
     std::string serialized_zone_map;
     bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
     if (!ret) {
@@ -84,8 +84,8 @@ void ColumnZoneMapBuilder::_reset_zone_map() {
     min_slice->size = OLAP_STRING_MAX_LENGTH;
     _field->set_to_max(_zone_map.min_value);
     _field->set_to_min(_zone_map.max_value);
-    _zone_map.exist_null = false;
-    _zone_map.exist_none_null = false;
+    _zone_map.has_null = false;
+    _zone_map.has_not_null = false;
 }
 
 Status ColumnZoneMap::load() {

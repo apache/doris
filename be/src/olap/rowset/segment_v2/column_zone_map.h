@@ -36,14 +36,14 @@ struct ZoneMap {
     // max value of zone
     char* max_value = nullptr;
 
-    // if both exist_null and exist_none_null is false, means no rows.
-    // if exist_null is true and exist_none_null is false, means all rows is null.
-    // if exist_null is false and exist_none_null is true, means all rows is not null.
-    // if exist_null is true and exist_none_null is true, means some rows is null and others are not.
-    // exist_null means whether zone has null value
-    bool exist_null = false;
-    // exist_none_null means whether zone has none-null value
-    bool exist_none_null = false;
+    // if both has_null and has_not_null is false, means no rows.
+    // if has_null is true and has_not_null is false, means all rows is null.
+    // if has_null is false and has_not_null is true, means all rows is not null.
+    // if has_null is true and has_not_null is true, means some rows is null and others are not.
+    // has_null means whether zone has null value
+    bool has_null = false;
+    // has_not_null means whether zone has none-null value
+    bool has_not_null = false;
 };
 
 // This class encode column pages' zone map.

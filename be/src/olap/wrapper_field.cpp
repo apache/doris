@@ -39,7 +39,7 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     if (column.type() == OLAP_FIELD_TYPE_CHAR) {
         variable_len = std::max(len, (uint32_t)(column.length()));
     } else if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
-		// column.length is the serialized varchar length
+        // column.length is the serialized varchar length
         // the first sizeof(StringLengthType) bytes is the length of varchar
         // variable_len is the real length of varchar
         variable_len = std::max(len,

@@ -67,14 +67,14 @@ enum CompressionTypePB {
 }
 
 message ZoneMapPB {
-    // min value without null flag prefix
+    // minimum not-null value, invalid when all values are null(has_not_null==false)
     optional bytes min = 1;
-    // max value without null flag prefix
+    // maximum not-null value, invalid when all values are null (has_not_null==false)
     optional bytes max = 2;
     // whether the zone has null value
-    optional bool exist_null = 3;
-    // whether the zone has none-null value
-    optional bool exist_none_null = 4;
+    optional bool has_null = 3;
+    // whether the zone has not-null value
+    optional bool has_not_null = 4;
 }
 
 message ColumnMetaPB {

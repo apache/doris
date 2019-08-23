@@ -111,6 +111,8 @@ private:
 
 class RowRanges {
 public:
+    RowRanges() : _count(0) { }
+
     // Creates a new RowRanges object with the single range [0, row_count).
     static RowRanges create_single(uint64_t row_count) {
         RowRanges ranges;
@@ -130,7 +132,7 @@ public:
     // Calculates the union of the two specified RowRanges object. The union of two range is calculated if there are
     // elements between them. Otherwise, the two disjunct ranges are stored separately.
     // For example:
-    // [113, 241) ∪ [221, 340) = [113, 330)
+    // [113, 241) ∪ [221, 340) = [113, 340)
     // [113, 230) ∪ [230, 340) = [113, 340]
     // while
     // [113, 230) ∪ [231, 340) = [113, 230), [231, 340)
@@ -191,15 +193,11 @@ public:
     }
 
     size_t count() {
-        size_t cnt = 0;
-        for (auto& range : _ranges) {
-            cnt += range.count();
-        }
-        return cnt;
+        return _count;
     }
 
     bool is_empty() {
-        return count() == 0;
+        return _count == 0;
     }
 
     bool contain(rowid_t from, rowid_t to) {
@@ -271,12 +269,15 @@ private:
             }
             range_to_add = u;
             _ranges.erase(_ranges.begin() + i);
+            _count -= last.count();
         }
         _ranges.emplace_back(range_to_add);
+        _count += range_to_add.count();
     }
 
 private:
     std::vector<RowRange> _ranges;
+    size_t _count;
 };
 
 } // namespace segment_v2
