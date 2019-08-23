@@ -86,7 +86,6 @@ abstract public class DorisHttpTestCase {
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTbl";
 
-
     private static long testBackendId1 = 1000;
     private static long testBackendId2 = 1001;
     private static long testBackendId3 = 1002;
@@ -94,7 +93,6 @@ abstract public class DorisHttpTestCase {
     private static long testReplicaId1 = 2000;
     private static long testReplicaId2 = 2001;
     private static long testReplicaId3 = 2002;
-
 
     private static long testDbId = 100L;
     private static long testTableId = 200L;
@@ -112,9 +110,7 @@ abstract public class DorisHttpTestCase {
 
     protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
 
-
     protected String rootAuth = Credentials.basic("root", "");
-
 
     public static OlapTable newTable(String name) {
         Catalog.getCurrentInvertedIndex().clear();
@@ -158,7 +154,7 @@ abstract public class DorisHttpTestCase {
                 distributionInfo);
         table.addPartition(partition);
         table.setIndexSchemaInfo(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1);
-
+        table.setBaseIndexId(testIndexId);
         return table;
     }
 
@@ -225,7 +221,6 @@ abstract public class DorisHttpTestCase {
     static {
         Startup.initializeIfPossible();
     }
-
 
     private static void assignBackends() {
         Backend backend1 = new Backend(testBackendId1, "node-1", 9308);
