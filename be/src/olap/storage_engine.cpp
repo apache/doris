@@ -49,6 +49,7 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/unique_rowset_id_generator.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -112,7 +113,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_report_disk_state_already(false),
         _is_report_tablet_already(false), 
         _tablet_manager(new TabletManager()),
-        _txn_manager(new TxnManager()) {
+        _txn_manager(new TxnManager()),
+        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }

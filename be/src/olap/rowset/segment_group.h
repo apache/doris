@@ -48,11 +48,11 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
@@ -248,7 +248,7 @@ public:
 
     int64_t get_tablet_id();
 
-    int64_t rowset_id() {
+    RowsetId rowset_id() {
         return _rowset_id;
     }
 
@@ -262,12 +262,12 @@ public:
 
     OLAPStatus copy_files_to(const std::string& dir);
 
-    OLAPStatus link_segments_to_path(const std::string& dest_path, int64_t rowset_id);
+    OLAPStatus link_segments_to_path(const std::string& dest_path, RowsetId rowset_id);
 
 private:
     
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
-    std::string _construct_file_name(int64_t rowset_id, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_file_name(RowsetId rowset_id, int32_t segment_id, const std::string& suffix) const;
 
     std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
     
@@ -281,7 +281,7 @@ private:
 
 private:
     int64_t _tablet_id;
-    int64_t _rowset_id;
+    RowsetId _rowset_id;
     const TabletSchema* _schema;
     std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file

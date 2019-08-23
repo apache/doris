@@ -216,18 +216,9 @@ public:
     void delete_all_files();
 
     bool check_path(const std::string& check_path);
-
-    // check rowset_id is valid
     bool check_rowset_id(RowsetId rowset_id);
 
-    OLAPStatus next_rowset_id(RowsetId* id);
-    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
-
     OLAPStatus set_partition_id(int64_t partition_id);
-
-    RowsetId initial_end_rowset_id() {
-        return _tablet_meta->initial_end_rowset_id();
-    }
 
     TabletInfo get_tablet_info();
 

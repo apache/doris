@@ -85,7 +85,9 @@ void tear_down() {
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, DataDir* data_dir,
         RowsetWriterContext* rowset_writer_context) {
-    rowset_writer_context->rowset_id = 10000;
+    RowsetId rowset_id;
+    rowset_id.init(10000);
+    rowset_writer_context->rowset_id = rowset_id;
     rowset_writer_context->tablet_id = 12345;
     rowset_writer_context->tablet_schema_hash = 1111;
     rowset_writer_context->partition_id = 10;
@@ -226,7 +228,9 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     _alpha_rowset_writer->flush();
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);
-    ASSERT_EQ(10000, alpha_rowset->rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(10000);
+    ASSERT_EQ(rowset_id, alpha_rowset->rowset_id());
     ASSERT_EQ(1, alpha_rowset->num_rows());
     RowsetReaderSharedPtr rowset_reader = alpha_rowset->create_reader();
     ASSERT_TRUE(rowset_reader != nullptr);

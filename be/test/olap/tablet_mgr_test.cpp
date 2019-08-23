@@ -42,6 +42,8 @@ using std::string;
 
 namespace doris {
 
+static StorageEngine* k_engine = nullptr;
+
 class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
@@ -51,9 +53,19 @@ public:
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
         create_dirs(_engine_data_path);
+        create_dirs(_engine_data_path + "/meta");
+
+        std::vector<StorePath> paths;
+        paths.emplace_back("_engine_data_path", -1);
+        EngineOptions options;
+        options.store_paths = paths;
+        options.backend_uid = doris::UniqueId();
+        if (k_engine == nullptr) {
+            k_engine = new StorageEngine(options);
+        }
+
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
-        _meta_path = "./meta";
         string tmp_data_path = _engine_data_path + "/data"; 
         if (boost::filesystem::exists(tmp_data_path)) {
             boost::filesystem::remove_all(tmp_data_path);
@@ -65,23 +77,10 @@ public:
                 + "/" + std::to_string(0)
                 + "/" + std::to_string(_tablet_id)
                 + "/" + std::to_string(_schema_hash);
-        if (boost::filesystem::exists(_meta_path)) {
-            boost::filesystem::remove_all(_meta_path);
-        }
-        ASSERT_TRUE(boost::filesystem::create_directory(_meta_path));
-        ASSERT_TRUE(boost::filesystem::exists(_meta_path));
-        _meta = new(std::nothrow) OlapMeta(_meta_path);
-        ASSERT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
-        ASSERT_TRUE(st == OLAP_SUCCESS);
     }
 
     virtual void TearDown() {
-        delete _meta;
         delete _data_dir;
-        if (boost::filesystem::exists(_meta_path)) {
-            ASSERT_TRUE(boost::filesystem::remove_all(_meta_path));
-        }
         if (boost::filesystem::exists(_engine_data_path)) {
             ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
         }
@@ -90,11 +89,9 @@ public:
 
 private:
     DataDir* _data_dir;
-    OlapMeta* _meta;
     std::string _json_rowset_meta;
     TxnManager _txn_mgr;
     std::string _engine_data_path;
-    std::string _meta_path;
     int64_t _tablet_id;
     int32_t _schema_hash;
     string _tablet_data_path;

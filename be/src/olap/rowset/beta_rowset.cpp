@@ -26,7 +26,7 @@
 namespace doris {
 
 std::string BetaRowset::segment_file_path(const std::string& dir, RowsetId rowset_id, int segment_id) {
-    return strings::Substitute("$0/$1_$2.dat", dir, rowset_id, segment_id);
+    return strings::Substitute("$0/$1_$2.dat", dir, rowset_id.to_string(), segment_id);
 }
 
 BetaRowset::BetaRowset(const TabletSchema* schema,

@@ -270,12 +270,8 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
     }
     RowsetWriterContext context;
     uint32_t num_rows = 0;
-    RowsetId rowset_id = 0;
-    res = cur_tablet->next_rowset_id(&rowset_id);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "generate rowset id failed, res:" << res;
-        return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
-    }
+    RowsetId rowset_id;
+    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);

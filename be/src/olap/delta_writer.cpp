@@ -46,7 +46,7 @@ DeltaWriter::~DeltaWriter() {
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
     if (_rowset_writer != nullptr) {
-        _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_writer->rowset_id()));
+        _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
     }
 }
 
@@ -115,8 +115,8 @@ OLAPStatus DeltaWriter::init() {
         }
     }
 
-    RowsetId rowset_id = 0; // get rowset_id from id generator
-    OLAPStatus status = _tablet->next_rowset_id(&rowset_id);
+    RowsetId rowset_id; // get rowset_id from id generator
+    OLAPStatus status = StorageEngine::instance()->next_rowset_id(&rowset_id);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "generate rowset id failed, status:" << status;
         return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;

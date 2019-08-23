@@ -31,20 +31,20 @@ namespace doris {
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
 public:
-    static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id);
+    static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id);
 
-    static OLAPStatus get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta);
+    static OLAPStatus get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, RowsetMetaSharedPtr rowset_meta);
 
-    static OLAPStatus get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, std::string* json_rowset_meta);
+    static OLAPStatus get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, std::string* json_rowset_meta);
 
-    static OLAPStatus save(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMeta* rowset_meta);
+    static OLAPStatus save(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, RowsetMeta* rowset_meta);
 
-    static OLAPStatus save(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, const string& meta_binary);
+    static OLAPStatus save(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, const string& meta_binary);
 
-    static OLAPStatus remove(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id);
+    static OLAPStatus remove(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id);
 
     static OLAPStatus traverse_rowset_metas(OlapMeta* meta,
-            std::function<bool(const TabletUid&, uint64_t, const std::string&)> const& func);
+            std::function<bool(const TabletUid&, RowsetId, const std::string&)> const& func);
 
     static OLAPStatus load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 };
