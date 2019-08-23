@@ -23,8 +23,11 @@
 
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "olap/olap_cond.h" // for CondColumn
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
+#include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 
 namespace doris {
 
@@ -55,7 +58,8 @@ struct ColumnReaderOptions {
 // This will cache data shared by all reader
 class ColumnReader {
 public:
-    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, RandomAccessFile* file);
+    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+            uint64_t num_rows, RandomAccessFile* file);
     ~ColumnReader();
 
     Status init();
@@ -74,8 +78,17 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
     const TypeInfo* type_info() const { return _type_info; }
 
+    bool has_zone_map() { return _meta.has_zone_map_page(); }
+    void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
+
 private:
     Status _init_ordinal_index();
+
+    Status _init_column_zone_map();
+
+    void _get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes);
+
+    void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     // input param
@@ -83,6 +96,7 @@ private:
     // we need colun data to parse column data.
     // use shared_ptr here is to make things simple
     ColumnMetaPB _meta;
+    uint64_t _num_rows;
     RandomAccessFile* _file = nullptr;
 
     const TypeInfo* _type_info = nullptr;
@@ -91,6 +105,9 @@ private:
 
     // get page pointer from index
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
+
+    // column zone map info
+    std::unique_ptr<ColumnZoneMap> _column_zone_map;
 };
 
 // Base iterator to read one column data

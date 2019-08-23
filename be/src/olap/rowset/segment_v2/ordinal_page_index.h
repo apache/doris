@@ -33,7 +33,7 @@ namespace segment_v2 {
 // the binary format is like that
 // Header | Content
 // Header: 
-//      number of elements (4 Bytes)
+//      number of pages (4 Bytes)
 // Content:
 //      array of index_pair
 // index_pair:
@@ -43,7 +43,7 @@ class OrdinalPageIndexBuilder {
 public:
     OrdinalPageIndexBuilder() : _num_pages(0) {
         _buffer.reserve(4 * 1024);
-        // reserve space for number of elements
+        // reserve space for number of pages
         _buffer.resize(4);
     }
 
@@ -56,7 +56,7 @@ public:
     }
 
     Slice finish() {
-        // encoded number of elements
+        // encoded number of pages
         encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
         return Slice(_buffer);
     }
@@ -75,6 +75,7 @@ public:
     inline bool valid() const;
     inline void next();
     inline rowid_t rowid() const;
+    inline int32_t cur_idx() const;
     inline const PagePointer& page() const;
 private:
     OrdinalPageIndex* _index;
@@ -84,8 +85,8 @@ private:
 // Page index 
 class OrdinalPageIndex {
 public:
-    OrdinalPageIndex(const Slice& data)
-        : _data(data), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
+    OrdinalPageIndex(const Slice& data, uint64_t num_rows)
+        : _data(data), _num_rows(num_rows), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
     }
     ~OrdinalPageIndex();
     
@@ -98,17 +99,33 @@ public:
     OrdinalPageIndexIterator end() {
         return OrdinalPageIndexIterator(this, _num_pages);
     }
+    rowid_t get_first_row_id(int page_index) const {
+        return _rowids[page_index];
+    }
+
+    rowid_t get_last_row_id(int page_index) const {
+        // because add additional number of rows as the last rowid
+        // so just return next_page_first_id - 1
+        int next_page_index = page_index + 1;
+        return get_first_row_id(next_page_index) - 1;
+    }
+
+    int32_t num_pages() const {
+        return _num_pages;
+    }
 
 private:
-    uint32_t _header_size() const { return 4; }
+    uint32_t _header_size() const { return 8; }
 
 private:
     friend OrdinalPageIndexIterator;
 
     Slice _data;
+    uint64_t _num_rows;
 
     // valid after laod
     int32_t _num_pages;
+    // the last row id is additional, set to number of rows
     rowid_t* _rowids;
     PagePointer* _pages;
 };
@@ -124,6 +141,10 @@ inline void OrdinalPageIndexIterator::next() {
 
 inline rowid_t OrdinalPageIndexIterator::rowid() const {
     return _index->_rowids[_cur_idx];
+}
+
+int32_t OrdinalPageIndexIterator::cur_idx() const {
+    return _cur_idx;
 }
 
 inline const PagePointer& OrdinalPageIndexIterator::page() const {
