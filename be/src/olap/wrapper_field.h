@@ -40,13 +40,22 @@ public:
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
+    // do not include the null flag
     std::string to_string() const {
         return _rep->to_string(_field_buf + 1);
     }
 
     // 从传入的字符串反序列化field的值
     // 参数必须是一个\0结尾的字符串
+    // do not include the null flag
     OLAPStatus from_string(const std::string& value_string) {
+        if (_is_string_type) {
+            if (value_string.size() > _var_length) {
+                Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
+                slice->size = value_string.size();
+                slice->data = _arena.Allocate(slice->size);
+            }
+        }
         return _rep->from_string(_field_buf + 1, value_string);
     }
 
@@ -87,6 +96,11 @@ public:
         _rep->direct_copy(this, *field);
     }
 
+    void copy(const char* value) {
+        set_is_null(false);
+        _rep->deep_copy_content((char*)cell_ptr(), value, &_arena);
+    }
+
 
 private:
     Field* _rep = nullptr;
@@ -96,6 +110,8 @@ private:
 
     //include fixed and variable length and null bytes
     size_t _length;
+    size_t _var_length;
+    Arena _arena;
 };
 
 }

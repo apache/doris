@@ -67,9 +67,14 @@ enum CompressionTypePB {
 }
 
 message ZoneMapPB {
+    // minimum not-null value, invalid when all values are null(has_not_null==false)
     optional bytes min = 1;
+    // maximum not-null value, invalid when all values are null (has_not_null==false)
     optional bytes max = 2;
-    optional bool null_flag = 3;
+    // whether the zone has null value
+    optional bool has_null = 3;
+    // whether the zone has not-null value
+    optional bool has_not_null = 4;
 }
 
 message ColumnMetaPB {
@@ -86,6 +91,8 @@ message ColumnMetaPB {
     optional bool is_nullable = 6;
     // ordinal index page
     optional PagePointerPB ordinal_index_page = 7;
+    // zone map page
+    optional PagePointerPB zone_map_page = 8;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;

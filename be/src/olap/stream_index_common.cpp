@@ -38,14 +38,15 @@ ColumnStatistics::~ColumnStatistics() {
 OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
     SAFE_DELETE(_minimum);
     SAFE_DELETE(_maximum);
-    // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
-    _minimum = WrapperField::create_by_type(type);
-    _maximum = WrapperField::create_by_type(type);
 
     _null_supported = null_supported;
-    if (NULL == _minimum || NULL == _maximum) {
+    if (type == OLAP_FIELD_TYPE_CHAR
+            || type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL) {
         _ignored = true;
     } else {
+        // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
+        _minimum = WrapperField::create_by_type(type);
+        _maximum = WrapperField::create_by_type(type);
         _ignored = false;
         reset();
     }

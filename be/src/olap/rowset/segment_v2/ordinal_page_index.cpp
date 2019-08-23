@@ -33,7 +33,8 @@ Status OrdinalPageIndex::load() {
     _num_pages = decode_fixed32_le(ptr);
     ptr += 4;
 
-    _rowids = new rowid_t[_num_pages];
+    // add a additional rowid for row id compute convenience
+    _rowids = new rowid_t[_num_pages + 1];
     _pages = new PagePointer[_num_pages];
     for (int i = 0; i < _num_pages; ++i) {
         ptr = decode_varint32_ptr(ptr, limit, &_rowids[i]);
@@ -45,6 +46,8 @@ Status OrdinalPageIndex::load() {
             return Status::InternalError("Data corruption");
         }
     }
+    // set the additional last row id as number of rows
+    _rowids[_num_pages] = _num_rows;
     return Status::OK();
 }
 

@@ -107,6 +107,11 @@ public:
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
 
+    static IntCounter segment_read_total;
+    static IntCounter segment_row_total;
+    static IntCounter segment_rows_by_short_key;
+    static IntCounter segment_rows_read_by_zone_map;
+
     static IntCounter txn_begin_request_total;
     static IntCounter txn_commit_request_total;
     static IntCounter txn_rollback_request_total;
