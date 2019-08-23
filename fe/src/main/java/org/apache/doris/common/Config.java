@@ -819,6 +819,13 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_concurrent_num = 5;
 
     /*
+     * the max concurrent task num per be
+     * The cluster max concurrent task num = max_concurrent_task_num_per_be * number of be
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_concurrent_task_num_per_be = 10;
+
+    /*
      * The max number of files store in SmallFileMgr 
      */
     @ConfField(mutable = true, masterOnly = true)
