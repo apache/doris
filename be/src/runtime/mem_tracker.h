@@ -245,6 +245,17 @@ public:
         return false;
     }
 
+    // Return limit exceeded tracker or null
+    MemTracker* find_limit_exceeded_tracker() {
+        for (std::vector<MemTracker*>::iterator tracker = _limit_trackers.begin();
+                tracker != _limit_trackers.end(); ++tracker) {
+            if ((*tracker)->limit_exceeded()) {
+                return *tracker;
+            }
+        }
+        return NULL;
+    }
+
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker or any of its parents. Returns int64_t::max() if there are no
     // limits and a negative value if any limit is already exceeded.

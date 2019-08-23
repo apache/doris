@@ -393,11 +393,16 @@ private:
     bool _is_closed;
 };
 
-#define RETURN_IF_LIMIT_EXCEEDED(state) \
+#define RETURN_IF_LIMIT_EXCEEDED(state, msg) \
     do { \
         /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */ \
-        if (UNLIKELY(state->instance_mem_tracker()->any_limit_exceeded())) { \
-            return Status::MemoryLimitExceeded("Memory limit exceeded"); \
+        MemTracker* tracker = state->instance_mem_tracker()->find_limit_exceeded_tracker(); \
+        if (tracker != nullptr) { \
+            stringstream str; \
+            str << "Memory exceed limit. " << msg << " "; \
+            str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
+            str << "You can change the limit by session variable exec_mem_limit."; \
+            return Status::MemoryLimitExceeded(str.str()); \
         } \
     } while (false)
 }
