@@ -163,7 +163,7 @@ Status Segment::_initial_column_readers() {
 
         ColumnReaderOptions opts;
         std::unique_ptr<ColumnReader> reader(
-            new ColumnReader(opts, _footer.columns(iter->second), _input_file.get()));
+            new ColumnReader(opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get()));
         RETURN_IF_ERROR(reader->init());
 
         _column_readers[ordinal] = reader.release();

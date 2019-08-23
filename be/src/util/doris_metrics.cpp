@@ -87,6 +87,11 @@ IntCounter DorisMetrics::meta_write_request_duration_us;
 IntCounter DorisMetrics::meta_read_request_total;
 IntCounter DorisMetrics::meta_read_request_duration_us;
 
+IntCounter DorisMetrics::segment_read_total;
+IntCounter DorisMetrics::segment_row_total;
+IntCounter DorisMetrics::segment_rows_by_short_key;
+IntCounter DorisMetrics::segment_rows_read_by_zone_map;
+
 IntCounter DorisMetrics::txn_begin_request_total;
 IntCounter DorisMetrics::txn_commit_request_total;
 IntCounter DorisMetrics::txn_rollback_request_total;
@@ -218,6 +223,19 @@ void DorisMetrics::initialize(
     _metrics->register_metric(
         "meta_request_duration", MetricLabels().add("type", "read"),
         &meta_read_request_duration_us);
+
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_total_read_times"),
+        &segment_read_total);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_total_row_num"),
+        &segment_row_total);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_rows_by_short_key"),
+        &segment_rows_by_short_key);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_rows_read_by_zone_map"),
+        &segment_rows_read_by_zone_map);
 
     _metrics->register_metric(
         "txn_request", MetricLabels().add("type", "begin"),

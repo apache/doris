@@ -105,10 +105,13 @@ Status ColumnWriter::init() {
     }
     _page_builder.reset(page_builder);
     // create ordinal builder
-    _ordinal_index_builer.reset(new OrdinalPageIndexBuilder());
+    _ordinal_index_builder.reset(new OrdinalPageIndexBuilder());
     // create null bitmap builder
     if (_is_nullable) {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
+    }
+    if (_opts.need_zone_map) {
+        _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_type_info));
     }
     return Status::OK();
 }
@@ -116,6 +119,9 @@ Status ColumnWriter::init() {
 Status ColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
+    if (_opts.need_zone_map) {
+        RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
+    }
     return Status::OK();
 }
 
@@ -131,6 +137,9 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(_page_builder->add(*ptr, &num_written));
+        if (_opts.need_zone_map) {
+            RETURN_IF_ERROR(_column_zone_map_builder->add(*ptr, num_written));
+        }
 
         bool is_page_full = (num_written < remaining);
         remaining -= num_written;
@@ -141,8 +150,6 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         if (_is_nullable) {
             _null_bitmap_builder->add_run(false, num_written);
         }
-
-        // TODO(zc): update statistics for this page
 
         if (is_page_full) {
             RETURN_IF_ERROR(_finish_current_page());
@@ -161,6 +168,9 @@ Status ColumnWriter::append_nullable(
         if (is_null) {
             _null_bitmap_builder->add_run(true, this_run);
             _next_rowid += this_run;
+            if (_opts.need_zone_map) {
+                RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
+            }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
         }
@@ -178,16 +188,22 @@ Status ColumnWriter::write_data() {
         RETURN_IF_ERROR(_write_data_page(page));
         page = page->next;
     }
-    // write ordinal index
-    // auto slice = _ordinal_index_builer->finish();
-    // file->append
     return Status::OK();
 }
 
 Status ColumnWriter::write_ordinal_index() {
-    Slice data = _ordinal_index_builer->finish();
+    Slice data = _ordinal_index_builder->finish();
     std::vector<Slice> slices{data};
     return _write_physical_page(&slices, &_ordinal_index_pp);
+}
+
+Status ColumnWriter::write_zone_map() {
+    if (_opts.need_zone_map) {
+        Slice data = _column_zone_map_builder->finish();
+        std::vector<Slice> slices{data};
+        return _write_physical_page(&slices, &_zone_map_pp);
+    }
+    return Status::OK();
 }
 
 void ColumnWriter::write_meta(ColumnMetaPB* meta) {
@@ -196,6 +212,9 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
+    if (_opts.need_zone_map) {
+        _zone_map_pp.to_proto(meta->mutable_zone_map_page());
+    }
 }
 
 // write a page into file and update ordinal index
@@ -219,8 +238,7 @@ Status ColumnWriter::_write_data_page(Page* page) {
 
     PagePointer pp;
     RETURN_IF_ERROR(_write_physical_page(&origin_data, &pp));
-
-    _ordinal_index_builer->append_entry(page->first_rowid, pp);
+    _ordinal_index_builder->append_entry(page->first_rowid, pp);
     return Status::OK();
 }
 
@@ -237,7 +255,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
         output_data = &compressed_data;
     }
 
-    // always compute checksum
+    // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
     uint32_t checksum = HashUtil::crc_hash(*output_data, 0);
     encode_fixed32_le(checksum_buf, checksum);
@@ -285,6 +303,9 @@ Status ColumnWriter::_finish_current_page() {
     _last_first_rowid = _next_rowid;
 
     _push_back_page(page);
+    if (_opts.need_zone_map) {
+        RETURN_IF_ERROR(_column_zone_map_builder->flush());
+    }
 
     return Status::OK();
 }
