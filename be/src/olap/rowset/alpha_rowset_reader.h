@@ -27,6 +27,7 @@
 
 namespace doris {
 
+// Each segment group corresponds to a MergeContext, which is able to produce ordered rows.
 struct MergeContext {
     std::unique_ptr<ColumnData> column_data = nullptr;
 
@@ -36,12 +37,8 @@ struct MergeContext {
     // ScanKey should be sought in this case.
     bool first_read_symbol = true;
 
-    // For singleton Rowset, there are several SegmentGroups
-    // Each of SegmentGroups correponds to a row_block upon scan
     RowBlock* row_block = nullptr;
 
-    // For singleton Rowset, there are several SegmentGroups
-    // Each of SegmentGroups correponds to a row_cursor
     std::unique_ptr<RowCursor> row_cursor = nullptr;
 };
 
@@ -49,26 +46,26 @@ class AlphaRowsetReader : public RowsetReader {
 public:
     AlphaRowsetReader(int num_rows_per_row_block, RowsetSharedPtr rowset);
 
-    ~AlphaRowsetReader();
+    ~AlphaRowsetReader() override;
 
     // reader init
-    virtual OLAPStatus init(RowsetReaderContext* read_context);
+    OLAPStatus init(RowsetReaderContext* read_context) override;
 
     // read next block data
-    virtual OLAPStatus next_block(RowBlock** block);
+    OLAPStatus next_block(RowBlock** block) override;
 
-    virtual bool delete_flag();
+    bool delete_flag() override;
 
-    virtual Version version();
+    Version version() override;
 
-    virtual VersionHash version_hash();
+    VersionHash version_hash() override;
 
     // close reader
-    virtual void close();
+    void close() override;
 
-    virtual RowsetSharedPtr rowset();
+    RowsetSharedPtr rowset() override;
 
-    virtual int64_t filtered_rows();
+    int64_t filtered_rows() override;
 
 private:
 

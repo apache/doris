@@ -1289,10 +1289,8 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
 
         _reader_context.reader_type = READER_ALTER_TABLE;
         _reader_context.tablet_schema= &base_tablet->tablet_schema();
-        _reader_context.preaggregation = true;
+        _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
-        _reader_context.is_using_cache = false;
-        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1558,10 +1556,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
         _reader_context.reader_type = READER_ALTER_TABLE;
         _reader_context.tablet_schema= &base_tablet->tablet_schema();
-        _reader_context.preaggregation = true;
+        _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
-        _reader_context.is_using_cache = false;
-        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1660,10 +1656,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     DeleteHandler delete_handler;
     _reader_context.reader_type = READER_ALTER_TABLE;
     _reader_context.tablet_schema = &base_tablet->tablet_schema();
-    _reader_context.preaggregation = true;
+    _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
-    _reader_context.is_using_cache = false;
-    _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
     rowset_reader->init(&_reader_context);
