@@ -56,7 +56,7 @@ public:
         }
 
         init_field(columns, col_ids);
-        init(columns.size(), col_ids, num_key_columns);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
@@ -68,7 +68,7 @@ public:
         }
 
         init_field(columns, col_ids);
-        init(columns.size(), col_ids, num_key_columns);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
@@ -78,7 +78,7 @@ public:
         }
 
         init_field(columns, col_ids);
-        init(columns.size(), col_ids, num_key_columns);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
@@ -88,7 +88,7 @@ public:
         }
 
         init_field(cols, col_ids);
-        init(cols.size(), col_ids, num_key_columns);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const Schema&);

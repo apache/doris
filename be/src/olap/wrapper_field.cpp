@@ -62,8 +62,7 @@ WrapperField* WrapperField::create_by_type(const FieldType& type) {
         return nullptr;
     }
 
-    TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
-    Field* field = FieldFactory::create(column);
+    Field* field = FieldFactory::create_by_type(type);
     WrapperField* wrapper = new WrapperField(field, 0, false);
     return wrapper;
 }

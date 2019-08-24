@@ -94,7 +94,7 @@ struct BaseAggregateFuncs {
         }
 
         const TypeInfo* _type_info = get_type_info(field_type);
-        _type_info->copy_with_arena(dst->mutable_cell_ptr(), src, arena);
+        _type_info->deep_copy_with_arena(dst->mutable_cell_ptr(), src, arena);
     }
 
     // Default update do nothing.

@@ -480,6 +480,11 @@ public:
         LOG(WARNING) << "WOW! value column no agg type";
         return nullptr;
     }
+
+    static Field* create_by_type(const FieldType& type) {
+        TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
+        return create(column);
+    }
 };
 
 }  // namespace doris
