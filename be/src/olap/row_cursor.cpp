@@ -179,11 +179,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
     char* variable_ptr = _variable_buf;
     for (auto cid : _schema->column_ids()) {
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        FieldType type = schema.column(cid).type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_HLL) {
-            auto* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            variable_ptr = column_schema(cid)->allocate_memory(slice, variable_ptr);
-        }
+        variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
     }
     return OLAP_SUCCESS;
 }

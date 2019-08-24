@@ -187,8 +187,6 @@ public class StreamLoadScanNode extends ScanNode {
             }
         }
 
-        addExprForBitmapUnionColumn();
-
         // analyze where statement
         if (streamLoadTask.getWhereExpr() != null) {
             Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);

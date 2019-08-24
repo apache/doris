@@ -80,7 +80,7 @@ public:
         direct_copy(dst, src);
     }
 
-    virtual char* allocate_memory(Slice* slice, char* variable_ptr) const {
+    virtual char* allocate_memory(char* cell_ptr,  char* variable_ptr) const {
         return variable_ptr;
     }
 
@@ -362,7 +362,8 @@ public:
         return _length;
     }
 
-    char* allocate_memory(Slice* slice, char* variable_ptr) const override {
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
         slice->size = _length;
         variable_ptr += slice->size;
@@ -383,7 +384,8 @@ public:
         return  _length - OLAP_STRING_MAX_BYTES;
     }
 
-    char* allocate_memory(Slice* slice, char* variable_ptr) const override {
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
         slice->size = _length - OLAP_STRING_MAX_BYTES;
         variable_ptr += slice->size;
@@ -405,7 +407,8 @@ public:
         _agg_info->init(dst, (const char*)src.cell_ptr(), false, arena);
     }
 
-    char* allocate_memory(Slice* slice, char* variable_ptr) const override {
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
         slice->data = nullptr;
         return variable_ptr;
     }
@@ -425,7 +428,8 @@ public:
         _agg_info->init(dst, (const char*)src.cell_ptr(), false, arena);
     }
 
-    char* allocate_memory(Slice* slice, char* variable_ptr) const override {
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
         slice->data = nullptr;
         return variable_ptr;
     }
