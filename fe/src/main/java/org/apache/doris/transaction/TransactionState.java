@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -109,9 +110,9 @@ public class TransactionState implements Writable {
     private long dbId;
     private long transactionId;
     private String label;
-    // timestamp is used to judge whether a begin request is a internal retry request.
-    // no need to persist it
-    private long timestamp;
+    // requsetId is used to judge whether a begin request is a internal retry request.
+    // no need to persist it.
+    private TUniqueId requsetId;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
     private String coordinator;
@@ -146,7 +147,6 @@ public class TransactionState implements Writable {
         this.dbId = -1;
         this.transactionId = -1;
         this.label = "";
-        this.timestamp = -1;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = "";
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -161,12 +161,12 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+    public TransactionState(long dbId, long transactionId, String label, TUniqueId requsetId,
                             LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
-        this.timestamp = timestamp;
+        this.requsetId = requsetId;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = coordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -215,9 +215,9 @@ public class TransactionState implements Writable {
     public boolean hasSendTask() {
         return this.hasSendTask;
     }
-    
-    public long getTimestamp() {
-        return timestamp;
+
+    public TUniqueId getRequsetId() {
+        return requsetId;
     }
 
     public long getTransactionId() {

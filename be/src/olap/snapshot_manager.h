@@ -73,6 +73,7 @@ private:
 
     OLAPStatus _calc_snapshot_id_path(
             const TabletSharedPtr& tablet,
+            int64_t timeout_s,
             std::string* out_path);
 
     std::string _get_header_full_path(

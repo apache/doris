@@ -26,6 +26,7 @@ namespace doris {
 class RowCursor;
 class RowBlockV2;
 class Schema;
+class Conditions;
 
 struct StorageReadOptions {
     // lower_bound defines the smallest key at which iterator will
@@ -35,7 +36,7 @@ struct StorageReadOptions {
 
     // If include_lower_bound is true, data equal with lower_bound will
     // be read
-    bool include_lower_bound;
+    bool include_lower_bound = false;
 
     // upper_bound defines the extend upto which the iterator can return
     // data.
@@ -43,7 +44,11 @@ struct StorageReadOptions {
 
     // If include_upper_bound is true, data equal with upper_bound will
     // be read
-    bool include_upper_bound;
+    bool include_upper_bound = false;
+
+    // reader's column predicates
+    // used by zone map/bloom filter/secondary index to prune data
+    std::shared_ptr<Conditions> conditions;
 };
 
 // Used to read data in RowBlockV2 one by one

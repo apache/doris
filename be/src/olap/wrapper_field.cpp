@@ -19,6 +19,8 @@
 
 namespace doris {
 
+const size_t DEFAULT_STRING_LENGTH = 50;
+
 WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
         (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL);
@@ -37,6 +39,9 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     if (column.type() == OLAP_FIELD_TYPE_CHAR) {
         variable_len = std::max(len, (uint32_t)(column.length()));
     } else if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
+        // column.length is the serialized varchar length
+        // the first sizeof(StringLengthType) bytes is the length of varchar
+        // variable_len is the real length of varchar
         variable_len = std::max(len,
                 static_cast<uint32_t>(column.length() - sizeof(StringLengthType)));
     } else {
@@ -60,18 +65,19 @@ WrapperField* WrapperField::create_by_type(const FieldType& type) {
 }
 
 WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
-        : _rep(rep), _is_string_type(is_string_type)  {
+        : _rep(rep), _is_string_type(is_string_type), _var_length(0)  {
     size_t fixed_len = _rep->size();
-    _length = fixed_len + variable_len + 1;
+    _length = fixed_len + 1;
     _field_buf = new char[_length];
     memset(_field_buf, 0, _length);
     _owned_buf = _field_buf;
     char* buf = _field_buf + 1;
 
     if (_is_string_type) {
+        size_t _var_length = variable_len > 0 ? variable_len : DEFAULT_STRING_LENGTH;
         Slice* slice = reinterpret_cast<Slice*>(buf);
-        slice->size = variable_len;
-        slice->data = buf + fixed_len;
+        slice->size = _var_length;
+        slice->data = _arena.Allocate(_var_length);
     }
 }
 

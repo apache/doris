@@ -72,9 +72,11 @@ struct ParsedPage {
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
                            const ColumnMetaPB& meta,
+                           uint64_t num_rows,
                            RandomAccessFile* file)
         : _opts(opts),
         _meta(meta),
+        _num_rows(num_rows),
         _file(file) {
 }
 
@@ -92,6 +94,8 @@ Status ColumnReader::init() {
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
 
     RETURN_IF_ERROR(_init_ordinal_index());
+
+    RETURN_IF_ERROR(_init_column_zone_map());
 
     return Status::OK();
 }
@@ -156,15 +160,72 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     return Status::OK();
 }
 
+void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges) {
+    std::vector<uint32_t> page_indexes;
+    _get_filtered_pages(cond_column, &page_indexes);
+    _calculate_row_ranges(page_indexes, row_ranges);
+}
+
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
+    FieldType type = _type_info->type();
+    const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
+    int32_t page_size = _column_zone_map->num_pages();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+    for (int32_t i = 0; i < page_size; ++i) {
+        // min value and max value are valid if exisst_none_null is true
+        if (zone_maps[i].has_not_null()) {
+            min_value->from_string(zone_maps[i].min());
+            max_value->from_string(zone_maps[i].max());
+        }
+        // for compatible original Cond eval logic
+        // TODO(hkp): optimize OlapCond
+        if (zone_maps[i].has_null()) {
+            // for compatible, if exist null, original logic treat null as min
+            min_value->set_null();
+            if (!zone_maps[i].has_not_null()) {
+                // for compatible OlapCond's 'is not null'
+                max_value->set_null();
+            }
+        }
+        if (cond_column->eval({min_value.get(), max_value.get()})) {
+            page_indexes->push_back(i);
+        }
+    }
+}
+
+void ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+    for (auto i : page_indexes) {
+        rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+        rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
+        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+    }
+}
+
 // initial ordinal index
 Status ColumnReader::_init_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
     RETURN_IF_ERROR(read_page(pp, &ph));
 
-    _ordinal_index.reset(new OrdinalPageIndex(ph.data()));
+    _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
 
+    return Status::OK();
+}
+
+// initialize column zone map
+Status ColumnReader::_init_column_zone_map() {
+    if (_meta.has_zone_map_page()) {
+        PagePointer pp = _meta.zone_map_page();
+        PageHandle ph;
+        RETURN_IF_ERROR(read_page(pp, &ph));
+        _column_zone_map.reset(new ColumnZoneMap(ph.data()));
+        RETURN_IF_ERROR(_column_zone_map->load());
+    } else {
+        _column_zone_map.reset(nullptr);
+    }
     return Status::OK();
 }
 
@@ -206,12 +267,11 @@ Status FileColumnIterator::seek_to_ordinal(rowid_t rid) {
     if (_page != nullptr && _page->contains(rid)) {
         // current page contains this row, we just
     } else {
-        // we need to seek to 
+        // we need to seek to
         RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
         _page.reset(new ParsedPage());
         RETURN_IF_ERROR(_read_page(_page_iter, _page.get()));
     }
-
     _seek_to_pos_in_page(_page.get(), rid - _page->first_rowid);
     _current_rowid = rid;
     return Status::OK();
@@ -270,7 +330,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
             while (nrows_to_read > 0) {
                 bool is_null = false;
                 size_t this_run = _page->null_decoder.GetNextRun(&is_null, nrows_to_read);
-
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
@@ -294,7 +353,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 column_view.set_null_bits(nrows_to_read, false);
             }
 
-            // set null bits to
             _page->offset_in_page += nrows_to_read;
             column_view.advance(nrows_to_read);
             _current_rowid += nrows_to_read;

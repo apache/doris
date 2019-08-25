@@ -36,7 +36,7 @@ public class SnapshotInfo implements Writable {
     private long tabletId;
     private long beId;
     private int schemaHash;
-    // eg: /path/to/your/be/data/snapshot/20180410102311.0/
+    // eg: /path/to/your/be/data/snapshot/20180410102311.0.86400/
     private String path;
     // eg:
     // 10006_0_1_0_0.dat

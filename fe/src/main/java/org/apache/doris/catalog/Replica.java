@@ -106,12 +106,12 @@ public class Replica implements Writable {
     // for rollup
     // the new replica's version is -1 and last failed version is -1
     public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
-        this(replicaId, backendId, -1, 0, schemaHash, -1, -1, state, -1, 0, -1, 0);
+        this(replicaId, backendId, -1, 0, schemaHash, 0L, 0L, state, -1, 0, -1, 0);
     }
     
     // for create tablet and restore
     public Replica(long replicaId, long backendId, ReplicaState state, long version, long versionHash, int schemaHash) {
-        this(replicaId, backendId, version, versionHash, schemaHash, -1, -1, state, -1L, 0L, version, versionHash);
+        this(replicaId, backendId, version, versionHash, schemaHash, 0L, 0L, state, -1L, 0L, version, versionHash);
     }
 
     public Replica(long replicaId, long backendId, long version, long versionHash, int schemaHash,

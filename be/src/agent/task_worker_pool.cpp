@@ -1525,7 +1525,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
                       << ", snapshot_path:" << snapshot_path;
             if (snapshot_request.__isset.list_files) {
                 // list and save all snapshot files
-                // snapshot_path like: data/snapshot/20180417205230.1
+                // snapshot_path like: data/snapshot/20180417205230.1.86400
                 // we need to add subdir: tablet_id/schema_hash/
                 std::stringstream ss;
                 ss << snapshot_path << "/" << snapshot_request.tablet_id

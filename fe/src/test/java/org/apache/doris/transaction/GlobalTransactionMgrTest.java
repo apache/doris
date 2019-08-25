@@ -17,7 +17,10 @@
 
 package org.apache.doris.transaction;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -314,7 +317,7 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", null,
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
@@ -380,7 +383,7 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", null,
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);

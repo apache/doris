@@ -128,6 +128,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }
+    request.__set_request_id(ctx->id.to_thrift());
 
     TLoadTxnBeginResult result;
 #ifndef BE_TEST

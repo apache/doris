@@ -204,7 +204,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
         }
         // test seek, key (-2, -1)
@@ -243,10 +243,118 @@ TEST_F(SegmentReaderWriterTest, normal) {
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
         }
     }
+    FileUtils::remove_all(dname);
+}
+
+TEST_F(SegmentReaderWriterTest, TestZoneMap) {
+    size_t num_rows_per_block = 10;
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 2;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(3));
+    tablet_schema->_cols.push_back(create_int_value(4));
+
+    // segment write
+    std::string dname = "./ut_dir/segment_test";
+    FileUtils::create_dir(dname);
+
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+
+    std::string fname = dname + "/int_case2";
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    //
+    // 64k int will generate 4 pages
+    for (int i = 0; i < 64 * 1024; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+        }
+        writer.append_row(row);
+    }
+
+    uint32_t file_size = 0;
+    st = writer.finalize(&file_size);
+    ASSERT_TRUE(st.ok());
+
+    // reader with condition
+    {
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, num_rows_per_block));
+        st = segment->open();
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(64 * 1024, segment->num_rows());
+        Schema schema(*tablet_schema);
+        // scan all rows
+        {
+            std::unique_ptr<SegmentIterator> iter;
+            st = segment->new_iterator(schema, &iter);
+            ASSERT_TRUE(st.ok());
+
+            StorageReadOptions read_opts;
+            TCondition condition;
+            condition.__set_column_name("2");
+            condition.__set_condition_op("<");
+            std::vector<std::string> vals = {"100"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+            read_opts.conditions = conditions;
+            st = iter->init(read_opts);
+            ASSERT_TRUE(st.ok());
+
+            Arena arena;
+            RowBlockV2 block(schema, 1024, &arena);
+
+            // only first page will be read because of zone map
+            int left = 16 * 1024;
+
+            int rowid = 0;
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
+                    }
+                }
+                rowid += rows_read;
+            }
+            ASSERT_EQ(16 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+    }
+    FileUtils::remove_all(dname);
 }
 
 }
@@ -256,4 +364,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-
