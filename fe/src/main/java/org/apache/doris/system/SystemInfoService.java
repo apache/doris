@@ -1122,6 +1122,7 @@ public class SystemInfoService {
      * return Status.OK if not reach the limit
      */
     public Status checkExceedDiskCapacityLimit(Map<Long, Long> pathBeMap, boolean floodStage) {
+        LOG.debug("pathBeMap: {}", pathBeMap);
         ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
         for (Long pathHash : pathBeMap.keySet()) {
             DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);

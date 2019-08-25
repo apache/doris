@@ -349,8 +349,16 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         // The very first time to init the path info
         if (!initPathInfo) {
-            initPathInfo = true;
-            Catalog.getCurrentSystemInfo().updatePathInfo(disks.values().stream().collect(Collectors.toList()), Lists.newArrayList());
+            boolean allPathHashUpdated = true;
+            for (DiskInfo diskInfo : disks.values()) {
+                if (diskInfo.getPathHash() == 0) {
+                    allPathHashUpdated = false;
+                }
+            }
+            if (allPathHashUpdated) {
+                initPathInfo = true;
+                Catalog.getCurrentSystemInfo().updatePathInfo(disks.values().stream().collect(Collectors.toList()), Lists.newArrayList());
+            }
         }
 
         // update status or add new diskInfo
