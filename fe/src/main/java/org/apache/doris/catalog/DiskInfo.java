@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.clone.RootPathLoadStatistic;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -121,6 +123,16 @@ public class DiskInfo implements Writable {
 
     public void setStorageMedium(TStorageMedium storageMedium) {
         this.storageMedium = storageMedium;
+    }
+
+    public boolean exceedLimit(boolean highWaterMark) {
+        if (highWaterMark) {
+            return diskAvailableCapacityB < RootPathLoadStatistic.MIN_LEFT_CAPACITY_BYTES_LIMIT &&
+                    (double) (totalCapacityB-diskAvailableCapacityB) / totalCapacityB > RootPathLoadStatistic.MAX_USAGE_PERCENT_LIMIT;
+        } else {
+            return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes ||
+                    (double) (totalCapacityB-diskAvailableCapacityB) / totalCapacityB > Config.storage_high_watermark_usage_percent;
+        }
     }
 
     @Override

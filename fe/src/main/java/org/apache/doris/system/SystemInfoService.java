@@ -19,13 +19,16 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -73,6 +76,8 @@ public class SystemInfoService {
     private long lastBackendIdForCreation = -1;
     private long lastBackendIdForOther = -1;
 
+    private AtomicReference<ImmutableMap<Long, DiskInfo>> pathHashToDishInfoRef;
+
     // sort host backends list by num of backends, descending
     private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>> (){
         @Override
@@ -92,6 +97,7 @@ public class SystemInfoService {
 
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
+        pathHashToDishInfoRef = new AtomicReference<ImmutableMap<Long, DiskInfo>>(ImmutableMap.<Long, DiskInfo>of());
     }
 
     // for deploy manager
@@ -1106,6 +1112,40 @@ public class SystemInfoService {
             }
         }
         return clusterNames;
+    }
+
+    /*
+     * Check if the specified disks' capacity has reached the limit.
+     * pathBeMap is (path hash -> BE id)
+     * If highWatermark is true, it will check with the high watermark threshold.
+     * 
+     * return Status.OK if not reach the limit
+     */
+    public Status checkExceedDiskCapacityLimit(Map<Long, Long> pathBeMap, boolean highWatermark) {
+        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
+        for (Long pathHash : pathBeMap.keySet()) {
+            DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
+            if (diskInfo != null && diskInfo.exceedLimit(highWatermark)) {
+                return new Status(TStatusCode.CANCELLED,
+                        "disk " + pathHash + " on backend " + pathBeMap.get(pathHash) + " exceed limit usage");
+            }
+        }
+        return Status.OK;
+    }
+
+    // update the path info when disk report
+    // there is only one thread can update path info, so no need to worry about concurrency control
+    public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
+        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef.get());
+        for (DiskInfo diskInfo : addedDisks) {
+            copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
+        }
+        for (DiskInfo diskInfo : removedDisks) {
+            copiedPathInfos.remove(diskInfo.getPathHash());
+        }
+        ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
+        pathHashToDishInfoRef.set(newPathInfos);
+        LOG.debug("update path infos: {}", newPathInfos);
     }
 }
 

@@ -433,8 +433,8 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         TStatus task_status;
 
-        OLAPStatus create_status =
-            worker_pool_this->_env->storage_engine()->create_tablet(create_tablet_req);
+        std::vector<TTabletInfo> finish_tablet_infos;
+        OLAPStatus create_status = worker_pool_this->_env->storage_engine()->create_tablet(create_tablet_req);
         if (create_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("create table failed. status: %d, signature: %ld",
                              create_status, agent_task_req.signature);
@@ -442,12 +442,26 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             ++_s_report_version;
+            // get path hash of the created tablet
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
+            DCHECK(tablet != nullptr);
+            TTabletInfo tablet_info;
+            tablet_info.tablet_id = tablet->table_id(); 
+            tablet_info.schema_hash = tablet->schema_hash();
+            tablet_info.version = create_tablet_req.version;
+            tablet_info.version_hash = create_tablet_req.version_hash;
+            tablet_info.row_count = 0;
+            tablet_info.data_size = 0;
+            tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            finish_tablet_infos.push_back(tablet_info);
         }
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
         TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
         finish_task_request.__set_backend(worker_pool_this->_backend);
         finish_task_request.__set_report_version(_s_report_version);
         finish_task_request.__set_task_type(agent_task_req.task_type);
