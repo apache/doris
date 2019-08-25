@@ -1117,15 +1117,15 @@ public class SystemInfoService {
     /*
      * Check if the specified disks' capacity has reached the limit.
      * pathBeMap is (path hash -> BE id)
-     * If highWatermark is true, it will check with the high watermark threshold.
+     * If floodStage is true, it will check with the floodStage threshold.
      * 
      * return Status.OK if not reach the limit
      */
-    public Status checkExceedDiskCapacityLimit(Map<Long, Long> pathBeMap, boolean highWatermark) {
+    public Status checkExceedDiskCapacityLimit(Map<Long, Long> pathBeMap, boolean floodStage) {
         ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
         for (Long pathHash : pathBeMap.keySet()) {
             DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
-            if (diskInfo != null && diskInfo.exceedLimit(highWatermark)) {
+            if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                 return new Status(TStatusCode.CANCELLED,
                         "disk " + pathHash + " on backend " + pathBeMap.get(pathHash) + " exceed limit usage");
             }
