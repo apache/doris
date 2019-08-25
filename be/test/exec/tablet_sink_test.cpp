@@ -32,7 +32,7 @@
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "util/descriptor_helper.h"
+#include "runtime/descriptor_helper.h"
 
 namespace doris {
 namespace stream_load {

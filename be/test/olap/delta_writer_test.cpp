@@ -29,7 +29,7 @@
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/tuple.h"
-#include "util/descriptor_helper.h"
+#include "runtime/descriptor_helper.h"
 #include "util/logging.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
