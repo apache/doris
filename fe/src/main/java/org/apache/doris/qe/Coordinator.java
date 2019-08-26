@@ -1014,9 +1014,9 @@ public class Coordinator {
             final OlapScanNode scanNode,
             FragmentScanRangeAssignment assignment) throws Exception {
 
-        for(Integer bucketSeq: scanNode.bucketSeq2locations.keySet()) {
+        for(Integer bucketSeq: scanNode.getBucketSeq2locations().keySet()) {
             //fill scanRangeParamsList
-            List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
+            List<TScanRangeLocations> locations = scanNode.getBucketSeq2locations().get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
                 getExecHostPortForBucketSeq(locations.get(0), bucketSeq);
             }

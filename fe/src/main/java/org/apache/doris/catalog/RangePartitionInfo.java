@@ -27,6 +27,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
@@ -246,26 +247,39 @@ public class RangePartitionInfo extends PartitionInfo {
         }
     }
 
-    public static Range<PartitionKey> readRange(DataInput in) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
+    public Map<Long, Range<PartitionKey>> shallowCloneRange() {
+        final Map<Long, Range<PartitionKey>> ranges = Maps.newHashMap();
+        for (Long id : idToRange.keySet()) {
+            ranges.put(id, shallowCloneRange(id));
+        }
+        return ranges;
+    }
+
+   public Range<PartitionKey> shallowCloneRange(long partitionId) {
+        final Range<PartitionKey> range = idToRange.get(partitionId);
+
+        boolean hasLowerBound = range.hasLowerBound();
         boolean lowerBoundClosed = false;
-        boolean upperBoundClosed = false;
         PartitionKey lowerBound = null;
-        PartitionKey upperBound = null;
-
-        hasLowerBound = in.readBoolean();
         if (hasLowerBound) {
-            lowerBoundClosed = in.readBoolean();
-            lowerBound = PartitionKey.read(in);
+            lowerBoundClosed = range.lowerBoundType() == BoundType.CLOSED;
+            lowerBound = range.lowerEndpoint().shallowClone();
         }
 
-        hasUpperBound = in.readBoolean();
+        boolean hasUpperBound = range.hasUpperBound();
+        boolean upperBoundClosed = false;
+        PartitionKey upperBound = null;
         if (hasUpperBound) {
-            upperBoundClosed = in.readBoolean();
-            upperBound = PartitionKey.read(in);
+            upperBoundClosed = range.upperBoundType() == BoundType.CLOSED;
+            upperBound = range.upperEndpoint().shallowClone();
         }
 
+        return createRange(hasLowerBound, hasUpperBound, lowerBoundClosed, upperBoundClosed, lowerBound, upperBound);
+    }
+
+    public static Range<PartitionKey> createRange(
+            boolean hasLowerBound, boolean hasUpperBound, boolean lowerBoundClosed,
+            boolean upperBoundClosed, PartitionKey lowerBound, PartitionKey upperBound) {
         // Totally 9 cases. Both lower bound and upper bound could be open, closed or not exist
         if (hasLowerBound && lowerBoundClosed && hasUpperBound && upperBoundClosed) {
             return Range.closed(lowerBound, upperBound);
@@ -293,6 +307,29 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         // Neither lower bound nor upper bound exists, return null. This means just one partition
         return null;
+    }
+
+    public static Range<PartitionKey> readRange(DataInput in) throws IOException {
+        boolean hasLowerBound = false;
+        boolean hasUpperBound = false;
+        boolean lowerBoundClosed = false;
+        boolean upperBoundClosed = false;
+        PartitionKey lowerBound = null;
+        PartitionKey upperBound = null;
+
+        hasLowerBound = in.readBoolean();
+        if (hasLowerBound) {
+            lowerBoundClosed = in.readBoolean();
+            lowerBound = PartitionKey.read(in);
+        }
+
+        hasUpperBound = in.readBoolean();
+        if (hasUpperBound) {
+            upperBoundClosed = in.readBoolean();
+            upperBound = PartitionKey.read(in);
+        }
+
+        return createRange(hasLowerBound, hasUpperBound, lowerBoundClosed, upperBoundClosed, lowerBound, upperBound);
     }
 
     public SingleRangePartitionDesc toSingleRangePartitionDesc(long partitionId, String partitionName,

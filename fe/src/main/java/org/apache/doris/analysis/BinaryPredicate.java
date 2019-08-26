@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -277,6 +278,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+/*
     private Type getCmpType() {
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
@@ -308,7 +310,36 @@ public class BinaryPredicate extends Predicate implements Writable {
         
         return Type.DOUBLE;
     }
+*/
+    /**
+     * Compatible with MySQL
+     * @return
+     */
+    private Type getCmpType() {
+        final ScalarType scalarType1 = (ScalarType)getChild(0).getType();
+        final ScalarType scalarType2 = (ScalarType)getChild(1).getType();
+        // 1. Both children's types are all string.
+        if (scalarType1.isStringType() && scalarType2.isStringType()) {
+            return Type.VARCHAR;
+        }
 
+        // 2. Both types are all integer.
+        if (scalarType1.isIntegerType() && scalarType2.isIntegerType()) {
+            if (scalarType1.getPrimitiveType().ordinal() > scalarType2.getPrimitiveType().ordinal()) {
+                return scalarType1;
+            } else {
+                return scalarType2;
+            }
+        }
+
+        // 3. Both types are all date.
+        if (scalarType1.isDateType() || scalarType2.isDateType()) {
+            return Type.DATETIME;
+        }
+
+        // 4. Other return Decimal.
+        return Type.DECIMALV2;
+    }
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
@@ -323,6 +354,12 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
+
+        if (!getChild(0).isConstant() && getChild(1).isConstant()) {
+            slotIsleft = true;
+        } else if (getChild(0).isConstant() && !getChild(1).isConstant()) {
+            slotIsleft = false;
+        }
 
         this.opcode = op.getOpcode();
         String opName = op.getName();
@@ -381,6 +418,20 @@ public class BinaryPredicate extends Predicate implements Writable {
             return getChild(0);
         }
 
+        return null;
+    }
+
+
+    // These apply to BinaryPredicate like this:
+    // one of children is SlotRef's Expr, and the other is constant Expr.
+    public Expr getColumnExpr() { return getExpr(false); }
+    public Expr getConstantExpr() { return getExpr(true); }
+    private Expr getExpr(boolean isConstant) {
+        for (Expr e : children) {
+            if (e.isConstant() == isConstant) {
+                return e;
+            }
+        }
         return null;
     }
 

@@ -1174,7 +1174,7 @@ public class SingleNodePlanner {
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
+        if (scanNode instanceof EsScanNode) {
             Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
             List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
             for (Column column : tblRef.getTable().getBaseSchema()) {

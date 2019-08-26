@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
@@ -40,6 +41,7 @@ public class PartitionColumnFilter {
     public boolean     upperBoundInclusive;
     // InPredicate
     private InPredicate inPredicate;
+    private Expr columnExpr;
 
     public InPredicate getInPredicate() {
         return inPredicate;
@@ -47,6 +49,14 @@ public class PartitionColumnFilter {
 
     public void setInPredicate(InPredicate inPredicate) {
         this.inPredicate = inPredicate;
+    }
+
+    public Expr getColumnExpr() {
+        return columnExpr;
+    }
+
+    public void setColumnExpr(Expr e) {
+        this.columnExpr = e.clone();
     }
 
     // select the bigger bound

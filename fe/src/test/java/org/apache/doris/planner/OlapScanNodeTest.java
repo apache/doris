@@ -115,7 +115,7 @@ public class OlapScanNodeTest {
     }
     
     @Test
-    public void testHashForIntLiteral() {
+    public void testHashForIntLiteral() throws AnalysisException {
         {
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(1), PrimitiveType.BIGINT);

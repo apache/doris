@@ -46,6 +46,9 @@ public class SlotRef extends Expr {
     // results of analysis
     private SlotDescriptor desc;
 
+    // Only used in partition pruning.
+    private LiteralExpr refValue;
+
     // Only used write
     private SlotRef() {
         super();
@@ -301,5 +304,13 @@ public class SlotRef extends Expr {
         SlotRef slotRef = new SlotRef();
         slotRef.readFields(in);
         return slotRef;
+    }
+
+    public Expr getResultValue() throws AnalysisException {
+        return refValue != null ? refValue : this;
+    }
+
+    public void setRefValue(LiteralExpr value) {
+        this.refValue = value;
     }
 }

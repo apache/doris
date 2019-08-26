@@ -73,6 +73,8 @@ public class RangePartitionPruner implements PartitionPruner {
         // no filter in this column
         Column keyColumn = partitionColumns.get(columnIdx);
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
+        minKey.setColumnExpr(filter.getColumnExpr());
+        maxKey.setColumnExpr(filter.getColumnExpr());
         if (null == filter) {
             minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
                     keyColumn.getDataType());
@@ -85,6 +87,7 @@ public class RangePartitionPruner implements PartitionPruner {
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }
+
             minKey.popColumn();
             maxKey.popColumn();
             return result;
@@ -149,7 +152,7 @@ public class RangePartitionPruner implements PartitionPruner {
 
             Collection<Long> result = null;
             try {
-                result = Lists.newArrayList(rangeMap.subRangeMap(
+                 result = Lists.newArrayList(rangeMap.subRangeMap(
                             Range.range(minKey, lowerType, maxKey, upperType)).asMapOfRanges().values());
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();

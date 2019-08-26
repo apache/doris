@@ -18,10 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -44,11 +46,20 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
     private List<PrimitiveType> types;
+    private Expr columnExpr;
 
     // constructor for partition prune
     public PartitionKey() {
         keys = Lists.newArrayList();
         types = Lists.newArrayList();
+    }
+
+    public PartitionKey shallowClone() {
+        final PartitionKey newPartitionKey = new PartitionKey();
+        newPartitionKey.keys.addAll(keys);
+        newPartitionKey.types.addAll(types);
+        newPartitionKey.columnExpr = columnExpr;
+        return newPartitionKey;
     }
 
     // Factory methods
@@ -98,17 +109,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return keys;
     }
 
-    public long getHashValue() {
-        CRC32 hashValue = new CRC32();
-        int i = 0;
-        for (LiteralExpr expr : keys) {
-            ByteBuffer buffer = expr.getHashValue(types.get(i));
-            hashValue.update(buffer.array(), 0, buffer.limit());
-            i++;
-        }
-        return hashValue.getValue();
-    }
-
     public boolean isMinValue() {
         for (LiteralExpr literalExpr : keys) {
             if (!literalExpr.isMinValue()) {
@@ -133,31 +133,36 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         int this_key_len = this.keys.size();
         int other_key_len = other.keys.size();
         int min_len = Math.min(this_key_len, other_key_len);
-        for (int i = 0; i < min_len; ++i) {
-            final LiteralExpr oldKey = this.getKeys().get(i);
-            final LiteralExpr otherOldKey = other.getKeys().get(i);
-            int ret = 0;
-            if (oldKey instanceof MaxLiteral || otherOldKey instanceof MaxLiteral) {
-                ret = oldKey.compareLiteral(otherOldKey);
-            } else {
-                final Type destType = Type.getAssignmentCompatibleType(oldKey.getType(), otherOldKey.getType(), false);
-                try {
-                    LiteralExpr newKey = oldKey;
-                    if (oldKey.getType() != destType) {
-                        newKey = (LiteralExpr) oldKey.castTo(destType);
+        try {
+            for (int i = 0; i < min_len; ++i) {
+                final LiteralExpr oldValue = getPartitionValue(i);
+                final LiteralExpr otherOldValue = other.getPartitionValue(i);
+                int ret;
+                if (oldValue instanceof MaxLiteral || otherOldValue instanceof MaxLiteral) {
+                    ret = oldValue.compareLiteral(otherOldValue);
+                } else {
+                    // These codes only exist for InPredicate to compare same type's exprs, because now InPredicate's children
+                    // are't casted to same type.
+                    final Type destType = Type.getAssignmentCompatibleType(oldValue.getType(), otherOldValue.getType(), false);
+                    LiteralExpr newValue = oldValue;
+                    if (oldValue.getType() != destType) {
+                        newValue = (LiteralExpr) oldValue.castTo(destType);
                     }
-                    LiteralExpr newOtherKey = otherOldKey;
-                    if (otherOldKey.getType() != destType) {
-                        newOtherKey = (LiteralExpr) otherOldKey.castTo(destType);
+                    LiteralExpr newOtherValue = otherOldValue;
+                    if (otherOldValue.getType() != destType) {
+                        newOtherValue = (LiteralExpr) otherOldValue.castTo(destType);
                     }
-                    ret = newKey.compareLiteral(newOtherKey);
-                } catch (AnalysisException e) {
-                    throw new RuntimeException("Cast error in partition");
+
+                    ret = newValue.compareLiteral(newOtherValue);
                 }
+                if (0 != ret) {
+                    return ret;
+                } 
             }
-            if (0 != ret) {
-                return ret;
-            }
+        } catch (AnalysisException e) {
+            // The exception should't be throwed until now, the columnExpr must be 
+            // guaranteed to be supported by FE when calling this. 
+            throw new RuntimeException(e);
         }
         if (this_key_len < other_key_len) {
             return -1;
@@ -310,18 +315,23 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             }
         }
 
-        // Check types
-        if (types != partitionKey.types) {
-            if (types.size() != partitionKey.types.size()) {
-                return false;
-            }
-            for (int i = 0; i < types.size(); i++) {
-                if (!types.get(i).equals(partitionKey.types.get(i))) {
+        try {
+            // Check types
+            if (types != partitionKey.types) {
+                if (types.size() != partitionKey.types.size()) {
                     return false;
                 }
+                for (int i = 0; i < types.size(); i++) {
+                    if (!getPartitionValue(i).equals(partitionKey.getPartitionValue(i))) {
+                        return false;
+                    }
+                }
             }
+        } catch (AnalysisException e) {
+            // The exception should't be throwed until now, the columnExpr must be
+            // guaranteed to be supported by FE when calling this.
+            throw new RuntimeException(e);
         }
-
         return true;
     }
 
@@ -333,4 +343,64 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         return ret;
     }
+
+    // The columnExpr must like this: 
+    // one of children is SlotRef's Expr, and the other is constant Expr.
+    public void setColumnExpr(Expr e) {
+        if (e != null) {
+            this.columnExpr = e.clone();
+        } else {
+            this.columnExpr = null;
+        }
+    }
+
+    public Expr getColumnExpr() {
+        return this.columnExpr;
+    }
+
+   public long getHashValue() throws AnalysisException {
+        CRC32 hashValue = new CRC32();
+        if (columnExpr == null) {
+            for (int i = 0; i < types.size(); i++) {
+                ByteBuffer buffer = keys.get(i).getHashValue(types.get(i));
+                hashValue.update(buffer.array(), 0, buffer.limit());
+            }
+        } else {
+            for (int i = 0; i < types.size(); i++) {
+                LiteralExpr result = getPartitionValue(i);
+                ByteBuffer buffer = ((LiteralExpr)result).getHashValue(types.get(i));
+                hashValue.update(buffer.array(), 0, buffer.limit());
+            }
+        }
+        return hashValue.getValue();
+    }
+
+    public LiteralExpr getPartitionValue(int index) throws AnalysisException {
+        Expr result = keys.get(index);
+        if (columnExpr == null) {
+            return (LiteralExpr)result;
+        }
+ 
+        LiteralExpr originPartitionKey = keys.get(index);
+        if (originPartitionKey instanceof MaxLiteral) {
+            // The result for any MaxLiteral's expr is MaxLiteral itself.
+            return originPartitionKey;
+        }
+
+        // Set SlotRef's value
+        List<SlotRef> slotRefs = Lists.newArrayList();
+        Expr newColumnExpr = columnExpr.clone();
+        columnExpr.collect(SlotRef.class, slotRefs);
+        Preconditions.checkArgument(slotRefs.size() == 1);
+        slotRefs.get(0).setRefValue(originPartitionKey);
+        result = columnExpr.getResultValue();
+        if (!(result instanceof LiteralExpr)) {
+            throw new AnalysisException("FE can' support expr:"  + originPartitionKey.toSql());
+        }
+
+        // Reset columnExpr to allow next calling.
+        columnExpr = newColumnExpr;
+        return (LiteralExpr)result;
+    }
+
 }

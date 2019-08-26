@@ -19,11 +19,12 @@ package org.apache.doris.planner;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -37,9 +38,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 
@@ -57,47 +57,35 @@ public final class RollupSelector {
         this.table = table;
     }
 
-    public long selectBestRollup(
+    public SelectedRolupInfo selectBestRollup(
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
         Preconditions.checkArgument(partitionIds != null && !partitionIds.isEmpty(),
                 "Paritition can't be null or empty.");
-        // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
-        final List<Long> bestPrefixIndexRollups =
+        final SelectedRolupInfo selectedRolupInfo =
                 selectBestPrefixIndexRollup(
                         table.getPartition(partitionIds.iterator().next()),
                         conjuncts,
                         isPreAggregation);
-        return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);
+        selectBestRowCountRollup(selectedRolupInfo, partitionIds);
+        selectedRolupInfo.caculateBestRollup();
+        return selectedRolupInfo;
     }
 
-    private long selectBestRowCountRollup(List<Long> bestPrefixIndexRollups, Collection<Long> partitionIds) {
-        long minRowCount = Long.MAX_VALUE;
-        long selectedIndexId = 0;
-        for (Long indexId : bestPrefixIndexRollups) {
+    private void selectBestRowCountRollup(SelectedRolupInfo selectedBestPrefixRollup, Collection<Long> partitionIds) {
+        for (Long indexId : selectedBestPrefixRollup.getRollupMatchedPrefixIds()) {
             long rowCount = 0;
             for (Long partitionId : partitionIds) {
                 rowCount += table.getPartition(partitionId).getIndex(indexId).getRowCount();
             }
             LOG.debug("rowCount={} for table={}", rowCount, indexId);
-            if (rowCount < minRowCount) {
-                minRowCount = rowCount;
-                selectedIndexId = indexId;
-            } else if (rowCount == minRowCount) {
-                // check column number, select one minimum column number
-                int selectedColumnSize = table.getIndexIdToSchema().get(selectedIndexId).size();
-                int currColumnSize = table.getIndexIdToSchema().get(indexId).size();
-                if (currColumnSize < selectedColumnSize) {
-                    selectedIndexId = indexId;
-                }
-            }
+            selectedBestPrefixRollup.addRollupRowCount(indexId, rowCount);
         }
-        return selectedIndexId;
     }
 
-    private List<Long> selectBestPrefixIndexRollup(
+    private SelectedRolupInfo selectBestPrefixIndexRollup(
             Partition partition, List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
-
+        final SelectedRolupInfo rollupWithBestPrefix = new SelectedRolupInfo();
         final List<String> outputColumns = Lists.newArrayList();
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
             Column col = slot.getColumn();
@@ -143,57 +131,37 @@ public final class RollupSelector {
         final Set<String> equivalenceColumns = Sets.newHashSet();
         final Set<String> unequivalenceColumns = Sets.newHashSet();
         collectColumns(conjuncts, equivalenceColumns, unequivalenceColumns);
-        final List<Long> rollupsMatchingBestPrefixIndex = Lists.newArrayList();
-        matchPrefixIndex(rollupsContainsOutput, rollupsMatchingBestPrefixIndex,
-                         equivalenceColumns, unequivalenceColumns);
+        matchPrefixIndex(rollupsContainsOutput, equivalenceColumns,
+                unequivalenceColumns, rollupWithBestPrefix);
 
-        if (rollupsMatchingBestPrefixIndex.isEmpty()) {
-            rollupsContainsOutput.stream().forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
-        }
-
-        // 3. sorted the final candidate indexes by index id
-        // this is to make sure that candidate indexes find in all partitions will be returned in same order
-        Collections.sort(rollupsMatchingBestPrefixIndex, new Comparator<Long>() {
-            @Override
-            public int compare(Long id1, Long id2) {
-                return (int) (id1 - id2);
-            }
-        });
-        return rollupsMatchingBestPrefixIndex;
+        return rollupWithBestPrefix;
     }
 
     private void matchPrefixIndex(List<MaterializedIndex> candidateRollups,
-                                 List<Long> rollupsMatchingBestPrefixIndex,
-                                 Set<String> equivalenceColumns,
-                                 Set<String> unequivalenceColumns) {
+                                  Set<String> equivalenceColumns,
+                                  Set<String> unequivalenceColumns,
+                                  SelectedRolupInfo rollupWithBestPrefix) {
         if (equivalenceColumns.size() == 0 && unequivalenceColumns.size() == 0) {
+            final List<Column> EMPTY = Lists.newArrayList();
+            candidateRollups.stream().forEach(index -> rollupWithBestPrefix.addRollupJoinColumns(index.getId(), EMPTY));
             return;
         }
-        int maxPrefixMatchCount = 0;
-        int prefixMatchCount;
+
         for (MaterializedIndex index : candidateRollups) {
-            prefixMatchCount = 0;
+            final List<Column> joinColumns = Lists.newArrayList();
             for (Column col : table.getSchemaByIndexId(index.getId())) {
                 if (equivalenceColumns.contains(col.getName())) {
-                    prefixMatchCount++;
-                } else if (unequivalenceColumns.contains(col.getName())) { 
+                    joinColumns.add(col);
+                } else if (unequivalenceColumns.contains(col.getName())) {
                     // Unequivalence predicate's columns can match only first column in rollup.
-                    prefixMatchCount++;
+                    joinColumns.add(col);
                     break;
                 } else {
                     break;
                 }
             }
 
-            if (prefixMatchCount == maxPrefixMatchCount) {
-                LOG.debug("s3: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                rollupsMatchingBestPrefixIndex.add(index.getId());
-            } else if (prefixMatchCount > maxPrefixMatchCount) {
-                LOG.debug("s3: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                maxPrefixMatchCount = prefixMatchCount;
-                rollupsMatchingBestPrefixIndex.clear();
-                rollupsMatchingBestPrefixIndex.add(index.getId());
-            }
+            rollupWithBestPrefix.addRollupJoinColumns(index.getId(), joinColumns);
         }
     }
 
@@ -253,12 +221,12 @@ public final class RollupSelector {
             return false;
         }
         if (expr instanceof InPredicate) {
-            return isInPredicateUsedForPrefixIndex((InPredicate)expr);
+            return isInPredicateUsedForPrefixIndex((InPredicate) expr);
         } else if (expr instanceof BinaryPredicate) {
             if (isJoinConjunct) {
-                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate)expr);
+                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate) expr);
             } else {
-                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate) expr);
             }
         }
         return true;
@@ -283,7 +251,7 @@ public final class RollupSelector {
         if (expr.isAuxExpr() || expr.getOp().isUnequivalence()) {
             return false;
         }
-        return  (isSlotRefNested(expr.getChild(0)) && expr.getChild(1).isConstant())
+        return (isSlotRefNested(expr.getChild(0)) && expr.getChild(1).isConstant())
                 || (isSlotRefNested(expr.getChild(1)) && expr.getChild(0).isConstant());
     }
 
@@ -299,5 +267,100 @@ public final class RollupSelector {
             expr = expr.getChild(0);
         }
         return expr instanceof SlotRef;
+    }
+
+    public static class SelectedRolupInfo {
+        private Map<Long, List<Column>> idToJoinColumns;
+        private Map<Long, Long> idToRowCount;
+        private long selectedRollupId;
+        private List<Column> matchedPrefixIndex;
+
+        private SelectedRolupInfo() {
+            this.idToJoinColumns = Maps.newHashMap();
+            this.idToRowCount = Maps.newHashMap();
+            this.selectedRollupId = -1;
+            this.matchedPrefixIndex = Lists.newArrayList();
+        }
+
+        public long getSelectedRollupId() {
+            return this.selectedRollupId;
+        }
+
+        public void setSelectedRollupId(long id) {
+            this.selectedRollupId = id;
+        }
+
+        public List<Column> getMatchedPrefixIndex() {
+            return matchedPrefixIndex;
+        }
+
+        private void addRollupJoinColumns(long id, List<Column> hitPrefixColumns) {
+            this.idToJoinColumns.put(id, hitPrefixColumns);
+        }
+
+        private Collection<Long> getRollupMatchedPrefixIds() {
+            return idToJoinColumns.keySet();
+        }
+
+        private void addRollupRowCount(long id, long rows) {
+            this.idToRowCount.put(id, rows);
+        }
+
+        /**
+         * Actually it's not a good way to select best rollup by this, because
+         * the rollup which has smaller data may has lowerer cost than these
+         * which have longer matched prefix-index.
+         */
+        private void caculateBestRollup() {
+            // 1. Get rollups matching best prefix index.
+            final Map<Long, Integer> rollupScores = Maps.newHashMap();
+            for (long id : idToJoinColumns.keySet()) {
+                List<Column> columns = idToJoinColumns.get(id);
+                int prefixIndexSize = 0;
+                for (Column column : columns) {
+                    if (!column.getDataType().isStringType()) {
+                        prefixIndexSize += column.getDataType().getSlotSize();
+                    } else if (column.getDataType().isChar()) {
+                        prefixIndexSize += column.getStrLen();
+                    } else if (column.getDataType().isVarchar()) {
+                        prefixIndexSize += 20;
+                        if (prefixIndexSize > 32) {
+                            prefixIndexSize = 32;
+                        }
+                        break;
+                    }
+
+                    if (prefixIndexSize >= 32) {
+                        prefixIndexSize = 32;
+                        break;
+                    }
+                }
+                rollupScores.put(id, prefixIndexSize);
+            }
+
+            final List<Long> bestRollupIds = Lists.newArrayList();
+            int matchBestColumnsSize = -1;
+            for (long id : rollupScores.keySet()) {
+                int matchedIndexSize = rollupScores.get(id);
+                if (matchBestColumnsSize == -1 || matchBestColumnsSize == matchedIndexSize) {
+                    matchBestColumnsSize = matchedIndexSize;
+                    bestRollupIds.add(id);
+                } else if (matchBestColumnsSize < matchedIndexSize) {
+                    bestRollupIds.clear();
+                    bestRollupIds.add(id);
+                }
+            }
+
+            // 2. Get rollup which has smallest data.
+            long matchBestRowCount = -1;
+            for (Long id : bestRollupIds) {
+                long rowCount = idToRowCount.get(id);
+                if (matchBestRowCount == -1 || matchBestRowCount > rowCount) {
+                    matchBestRowCount = rowCount;
+                    selectedRollupId = id;
+                    matchedPrefixIndex = idToJoinColumns.get(id);
+                }
+            }
+        }
     }
 }

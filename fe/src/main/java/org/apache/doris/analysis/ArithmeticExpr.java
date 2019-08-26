@@ -193,6 +193,10 @@ public class ArithmeticExpr extends Expr {
         // }
     }
 
+    public Operator getOp() { 
+        return op; 
+    }
+
     private Type findCommonType(Type t1, Type t2) {
         PrimitiveType pt1 = t1.getPrimitiveType();
         PrimitiveType pt2 = t2.getPrimitiveType();

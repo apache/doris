@@ -741,6 +741,15 @@ public enum PrimitiveType {
         return (this == VARCHAR || this == CHAR || this == HLL);
     }
 
+
+    public boolean isChar() {
+        return this == CHAR;
+    }
+
+    public boolean isVarchar() {
+        return this == CHAR;
+    }
+
     public boolean isIntegerType() {
         return (this == TINYINT || this == SMALLINT
                 || this == INT || this == BIGINT);

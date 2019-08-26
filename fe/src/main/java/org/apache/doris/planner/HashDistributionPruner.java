@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -46,7 +47,7 @@ public class HashDistributionPruner implements DistributionPruner {
     private int                                hashMod;
 
     HashDistributionPruner(List<Long> partitions, List<Column> columns,
-                           Map<String, PartitionColumnFilter> filters, int hashMod) {
+                           Map<String, PartitionColumnFilter> filters, int hashMod) throws AnalysisException {
         this.partitionList = partitions;
         this.partitionColumns = columns;
         this.partitionColumnFilters = filters;
@@ -55,7 +56,7 @@ public class HashDistributionPruner implements DistributionPruner {
 
     // columnId: which column to compute
     // hashKey: the key which to compute hash value
-    public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) {
+    public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) throws AnalysisException {
         if (columnId == partitionColumns.size()) {
             // compute Hash Key
             long hashValue = hashKey.getHashValue();
@@ -69,6 +70,8 @@ public class HashDistributionPruner implements DistributionPruner {
             // return all subPartition
             return Lists.newArrayList(partitionList);
         }
+        
+        hashKey.setColumnExpr(filter.getColumnExpr());
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
             // equal one value
@@ -108,7 +111,7 @@ public class HashDistributionPruner implements DistributionPruner {
         return resultSet;
     }
 
-    public Collection<Long> prune() {
+    public Collection<Long> prune() throws AnalysisException {
         PartitionKey hashKey = new PartitionKey();
         return prune(0, hashKey, 1);
     }
