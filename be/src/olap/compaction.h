@@ -64,8 +64,6 @@ protected:
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger& merger);
 
-    OLAPStatus check_disk_capacity();
-
 protected:
     TabletSharedPtr _tablet;
 

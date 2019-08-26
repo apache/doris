@@ -113,7 +113,6 @@ public class BrokerLoadJobTest {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
 
-
         new Expectations() {
             {
                 loadStmt.getLabel();

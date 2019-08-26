@@ -186,17 +186,4 @@ OLAPStatus Compaction::check_correctness(const Merger& merger) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Compaction::check_disk_capacity() {
-    int64_t incoming_data_size = 0;
-    for (auto& rowset : _input_rowsets) {
-        incoming_data_size  += rowset->data_disk_size();
-        incoming_data_size  += rowset->index_disk_size();
-    }
-
-    if (_tablet->data_dir()->reach_capacity_limit(incoming_data_size)) {
-        return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
-    }
-    return OLAP_SUCCESS;
-}
-
 }  // namespace doris

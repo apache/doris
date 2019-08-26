@@ -39,7 +39,6 @@ OLAPStatus BaseCompaction::compact() {
 
     // 1. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
-    RETURN_NOT_OK(check_disk_capacity());
 
     // 2. do base compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());

@@ -1889,13 +1889,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         VLOG(10) << "begin to convert a history rowset. version="
                  << rs_reader->version().first << "-" << rs_reader->version().second;
 
-        // check disk capacity
-        int64_t tablet_size = rs_reader->rowset()->index_disk_size() + rs_reader->rowset()->data_disk_size();
-        if (sc_params.new_tablet->data_dir()->reach_capacity_limit(tablet_size)) {
-            res = OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
-            goto PROCESS_ALTER_EXIT;
-        }
-
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
