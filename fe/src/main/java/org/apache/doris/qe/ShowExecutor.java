@@ -131,6 +131,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -1153,21 +1154,59 @@ public class ShowExecutor {
                     sizeLimit = showStmt.getLimit();
                 }
                 boolean stop = false;
-                for (Partition partition : olapTable.getPartitions()) {
+                Collection<Partition> partitions = new ArrayList<Partition>();
+                List<String> partitionNames = showStmt.getPartitionNames();
+                LOG.info("partitionNames={}", partitionNames);
+                if (showStmt.hasPartition()) {
+                    for (Partition partition : olapTable.getPartitions()) {
+                        if (partitionNames.contains(partition.getName())) {
+                            partitions.add(partition);
+                        }
+                    }
+                } else {
+                    partitions = olapTable.getPartitions();
+                }
+                LOG.info("partitions={}", partitions.size());
+                List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                for (Partition partition : partitions) {
                     if (stop) {
                         break;
                     }
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
-                        rows.addAll(procDir.fetchResult().getRows());
-                        if (sizeLimit > -1 && rows.size() >= sizeLimit) {
-                            rows = rows.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                        tableInfos.addAll(procDir.fetchComparableResult(
+                                showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
+                        if (sizeLimit > -1 && tableInfos.size() >= sizeLimit) {
                             stop = true;
                             break;
                         }
                     }
                 }
+                if (sizeLimit > -1 && tableInfos.size() < sizeLimit) {
+                    tableInfos.clear();
+                } else if (sizeLimit > -1) {
+                    tableInfos = tableInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                }
 
+                // order by
+                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                ListComparator<List<Comparable>> comparator = null;
+                if (orderByPairs != null) {
+                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                    comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+                } else {
+                    // order by tabletId, replicaId
+                    comparator = new ListComparator<List<Comparable>>(0, 1);
+                }
+                Collections.sort(tableInfos, comparator);
+
+                for (List<Comparable> tabletInfo : tableInfos) {
+                    List<String> oneTablet = new ArrayList<String>(tableInfos.size());
+                    for (Comparable column : tabletInfo) {
+                        oneTablet.add(column.toString());
+                    }
+                    rows.add(oneTablet);
+                }
             } finally {
                 db.readUnlock();
             }

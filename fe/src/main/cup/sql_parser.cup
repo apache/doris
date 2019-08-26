@@ -1863,9 +1863,9 @@ show_param ::=
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
     :}
-    | KW_TABLET KW_FROM table_name:dbTblName limit_clause:limitClause
+    | KW_TABLET KW_FROM table_name:dbTblName opt_partitions:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowTabletStmt(dbTblName, -1L, limitClause);
+        RESULT = new ShowTabletStmt(dbTblName, -1L, partitionNames, parser.where, orderByClause, limitClause);
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
