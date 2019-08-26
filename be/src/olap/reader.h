@@ -46,7 +46,6 @@ class RowCursor;
 class RowBlock;
 class CollectIterator;
 class RuntimeState;
-class ColumnData;
 
 // Params for Reader,
 // mainly include tablet, data version and fetch range.
@@ -55,7 +54,9 @@ struct ReaderParams {
     ReaderType reader_type;
     bool aggregation;
     Version version;
+    // possible values are "gt", "ge", "eq"
     std::string range;
+    // possible values are "lt", "le"
     std::string end_range;
     std::vector<OlapTuple> start_key;
     std::vector<OlapTuple> end_key;

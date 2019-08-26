@@ -85,10 +85,6 @@ public:
         _is_using_cache = is_using_cache;
     }
 
-    void set_lru_cache(Cache* lru_cache) {
-        _lru_cache = lru_cache;
-    }
-
     void set_stats(OlapReaderStatistics* stats) {
         _stats = stats;
     }

@@ -104,10 +104,9 @@ void create_rowset_reader_context(TabletSchema* tablet_schema, const std::vector
         std::set<uint32_t>* load_bf_columns, Conditions* conditions, RowsetReaderContext* rowset_reader_context) {
     rowset_reader_context->reader_type = READER_ALTER_TABLE;
     rowset_reader_context->tablet_schema = tablet_schema;
-    rowset_reader_context->preaggregation = false;
+    rowset_reader_context->need_ordered_result = true;
     rowset_reader_context->return_columns = return_columns;
     rowset_reader_context->delete_handler = delete_handler;
-    rowset_reader_context->is_using_cache = false;
     rowset_reader_context->lower_bound_keys = nullptr;
     rowset_reader_context->is_lower_keys_included = nullptr;
     rowset_reader_context->upper_bound_keys = nullptr;
@@ -115,7 +114,6 @@ void create_rowset_reader_context(TabletSchema* tablet_schema, const std::vector
     rowset_reader_context->predicates = predicates;
     rowset_reader_context->load_bf_columns = load_bf_columns;
     rowset_reader_context->conditions = conditions;
-    rowset_reader_context->lru_cache = k_engine->index_stream_lru_cache();
 }
 
 void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
