@@ -81,12 +81,13 @@ OLAPStatus Merger::merge() {
         has_error = true;
     }
 
+    std::unique_ptr<Arena> arena(new Arena());
     bool eof = false;
     row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
         // Read one row into row_cursor
-        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
+        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, arena.get(), &eof);
         if (OLAP_SUCCESS == res && eof) {
             VLOG(3) << "reader read to the end.";
             break;
@@ -101,6 +102,10 @@ OLAPStatus Merger::merge() {
             has_error = true;
             break;
         }
+
+        // the memory allocate by arena has been copied,
+        // so we should release these memory immediately
+        arena.reset(new Arena());
 
         // Goto next row position in the row block being written
         ++_row_count;

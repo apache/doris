@@ -72,10 +72,10 @@ int compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
 // function will first initialize destination column and then update with source column
 // value.
 template<typename DstRowType, typename SrcRowType>
-void init_row_with_others(DstRowType* dst, const SrcRowType& src) {
+void init_row_with_others(DstRowType* dst, const SrcRowType& src, Arena* arena) {
     for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid));
+        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), arena);
     }
 }
 
@@ -139,10 +139,10 @@ void agg_finalize_row(RowType* row, Arena* arena) {
 }
 
 template<typename RowType>
-void agg_finalize_row(const std::vector<uint32_t>& ids, RowType* row) {
+void agg_finalize_row(const std::vector<uint32_t>& ids, RowType* row, Arena* arena) {
     for (uint32_t id : ids) {
         auto cell = row->cell(id);
-        row->schema()->column(id)->agg_finalize(&cell);
+        row->schema()->column(id)->agg_finalize(&cell, arena);
     }
 }
 

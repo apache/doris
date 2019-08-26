@@ -94,6 +94,9 @@
     8. 导入数据进行严格模式过滤
         curl --location-trusted -u root -H "strict_mode: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
+    9. 导入含有聚合模型为BITMAP_UNION列的表，可以是表中的列或者数据中的列用于生成BITMAP_UNION列
+        curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load
+
  
 ## keyword
     STREAM,LOAD

@@ -27,7 +27,7 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_in
     PageBuilderOptions options;
     options.data_page_size = 0;
     _page_builder.reset(new BinaryPlainPageBuilder(options));
-    _field.reset(Field::create_by_type(_type_info->type()));
+    _field.reset(FieldFactory::create_by_type(_type_info->type()));
     _max_string_value = _arena.Allocate(OLAP_STRING_MAX_LENGTH);
     _zone_map.min_value = _arena.Allocate(_type_info->size());
     _zone_map.max_value = _arena.Allocate(_type_info->size());
