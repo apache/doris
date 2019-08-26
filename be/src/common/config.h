@@ -212,12 +212,11 @@ namespace config {
     // inc_rowset expired interval
     CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
-    CONF_Int32(max_garbage_sweep_interval, "14400");
+    CONF_Int32(max_garbage_sweep_interval, "3600");
     CONF_Int32(min_garbage_sweep_interval, "180");
     CONF_Int32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
     CONF_Int32(trash_file_expire_time_sec, "259200");
-    CONF_Int32(disk_capacity_insufficient_percentage, "90");
     // check row nums for BE/CE and schema change. true is open, false is closed.
     CONF_Bool(row_nums_check, "true")
     //file descriptors cache, by default, cache 30720 descriptors
@@ -439,6 +438,13 @@ namespace config {
     CONF_Int32(path_gc_check_step, "1000");
     CONF_Int32(path_gc_check_step_interval_ms, "10");
     CONF_Int32(path_scan_interval_second, "86400");
+
+    // The following 2 configs limit the max usage of disk capacity of a data dir.
+    // If both of these 2 threshold reached, no more data can be writen into that data dir.
+    // The percent of max used capacity of a data dir
+    CONF_Int32(capacity_used_percent_flood_stage, "95");    // 95%
+    // The min bytes that should be left of a data dir
+    CONF_Int64(capacity_min_left_bytes_flood_stage, "1073741824")   // 1GB
 } // namespace config
 
 } // namespace doris

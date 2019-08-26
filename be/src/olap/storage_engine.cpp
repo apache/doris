@@ -295,28 +295,19 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
     timer.start();
     int tablet_counter = 0;
 
+    // 1. update avaiable capacity of each data dir
     // get all root path info and construct a path map.
     // path -> DataDirInfo
     std::map<std::string, DataDirInfo> path_map;
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            std::string path = it.first;
-            path_map.emplace(path, it.second->get_dir_info());
-            // if this path is not used, init it's info
-            if (!path_map[path].is_used) {
-                path_map[path].capacity = 1;
-                path_map[path].data_used_capacity = 0;
-                path_map[path].available = 0;
-                path_map[path].storage_medium = TStorageMedium::HDD;
-            } else {
-                path_map[path].storage_medium = it.second->storage_medium();
-            }
+            it.second->update_available_capacity();
+            path_map.emplace(it.first, it.second->get_dir_info());
         }
     }
 
-    // for each tablet, get it's data size, and accumulate the path 'data_used_capacity'
-    // which the tablet belongs to.
+    // 2. get total tablets' size of each data dir
     _tablet_manager->update_root_path_info(&path_map, &tablet_counter);
 
     // add path info to data_dir_infos
@@ -324,12 +315,6 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
         data_dir_infos->emplace_back(entry.second);
     }
 
-    // get available capacity of each path
-    for (auto& info: *data_dir_infos) {
-        if (info.is_used) {
-            _get_path_available_capacity(info.path,  &info.available);
-        }
-    }
     timer.stop();
     LOG(INFO) << "get root path info cost: " << timer.elapsed_time() / 1000000
             << " ms. tablet counter: " << tablet_counter;
@@ -470,23 +455,6 @@ void StorageEngine::_delete_tablets_on_unused_root_path() {
     _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
 }
 
-OLAPStatus StorageEngine::_get_path_available_capacity(
-        const string& root_path,
-        int64_t* disk_available) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    try {
-        boost::filesystem::path path_name(root_path);
-        boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
-        *disk_available = path_info.available;
-    } catch (boost::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "get space info failed. path: " << root_path << " erro:" << e.what();
-        return OLAP_ERR_STL_ERROR;
-    }
-
-    return res;
-}
-
 OLAPStatus StorageEngine::clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
     delete FileHandler::get_fd_cache();
@@ -597,7 +565,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
-    const double guard_space = config::disk_capacity_insufficient_percentage / 100.0;
+    const double guard_space = config::capacity_used_percent_flood_stage / 100.0;
     std::vector<DataDirInfo> data_dir_infos;
     res = get_all_data_dir_info(&data_dir_infos);
     if (res != OLAP_SUCCESS) {

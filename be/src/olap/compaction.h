@@ -32,6 +32,7 @@
 
 namespace doris {
 
+class DataDir;
 class Merger;
 
 // This class is a base class for compaction.
@@ -43,7 +44,7 @@ class Merger;
 //  4. gc unused rowstes
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet);
+    Compaction(TabletSharedPtr tablet, DataDir* data_dir);
     virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
@@ -63,8 +64,11 @@ protected:
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger& merger);
 
+    OLAPStatus check_disk_capacity();
+
 protected:
     TabletSharedPtr _tablet;
+    DataDir* _data_dir;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;

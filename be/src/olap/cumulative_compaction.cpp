@@ -43,6 +43,7 @@ OLAPStatus CumulativeCompaction::compact() {
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
+    RETURN_NOT_OK(check_disk_capacity());
 
     // 3. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
