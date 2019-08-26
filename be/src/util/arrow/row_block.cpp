@@ -233,7 +233,7 @@ Status convert_to_arrow_batch(const RowBlockV2& block,
     return converter.convert(result);
 }
 
-// Converte Arrow RecordBatch to Doris RowBlockV2
+// Convert Arrow RecordBatch to Doris RowBlockV2
 class ToRowBlockConverter : public arrow::ArrayVisitor {
 public:
     ToRowBlockConverter(const arrow::RecordBatch& batch,

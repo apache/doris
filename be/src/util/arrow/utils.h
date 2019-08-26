@@ -28,8 +28,8 @@
 // We can convert our internal data into Arrow's memory format
 // and then convert to other format, for example Parquet. Because
 // Arrow have already implemented this functions. And what's more
-// Arrow support multiple laguages, so it will make it easy to
-// handle Doris data in other laguages.
+// Arrow support multiple languages, so it will make it easy to
+// handle Doris data in other languages.
 
 // Forward declaration of arrow class
 namespace arrow {

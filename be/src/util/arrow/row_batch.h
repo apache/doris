@@ -21,6 +21,10 @@
 
 #include "common/status.h"
 
+// This file will convert Doris RowBatch to/from Arrow's RecordBatch
+// RowBatch is used by Doris query engine to exchange data between
+// each execute node.
+
 namespace arrow {
 
 class MemoryPool;

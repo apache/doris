@@ -21,6 +21,9 @@
 
 #include "common/status.h"
 
+// Convert Doris RowBlockV2 to/from Arrow RecordBatch.
+// RowBlockV2 is used in Doris storage engine.
+
 namespace arrow {
 
 class Schema;
@@ -45,7 +48,7 @@ Status convert_to_doris_schema(
     const arrow::Schema& schema,
     std::shared_ptr<Schema>* result);
 
-// Converte a Doris RowBlockV2 to an Arrow RecordBatch. A valid Arrow Schema
+// Convert a Doris RowBlockV2 to an Arrow RecordBatch. A valid Arrow Schema
 // who should match RowBlockV2's schema is given. Memory used by result RecordBatch
 // will be allocated from input pool.
 Status convert_to_arrow_batch(const RowBlockV2& block,
