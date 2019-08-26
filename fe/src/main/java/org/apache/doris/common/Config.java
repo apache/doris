@@ -668,9 +668,9 @@ public class Config extends ConfigBase {
      * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_high_watermark_usage_percent = 0.85;
+    public static int storage_high_watermark_usage_percent = 85;
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_min_left_capacity_bytes = 1024 * 1024 * 1024; // 1G
+    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
 
     /*
      * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
@@ -679,9 +679,9 @@ public class Config extends ConfigBase {
      * 2. restore job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_flood_stage_usage_percent = 0.95;
+    public static int storage_flood_stage_usage_percent = 95;
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_flood_stage_left_capacity_bytes = 100 * 1024 * 1024; // 100MB
+    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 100MB
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval

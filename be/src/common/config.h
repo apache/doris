@@ -442,9 +442,9 @@ namespace config {
     // The following 2 configs limit the max usage of disk capacity of a data dir.
     // If both of these 2 threshold reached, no more data can be writen into that data dir.
     // The percent of max used capacity of a data dir
-    CONF_Int32(capacity_used_percent_flood_stage, "95");    // 95%
+    CONF_Int32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
-    CONF_Int64(capacity_min_left_bytes_flood_stage, "1073741824")   // 1GB
+    CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
 } // namespace config
 
 } // namespace doris

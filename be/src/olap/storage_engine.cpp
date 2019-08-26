@@ -567,7 +567,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
-    const double guard_space = config::capacity_used_percent_flood_stage / 100.0;
+    const double guard_space = config::storage_flood_stage_usage_percent / 100.0;
     std::vector<DataDirInfo> data_dir_infos;
     res = get_all_data_dir_info(&data_dir_infos, false);
     if (res != OLAP_SUCCESS) {

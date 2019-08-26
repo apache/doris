@@ -139,10 +139,10 @@ public class DiskInfo implements Writable {
                 floodStage, diskAvailableCapacityB, totalCapacityB);
         if (floodStage) {
             return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes &&
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > Config.storage_flood_stage_usage_percent;
+                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_flood_stage_usage_percent / 100.0);
         } else {
             return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes ||
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > Config.storage_high_watermark_usage_percent;
+                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_high_watermark_usage_percent / 100.0);
         }
     }
 
