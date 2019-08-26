@@ -129,7 +129,8 @@ enum TAggregationType {
     MIN,
     REPLACE,
     HLL_UNION,
-    NONE
+    NONE,
+    BITMAP_UNION
 }
 
 enum TPushType {

@@ -645,10 +645,6 @@ inline void *aligned_malloc(size_t size, int minimum_alignment) {
 #endif
 }
 
-inline void aligned_free(void *aligned_memory) {
-  free(aligned_memory);
-}
-
 #else   // not GCC
 
 #define PRINTF_ATTRIBUTE(string_index, first_to_check)
@@ -859,10 +855,6 @@ inline ostream& operator<< (ostream& os, const unsigned __int64& num ) {
 
 inline void *aligned_malloc(size_t size, int minimum_alignment) {
   return _aligned_malloc(size, minimum_alignment);
-}
-
-inline void aligned_free(void *aligned_memory) {
-  _aligned_free(aligned_memory);
 }
 
 // ----- BEGIN VC++ STUBS & FAKE DEFINITIONS ---------------------------------

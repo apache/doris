@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -150,6 +151,7 @@ public abstract class AggregateInfoBase {
                 // by compute stats and compute incremental stats, respectively.
                 if (aggExpr.getFnName().getFunction().equals("count")
                         || aggExpr.getFnName().getFunction().equals("ndv")
+                        || aggExpr.getFnName().getFunction().equals(FunctionSet.BITMAP_UNION_INT)
                         || aggExpr.getFnName().getFunction().equals("ndv_no_finalize")) {
                     // TODO: Consider making nullability a property of types or of builtin agg fns.
                     // row_number(), rank(), and dense_rank() are non-nullable as well.

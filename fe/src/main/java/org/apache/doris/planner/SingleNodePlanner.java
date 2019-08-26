@@ -48,6 +48,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -533,6 +534,18 @@ public class SingleNodePlanner {
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT)) {
+                        if ((!col.isKey())) {
+                            turnOffReason = "BITMAP_UNION_INT function with non-key column: " + col.getName();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
+                        if (col.getAggregationType() != AggregateType.BITMAP_UNION) {
+                            turnOffReason = "Aggregate Operator not match: BITMAP_UNION <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }

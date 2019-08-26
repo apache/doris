@@ -38,14 +38,13 @@ void test_min() {
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MIN, field_type);
-    agg->init(buf, &arena);
 
     RowCursorCell dst(buf);
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(&dst, val_buf, &arena);
+        agg->init(&dst, val_buf, true, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -92,7 +91,7 @@ void test_min() {
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(50, val);
     }
-    agg->finalize(buf, &arena);
+    agg->finalize(&dst, &arena);
     ASSERT_FALSE(*(bool*)(buf));
     CppType val;
     memcpy(&val, buf + 1, sizeof(CppType));
@@ -112,14 +111,13 @@ void test_max() {
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MAX, field_type);
-    agg->init(buf, &arena);
 
     RowCursorCell dst(buf);
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(&dst, val_buf, &arena);
+        agg->init(&dst, val_buf, true, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -165,7 +163,7 @@ void test_max() {
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(200, val);
     }
-    agg->finalize(buf, &arena);
+    agg->finalize(&dst, &arena);
     ASSERT_FALSE(*(bool*)(buf));
     CppType val;
     memcpy(&val, buf + 1, sizeof(CppType));
@@ -186,13 +184,12 @@ void test_sum() {
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_SUM, field_type);
-    agg->init(buf, &arena);
 
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(&dst, val_buf, &arena);
+        agg->init(&dst, val_buf, true, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -238,7 +235,7 @@ void test_sum() {
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(350, val);
     }
-    agg->finalize(buf, &arena);
+    agg->finalize(&dst, &arena);
     ASSERT_FALSE(*(bool*)(buf));
     CppType val;
     memcpy(&val, buf + 1, sizeof(CppType));
@@ -259,13 +256,12 @@ void test_replace() {
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
-    agg->init(buf, &arena);
 
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->update(&dst, val_buf, &arena);
+        agg->init(&dst, val_buf, true, &arena);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -297,7 +293,7 @@ void test_replace() {
         memcpy(&val, buf + 1, sizeof(CppType));
         ASSERT_EQ(50, val);
     }
-    agg->finalize(buf, &arena);
+    agg->finalize(&dst, &arena);
     ASSERT_FALSE(*(bool*)(buf));
     CppType val;
     memcpy(&val, buf + 1, sizeof(CppType));
@@ -317,7 +313,6 @@ void test_replace_string() {
 
     Arena arena;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
-    agg->init(dst, &arena);
 
     char src[string_field_size];
     RowCursorCell src_cell(src);
@@ -325,7 +320,7 @@ void test_replace_string() {
     // null
     {
         src_cell.set_null();
-        agg->update(&dst_cell, src_cell, &arena);
+        agg->init(&dst_cell, (const char*)src_slice, true, &arena);
         ASSERT_TRUE(dst_cell.is_null());
     }
     // "12345"
@@ -364,7 +359,8 @@ void test_replace_string() {
         ASSERT_EQ(5, dst_slice->size);
         ASSERT_STREQ("12345", dst_slice->to_string().c_str());
     }
-    agg->finalize(dst, &arena);
+
+    agg->finalize(&dst_cell, &arena);
     ASSERT_FALSE(dst_cell.is_null());
     ASSERT_EQ(5, dst_slice->size);
     ASSERT_STREQ("12345", dst_slice->to_string().c_str());
