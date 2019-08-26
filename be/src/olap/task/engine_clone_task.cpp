@@ -469,7 +469,7 @@ AgentStatus EngineCloneTask::_clone_copy(
             }
 
             // check disk capacity
-            if (data_dir->reach_capacity_limit(file_size)) {
+            if (data_dir.reach_capacity_limit(file_size)) {
                 status = DORIS_DISK_REACH_CAPACITY_LIMIT;
                 break;
             }

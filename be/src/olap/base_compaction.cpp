@@ -20,8 +20,8 @@
 
 namespace doris {
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet, DataDir* data_dir)
-    : Compaction(tablet, data_dir),
+BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
+    : Compaction(tablet)
 { }
 
 BaseCompaction::~BaseCompaction() { }

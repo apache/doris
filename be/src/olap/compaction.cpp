@@ -21,9 +21,8 @@ using std::vector;
 
 namespace doris {
 
-Compaction::Compaction(TabletSharedPtr tablet, DataDir* data_dir)
+Compaction::Compaction(TabletSharedPtr tablet)
     : _tablet(tablet),
-      _data_dir(data_dir);
       _input_rowsets_size(0),
       _input_row_num(0),
       _state(CompactionState::INITED)
@@ -194,7 +193,7 @@ OLAPStatus Compaction::check_disk_capacity() {
         incoming_data_size  += rowset->index_disk_size();
     }
 
-    if (_data_dir->reach_capacity_limit(incoming_data_size)) {
+    if (_tablet->data_dir()->reach_capacity_limit(incoming_data_size)) {
         return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
     }
     return OLAP_SUCCESS;

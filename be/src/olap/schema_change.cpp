@@ -1890,7 +1890,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                  << rs_reader->version().first << "-" << rs_reader->version().second;
 
         // check disk capacity
-        int64_t tablet_size = rs_reader->row_set()->index_disk_size() + rs_reader->row_set()->data_disk_size();
+        int64_t tablet_size = rs_reader->rowset()->index_disk_size() + rs_reader->rowset()->data_disk_size();
         if (sc_params.new_tablet->data_dir()->reach_capacity_limit(tablet_size)) {
             res = OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
             goto PROCESS_ALTER_EXIT;

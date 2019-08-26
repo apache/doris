@@ -59,6 +59,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
         TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path(path),
         _capacity_bytes(capacity_bytes),
+        _available_bytes(0),
+        _disk_capacity_bytes(0),
         _is_used(false),
         _tablet_manager(tablet_manager),
         _txn_manager(txn_manager),
@@ -1061,10 +1063,13 @@ Status DataDir::update_capacity() {
         boost::filesystem::path path_name(_path);
         boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
         _available_bytes = path_info.available;
-        _disk_capacity_bytes = path_info.capacity;
+        if (_disk_capacity_bytes == 0) {
+            // disk capacity only need to be set once
+            _disk_capacity_bytes = path_info.capacity;
+        }
     } catch (boost::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "get space info failed. path: " << root_path << " erro:" << e.what();
-        return Status.InternalError("get path available capacity failed");
+        LOG(WARNING) << "get space info failed. path: " << _path << " erro:" << e.what();
+        return Status::InternalError("get path available capacity failed");
     }
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
             << ", available capacity: " << _available_bytes;
@@ -1072,12 +1077,14 @@ Status DataDir::update_capacity() {
     return Status::OK();
 }
 
-bool DataDir::reach_capacity_limit(int64_t incoming_data_size);
-    double used_pct = _available_bytes + incoming_data_size / (double) _disk_capacity_bytes;
+bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
+    double used_pct = (_available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
     int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
     
     if (used_pct >= config::capacity_used_percent_flood_stage / 100.0
         && left_bytes <= config::capacity_min_left_bytes_flood_stage) {
+        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct << ", left bytes: " << left_bytes
+                << ", path: " << _path;
         return true;
     }
     return false;

@@ -56,15 +56,6 @@ struct DataDirInfo {
             data_used_capacity(0),
             is_used(false) { }
 
-    DataDirInfo(const DataDirInfo& other) {
-        path = other.path;
-        path_hash = other.pash_hash;
-        capacity = other.capacity;
-        data_used_capacity = other.data_used_capacity;
-        is_used = other.is_used;
-        storage_medium = other.storage_medium;
-    }
-
     std::string path;
     int64_t path_hash;
     int64_t capacity;                  // 总空间，单位字节

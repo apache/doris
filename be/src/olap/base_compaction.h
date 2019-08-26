@@ -29,7 +29,7 @@ namespace doris {
 
 class BaseCompaction : public Compaction {
 public:
-    BaseCompaction(TabletSharedPtr tablet, DataDir* data_dir);
+    BaseCompaction(TabletSharedPtr tablet);
     ~BaseCompaction() override;
 
     OLAPStatus compact() override;

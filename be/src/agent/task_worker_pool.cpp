@@ -1266,7 +1266,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
 #endif
         vector<DataDirInfo> data_dir_infos;
-        worker_pool_this->_env->storage_engine()->get_all_data_dir_info(&data_dir_infos);
+        worker_pool_this->_env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
         map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {

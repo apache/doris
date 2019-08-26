@@ -44,7 +44,7 @@ class Merger;
 //  4. gc unused rowstes
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, DataDir* data_dir);
+    Compaction(TabletSharedPtr tablet);
     virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
@@ -68,7 +68,6 @@ protected:
 
 protected:
     TabletSharedPtr _tablet;
-    DataDir* _data_dir;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;

@@ -287,7 +287,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos) {
+OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos, bool need_update) {
     OLAPStatus res = OLAP_SUCCESS;
     data_dir_infos->clear();
 
@@ -302,7 +302,9 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            it.second->update_available_capacity();
+            if (need_update) {
+                it.second->update_capacity();
+            }
             path_map.emplace(it.first, it.second->get_dir_info());
         }
     }
@@ -414,7 +416,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 }
 
 DataDir* StorageEngine::get_store(const std::string& path) {
-    std::lock_guard<std::mutex> l(_store_lock);
+    // _store_map is unchanged, no need to lock
     auto it = _store_map.find(path);
     if (it == std::end(_store_map)) {
         return nullptr;
@@ -567,7 +569,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     const int32_t trash_expire = config::trash_file_expire_time_sec;
     const double guard_space = config::capacity_used_percent_flood_stage / 100.0;
     std::vector<DataDirInfo> data_dir_infos;
-    res = get_all_data_dir_info(&data_dir_infos);
+    res = get_all_data_dir_info(&data_dir_infos, false);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to get root path stat info when sweep trash.";
         return res;

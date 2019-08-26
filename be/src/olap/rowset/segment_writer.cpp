@@ -222,7 +222,6 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
 
     // check disk capacity
     if (data_dir->reach_capacity_limit((int64_t) file_header.file_length())) {
-         LOG(WARNING) << "dir " << data_dir->path() << " reach the capacity limit";
          return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
     }
 
