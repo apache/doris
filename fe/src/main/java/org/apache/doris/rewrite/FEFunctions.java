@@ -33,9 +33,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 
 /**
  * compute functions in FE.
@@ -49,26 +46,20 @@ public class FEFunctions {
      */
     @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        try {
-            long timediff = sdf.parse(first.getStringValue()).getTime() - sdf.parse(second.getStringValue()).getTime();
-            return new FloatLiteral((double) timediff, Type.TIME);
-        } catch (ParseException e) {
-            throw new AnalysisException(e.getLocalizedMessage());
-        }
+        long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
+        long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000, Type.TIME);
     }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        try {
-            // DATEDIFF function only uses the date part for calculations and ignores the time part
-            long diff = sdf.parse(first.getStringValue()).getTime() - sdf.parse(second.getStringValue()).getTime();
-            long datediff = diff / 1000 / 60 / 60 / 24;
-            return new IntLiteral(datediff, Type.INT);
-        } catch (ParseException e) {
-            throw new AnalysisException(e.getLocalizedMessage());
-        }
+        DateLiteral firstDate = ((DateLiteral) first);
+        DateLiteral secondDate = ((DateLiteral) second);
+        // DATEDIFF function only uses the date part for calculations and ignores the time part
+        firstDate.castToDate();
+        secondDate.castToDate();
+        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone()) - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
+        return new IntLiteral(datediff, Type.INT);
     }
 
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -120,11 +111,7 @@ public class FEFunctions {
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
-        try {
-            return new IntLiteral(((DateLiteral) arg).unixTime(TimeUtils.getTimeZone()) / 1000, Type.INT);
-        } catch (ParseException e) {
-            throw new AnalysisException(e.getLocalizedMessage());
-        }
+        return new IntLiteral(((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000, Type.INT);
     }
 
     @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
@@ -133,10 +120,8 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        dateFormat.setTimeZone(TimeUtils.getTimeZone());
-        String dateLiteral = dateFormat.format(new Date(unixTime.getLongValue() * 1000));
-        return new StringLiteral(dateLiteral);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
+        return new StringLiteral(dl.getStringValue());
     }
     @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
@@ -144,11 +129,7 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        dateFormat.setTimeZone(TimeUtils.getTimeZone());
-        String dateLiteral = dateFormat.format(new Date(unixTime.getLongValue() * 1000));
-
-        DateLiteral dl = new DateLiteral(dateLiteral, Type.DATETIME);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 

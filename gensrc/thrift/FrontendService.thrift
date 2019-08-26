@@ -407,6 +407,7 @@ struct TMasterOpRequest {
     6: optional i64 execMemLimit
     7: optional i32 queryTimeout
     8: optional string user_ip
+    9: optional string time_zone
 }
 
 struct TColumnDefinition {
