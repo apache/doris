@@ -76,6 +76,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
@@ -519,6 +521,10 @@ public class SchemaChangeHandler extends AlterHandler {
         // hll must be used in agg_keys
         if (newColumn.getType().isHllType() && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("HLL must be used in AGG_KEYS");
+        }
+
+        if (newColumn.getAggregationType() == BITMAP_UNION  && KeysType.AGG_KEYS != olapTable.getKeysType()) {
+            throw new DdlException("BITMAP_UNION must be used in AGG_KEYS");
         }
 
         List<Column> baseSchema = olapTable.getBaseSchema();

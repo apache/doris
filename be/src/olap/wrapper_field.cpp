@@ -30,7 +30,7 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
         return nullptr;
     }
 
-    Field* rep = Field::create(column);
+    Field* rep = FieldFactory::create(column);
     if (rep == nullptr) {
         return nullptr;
     }
@@ -53,14 +53,14 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
 }
 
 WrapperField* WrapperField::create_by_type(const FieldType& type) {
-    Field* rep = Field::create_by_type(type);
+    Field* rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
         return nullptr;
     }
-    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR 
-                              || type == OLAP_FIELD_TYPE_VARCHAR 
-                              || type == OLAP_FIELD_TYPE_HLL);
-    WrapperField* wrapper = new WrapperField(rep, 0, is_string_type);
+    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR
+                           || type == OLAP_FIELD_TYPE_VARCHAR
+                           || type == OLAP_FIELD_TYPE_HLL);
+    auto* wrapper = new WrapperField(rep, 0, is_string_type);
     return wrapper;
 }
 

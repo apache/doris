@@ -32,9 +32,6 @@ RowCursor::RowCursor() :
 
 RowCursor::~RowCursor() {
     delete [] _owned_fixed_buf;
-    for (HllContext* context : hll_contexts) {
-        delete context;
-    }
     delete [] _variable_buf;
 }
 
@@ -44,17 +41,14 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     _fixed_len = _schema->schema_size();
     _variable_len = 0;
     for (auto cid : columns) {
-        const TabletColumn& column = schema[cid];
-        FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            _variable_len += column.length() - OLAP_STRING_MAX_BYTES;
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            _variable_len += column.length();
-        } else if (type == OLAP_FIELD_TYPE_HLL) {
-            _variable_len += HLL_COLUMN_DEFAULT_LEN + sizeof(HllContext*);
+        if (_schema->column(cid) == nullptr) {
+            LOG(WARNING) << "Fail to create field.";
+            return OLAP_ERR_INIT_FAILED;
         }
+        _variable_len += column_schema(cid)->get_variable_len();
     }
 
+    _fixed_len = _schema->schema_size();
     _fixed_buf = new (nothrow) char[_fixed_len];
     if (_fixed_buf == nullptr) {
         LOG(WARNING) <<  "Fail to malloc _fixed_buf.";
@@ -184,31 +178,8 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = column.length() - OLAP_STRING_MAX_BYTES;
-            variable_ptr += slice->size;
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = column.length();
-            variable_ptr += slice->size;
-        } else if (type == OLAP_FIELD_TYPE_HLL) {
-            // slice.data points to serialized HLL, (slice.data - 8) points to HllContext object used to aggregate HLL
-            auto slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            HllContext* context = new HllContext();
-            hll_contexts.push_back(context);
-
-            *(size_t*)(variable_ptr) = (size_t)(context);
-            variable_ptr += sizeof(HllContext*);
-            slice->data = variable_ptr; // serialized HLL will be populated when finalizing HllContext
-            slice->size = HLL_COLUMN_DEFAULT_LEN;
-            variable_ptr += slice->size;
-        }
+        variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
     }
     return OLAP_SUCCESS;
 }

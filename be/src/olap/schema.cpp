@@ -37,44 +37,56 @@ void Schema::copy_from(const Schema& other) {
     _col_ids = other._col_ids;
     _col_offsets = other._col_offsets;
     _cols.resize(other._cols.size(), nullptr);
-
     for (auto cid : _col_ids) {
-        _cols[cid] =  new Field(*other._cols[cid]);
+        _cols[cid] =  other._cols[cid]->clone();
     }
 }
 
-
-void Schema::reset(const std::vector<Field>& cols, size_t num_key_columns) {
-    std::vector<ColumnId> col_ids(cols.size());
-    for (uint32_t cid = 0; cid < cols.size(); ++cid) {
-        col_ids[cid] = cid;
-    }
-    reset(cols, col_ids, num_key_columns);
-}
-
-void Schema::reset(const std::vector<Field>& cols,
-                   const std::vector<ColumnId>& col_ids,
-                   size_t num_key_columns) {
-    _num_key_columns = num_key_columns;
-
-    _col_ids = col_ids;
-    _cols.resize(cols.size(), nullptr);
-    _col_offsets.resize(cols.size(), -1);
-
+void Schema::init_field(const std::vector<TabletColumn>& columns,
+                        const std::vector<ColumnId>& col_ids) {
+    _cols.resize(columns.size(), nullptr);
     // we must make sure that the offset is the same with RowBlock's
-    std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
-    size_t offset = 0;
+    std::unordered_set<uint32_t> column_set(col_ids.begin(), col_ids.end());
+    for (int cid = 0; cid < columns.size(); ++cid) {
+        if (column_set.find(cid) == column_set.end()) {
+            continue;
+        }
+        _cols[cid] = FieldFactory::create(columns[cid]);
+    }
+}
+
+void Schema::init_field(const std::vector<const Field*>& cols,
+                const std::vector<ColumnId>& col_ids) {
+    _cols.resize(cols.size(), nullptr);
+    // we must make sure that the offset is the same with RowBlock's
+    std::unordered_set<uint32_t> column_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (column_set.find(cid) == column_set.end()) {
             continue;
         }
+        _cols[cid] = cols[cid]->clone();
+    }
+}
 
-        _cols[cid] = new Field(cols[cid]);
+void Schema::init(const std::vector<ColumnId>& col_ids,
+                   size_t num_key_columns) {
+    _num_key_columns = num_key_columns;
+    _col_ids = col_ids;
+    _col_offsets.resize(_cols.size(), -1);
+
+    // we must make sure that the offset is the same with RowBlock's
+    std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
+    size_t offset = 0;
+    for (int cid = 0; cid < _cols.size(); ++cid) {
+        if (column_set.find(cid) == column_set.end()) {
+            continue;
+        }
+
         _col_offsets[cid] = offset;
-
         // 1 for null byte
         offset += _cols[cid]->size() + 1;
     }
+    _schema_size = offset;
 }
 
 Schema::~Schema() {

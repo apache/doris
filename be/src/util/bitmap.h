@@ -18,8 +18,11 @@
 #ifndef DORIS_BE_SRC_COMMON_UITL_BITMAP_H
 #define DORIS_BE_SRC_COMMON_UITL_BITMAP_H
 
+#include <cstdint>
 #include "util/bit_util.h"
+#include "util/coding.h"
 #include "gutil/strings/fastmem.h"
+#include <roaring/roaring.hh>
 
 namespace doris {
 
@@ -126,7 +129,7 @@ public:
 
     void Reset(const uint8_t* map, size_t num_bits) {
         offset_ = 0;
-        num_bits_ = num_bits_;
+        num_bits_ = num_bits;
         map_ = map;
     }
 
@@ -246,6 +249,138 @@ class Bitmap {
   /// Used for bit shifting and masking for the word and offset calculation.
   static const int64_t NUM_OFFSET_BITS = 6;
   static const int64_t BIT_INDEX_MASK = 63;
+};
+
+// the wrapper class for RoaringBitmap
+// todo(kks): improve for low cardinality set
+class RoaringBitmap {
+public:
+    RoaringBitmap() : _type(EMPTY) {}
+
+    explicit RoaringBitmap(int32_t value): _int_value(value), _type(SINGLE){}
+
+    // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
+    explicit RoaringBitmap(const char* src) {
+        _type = (BitmapDataType)src[0];
+        switch (_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                _int_value = decode_fixed32_le(reinterpret_cast<const uint8_t *>(src + 1));
+                break;
+            case BITMAP:
+                _roaring = Roaring::read(src + 1);
+        }
+    }
+
+    void update(const int32_t value) {
+        switch (_type) {
+            case EMPTY:
+                _int_value = value;
+                _type = SINGLE;
+                break;
+            case SINGLE:
+                _roaring.add(_int_value);
+                _roaring.add(value);
+                _type = BITMAP;
+                break;
+            case BITMAP:
+                _roaring.add(value);
+        }
+    }
+
+    // specialty improve for empty bitmap and single int
+    // roaring bitmap add(int) is faster than merge(another bitmap)
+    // the _type maybe change:
+    // EMPTY  -> SINGLE
+    // EMPTY  -> BITMAP
+    // SINGLE -> BITMAP
+    void merge(const RoaringBitmap& bitmap) {
+        switch(bitmap._type) {
+            case EMPTY:
+                return;
+            case SINGLE:
+                update(bitmap._int_value);
+                return;
+            case BITMAP:
+                switch (_type) {
+                    case EMPTY:
+                        _roaring = bitmap._roaring;
+                        _type = BITMAP;
+                        break;
+                    case SINGLE:
+                        _roaring = bitmap._roaring;
+                        _roaring.add(_int_value);
+                        _type = BITMAP;
+                        break;
+                    case BITMAP:
+                        _roaring |= bitmap._roaring;
+                }
+                return;
+        }
+    }
+
+    int64_t cardinality() const {
+        switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return 1;
+            case BITMAP:
+                return _roaring.cardinality();
+        }
+        return 0;
+    }
+
+    size_t size() {
+        switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return sizeof(int32_t) + 1;
+            case BITMAP:
+                _roaring.runOptimize();
+                return _roaring.getSizeInBytes() + 1;
+        }
+        return 1;
+    }
+
+    //must call size() first
+    void serialize(char* dest) {
+        dest[0] = _type;
+        switch (_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                encode_fixed32_le(reinterpret_cast<uint8_t *>(dest + 1), _int_value);
+                break;
+            case BITMAP:
+                _roaring.write(dest + 1);
+        }
+    }
+
+    std::string toString() const {
+        switch (_type) {
+            case EMPTY:
+                return {};
+            case SINGLE:
+                return std::to_string(_int_value);
+            case BITMAP:
+                return _roaring.toString();
+        }
+        return {};
+    }
+
+private:
+    enum BitmapDataType {
+        EMPTY = 0,
+        SINGLE = 1, // int32
+        BITMAP = 2
+    };
+
+    Roaring _roaring;
+    int32_t _int_value;
+    BitmapDataType _type;
 };
 
 }

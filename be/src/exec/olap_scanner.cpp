@@ -252,6 +252,7 @@ Status OlapScanner::get_batch(
         state->batch_size() * _tuple_desc->byte_size());
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    std::unique_ptr<Arena> arena(new Arena());
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
@@ -263,7 +264,7 @@ Status OlapScanner::get_batch(
                 break;
             }
             // Read one row from reader
-            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, eof);
+            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, arena.get(), eof);
             if (res != OLAP_SUCCESS) {
                 return Status::InternalError("Internal Error: read storage fail.");
             }
@@ -328,6 +329,11 @@ Status OlapScanner::get_batch(
                         slot->ptr = reinterpret_cast<char*>(v);
                     }
                 }
+
+                // the memory allocate by arena has been copied,
+                // so we should release these memory immediately
+                arena.reset(new Arena());
+
                 if (VLOG_ROW_IS_ON) {
                     VLOG_ROW << "OlapScanner output row: " << Tuple::to_string(tuple, *_tuple_desc);
                 }

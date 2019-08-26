@@ -51,6 +51,7 @@
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
 #include "exprs/timezone_db.h"
+#include "exprs/bitmap_function.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
@@ -84,7 +85,7 @@ void* tcmalloc_gc_thread(void* dummy) {
 
     return NULL;
 }
-    
+
 void* memory_maintenance_thread(void* dummy) {
     while (true) {
         sleep(config::memory_maintenance_sleep_time_s);
@@ -94,20 +95,20 @@ void* memory_maintenance_thread(void* dummy) {
         if (env != nullptr) {
             BufferPool* buffer_pool = env->buffer_pool();
             if (buffer_pool != nullptr) buffer_pool->Maintenance();
-            
+
             // The process limit as measured by our trackers may get out of sync with the
             // process usage if memory is allocated or freed without updating a MemTracker.
             // The metric is refreshed whenever memory is consumed or released via a MemTracker,
             // so on a system with queries executing it will be refreshed frequently. However
             // if the system is idle, we need to refresh the tracker occasionally since
             // untracked memory may be allocated or freed, e.g. by background threads.
-            if (env->process_mem_tracker() != nullptr && 
+            if (env->process_mem_tracker() != nullptr &&
                      !env->process_mem_tracker()->is_consumption_metric_null()) {
                 env->process_mem_tracker()->RefreshConsumptionFromMetric();
-            }   
-        }   
-    }   
-    
+            }
+        }
+    }
+
     return NULL;
 }
 
@@ -174,8 +175,8 @@ void* calculate_metrics(void* dummy) {
         }
 
         sleep(15); // 15 seconds
-    }   
-    
+    }
+
     return NULL;
 }
 
@@ -270,6 +271,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     ESFunctions::init();
     GeoFunctions::init();
     TimezoneDatabase::init();
+    BitmapFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);

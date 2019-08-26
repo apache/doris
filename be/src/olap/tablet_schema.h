@@ -30,6 +30,7 @@ class TabletColumn {
 public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
+    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
     OLAPStatus init_from_pb(const ColumnPB& column);
     OLAPStatus to_schema_pb(ColumnPB* column);
 

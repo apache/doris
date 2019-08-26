@@ -63,84 +63,20 @@ void MemTable::insert(Tuple* tuple) {
     for (size_t i = 0; i < _col_ids->size(); ++i) {
         auto cell = row.cell(i);
         const SlotDescriptor* slot = slots[(*_col_ids)[i]];
-        
-        if (tuple->is_null(slot->null_indicator_offset())) {
-            cell.set_null();
-            continue;
-        }
-        cell.set_not_null();
-        TypeDescriptor type = slot->type();
-        switch (type.type) {
-            case TYPE_CHAR: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(cell.cell_ptr());
-                dest->size = _tablet_schema->column(i).length();
-                dest->data = _arena.Allocate(dest->size);
-                memcpy(dest->data, src->ptr, src->len);
-                memset(dest->data + src->len, 0, dest->size - src->len);
-                break;
-            }
-            case TYPE_VARCHAR: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(cell.cell_ptr());
-                dest->size = src->len;
-                dest->data = _arena.Allocate(dest->size);
-                memcpy(dest->data, src->ptr, dest->size);
-                break;
-            }
-            case TYPE_HLL: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(cell.cell_ptr());
-                dest->size = src->len;
-                bool exist = _skip_list->Contains(_tuple_buf);
-                if (exist) {
-                    dest->data = _arena.Allocate(dest->size);
-                    memcpy(dest->data, src->ptr, dest->size);
-                } else {
-                    dest->data = src->ptr;
-                    char* mem = _arena.Allocate(sizeof(HllContext));
-                    HllContext* context = new (mem) HllContext;
-                    HllSetHelper::init_context(context);
-                    HllSetHelper::fill_set(reinterpret_cast<char*>(dest), context);
-                    context->has_value = true;
-                    char* variable_ptr = _arena.Allocate(sizeof(HllContext*) + HLL_COLUMN_DEFAULT_LEN);
-                    *(size_t*)(variable_ptr) = (size_t)(context);
-                    variable_ptr += sizeof(HllContext*);
-                    dest->data = variable_ptr;
-                    dest->size = HLL_COLUMN_DEFAULT_LEN;
-                }
-                break;
-            }
-            case TYPE_DECIMAL: {
-                DecimalValue* decimal_value = tuple->get_decimal_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(cell.mutable_cell_ptr());
-                storage_decimal_value->integer = decimal_value->int_value();
-                storage_decimal_value->fraction = decimal_value->frac_value();
-                break;
-            }
-            case TYPE_DECIMALV2: {
-                DecimalV2Value* decimal_value = tuple->get_decimalv2_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(cell.mutable_cell_ptr());
-                storage_decimal_value->integer = decimal_value->int_value();
-                storage_decimal_value->fraction = decimal_value->frac_value();
-                break;
-            }
-            case TYPE_DATETIME: {
-                DateTimeValue* datetime_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint64_t* storage_datetime_value = reinterpret_cast<uint64_t*>(cell.mutable_cell_ptr());
-                *storage_datetime_value = datetime_value->to_olap_datetime();
-                break;
-            }
-            case TYPE_DATE: {
-                DateTimeValue* date_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint24_t* storage_date_value = reinterpret_cast<uint24_t*>(cell.mutable_cell_ptr());
-                *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
-                break;
-            }
-            default: {
-                memcpy(cell.mutable_cell_ptr(), tuple->get_slot(slot->tuple_offset()), _schema->column_size(i));
-                break;
-            }
+
+        // todo(kks): currently, HLL implementation don't have a merge method
+        // we should refactor HLL implementation and remove this special case handle
+        if (slot->type() == TYPE_HLL && _skip_list->Contains(_tuple_buf)) {
+            cell.set_not_null();
+            const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
+            auto* dest = (Slice*)(cell.cell_ptr());
+            dest->size = src->len;
+            dest->data = _arena.Allocate(dest->size);
+            memcpy(dest->data, src->ptr, dest->size);
+        } else {
+            bool is_null = tuple->is_null(slot->null_indicator_offset());
+            void* value = tuple->get_slot(slot->tuple_offset());
+            _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena());
         }
     }
 
