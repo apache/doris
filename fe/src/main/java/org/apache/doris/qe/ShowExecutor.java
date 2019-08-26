@@ -1156,7 +1156,6 @@ public class ShowExecutor {
                 boolean stop = false;
                 Collection<Partition> partitions = new ArrayList<Partition>();
                 List<String> partitionNames = showStmt.getPartitionNames();
-                LOG.info("partitionNames={}", partitionNames);
                 if (showStmt.hasPartition()) {
                     for (Partition partition : olapTable.getPartitions()) {
                         if (partitionNames.contains(partition.getName())) {
@@ -1166,7 +1165,6 @@ public class ShowExecutor {
                 } else {
                     partitions = olapTable.getPartitions();
                 }
-                LOG.info("partitions={}", partitions.size());
                 List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
                 for (Partition partition : partitions) {
                     if (stop) {
