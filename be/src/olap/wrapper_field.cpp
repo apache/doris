@@ -53,17 +53,14 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
 }
 
 WrapperField* WrapperField::create_by_type(const FieldType& type) {
+    Field* rep = FieldFactory::create_by_type(type);
+    if (rep == nullptr) {
+        return nullptr;
+    }
     bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR
                            || type == OLAP_FIELD_TYPE_VARCHAR
                            || type == OLAP_FIELD_TYPE_HLL);
-    // TODO(zc): To be compatible with old version, we should return nullptr for
-    // CHAR, VARCHAR, HLL. Because ColumnStatistics depend on this function return nullptr
-    if (is_string_type) {
-        return nullptr;
-    }
-
-    Field* field = FieldFactory::create_by_type(type);
-    WrapperField* wrapper = new WrapperField(field, 0, false);
+    auto* wrapper = new WrapperField(rep, 0, is_string_type);
     return wrapper;
 }
 
