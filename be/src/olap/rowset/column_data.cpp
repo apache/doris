@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_reader.h"
 #include "olap/olap_cond.h"
 #include "olap/row_block.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -36,7 +37,8 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
         _delete_status(DEL_NOT_SATISFIED),
         _runtime_state(nullptr),
         _is_using_cache(false),
-        _segment_reader(nullptr) {
+        _segment_reader(nullptr),
+        _lru_cache(StorageEngine::instance()->index_stream_lru_cache()) {
     _num_rows_per_block = _segment_group->get_num_rows_per_row_block();
 }
 
