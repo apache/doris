@@ -33,8 +33,11 @@ struct StringValue {
     // TODO: change ptr to an offset relative to a contiguous memory block,
     // so that we can send row batches between nodes without having to swizzle
     // pointers
+    // NOTE: This struct should keep the same memory layout with Slice, otherwise
+    // it will lead to BE crash.
+    // TODO(zc): we should unify this struct with Slice some day.
     char* ptr;
-    int len;
+    size_t len;
 
     StringValue(char* ptr, int len): ptr(ptr), len(len) {}
     StringValue(): ptr(NULL), len(0) {}
