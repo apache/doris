@@ -1166,11 +1166,16 @@ public class ShowExecutor {
                     partitions = olapTable.getPartitions();
                 }
                 List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                String indexName = showStmt.getIndexName();
+                long indexId = indexName == null ? -1 : olapTable.getIndexIdByName(indexName);
                 for (Partition partition : partitions) {
                     if (stop) {
                         break;
                     }
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        if (indexId > -1 && index.getId() != indexId) {
+                            continue;
+                        }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
                         tableInfos.addAll(procDir.fetchComparableResult(
                                 showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));

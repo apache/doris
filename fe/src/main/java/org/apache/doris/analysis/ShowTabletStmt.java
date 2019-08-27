@@ -47,6 +47,7 @@ public class ShowTabletStmt extends ShowStmt {
 
     private long version;
     private long backendId;
+    private String indexName;
     private Replica.ReplicaState replicaState;
     private ArrayList<OrderByPair> orderByPairs;
 
@@ -75,6 +76,7 @@ public class ShowTabletStmt extends ShowStmt {
 
         this.version = -1;
         this.backendId = -1;
+        this.indexName = null;
         this.replicaState = null;
         this.orderByPairs = null;
     }
@@ -110,6 +112,8 @@ public class ShowTabletStmt extends ShowStmt {
     public long getVersion() { return version; }
 
     public long getBackendId() { return backendId; }
+
+    public String getIndexName() { return indexName; }
 
     public List<OrderByPair> getOrderByPairs() { return orderByPairs; }
 
@@ -208,6 +212,12 @@ public class ShowTabletStmt extends ShowStmt {
                     break;
                 }
                 backendId = ((IntLiteral) subExpr.getChild(1)).getValue();
+            } else if (leftKey.equalsIgnoreCase("index")) {
+                if (!(subExpr.getChild(1) instanceof StringLiteral) || indexName != null) {
+                    valid = false;
+                    break;
+                }
+                indexName = ((StringLiteral) subExpr.getChild(1)).getValue();
             } else if (leftKey.equalsIgnoreCase("state")) {
                 if (!(subExpr.getChild(1) instanceof StringLiteral) || replicaState != null) {
                     valid = false;
