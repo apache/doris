@@ -60,6 +60,8 @@ public:
 
     uint64_t estimate_segment_size();
 
+    bool reach_capacity();
+
     Status finalize(uint32_t* segment_file_size);
 
 private:
@@ -82,6 +84,7 @@ private:
     std::unique_ptr<WritableFile> _output_file;
     std::vector<ColumnWriter*> _column_writers;
     uint64_t _row_count = 0;
+    const int32_t MAX_ROW_COUNT = INT_MAX;
     uint32_t _block_count = 0;
 };
 

@@ -84,6 +84,9 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer());
     }
+    if (PREDICT_FALSE(_segment_writer->reach_capacity())) {
+        RETURN_NOT_OK(_flush_segment_writer());
+    }
     // TODO update rowset's zonemap
     auto s = _segment_writer->append_row(row);
     if (PREDICT_FALSE(!s.ok())) {

@@ -101,6 +101,10 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return 0;
 }
 
+bool SegmentWriter::reach_capacity() {
+    return _row_count >= MAX_ROW_COUNT;
+}
+
 Status SegmentWriter::finalize(uint32_t* segment_file_size) {
     for (auto column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
