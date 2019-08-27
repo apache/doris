@@ -444,14 +444,6 @@ void PlanFragmentExecutor::send_report(bool done) {
         return;
     }
 
-    // If this is a load plan, and it is not finished, and it still running ok,
-    // no need to report it.
-    // This is case for the case that the load plan's _is_report_success is always true,
-    // but we only need the last report when plan is done.
-    if (_runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
-        return;
-    }
-
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.

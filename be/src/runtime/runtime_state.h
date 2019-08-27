@@ -432,6 +432,10 @@ public:
         _num_rows_load_total.fetch_add(num_rows);
     }
 
+    void set_num_rows_load_total(int64_t num_rows) {
+        _num_rows_load_total.store(num_rows);
+    }
+
     void update_num_rows_load_filtered(int64_t num_rows) {
         _num_rows_load_filtered.fetch_add(num_rows);
     }

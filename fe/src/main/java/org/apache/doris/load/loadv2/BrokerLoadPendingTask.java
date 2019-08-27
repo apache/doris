@@ -90,6 +90,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                 groupNum++;
             }
 
+            ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
                     totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());

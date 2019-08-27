@@ -263,48 +263,57 @@ void FragmentExecState::coordinator_callback(
     params.__set_fragment_instance_id(_fragment_instance_id);
     exec_status.set_t_status(&params);
     params.__set_done(done);
-    profile->to_thrift(&params.profile);
-    params.__isset.profile = true;
 
     RuntimeState* runtime_state = _executor.runtime_state();
-    if (!runtime_state->output_files().empty()) {
-        params.__isset.delta_urls = true;
-        for (auto& it : runtime_state->output_files()) {
-            params.delta_urls.push_back(to_http_path(it));
-        }
-    }
-    if (runtime_state->num_rows_load_total() > 0 ||
-            runtime_state->num_rows_load_filtered() > 0) {
-        params.__isset.load_counters = true;
-        // TODO(zc)
-        static std::string s_dpp_normal_all = "dpp.norm.ALL";
-        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-
-        params.load_counters.emplace(
-            s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
-        params.load_counters.emplace(
-            s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
-    }
-    if (!runtime_state->get_error_log_file_path().empty()) {
-        params.__set_tracking_url(
-                to_load_error_http_path(runtime_state->get_error_log_file_path()));
-    }
-    if (!runtime_state->export_output_files().empty()) {
-        params.__isset.export_files = true;
-        params.export_files = runtime_state->export_output_files();
-    }
-    if (!runtime_state->tablet_commit_infos().empty()) {
-        params.__isset.commitInfos = true;
-        params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
-        for (auto& info : runtime_state->tablet_commit_infos()) {
-            params.commitInfos.push_back(info);
-        }
-    }
     DCHECK(runtime_state != NULL);
-
-    // Send new errors to coordinator
-    runtime_state->get_unreported_errors(&(params.error_log));
-    params.__isset.error_log = (params.error_log.size() > 0);
+    if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
+        // this is a load plan, and load is not finished, just make a brief report
+        params.__set_loaded_rows(runtime_state->num_rows_load_total());
+    } else {
+        if (runtime_state->query_options().query_type == TQueryType::LOAD) {
+            params.__set_loaded_rows(runtime_state->num_rows_load_total());
+        }
+        profile->to_thrift(&params.profile);
+        params.__isset.profile = true;
+    
+        if (!runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : runtime_state->output_files()) {
+                params.delta_urls.push_back(to_http_path(it));
+            }
+        }
+        if (runtime_state->num_rows_load_total() > 0 ||
+                runtime_state->num_rows_load_filtered() > 0) {
+            params.__isset.load_counters = true;
+            // TODO(zc)
+            static std::string s_dpp_normal_all = "dpp.norm.ALL";
+            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+    
+            params.load_counters.emplace(
+                s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
+            params.load_counters.emplace(
+                s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
+        }
+        if (!runtime_state->get_error_log_file_path().empty()) {
+            params.__set_tracking_url(
+                    to_load_error_http_path(runtime_state->get_error_log_file_path()));
+        }
+        if (!runtime_state->export_output_files().empty()) {
+            params.__isset.export_files = true;
+            params.export_files = runtime_state->export_output_files();
+        }
+        if (!runtime_state->tablet_commit_infos().empty()) {
+            params.__isset.commitInfos = true;
+            params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
+            for (auto& info : runtime_state->tablet_commit_infos()) {
+                params.commitInfos.push_back(info);
+            }
+        }
+    
+        // Send new errors to coordinator
+        runtime_state->get_unreported_errors(&(params.error_log));
+        params.__isset.error_log = (params.error_log.size() > 0);
+    }
 
     TReportExecStatusResult res;
     Status rpc_status;
