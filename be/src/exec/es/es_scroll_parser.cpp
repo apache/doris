@@ -149,7 +149,7 @@ Status ScrollParser::parse(const std::string& scroll_result) {
     VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
-        LOG(WARNING) << "errors while parse scroll reponse:" << scroll_result;
+        LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
         return Status::InternalError("inner hits node is not an array");
     }
 
