@@ -34,12 +34,10 @@ using strings::Substitute;
 
 Segment::Segment(
         std::string fname, uint32_t segment_id,
-        const std::shared_ptr<TabletSchema>& tablet_schema,
-        size_t num_rows_per_block)
+        const TabletSchema* tablet_schema)
         : _fname(std::move(fname)),
         _segment_id(segment_id),
-        _tablet_schema(tablet_schema),
-        _num_rows_per_block(num_rows_per_block) {
+        _tablet_schema(tablet_schema) {
 }
 
 Segment::~Segment() {
@@ -71,9 +69,10 @@ Status Segment::open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(const Schema& schema, std::unique_ptr<SegmentIterator>* output) {
-    output->reset(new SegmentIterator(this->shared_from_this(), schema));
-    return Status::OK();
+std::unique_ptr<SegmentIterator> Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options) {
+    auto it = std::unique_ptr<SegmentIterator>(new SegmentIterator(this->shared_from_this(), schema));
+    it->init(read_options);
+    return it;
 }
 
 // Read data at offset of input file, check if the file content match the magic
