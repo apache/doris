@@ -49,14 +49,14 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
         ASSERT_TRUE(rowset_id.hi == 0);
         ASSERT_STREQ("123", rowset_id.to_string().c_str());
     }
-    /**
+    
     {
         RowsetId rowset_id;
-        rowset_id.init("024a07c4e21cec017ea9b7e88bf6768a0000000000000019");
+        rowset_id.init("c04f58d989cab2f2efd45faa204491890200000000000003");
         ASSERT_TRUE(rowset_id.version == 2);
-        ASSERT_TRUE(rowset_id.lo == 19);
-        ASSERT_STREQ("024a07c4e21cec017ea9b7e88bf6768a0000000000000019", rowset_id.to_string().c_str());
-    }*/
+        ASSERT_TRUE(rowset_id.lo == (3 + max_id));
+        ASSERT_STREQ("c04f58d989cab2f2efd45faa204491890200000000000003", rowset_id.to_string().c_str());
+    }
 }
 
 

@@ -201,6 +201,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_m
 
 OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta, 
         const RowsetId& rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
+    rowset_meta_pb->set_rowset_id(0);
     rowset_meta_pb->set_rowset_id_v2(rowset_id.to_string());
     rowset_meta_pb->set_tablet_id(tablet_id);
     rowset_meta_pb->set_tablet_schema_hash(schema_hash);
@@ -248,6 +249,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
 
 OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pending_delta, 
         const RowsetId& rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
+    rowset_meta_pb->set_rowset_id(0);
     rowset_meta_pb->set_rowset_id_v2(rowset_id.to_string());
     rowset_meta_pb->set_tablet_id(tablet_id);
     rowset_meta_pb->set_tablet_schema_hash(schema_hash);
