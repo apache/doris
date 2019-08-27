@@ -162,9 +162,6 @@ private:
     
     bool _null_supported;
 
-    size_t _field_count = 0;
-    bool _need_checksum = true;
-
     // Data in memory is construct from row cursors, these row cursors's size is equal
     char* _mem_buf = nullptr;
     // equal with _mem_row_bytes * _info.row_num
