@@ -36,7 +36,11 @@
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
+#define LOW_56_BITS 0x00ffffffffffffff
+
 namespace doris {
+
+static const int64_t MAX_ROWSET_ID = 1L << 56;
 
 typedef int32_t SchemaHash;
 typedef int64_t VersionHash;
@@ -255,16 +259,16 @@ struct RowsetId {
         // for new rowsetid its a 48 hex string
         // if the len < 48, then it is an old format rowset id
         if (rowset_id_str.length() < 48) {
-            hi = 1;
-            hi = hi << 56;
-            mi = 0;
-            lo = std::stol(rowset_id_str, nullptr, 10);
-            version = 1;
+            int64_t low = std::stol(rowset_id_str, nullptr, 10);
+            init(1, 0, 0, low);
         } else {
-            from_hex(&hi, rowset_id_str.substr(0, 16));
-            from_hex(&mi, rowset_id_str.substr(16, 16));
-            from_hex(&lo, rowset_id_str.substr(32, 16));
-            version = hi >> 56;
+            int64_t high = 0;
+            int64_t middle = 0;
+            int64_t low = 0;
+            from_hex(&high, rowset_id_str.substr(0, 16));
+            from_hex(&middle, rowset_id_str.substr(16, 16));
+            from_hex(&low, rowset_id_str.substr(32, 16));
+            init(low >> 56, high, middle, low & LOW_56_BITS);
         }
     }
 
@@ -275,14 +279,17 @@ struct RowsetId {
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
-        hi = (id_version << 56) + (high & 0x00ffffffffffffff);
+        if (low >= MAX_ROWSET_ID) {
+            LOG(FATAL) << "low is too large" << low;
+        }
+        hi = high;
         mi = middle;
-        lo = low;
+        lo = (id_version << 56) + (low & LOW_56_BITS);
     }
 
     std::string to_string() const {
         if (version < 2) {
-            return std::to_string(lo);
+            return std::to_string(lo & LOW_56_BITS);
         } else {
             char buf[48];
             to_hex(hi, buf);

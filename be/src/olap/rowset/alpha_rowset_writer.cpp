@@ -148,6 +148,11 @@ OLAPStatus AlphaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
+    if (_current_rowset_meta->rowset_id().version == 0) {
+        LOG(WARNING) << "invalid rowset id, version == 0, rowset id=" 
+                     << _current_rowset_meta->rowset_id().to_string();
+        return nullptr;
+    }
     if (_writer_state != WRITER_FLUSHED) {
         LOG(WARNING) << "invalid writer state before build, state:" << _writer_state;
         return nullptr;
