@@ -47,9 +47,13 @@ TEST_F(OrdinalPageIndexTest, normal) {
     auto slice = builder.finish();
     LOG(INFO) << "index block's size=" << slice.size;
 
-    OrdinalPageIndex index(slice);
+    OrdinalPageIndex index(slice, 16 * 1024 * 4096 + 1);
     auto st = index.load();
     ASSERT_TRUE(st.ok());
+    ASSERT_EQ(1, index.get_first_row_id(0));
+    ASSERT_EQ(4096, index.get_last_row_id(0));
+    ASSERT_EQ((16 * 1024 - 1) * 4096 + 1, index.get_first_row_id(16 * 1024 - 1));
+    ASSERT_EQ(16 * 1024 * 4096, index.get_last_row_id(16 * 1024 - 1));
 
     PagePointer page;
     {
@@ -90,7 +94,7 @@ TEST_F(OrdinalPageIndexTest, corrupt) {
     encode_fixed32_le((uint8_t*)str.data(), 1);
 
     Slice slice(str);
-    OrdinalPageIndex index(slice);
+    OrdinalPageIndex index(slice, 10);
     auto st = index.load();
     ASSERT_FALSE(st.ok());
 }

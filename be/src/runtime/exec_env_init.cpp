@@ -26,7 +26,9 @@
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
+#include "runtime/external_scan_context_mgr.h"
 #include "runtime/result_buffer_mgr.h"
+#include "runtime/result_queue_mgr.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
@@ -39,6 +41,7 @@
 #include "util/mem_info.h"
 #include "util/debug_util.h"
 #include "olap/storage_engine.h"
+#include "olap/page_cache.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
@@ -68,10 +71,11 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _store_paths = store_paths;
-    
+    _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _metrics = DorisMetrics::metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
+    _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
@@ -123,6 +127,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
     RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
+
     return Status::OK();
 }
 
@@ -178,6 +183,18 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::metrics()));
+
+    int64_t storage_cache_limit = ParseUtil::parse_mem_spec(
+        config::storage_page_cache_limit, &is_percent);
+    if (storage_cache_limit > MemInfo::physical_mem()) {
+        LOG(WARNING) << "Config storage_page_cache_limit is greater than memory size, config="
+            << config::storage_page_cache_limit
+            << ", memory=" << MemInfo::physical_mem();
+    }
+    StoragePageCache::create_global_cache(storage_cache_limit);
+
+    // TODO(zc): The current memory usage configuration is a bit confusing,
+    // we need to sort out the use of memory
     return Status::OK();
 }
 
@@ -214,10 +231,11 @@ void ExecEnv::_destory() {
     delete _frontend_client_cache;
     delete _backend_client_cache;
     delete _result_mgr;
+    delete _result_queue_mgr;
     delete _stream_mgr;
     delete _stream_load_executor;
     delete _routine_load_task_executor;
-
+    delete _external_scan_context_mgr;
     _metrics = nullptr;
 }
 

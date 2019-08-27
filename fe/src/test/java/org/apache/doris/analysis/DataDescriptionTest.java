@@ -31,6 +31,9 @@ import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
 import mockit.internal.startup.Startup;
 
@@ -54,20 +57,22 @@ public class DataDescriptionTest {
     @Test
     public void testNormal() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                null, null, false, null);
+                                                   null, null, null, false, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable", desc.toString());
 
-        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"), null, null, true, null);
+        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"), null, null, null,
+                                                  true, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
-        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"), null, null, true, null);
+        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"), null,
+                                                  null, null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), null, true, null);
+                                                  Lists.newArrayList("col1", "col2"), null, null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
@@ -77,7 +82,8 @@ public class DataDescriptionTest {
         Assert.assertNull(desc.getColumnSeparator());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator("\t"), true, null);
+                                                  Lists.newArrayList("col1", "col2"), new ColumnSeparator("\t"),
+                                                  null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\t' (col1, col2)",
@@ -85,15 +91,17 @@ public class DataDescriptionTest {
 
         // hive \x01 column separator
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator("\\x01"), true, null);
+                                                  Lists.newArrayList("col1", "col2"), new ColumnSeparator("\\x01"),
+                                                  null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\\x01' (col1, col2)",
                 desc.toString());
 
         // with partition
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
-                null, null, false, null);
+        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+                                                  Lists.newArrayList("abc.txt"),
+                                                  null, null, null, false, null);
         desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2)", desc.toString());
         
@@ -103,8 +111,10 @@ public class DataDescriptionTest {
         params.add(new SlotRef(null, "k2"));
         BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), 
                 new FunctionCallExpr("alignment_timestamp", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
+        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+                                                  Lists.newArrayList("abc.txt"),
+                                                  Lists.newArrayList("k2", "k3"), null, null, false, Lists
+                                                          .newArrayList((Expr) predicate));
         desc.analyze("testDb");
         String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)" 
                 + " SET (`k1` = alignment_timestamp('day', `k2`))";
@@ -116,8 +126,10 @@ public class DataDescriptionTest {
         params.add(new StringLiteral("10"));
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
+        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+                                                  Lists.newArrayList("abc.txt"),
+                                                  Lists.newArrayList("k2", "k3"), null, null,
+                                                  false, Lists.newArrayList((Expr) predicate));
         desc.analyze("testDb");
         sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('-', '10'))";
@@ -129,8 +141,10 @@ public class DataDescriptionTest {
         params.add(new NullLiteral());
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
+        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+                                                  Lists.newArrayList("abc.txt"),
+                                                  Lists.newArrayList("k2", "k3"), null, null, false, Lists
+                                                          .newArrayList((Expr) predicate));
         desc.analyze("testDb");
         sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
@@ -140,20 +154,84 @@ public class DataDescriptionTest {
     @Test(expected = AnalysisException.class)
     public void testNoTable() throws AnalysisException {
         DataDescription desc = new DataDescription("", null, Lists.newArrayList("abc.txt"),
-                null, null, false, null);
+                                                                  null, null, null, false, null);
         desc.analyze("testDb");
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoFile() throws AnalysisException {
-        DataDescription desc = new DataDescription("testTable", null, null, null, null, false, null);
+        DataDescription desc = new DataDescription("testTable", null, null, null, null, null, false, null);
         desc.analyze("testDb");
     }
 
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col1"), null, false, null);
+                                                                  Lists.newArrayList("col1", "col1"), null, null, false, null);
         desc.analyze("testDb");
+    }
+
+    @Test
+    public void testAnalyzeColumnsWithDuplicatedColumn(@Injectable SlotRef column1,
+                                                       @Injectable SlotRef column2) {
+        List<String> columns = Lists.newArrayList();
+        String duplicatedColumnName = "id";
+        columns.add(duplicatedColumnName);
+        columns.add(duplicatedColumnName);
+
+        DataDescription dataDescription = new DataDescription(null, null, null, columns, null, null, false, null);
+        try {
+            Deencapsulation.invoke(dataDescription, "analyzeColumns");
+            Assert.fail();
+        } catch (Exception e) {
+            if (!(e instanceof AnalysisException)) {
+                Assert.fail();
+            }
+        }
+    }
+
+    @Test
+    public void testAnalyzeColumnsWithDuplicatedColumnMapping(@Injectable BinaryPredicate columnMapping1,
+                                                              @Injectable BinaryPredicate columnMapping2,
+                                                              @Injectable SlotRef column1,
+                                                              @Injectable SlotRef column2,
+                                                              @Injectable FunctionCallExpr expr1,
+                                                              @Injectable FunctionCallExpr expr2,
+                                                              @Injectable FunctionName functionName) {
+        List<String> columns = Lists.newArrayList();
+        columns.add("tmp_col1");
+        columns.add("tmp_col2");
+        List<Expr> columnMappingList = Lists.newArrayList();
+        columnMappingList.add(columnMapping1);
+        columnMappingList.add(columnMapping2);
+        String duplicatedColumnName = "id";
+        new Expectations() {
+            {
+                columnMapping1.getChild(0);
+                result = column1;
+                columnMapping2.getChild(0);
+                result = column2;
+                columnMapping1.getChild(1);
+                result = expr1;
+                expr1.getFnName();
+                result = functionName;
+                functionName.getFunction();
+                result = "test";
+                column1.getColumnName();
+                result = duplicatedColumnName;
+                column2.getColumnName();
+                result = duplicatedColumnName;
+            }
+        };
+        DataDescription dataDescription = new DataDescription(null, null, null, columns, null, null, false,
+                                                              columnMappingList);
+        try {
+            Deencapsulation.invoke(dataDescription, "analyzeColumns");
+            Assert.fail();
+        } catch (Exception e) {
+            if (!(e instanceof AnalysisException)) {
+                Assert.fail();
+            }
+        }
     }
 }

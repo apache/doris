@@ -113,7 +113,46 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
     其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
     ```
+
++ strict\_mode
+
+    Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为开启。
+
+    strict mode 模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
+
+    1. 对于列类型转换来说，如果 strict mode 为true，则错误的数据将被 filter。这里的错误数据是指：原始数据并不为空值，在参与列类型转换后结果为空值的这一类数据。
+
+    2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
     
+    3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
+
+#### strict mode 与 source data 的导入关系
+
+这里以列类型为 TinyInt 来举例
+
+>注：当表中的列允许导入空值时
+
+|source data | source data example | string to int   | strict_mode        | result|
+|------------|---------------------|-----------------|--------------------|---------|
+|空值        | \N                  | N/A             | true or false      | NULL|
+|not null    | aaa or 2000         | NULL            | true               | invalid data(filtered)|
+|not null    | aaa                 | NULL            | false              | NULL|
+|not null    | 1                   | 1               | true or false      | correct data|
+
+这里以列类型为 Decimal(1,0) 举例
+ 
+>注：当表中的列允许导入空值时
+
+|source data | source data example | string to int   | strict_mode        | result|
+|------------|---------------------|-----------------|--------------------|--------|
+|空值        | \N                  | N/A             | true or false      | NULL|
+|not null    | aaa                 | NULL            | true               | invalid data(filtered)|
+|not null    | aaa                 | NULL            | false              | NULL|
+|not null    | 1 or 10             | 1               | true or false      | correct data|
+
+> 注意：10 虽然是一个超过范围的值，但是因为其类型符合 decimal的要求，所以 strict mode对其不产生影响。10 最后会在其他 ETL 处理流程中被过滤。但不会被 strict mode 过滤。
+    
+
 ### 返回结果
 
 由于 Stream load 是一种同步的导入方式，所以导入的结果会通过创建导入的返回值直接返回给用户。
@@ -182,7 +221,9 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
     导入任务的超时时间(以秒为单位)，导入任务在设定的 timeout 时间内未完成则会被系统取消，变成 CANCELLED。
     
-    目前 Stream load 并不支持自定义导入的 timeout 时间，所有 Stream load 导入的超时时间是统一的，默认的 timeout 时间为300秒。如果导入的源文件无法再规定时间内完成导入，则需要调整 FE 的参数```stream_load_default_timeout_second```。
+    默认的 timeout 时间为 600 秒。如果导入的源文件无法再规定时间内完成导入，用户可以在 stream load 请求中设置单独的超时时间。
+
+    或者调整 FE 的参数```stream_load_default_timeout_second``` 来设置全局的默认超时时间。
 
 ### BE 配置
 

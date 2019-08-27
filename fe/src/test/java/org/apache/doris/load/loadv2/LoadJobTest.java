@@ -24,11 +24,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.Load;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -104,7 +104,8 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString, (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                globalTransactionMgr.beginTransaction(anyLong, anyString, (TUniqueId) any, anyString,
+                        (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
                 result = 1;
             }
         };

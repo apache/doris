@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "olap/aggregate_func.h"
+#include "olap/field.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/field.h"
@@ -27,6 +28,7 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
+
 
 class RowBlockRow;
 
@@ -40,35 +42,53 @@ class RowBlockRow;
 class Schema {
 public:
     Schema(const TabletSchema& schema) {
-        std::vector<Field> cols;
         size_t num_key_columns = 0;
-        for (int i = 0; i < schema.num_columns(); ++i) {
-            const TabletColumn& column = schema.column(i);
-            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
+        std::vector<ColumnId> col_ids(schema.num_columns());
+        std::vector<TabletColumn> columns(schema.num_columns());
+
+        for (uint32_t cid = 0; cid < schema.num_columns(); ++cid) {
+            col_ids[cid] = cid;
+            const TabletColumn& column = schema.column(cid);
+            columns[cid] = column;
             if (column.is_key()) {
                 num_key_columns++;
             }
         }
 
-        reset(cols, num_key_columns);
+        init_field(columns, col_ids);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
-        std::vector<Field> cols;
         size_t num_key_columns = 0;
-        for (int i = 0; i < columns.size(); ++i) {
-            const TabletColumn& column = columns[i];
-            cols.emplace_back(column.aggregation(), column.type(), column.index_length(), column.is_nullable());
-            if (column.is_key()) {
+        for (const auto& i: columns) {
+            if (i.is_key()) {
                 num_key_columns++;
             }
         }
 
-        reset(cols, col_ids, num_key_columns);
+        init_field(columns, col_ids);
+        init(col_ids, num_key_columns);
     }
 
-    Schema(const std::vector<Field>& cols, size_t num_key_columns) {
-        reset(cols, num_key_columns);
+    Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
+        std::vector<ColumnId> col_ids(columns.size());
+        for (uint32_t cid = 0; cid < columns.size(); ++cid) {
+            col_ids[cid] = cid;
+        }
+
+        init_field(columns, col_ids);
+        init(col_ids, num_key_columns);
+    }
+
+    Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
+        std::vector<ColumnId> col_ids(cols.size());
+        for (uint32_t cid = 0; cid < cols.size(); ++cid) {
+            col_ids[cid] = cid;
+        }
+
+        init_field(cols, col_ids);
+        init(col_ids, num_key_columns);
     }
 
     Schema(const Schema&);
@@ -78,16 +98,12 @@ public:
 
     ~Schema();
 
-    void reset(const std::vector<Field>& cols, size_t num_key_columns);
-
-    void reset(const std::vector<Field>& cols,
-               const std::vector<ColumnId>& col_ids,
-               size_t num_key_columns);
-
     const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(int idx) const { return _cols[idx]; }
 
-    size_t num_key_columns() const { return _num_key_columns; }
+    size_t num_key_columns() const {
+        return _num_key_columns;
+    }
 
     size_t column_offset(ColumnId cid) const {
         return _col_offsets[cid];
@@ -110,11 +126,7 @@ public:
     }
 
     size_t schema_size() const {
-        size_t size = _col_ids.size();
-        for (auto cid : _col_ids) {
-            size += _cols[cid]->size();
-        }
-        return size;
+        return _schema_size;
     }
 
     size_t num_columns() const { return _cols.size(); }
@@ -125,6 +137,19 @@ private:
     std::vector<ColumnId> _col_ids;
     std::vector<size_t> _col_offsets;
     size_t _num_key_columns;
+    size_t _schema_size;
+
+    // init _cols member variable, must call before init method
+    void init_field(const std::vector<TabletColumn>& columns,
+                     const std::vector<ColumnId>& col_ids);
+
+    // init _cols member variable, must call before init method
+    void init_field(const std::vector<const Field*>& cols,
+                     const std::vector<ColumnId>& col_ids);
+
+    // init all member variables except _cols
+    void init(const std::vector<ColumnId>& col_ids,
+               size_t num_key_columns);
 };
 
 } // namespace doris

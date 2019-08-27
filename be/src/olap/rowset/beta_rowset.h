@@ -18,6 +18,7 @@
 #ifndef DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -37,6 +38,8 @@ public:
 
     virtual ~BetaRowset() {}
 
+    static std::string segment_file_path(const std::string& segment_dir, RowsetId rowset_id, int segment_id);
+
     OLAPStatus init() override;
 
     OLAPStatus load(bool use_cache = true) override;
@@ -45,11 +48,9 @@ public:
 
     OLAPStatus remove() override;
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links) override;
+    OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
 
-    OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                  std::vector<std::string>* success_files) override;
+    OLAPStatus copy_files_to(const std::string& dir) override;
 
     // only applicable to alpha rowset, no op here
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override {
@@ -59,8 +60,6 @@ public:
     bool check_path(const std::string& path) override;
 
 private:
-    std::string _segment_file_path(const std::string& segment_dir, int segment_id);
-
     // TODO segment readers member
 };
 

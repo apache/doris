@@ -48,12 +48,16 @@ public:
         return _cmp(left, right);
     }
 
+    inline void shallow_copy(void* dest, const void* src) const {
+        _shallow_copy(dest, src);
+    }
+
     inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
         _deep_copy(dest, src, mem_pool);
     }
 
-    inline void copy_with_arena(void* dest, const void* src, Arena* arena) const {
-        _copy_with_arena(dest, src, arena);
+    inline void deep_copy_with_arena(void* dest, const void* src, Arena* arena) const {
+        _deep_copy_with_arena(dest, src, arena);
     }
 
     inline void direct_copy(void* dest, const void* src) const {
@@ -77,8 +81,9 @@ private:
     bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
 
+    void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
-    void (*_copy_with_arena)(void* dest, const void* src, Arena* arena);
+    void (*_deep_copy_with_arena)(void* dest, const void* src, Arena* arena);
     void (*_direct_copy)(void* dest, const void* src);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
@@ -180,11 +185,15 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
+    static inline void shallow_copy(void* dest, const void* src) {
+        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+    }
+
     static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void copy_with_arena(void* dest, const void* src, Arena* arena) {
+    static inline void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
@@ -325,12 +334,16 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
 
         return std::string(buf);
     }
+
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
+    static void shallow_copy(void* dest, const void* src) {
+        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
+    }
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
-    static void copy_with_arena(void* dest, const void* src, Arena* arena) {
+    static void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -485,13 +498,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_CHAR> {
     static bool equal(const void* left, const void* right) {
-        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
-        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
+        auto l_slice = reinterpret_cast<const Slice*>(left);
+        auto r_slice = reinterpret_cast<const Slice*>(right);
         return *l_slice == *r_slice;
     }
     static int cmp(const void* left, const void* right) {
-        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
-        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
+        auto l_slice = reinterpret_cast<const Slice*>(left);
+        auto r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
@@ -502,7 +515,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         if (slice->size < value_len) {
             /*
@@ -515,41 +528,41 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         return OLAP_SUCCESS;
     }
     static std::string to_string(const void* src) {
-        const Slice* slice = reinterpret_cast<const Slice*>(src);
+        auto slice = reinterpret_cast<const Slice*>(src);
         return slice->to_string();
     }
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
-        Slice* l_slice = reinterpret_cast<Slice*>(dest);
-        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
+        auto l_slice = reinterpret_cast<Slice*>(dest);
+        auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void copy_with_arena(void* dest, const void* src, Arena* arena) {
-        Slice* l_slice = reinterpret_cast<Slice*>(dest);
-        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
+    static void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
+        auto l_slice = reinterpret_cast<Slice*>(dest);
+        auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(arena->Allocate(r_slice->size));
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void direct_copy(void* dest, const void* src) {
-        Slice* l_slice = reinterpret_cast<Slice*>(dest);
-        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
+        auto l_slice = reinterpret_cast<Slice*>(dest);
+        auto r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void set_to_max(void* buf) {
         // this function is used by scan key,
         // the size may be greater than length in schema.
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0xff, slice->size);
     }
     static void set_to_min(void* buf) {
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
     }
     static uint32_t hash_code(const void* data, uint32_t seed) {
-        const Slice* slice = reinterpret_cast<const Slice*>(data);
+        auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
     }
 };
@@ -564,18 +577,18 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return OLAP_SUCCESS;
     }
     static void set_to_max(void* buf) {
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 1;
         memset(slice->data, 0xFF, 1);
     }
     static void set_to_min(void* buf) {
-        Slice* slice = reinterpret_cast<Slice*>(buf);
+        auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
     }
 };

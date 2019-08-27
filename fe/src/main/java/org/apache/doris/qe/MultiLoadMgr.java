@@ -382,7 +382,7 @@ public class MultiLoadMgr {
             }
 
             DataDescription dataDescription = new DataDescription(
-                    tbl, null, files, columns, columnSeparator, false, null);
+                    tbl, null, files, columns, columnSeparator, null, false, null);
 
             dataDescription.setBeAddr(address);
             return dataDescription;

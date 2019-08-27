@@ -30,6 +30,7 @@ add_library(Olap STATIC
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
     byte_buffer.cpp
+    compaction.cpp
     comparison_predicate.cpp
     compress.cpp
     cumulative_compaction.cpp
@@ -53,6 +54,7 @@ add_library(Olap STATIC
     olap_server.cpp
     options.cpp
     out_stream.cpp
+    page_cache.cpp
     push_handler.cpp
     reader.cpp
     row_block.cpp
@@ -75,6 +77,7 @@ add_library(Olap STATIC
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
+    tablet_sync_service.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp
@@ -85,10 +88,12 @@ add_library(Olap STATIC
     rowset/segment_v2/column_writer.cpp
     rowset/segment_v2/encoding_info.cpp
     rowset/segment_v2/ordinal_page_index.cpp
+    rowset/segment_v2/page_compression.cpp
     rowset/segment_v2/binary_dict_page.cpp
     rowset/segment_v2/segment.cpp
     rowset/segment_v2/segment_iterator.cpp
     rowset/segment_v2/segment_writer.cpp
+    rowset/segment_v2/column_zone_map.cpp
     rowset_factory.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp

@@ -16,5 +16,8 @@ mysql> select current_timestamp();
 +---------------------+
 | 2019-05-27 15:59:33 |
 +---------------------+
-##keyword
-CURRENT_TIMESTAMP,CURRENT,TIMESTAMP
+```
+
+## keyword
+
+    CURRENT_TIMESTAMP,CURRENT,TIMESTAMP

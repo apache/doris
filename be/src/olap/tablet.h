@@ -46,9 +46,6 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
-    static TabletSharedPtr create_tablet_from_meta_file(
-            const std::string& header_file,
-            DataDir* data_dir = nullptr);
     static TabletSharedPtr create_tablet_from_meta(
             TabletMetaSharedPtr tablet_meta,
             DataDir* data_dir  = nullptr);
@@ -165,14 +162,14 @@ public:
     inline Mutex* get_push_lock() { return &_ingest_lock; }
 
     // base lock
-    inline bool try_base_compaction_lock() { return _base_lock.trylock() == OLAP_SUCCESS; }
     inline void obtain_base_compaction_lock() { _base_lock.lock(); }
     inline void release_base_compaction_lock() { _base_lock.unlock(); }
+    inline Mutex* get_base_lock() { return &_base_lock; }
 
     // cumulative lock
-    inline bool try_cumulative_lock() { return (OLAP_SUCCESS == _cumulative_lock.trylock()); }
     inline void obtain_cumulative_lock() { _cumulative_lock.lock(); }
     inline void release_cumulative_lock() { _cumulative_lock.unlock(); }
+    inline Mutex* get_cumulative_lock() { return &_cumulative_lock; }
 
     inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
 
@@ -182,6 +179,8 @@ public:
     const uint32_t calc_base_compaction_score() const;
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
+    void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
+                                           VersionHash* version_hash) const;
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
@@ -232,6 +231,18 @@ public:
 
     TabletInfo get_tablet_info();
 
+    void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+
+    OLAPStatus calculate_cumulative_point();
+    // TODO(ygl): 
+    inline bool is_primary_replica() { return false; }
+
+    // TODO(ygl):
+    // eco mode means power saving in new energy car
+    // eco mode also means save money in palo
+    inline bool in_eco_mode() { return false; }
+
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
@@ -257,6 +268,7 @@ private:
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 
+    std::atomic<int64_t> _cumulative_point;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
@@ -315,11 +327,11 @@ inline void Tablet::set_creation_time(int64_t creation_time) {
 }
 
 inline const int64_t Tablet::cumulative_layer_point() const {
-    return _tablet_meta->cumulative_layer_point();
+    return _cumulative_point;
 }
 
 void inline Tablet::set_cumulative_layer_point(const int64_t new_point) {
-    return _tablet_meta->set_cumulative_layer_point(new_point);
+    _cumulative_point = new_point;
 }
 
 inline bool Tablet::equal(int64_t tablet_id, int32_t schema_hash) {

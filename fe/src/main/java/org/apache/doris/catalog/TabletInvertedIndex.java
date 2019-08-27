@@ -349,11 +349,17 @@ public class TabletInvertedIndex {
         }
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
+        
         if (backendTabletInfo.getVersion() > versionInFe
-                || (versionInFe == backendTabletInfo.getVersion()
-                        && versionHashInFe != backendTabletInfo.getVersion_hash())) {
+                || (versionInFe == backendTabletInfo.getVersion() && versionHashInFe != backendTabletInfo.getVersion_hash())) {
+            // backend replica's version is larger or newer than replica in FE, sync it.
+            return true;
+        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersion_hash()
+                && replicaInFe.isBad()) {
+            // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
         }
+        
         return false;
     }
     
@@ -398,12 +404,10 @@ public class TabletInvertedIndex {
             return false;
         }
 
-        if (backendTabletInfo.getVersion() < replicaInFe.getVersion()
-                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+        if (backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
             // even if backend version is less than fe's version, but if version_miss is false,
             // which means this may be a stale report.
             // so we only return true if version_miss is true.
-            LOG.info("replicaversion missing");
             return true;
         }
         return false;

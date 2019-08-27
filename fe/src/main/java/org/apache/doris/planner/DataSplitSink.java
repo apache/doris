@@ -362,7 +362,7 @@ public class DataSplitSink extends DataSink {
         }
 
         public static List<EtlRangePartitionInfo> createParts(
-                OlapTable tbl, Map<String, Expr> exprByCol, Set<String> targetPartitions,
+                OlapTable tbl, Map<String, Expr> exprByCol, Set<Long> targetPartitionIds,
                 List<Expr> partitionExprs) throws AnalysisException {
             List<EtlRangePartitionInfo> parts = Lists.newArrayList();
             PartitionInfo partInfo = tbl.getPartitionInfo();
@@ -372,7 +372,7 @@ public class DataSplitSink extends DataSink {
                     partitionExprs.add(exprByCol.get(col.getName()));
                 }
                 for (Partition part : tbl.getPartitions()) {
-                    if (targetPartitions != null && !targetPartitions.contains(part.getName())) {
+                    if (targetPartitionIds != null && !targetPartitionIds.contains(part.getId())) {
                         continue;
                     }
                     DistributionInfo distInfo = part.getDistributionInfo();

@@ -55,6 +55,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
+import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
@@ -1230,6 +1231,10 @@ public class RestoreJob extends AbstractJob {
         if (!isReplay) {
             restoredPartitions.clear();
             restoredTbls.clear();
+
+            // release snapshot before clearing snapshotInfos
+            releaseSnapshots();
+
             snapshotInfos.clear();
 
             finishedTime = System.currentTimeMillis();
@@ -1240,6 +1245,22 @@ public class RestoreJob extends AbstractJob {
         
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
+    }
+
+    private void releaseSnapshots() {
+        if (snapshotInfos.isEmpty()) {
+            return;
+        }
+        // we do not care about the release snapshot tasks' success or failure,
+        // the GC thread on BE will sweep the snapshot, finally.
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
+                    info.getTabletId(), info.getPath());
+            batchTask.addTask(releaseTask);
+        }
+        AgentTaskExecutor.submit(batchTask);
+        LOG.info("send {} release snapshot tasks, job: {}", snapshotInfos.size(), this);
     }
 
     private void replayWaitingAllTabletsCommitted() {
@@ -1371,6 +1392,9 @@ public class RestoreJob extends AbstractJob {
             // backupMeta is useless
             backupMeta = null;
 
+            releaseSnapshots();
+
+            snapshotInfos.clear();
             RestoreJobState curState = state;
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.CANCELLED;

@@ -23,11 +23,15 @@
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
 #include "olap/column_block.h" // for ColumnBlockView
+#include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
+#include "util/block_compression.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -68,9 +72,11 @@ struct ParsedPage {
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
                            const ColumnMetaPB& meta,
+                           uint64_t num_rows,
                            RandomAccessFile* file)
         : _opts(opts),
         _meta(meta),
+        _num_rows(num_rows),
         _file(file) {
 }
 
@@ -84,8 +90,12 @@ Status ColumnReader::init() {
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
 
-    // TODO(zc): do with compress type
+    // Get compress codec
+    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
+
     RETURN_IF_ERROR(_init_ordinal_index());
+
+    RETURN_IF_ERROR(_init_column_zone_map());
 
     return Status::OK();
 }
@@ -96,32 +106,101 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 }
 
 Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
+    auto cache = StoragePageCache::instance();
+    PageCacheHandle cache_handle;
+    StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
+    if (cache->lookup(cache_key, &cache_handle)) {
+        // we find page in cache, use it
+        *handle = PageHandle(std::move(cache_handle));
+        return Status::OK();
+    }
     // Now we read this from file. we 
-    size_t data_size = pp.size;
-    if (has_checksum() && data_size < sizeof(uint32_t)) {
-        return Status::Corruption("Bad page, page size is too small");
-    }
-    if (has_checksum()) {
-        data_size -= sizeof(uint32_t);
-    }
-    uint8_t* buf = new uint8_t[data_size];
-    Slice data(buf, data_size);
-
-    uint8_t checksum_buf[sizeof(uint32_t)];
-    Slice slices[2] = { data, Slice(checksum_buf, 4) };
-
-    bool verify_checksum = has_checksum() && _opts.verify_checksum;
-    RETURN_IF_ERROR(_file->readv_at(pp.offset, slices, verify_checksum ? 2 : 1));
-
-    if (verify_checksum) {
-        // TODO(zc): verify checksum
+    size_t page_size = pp.size;
+    if (page_size < sizeof(uint32_t)) {
+        return Status::Corruption(Substitute("Bad page, page size is too small, size=$0", page_size));
     }
 
-    // TODO(zc): compress
-    
-    *handle = PageHandle::create_from_slice(data);
+    // Now we use this buffer to store page from storage, if this page is compressed
+    // this buffer will assigned uncompressed page, and origin content will be freed.
+    std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
+    Slice page_slice(page.get(), page_size);
+    RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+
+    size_t data_size = page_size - 4;
+    if (_opts.verify_checksum) {
+        uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
+        uint32_t actual = HashUtil::crc_hash(page_slice.data, page_slice.size - 4, 0);
+        if (expect != actual) {
+            return Status::Corruption(
+                Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
+        }
+    }
+
+    // remove page's suffix
+    page_slice.size = data_size;
+
+    if (_compress_codec != nullptr) {
+        PageDecompressor decompressor(page_slice, _compress_codec);
+
+        Slice uncompressed_page;
+        RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
+
+        // If decompressor create new heap memory for uncompressed data,
+        // assign this uncompressed page to page and page slice
+        if (uncompressed_page.data != page_slice.data) {
+            page.reset((uint8_t*)uncompressed_page.data);
+        }
+        page_slice = uncompressed_page;
+    }
+    // insert this into cache and return the cache handle
+    cache->insert(cache_key, page_slice, &cache_handle);
+    page.release();
+    *handle = PageHandle(std::move(cache_handle));
 
     return Status::OK();
+}
+
+void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges) {
+    std::vector<uint32_t> page_indexes;
+    _get_filtered_pages(cond_column, &page_indexes);
+    _calculate_row_ranges(page_indexes, row_ranges);
+}
+
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
+    FieldType type = _type_info->type();
+    const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
+    int32_t page_size = _column_zone_map->num_pages();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+    for (int32_t i = 0; i < page_size; ++i) {
+        // min value and max value are valid if exisst_none_null is true
+        if (zone_maps[i].has_not_null()) {
+            min_value->from_string(zone_maps[i].min());
+            max_value->from_string(zone_maps[i].max());
+        }
+        // for compatible original Cond eval logic
+        // TODO(hkp): optimize OlapCond
+        if (zone_maps[i].has_null()) {
+            // for compatible, if exist null, original logic treat null as min
+            min_value->set_null();
+            if (!zone_maps[i].has_not_null()) {
+                // for compatible OlapCond's 'is not null'
+                max_value->set_null();
+            }
+        }
+        if (cond_column->eval({min_value.get(), max_value.get()})) {
+            page_indexes->push_back(i);
+        }
+    }
+}
+
+void ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+    for (auto i : page_indexes) {
+        rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+        rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
+        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+    }
 }
 
 // initial ordinal index
@@ -130,9 +209,23 @@ Status ColumnReader::_init_ordinal_index() {
     PageHandle ph;
     RETURN_IF_ERROR(read_page(pp, &ph));
 
-    _ordinal_index.reset(new OrdinalPageIndex(ph.data()));
+    _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
 
+    return Status::OK();
+}
+
+// initialize column zone map
+Status ColumnReader::_init_column_zone_map() {
+    if (_meta.has_zone_map_page()) {
+        PagePointer pp = _meta.zone_map_page();
+        PageHandle ph;
+        RETURN_IF_ERROR(read_page(pp, &ph));
+        _column_zone_map.reset(new ColumnZoneMap(ph.data()));
+        RETURN_IF_ERROR(_column_zone_map->load());
+    } else {
+        _column_zone_map.reset(nullptr);
+    }
     return Status::OK();
 }
 
@@ -174,12 +267,11 @@ Status FileColumnIterator::seek_to_ordinal(rowid_t rid) {
     if (_page != nullptr && _page->contains(rid)) {
         // current page contains this row, we just
     } else {
-        // we need to seek to 
+        // we need to seek to
         RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
         _page.reset(new ParsedPage());
         RETURN_IF_ERROR(_read_page(_page_iter, _page.get()));
     }
-
     _seek_to_pos_in_page(_page.get(), rid - _page->first_rowid);
     _current_rowid = rid;
     return Status::OK();
@@ -238,7 +330,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
             while (nrows_to_read > 0) {
                 bool is_null = false;
                 size_t this_run = _page->null_decoder.GetNextRun(&is_null, nrows_to_read);
-
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
@@ -262,7 +353,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 column_view.set_null_bits(nrows_to_read, false);
             }
 
-            // set null bits to
             _page->offset_in_page += nrows_to_read;
             column_view.advance(nrows_to_read);
             _current_rowid += nrows_to_read;

@@ -112,6 +112,7 @@ const std::string COLUMNS_KEY = "columns";
 const std::string HLL_KEY = "hll";
 const std::string COLUMN_SEPARATOR_KEY = "column_separator";
 const std::string MAX_FILTER_RATIO_KEY = "max_filter_ratio";
+const std::string STRICT_MODE_KEY = "strict_mode";
 const std::string TIMEOUT_KEY = "timeout";
 const char* k_100_continue = "100-continue";
 
@@ -647,6 +648,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
     request.__set_create_timestamp(UnixMillis());
+    request.__set_request_id(ctx->id.to_thrift());
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
@@ -713,6 +715,17 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     if (ctx->timeout_second != -1) {
         put_request.__set_timeout(ctx->timeout_second);
     }
+    auto strict_mode_it = params.find(STRICT_MODE_KEY);
+    if (strict_mode_it != params.end()) {
+        std::string strict_mode_value = strict_mode_it->second;
+        if (boost::iequals(strict_mode_value, "false")) {
+            put_request.__set_strictMode(false);
+        } else if (boost::iequals(strict_mode_value, "true")) {
+            put_request.__set_strictMode(true);
+        } else {
+            return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
+        }
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -777,7 +790,11 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     }
     auto timeout_it = params.find(TIMEOUT_KEY);
     if (timeout_it != params.end()) {
-        ctx->timeout_second = std::stoi(timeout_it->second);
+        try {
+            ctx->timeout_second = std::stoi(timeout_it->second);
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
     }
     
     LOG(INFO) << "new income mini load request." << ctx->brief()

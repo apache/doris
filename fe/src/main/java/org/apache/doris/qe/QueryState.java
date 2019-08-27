@@ -43,6 +43,8 @@ public class QueryState {
     private String infoMessage;
     private ErrType errType = ErrType.OTHER_ERR;
     private boolean isQuery = false;
+    private long affectedRows = 0;
+    private int warningRows = 0;
 
     public QueryState() {
     }
@@ -62,12 +64,14 @@ public class QueryState {
     }
 
     public void setOk() {
-        stateType = MysqlStateType.OK;
+        setOk(0, 0, null);
     }
 
-    public void setOk(String infoMessage) {
-        stateType = MysqlStateType.OK;
+    public void setOk(long affectedRows, int warningRows, String infoMessage) {
+        this.affectedRows = affectedRows;
+        this.warningRows = warningRows;
         this.infoMessage = infoMessage;
+        stateType = MysqlStateType.OK;
     }
 
     public void setError(String errorMsg) {
@@ -107,6 +111,14 @@ public class QueryState {
 
     public ErrorCode getErrorCode() {
         return errorCode;
+    }
+
+    public long getAffectedRows() {
+        return affectedRows;
+    }
+
+    public int getWarningRows() {
+        return warningRows;
     }
 
     public MysqlPacket toResponsePacket() {

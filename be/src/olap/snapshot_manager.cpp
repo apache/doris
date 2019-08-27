@@ -108,7 +108,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
                 && snapshot_path.compare(abs_path.size(),
                         SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) == 0) {
             remove_all_dir(snapshot_path);
-            VLOG(3) << "success to release snapshot path. [path='" << snapshot_path << "']";
+            LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
 
             return OLAP_SUCCESS;
         }
@@ -283,8 +283,11 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     return OLAP_SUCCESS;
 }
 
+// get snapshot path: curtime.seq.timeout
+// eg: 20190819221234.3.86400
 OLAPStatus SnapshotManager::_calc_snapshot_id_path(
         const TabletSharedPtr& tablet,
+        int64_t timeout_s,
         string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
     if (out_path == nullptr) {
@@ -303,7 +306,8 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
     stringstream snapshot_id_path_stream;
     MutexLock auto_lock(&_snapshot_mutex); // will automatically unlock when function return.
     snapshot_id_path_stream << tablet->data_dir()->path() << SNAPSHOT_PREFIX
-                            << "/" << time_str << "." << _snapshot_base_id++;
+                            << "/" << time_str << "." << _snapshot_base_id++
+                            << "." << timeout_s;
     *out_path = snapshot_id_path_stream.str();
     return res;
 }
@@ -334,8 +338,7 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     OLAPStatus res = OLAP_SUCCESS;
     for (auto& rs : consistent_rowsets) {
-        std::vector<std::string> success_files;
-        RETURN_NOT_OK(rs->make_snapshot(schema_hash_path, &success_files));
+        RETURN_NOT_OK(rs->link_files_to(schema_hash_path, rs->rowset_id()));
     }
     return res;
 }
@@ -357,7 +360,11 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     }
 
     string snapshot_id_path;
-    res = _calc_snapshot_id_path(ref_tablet, &snapshot_id_path);
+    int64_t timeout_s = config::snapshot_expire_time_sec;
+    if (request.__isset.timeout) {
+        timeout_s = request.timeout;
+    }
+    res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
                      << ref_tablet->data_dir()->path();
@@ -458,8 +465,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         vector<RowsetMetaSharedPtr> rs_metas;
         for (auto& rs : consistent_rowsets) {
-            std::vector<std::string> success_files;
-            res = rs->make_snapshot(schema_full_path, &success_files);
+            res = rs->link_files_to(schema_full_path, rs->rowset_id());
             if (res != OLAP_SUCCESS) { break; }
             rs_metas.push_back(rs->rowset_meta());
             VLOG(3) << "add rowset meta to clone list. " 

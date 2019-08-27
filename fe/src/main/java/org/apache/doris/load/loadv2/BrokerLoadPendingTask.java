@@ -45,6 +45,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                                  Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
                                  BrokerDesc brokerDesc) {
         super(loadTaskCallback);
+        this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.tableToBrokerFileList = tableToBrokerFileList;
         this.brokerDesc = brokerDesc;
@@ -89,6 +90,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                 groupNum++;
             }
 
+            ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
                     totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());

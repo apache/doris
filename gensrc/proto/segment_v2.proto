@@ -61,14 +61,20 @@ enum CompressionTypePB {
     NO_COMPRESSION = 2;
     SNAPPY = 3;
     LZ4 = 4;
-    ZLIB = 5;
-    ZSTB = 6;
+    LZ4F = 5;
+    ZLIB = 6;
+    ZSTD = 7;
 }
 
 message ZoneMapPB {
+    // minimum not-null value, invalid when all values are null(has_not_null==false)
     optional bytes min = 1;
+    // maximum not-null value, invalid when all values are null (has_not_null==false)
     optional bytes max = 2;
-    optional bool null_flag = 3;
+    // whether the zone has null value
+    optional bool has_null = 3;
+    // whether the zone has not-null value
+    optional bool has_not_null = 4;
 }
 
 message ColumnMetaPB {
@@ -83,10 +89,10 @@ message ColumnMetaPB {
     optional CompressionTypePB compression = 5;
     // if this column can be nullable
     optional bool is_nullable = 6;
-    // if this column has checksum for each page
-    optional bool has_checksum = 7;
     // ordinal index page
-    optional PagePointerPB ordinal_index_page = 8;
+    optional PagePointerPB ordinal_index_page = 7;
+    // zone map page
+    optional PagePointerPB zone_map_page = 8;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
@@ -117,7 +123,7 @@ message FileFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
     optional PagePointerPB key_index_page = 9; // short key index page
 }
@@ -147,7 +153,7 @@ message SegmentFooterPB {
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
-    optional CompressionTypePB compress_type = 7 [default = LZ4]; // default compression type for file columns
+    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
 
     // Short key index's page

@@ -56,19 +56,13 @@ public:
     // get a rowset
     RowsetSharedPtr build() override;
 
-    MemPool* mem_pool() override;
+    Version version() override { return _rowset_writer_context.version; }
 
-    Version version() override;
+    int64_t num_rows() override { return _num_rows_written; }
 
-    int64_t num_rows() override;
+    RowsetId rowset_id() override { return _rowset_writer_context.rowset_id; }
 
-    RowsetId rowset_id() override {
-        return _rowset_writer_context.rowset_id;
-    }
-
-    OLAPStatus garbage_collection() override;
-
-    DataDir* data_dir() override;
+    DataDir* data_dir() override { return _rowset_writer_context.data_dir; }
 
 private:
     OLAPStatus _init();
@@ -78,6 +72,8 @@ private:
     
     // validate rowset build arguments before create rowset to make sure correctness
     bool _validate_rowset();
+
+    OLAPStatus _garbage_collection();
 
 private:
     int32_t _segment_group_id;

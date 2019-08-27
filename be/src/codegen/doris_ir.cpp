@@ -20,7 +20,6 @@ struct __float128;
 #include "codegen/codegen_anyval_ir.cpp"
 #include "exec/aggregation_node_ir.cpp"
 #include "exec/hash_join_node_ir.cpp"
-#include "exprs/aggregate_functions.cpp"
 #include "exprs/cast_functions.cpp"
 #include "exprs/conditional_functions_ir.cpp"
 #include "exprs/decimal_operators.cpp"

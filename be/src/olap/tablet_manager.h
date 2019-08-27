@@ -133,6 +133,8 @@ public:
 
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
+    void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
@@ -189,6 +191,8 @@ private:
     // cache to save tablets' statistics, such as data size and row
     // TODO(cmy): for now, this is a naive implementation
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
+    std::mutex _tablet_stat_mutex;
+
     // last update time of tablet stat cache
     int64_t _tablet_stat_cache_update_time_ms;
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.http.action.BackendAction;
 import org.apache.doris.http.action.HaAction;
 import org.apache.doris.http.action.HelpAction;
@@ -57,6 +58,9 @@ import org.apache.doris.http.rest.MultiDesc;
 import org.apache.doris.http.rest.MultiList;
 import org.apache.doris.http.rest.MultiStart;
 import org.apache.doris.http.rest.MultiUnload;
+import org.apache.doris.http.rest.TableRowCountAction;
+import org.apache.doris.http.rest.TableQueryPlanAction;
+import org.apache.doris.http.rest.TableSchemaAction;
 import org.apache.doris.http.rest.RowCountAction;
 import org.apache.doris.http.rest.SetConfigAction;
 import org.apache.doris.http.rest.ShowMetaInfoAction;
@@ -70,6 +74,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.concurrent.TimeUnit;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -84,7 +89,6 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServer {
     private static final Logger LOG = LogManager.getLogger(HttpServer.class);
-    private static final int BACKLOG_NUM = 128;
     private QeService qeService = null;
     private int port;
     private ActionController controller;
@@ -159,6 +163,11 @@ public class HttpServer {
         DumpAction.registerAction(controller, imageDir);
         RoleAction.registerAction(controller, imageDir);
 
+        // external usage
+        TableRowCountAction.registerAction(controller);
+        TableSchemaAction.registerAction(controller);
+        TableQueryPlanAction.registerAction(controller);
+
         BootstrapFinishAction.registerAction(controller);
     }
 
@@ -177,6 +186,8 @@ public class HttpServer {
         }
     }
 
+    ServerBootstrap serverBootstrap;
+
     private class HttpServerThread implements Runnable {
         @Override
         public void run() {
@@ -184,13 +195,14 @@ public class HttpServer {
             EventLoopGroup bossGroup = new NioEventLoopGroup();
             EventLoopGroup workerGroup = new NioEventLoopGroup();
             try {
-                ServerBootstrap b = new ServerBootstrap();
-                b.option(ChannelOption.SO_BACKLOG, BACKLOG_NUM);
-                b.group(bossGroup, workerGroup)
+                serverBootstrap = new ServerBootstrap();
+                serverBootstrap.option(ChannelOption.SO_BACKLOG, Config.http_backlog_num);
+                serverBootstrap.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
                         .childHandler(new PaloHttpServerInitializer());
-                Channel ch = b.bind(port).sync().channel();
+                Channel ch = serverBootstrap.bind(port).sync().channel();
                 ch.closeFuture().sync();
+
             } catch (Exception e) {
                 LOG.error("Fail to start FE query http server[port: " + port + "] ", e);
                 System.exit(-1);
@@ -198,6 +210,14 @@ public class HttpServer {
                 bossGroup.shutdownGracefully();
                 workerGroup.shutdownGracefully();
             }
+        }
+    }
+
+    // used for test, release bound port
+    public void shutDown() {
+        if (serverBootstrap != null) {
+            serverBootstrap.config().group().shutdownGracefully(0, 5, TimeUnit.SECONDS).awaitUninterruptibly();
+            serverBootstrap = null;
         }
     }
 

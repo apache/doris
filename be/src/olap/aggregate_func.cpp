@@ -23,12 +23,8 @@ template<typename Traits>
 AggregateInfo::AggregateInfo(const Traits& traits) 
         : _init_fn(traits.init),
         _update_fn(traits.update),
-        _merge_fn(traits.merge),
         _finalize_fn(traits.finalize),
         _agg_method(traits.agg_method) {
-    if (_merge_fn == nullptr) {
-        _merge_fn = _update_fn;
-    }
 }
 
 struct AggregateFuncMapHash {
@@ -128,6 +124,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
 
     // Hyperloglog Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL>();
+
+    // Bitmap Aggregate Function
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR>();
 }
 
 AggregateFuncResolver::~AggregateFuncResolver() {

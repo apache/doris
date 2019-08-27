@@ -14,6 +14,6 @@
         CREATE ROLE role1;
         
 ## keyword
-   CREATE, ROLE
-   
+
+    CREATE, ROLE
    

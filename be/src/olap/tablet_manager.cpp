@@ -294,8 +294,27 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
+
+    TabletSharedPtr ref_tablet = nullptr;
+    bool is_schema_change_tablet = false;
+    // if the CreateTabletReq has base_tablet_id then it is a alter tablet request
+    if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
+        is_schema_change_tablet = true;
+        ref_tablet = _get_tablet_with_no_lock(request.base_tablet_id, request.base_schema_hash);
+        if (ref_tablet == nullptr) {
+            LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.tablet_id
+                         << ", new_schema_hash=" << request.tablet_schema.schema_hash
+                         << ", because could not find base tablet, base_tablet_id=" << request.base_tablet_id
+                         << ", base_schema_hash=" << request.base_schema_hash;
+            return OLAP_ERR_TABLE_CREATE_META_ERROR;
+        }
+        // schema change should use the same data dir
+        stores.clear();
+        stores.push_back(ref_tablet->data_dir());
+    }
     // set alter type to schema change. it is useless
-    TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, false, nullptr, stores);
+    TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, 
+        is_schema_change_tablet, ref_tablet, stores);
     if (tablet == nullptr) {
         res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
         LOG(WARNING) << "fail to create tablet. res=" << res;
@@ -705,12 +724,15 @@ void TabletManager::get_tablet_stat(TTabletStatResult& result) {
 
     // get current time
     int64_t current_time = UnixMillis();
-    WriteLock wlock(&_tablet_map_lock);
+
     // update cache if too old
-    if (current_time - _tablet_stat_cache_update_time_ms >
-        config::tablet_stat_cache_update_interval_second * 1000) {
-        VLOG(3) << "update tablet stat.";
-        _build_tablet_stat();
+    {
+        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
+        if (current_time - _tablet_stat_cache_update_time_ms >
+                config::tablet_stat_cache_update_interval_second * 1000) {
+            VLOG(3) << "update tablet stat.";
+            _build_tablet_stat();
+        }
     }
 
     result.__set_tablets_stats(_tablet_stat_cache);
@@ -745,18 +767,16 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             }
 
             if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                if (!table_ptr->try_cumulative_lock()) {
+                MutexLock lock(table_ptr->get_cumulative_lock(), TRY_LOCK);
+                if (!lock.own_lock()) {
                     continue;
-                } else {
-                    table_ptr->release_cumulative_lock();
                 }
             }
 
             if (compaction_type == CompactionType::BASE_COMPACTION) {
-                if (!table_ptr->try_base_compaction_lock()) {
+                MutexLock lock(table_ptr->get_base_lock(), TRY_LOCK);
+                if (!lock.own_lock()) {
                     continue;
-                } else {
-                    table_ptr->release_base_compaction_lock();
                 }
             }
 
@@ -1135,6 +1155,15 @@ void TabletManager::update_storage_medium_type_count(uint32_t storage_medium_typ
     _available_storage_medium_type_count = storage_medium_type_count;
 }
 
+void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos) {
+    ReadLock rlock(&_tablet_map_lock);
+    if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
+        for (auto& tablet_info : _partition_tablet_map[partition_id]) {
+            tablet_infos->insert(tablet_info);
+        }
+    }
+}
+
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
     tablet_info->tablet_id = tablet->tablet_id();
     tablet_info->schema_hash = tablet->schema_hash();
@@ -1150,6 +1179,8 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
 
 void TabletManager::_build_tablet_stat() {
     _tablet_stat_cache.clear();
+
+    ReadLock rdlock(&_tablet_map_lock);
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
             continue;
@@ -1245,7 +1276,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
         }
     }
     tablet->set_cumulative_layer_point(request.version + 1);
-    res = tablet->save_meta();
+    // should not save tablet meta here, because it will be saved if add to map successfully
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
     }

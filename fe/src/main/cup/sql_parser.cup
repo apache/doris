@@ -191,7 +191,7 @@ parser code {:
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
@@ -201,7 +201,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
-    KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, 
+    KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
@@ -211,7 +211,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
-    KW_PARTITION, KW_PARTITIONS, KW_PRECEDING,
+    KW_PARTITION, KW_PARTITIONS, KW_PATH, KW_PRECEDING,
     KW_PASSWORD, KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
@@ -379,7 +379,7 @@ nonterminal LabelName job_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
-nonterminal List<String> opt_col_list, col_list, opt_dup_keys;
+nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<String> opt_partitions, partitions;
 nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
@@ -1051,9 +1051,10 @@ data_desc ::=
     opt_field_term:colSep
     opt_file_format:fileFormat
     opt_col_list:colList
+    opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, isNeg, colMappingList);
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, columnsFromPath, isNeg, colMappingList);
     :}
     ;
 
@@ -1108,6 +1109,13 @@ opt_file_format ::=
     {: RESULT = null; :}
     | KW_FORMAT KW_AS ident_or_text:format
     {: RESULT = format; :}
+    ;
+
+opt_columns_from_path ::=
+    /* Empty */
+    {: RESULT = null; :}
+    | KW_COLUMNS KW_FROM KW_PATH KW_AS LPAREN ident_list:columnsFromPath RPAREN
+    {: RESULT = columnsFromPath; :}
     ;
 
 opt_col_list ::=
@@ -1393,6 +1401,10 @@ opt_agg_type ::=
     | KW_HLL_UNION
     {:
     RESULT = AggregateType.HLL_UNION;
+    :}
+    | KW_BITMAP_UNION
+    {:
+    RESULT = AggregateType.BITMAP_UNION;
     :}
     ;
 
@@ -3878,6 +3890,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BEGIN:id
     {: RESULT = id; :}
+    | KW_BITMAP_UNION:id
+    {: RESULT = id; :}
     | KW_BOOLEAN:id
     {: RESULT = id; :}
     | KW_BROKER:id
@@ -3923,6 +3937,8 @@ keyword ::=
     | KW_FIRST:id
     {: RESULT = id; :}
     | KW_FORMAT:id
+    {: RESULT = id; :}
+    | KW_PATH:id
     {: RESULT = id; :}
     | KW_FUNCTION:id
     {: RESULT = id; :}

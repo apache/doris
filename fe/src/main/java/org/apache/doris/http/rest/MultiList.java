@@ -35,7 +35,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // list all multi load before commit
 public class MultiList extends RestBaseAction {
-    private static final String DB_KEY = "db";
 
     private ExecuteEnv execEnv;
 
@@ -47,7 +46,7 @@ public class MultiList extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiList action = new MultiList(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_list", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_list", action);
     }
 
     @Override

@@ -260,10 +260,7 @@ public:
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links);
-    OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                  std::vector<std::string>* success_files);
+    OLAPStatus copy_files_to(const std::string& dir);
 
     OLAPStatus link_segments_to_path(const std::string& dest_path, int64_t rowset_id);
 

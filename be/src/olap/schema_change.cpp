@@ -32,6 +32,8 @@
 #include "olap/row.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/alpha_rowset_writer.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -566,6 +568,7 @@ bool RowBlockMerger::merge(
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
+    std::unique_ptr<Arena> arena(new Arena());
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
         goto MERGE_ERR;
@@ -573,15 +576,9 @@ bool RowBlockMerger::merge(
 
     _make_heap(row_block_arr);
 
-    // TODO: for now, string type in rowblock is not allocated
-    // memory during init procedure. So, copying content
-    // in row_cursor to rowblock is necessary
-    // That's not very memory-efficient!
-
+    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), rowset_writer->mem_pool());
-
-        init_row_with_others(&row_cursor, *(_heap.top().row_cursor));
+        init_row_with_others(&row_cursor, *(_heap.top().row_cursor), arena.get());
 
         if (!_pop_heap()) {
             goto MERGE_ERR;
@@ -601,6 +598,10 @@ bool RowBlockMerger::merge(
         }
         agg_finalize_row(&row_cursor, nullptr);
         rowset_writer->add_row(row_cursor);
+
+        // the memory allocate by arena has been copied,
+        // so we should release these memory immediately
+        arena.reset(new Arena());
     }
     if (rowset_writer->flush() != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to finalizing writer.";
@@ -621,10 +622,9 @@ MERGE_ERR:
 }
 
 bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
-    for (vector<RowBlock*>::const_iterator it = row_block_arr.begin();
-            it != row_block_arr.end(); ++it) {
+    for (auto row_block : row_block_arr) {
         MergeElement element;
-        element.row_block = *it;
+        element.row_block = row_block;
         element.row_block_index = 0;
         element.row_cursor = new(nothrow) RowCursor();
 
@@ -685,22 +685,19 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         const RowBlockChanger& row_block_changer) :
         _row_block_changer(row_block_changer),
         _row_block_allocator(nullptr),
-        _src_cursor(nullptr),
-        _dst_cursor(nullptr) { }
+        _cursor(nullptr) { }
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
-    SAFE_DELETE(_src_cursor);
-    SAFE_DELETE(_dst_cursor);
+    SAFE_DELETE(_cursor);
 }
 
-bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
+bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        row_block->get_row(i, _src_cursor);
-        copy_row(_dst_cursor, *_src_cursor, rowset_writer->mem_pool());
-        if (OLAP_SUCCESS != rowset_writer->add_row(*_dst_cursor)) {
-            LOG(WARNING) << "fail to attach writer";
+        row_block->get_row(i, _cursor);
+        if (OLAP_SUCCESS != rowset_writer->add_row(*_cursor)) {
+            LOG(WARNING) << "fail to write to new rowset for direct schema change";
             return false;
         }
     }
@@ -719,27 +716,14 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
     }
 
-    if (nullptr == _src_cursor) {
-        _src_cursor = new(nothrow) RowCursor();
-        if (nullptr == _src_cursor) {
+    if (nullptr == _cursor) {
+        _cursor = new(nothrow) RowCursor();
+        if (nullptr == _cursor) {
             LOG(WARNING) << "fail to allocate row cursor.";
             return false;
         }
 
-        if (OLAP_SUCCESS != _src_cursor->init(new_tablet->tablet_schema())) {
-            LOG(WARNING) << "fail to init row cursor.";
-            return false;
-        }
-    }
-
-    if (nullptr == _dst_cursor) {
-        _dst_cursor = new(nothrow) RowCursor();
-        if (nullptr == _dst_cursor) {
-            LOG(WARNING) << "fail to allocate row cursor.";
-            return false;
-        }
-
-        if (OLAP_SUCCESS != _dst_cursor->init(new_tablet->tablet_schema())) {
+        if (OLAP_SUCCESS != _cursor->init(new_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
@@ -768,7 +752,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     }
 
     VLOG(3) << "init writer. new_tablet=" << new_tablet->full_name()
-            << "block_row_number=" << new_tablet->num_rows_per_row_block();
+            << ", block_row_number=" << new_tablet->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = nullptr;
 
@@ -811,7 +795,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
         add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(rowset_writer, new_row_block)) {
+        if (!_write_row_block(rowset_writer.get(), new_row_block)) {
             LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
@@ -1129,8 +1113,8 @@ bool SchemaChangeWithSorting::_external_sorting(
         TabletSharedPtr new_tablet) {
     Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
 
-    uint64_t merged_rows = 0;
-    uint64_t filtered_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t filtered_rows = 0;
     vector<RowsetReaderSharedPtr> rs_readers;
     for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
             it != src_rowsets.end(); ++it) {
@@ -1269,7 +1253,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         new_tablet->modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
         // inherit cumulative_layer_point from base_tablet
         // check if new_tablet.ce_point > base_tablet.ce_point?
-        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
+        new_tablet->set_cumulative_layer_point(-1);
         // save tablet meta
         res = new_tablet->save_meta();
         if (res != OLAP_SUCCESS) {
@@ -1310,10 +1294,8 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
 
         _reader_context.reader_type = READER_ALTER_TABLE;
         _reader_context.tablet_schema= &base_tablet->tablet_schema();
-        _reader_context.preaggregation = true;
+        _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
-        _reader_context.is_using_cache = false;
-        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1540,7 +1522,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         }
 
         // inherit cumulative_layer_point from base_tablet
-        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
+        new_tablet->set_cumulative_layer_point(-1);
 
         // get history versions to be changed
         res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1579,10 +1561,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
         _reader_context.reader_type = READER_ALTER_TABLE;
         _reader_context.tablet_schema= &base_tablet->tablet_schema();
-        _reader_context.preaggregation = true;
+        _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
-        _reader_context.is_using_cache = false;
-        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1681,10 +1661,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     DeleteHandler delete_handler;
     _reader_context.reader_type = READER_ALTER_TABLE;
     _reader_context.tablet_schema = &base_tablet->tablet_schema();
-    _reader_context.preaggregation = true;
+    _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
-    _reader_context.is_using_cache = false;
-    _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
     rowset_reader->init(&_reader_context);
@@ -2061,7 +2039,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                 return res;
             }
 
-            VLOG(10) << "A column with default value will be added after schema chaning. "
+            VLOG(10) << "A column with default value will be added after schema changing. "
                      << "column=" << column_name
                      << ", default_value=" << new_column.default_value();
             continue;
@@ -2078,8 +2056,8 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             return res;
         }
 
-        VLOG(3) << "A new schema delta is converted while droping column. "
-                << "Droped column will be assigned as '0' for the older schema. "
+        VLOG(3) << "A new schema delta is converted while dropping column. "
+                << "Dropped column will be assigned as '0' for the older schema. "
                 << "column=" << column_name;
     }
 
@@ -2135,7 +2113,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
     }
 
     if (base_tablet->delete_predicates().size() != 0){
-        //there exists delete condtion in header, can't do linked schema change
+        //there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
     }
 
@@ -2151,7 +2129,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (true == column_schema.is_nullable() && value.length() == 0) {
+    if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);

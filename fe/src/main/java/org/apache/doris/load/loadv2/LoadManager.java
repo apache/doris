@@ -39,6 +39,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -90,13 +91,13 @@ public class LoadManager implements Writable{
      * @param stmt
      * @throws DdlException
      */
-    public void createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
+    public void createLoadJobFromStmt(LoadStmt stmt, String originStmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), -1);
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), null);
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -104,7 +105,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
@@ -134,7 +135,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp());
+            checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
             createLoadJob(loadJob);
             // Mini load job must be executed before release write lock.
@@ -184,7 +185,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(stmt.getLabel().getDbName());
         writeLock();
         try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), -1);
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), null);
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
         } finally {
             writeUnlock();
@@ -209,7 +210,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), -1);
+            checkLabelUsed(database.getId(), request.getLabel(), null);
             return Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(request);
         } finally {
             writeUnlock();
@@ -220,7 +221,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(fullDbName);
         writeLock();
         try {
-            checkLabelUsed(database.getId(), label, -1);
+            checkLabelUsed(database.getId(), label, null);
             Catalog.getCurrentCatalog().getLoadInstance()
                     .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
         } finally {
@@ -256,7 +257,7 @@ public class LoadManager implements Writable{
     }
 
     public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
@@ -267,7 +268,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob;
         switch (jobType) {
             case INSERT:
-                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg);
+                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
                 break;
             default:
                 return;
@@ -313,12 +314,6 @@ public class LoadManager implements Writable{
                          .add("operation", operation)
                          .add("msg", "replay end load job")
                          .build());
-    }
-
-    public List<LoadJob> getLoadJobByState(JobState jobState) {
-        return idToLoadJob.values().stream()
-                .filter(entity -> entity.getState() == jobState)
-                .collect(Collectors.toList());
     }
 
     public int getLoadJobNum(JobState jobState, long dbId) {
@@ -454,13 +449,22 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void submitJobs() {
+    public void prepareJobs() {
+        analyzeLoadJobs();
+        submitJobs();
+    }
+
+    private void submitJobs() {
         loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
     }
 
-    private Map<Long, LoadJob> getIdToLoadJobs() {
-        return idToLoadJob;
+    private void analyzeLoadJobs() {
+        for (LoadJob loadJob : idToLoadJob.values()) {
+            if (loadJob.getState() == JobState.PENDING) {
+                loadJob.analyze();
+            }
+        }
     }
 
     private Database checkDb(String dbName) throws DdlException {
@@ -498,10 +502,10 @@ public class LoadManager implements Writable{
      *
      * @param dbId
      * @param label
-     * @param createTimestamp the create timestamp of stmt of request
+     * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
-    private void checkLabelUsed(long dbId, String label, long createTimestamp)
+    private void checkLabelUsed(long dbId, String label, TUniqueId requestId)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
@@ -514,9 +518,9 @@ public class LoadManager implements Writable{
                         labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
                     LoadJob loadJob = loadJobOptional.get();
-                    if (loadJob.getCreateTimestamp() == createTimestamp) {
+                    if (loadJob.getRequestId() != null && requestId != null && loadJob.getRequestId().equals(requestId)) {
                         throw new DuplicatedRequestException(String.valueOf(loadJob.getId()),
-                                                             "The request is duplicated with " + loadJob.getId());
+                                "The request is duplicated with " + loadJob.getId());
                     }
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
@@ -541,16 +545,6 @@ public class LoadManager implements Writable{
         lock.writeLock().unlock();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
-
-        out.writeInt(loadJobs.size());
-        for (LoadJob loadJob : loadJobs) {
-            loadJob.write(out);
-        }
-    }
-
     // If load job will be removed by cleaner later, it will not be saved in image.
     private boolean needSave(LoadJob loadJob) {
         if (!loadJob.isCompleted()) {
@@ -563,6 +557,23 @@ public class LoadManager implements Writable{
         }
 
         return false;
+    }
+
+    public void updateJobLoadedRows(Long jobId, TUniqueId loadId, long loadedRows) {
+        LoadJob job = idToLoadJob.get(jobId);
+        if (job != null) {
+            job.updateLoadedRows(loadId, loadedRows);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
+
+        out.writeInt(loadJobs.size());
+        for (LoadJob loadJob : loadJobs) {
+            loadJob.write(out);
+        }
     }
 
     @Override

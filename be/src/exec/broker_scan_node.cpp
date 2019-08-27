@@ -342,26 +342,6 @@ Status BrokerScanNode::scanner_scan(
                 continue;
             }
 
-            // The reason we check if partition_expr_ctxs is empty is when loading data to
-            // a unpartitioned table who has no partition_expr_ctxs, user can specify
-            // a partition name. And we check here to avoid crash and make our
-            // process run as normal
-            if (scan_range.params.__isset.partition_ids && !partition_expr_ctxs.empty()) {
-                int64_t partition_id = get_partition_id(partition_expr_ctxs, row);
-                if (partition_id == -1 || 
-                        !std::binary_search(scan_range.params.partition_ids.begin(), 
-                                           scan_range.params.partition_ids.end(), 
-                                           partition_id)) {
-                    counter->num_rows_filtered++;
-
-                    std::stringstream error_msg;
-                    error_msg << "No corresponding partition, partition id: " << partition_id;
-                    _runtime_state->append_error_msg_to_file(Tuple::to_string(tuple, *_tuple_desc), 
-                                                             error_msg.str());
-                    continue;
-                }
-            }
-
             // eval conjuncts of this row.
             if (eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row)) {
                 row_batch->commit_last_row();
@@ -433,7 +413,6 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 
     // Update stats
-    _runtime_state->update_num_rows_load_total(counter.num_rows_total);
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);
 

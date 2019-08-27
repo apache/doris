@@ -215,6 +215,21 @@ public class Config extends ConfigBase {
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
+
+    /*
+     * The backlog_num for netty http server
+     * When you enlarge this backlog_num, you should ensure it's value larger than
+     * the linux /proc/sys/net/core/somaxconn config
+     */
+    @ConfField public static int http_backlog_num = 1024;
+
+    /*
+     * The backlog_num for thrift server
+     * When you enlarge this backlog_num, you should ensure it's value larger than
+     * the linux /proc/sys/net/core/somaxconn config
+     */
+    @ConfField public static int thrift_backlog_num = 1024;
+
     /*
      * FE thrift server port
      */
@@ -358,7 +373,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 300s
+    public static int stream_load_default_timeout_second = 600; // 600s
 
     /*
      * Max load timeout applicable to all type of load
@@ -802,6 +817,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;
+
+    /*
+     * the max concurrent task num per be
+     * The cluster max concurrent task num = max_concurrent_task_num_per_be * number of be
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_concurrent_task_num_per_be = 10;
 
     /*
      * The max number of files store in SmallFileMgr 

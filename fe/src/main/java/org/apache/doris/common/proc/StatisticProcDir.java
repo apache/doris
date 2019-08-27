@@ -129,7 +129,8 @@ public class StatisticProcDir implements ProcDirInterface {
                                         replicationNum, availableBackendsNum);
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
-                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT) {
+                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
+                                        && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
                                     unhealthyTabletIds.put(dbId, tablet.getId());
                                 }
 

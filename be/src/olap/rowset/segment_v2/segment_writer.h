@@ -49,7 +49,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(std::string file_name,
                            uint32_t segment_id,
-                           const std::shared_ptr<TabletSchema>& tablet_schema,
+                           const TabletSchema* tablet_schema,
                            const SegmentWriterOptions& opts);
 
     ~SegmentWriter();
@@ -65,6 +65,7 @@ public:
 private:
     Status _write_data();
     Status _write_ordinal_index();
+    Status _write_zone_map();
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
@@ -72,7 +73,7 @@ private:
 private:
     std::string _fname;
     uint32_t _segment_id;
-    std::shared_ptr<TabletSchema> _tablet_schema;
+    const TabletSchema* _tablet_schema;
     size_t _num_short_keys;
     SegmentWriterOptions _opts;
 

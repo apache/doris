@@ -57,9 +57,19 @@ public:
         return nullptr;
     }
 
-    // Pop the top element and rebuild the heap to
-    // get the next row cursor.
-    inline OLAPStatus next(const RowCursor** row, bool* delete_flag);
+    // Read next row into *row.
+    // Returns
+    //      OLAP_SUCCESS when read successfully.
+    //      OLAP_ERR_DATA_EOF and set *row to nullptr when EOF is reached.
+    //      Others when error happens
+    OLAPStatus next(const RowCursor** row, bool* delete_flag) {
+        DCHECK(_cur_child != nullptr);
+        if (_merge) {
+            return _merge_next(row, delete_flag);
+        } else {
+            return _normal_next(row, delete_flag);
+        }
+    }
 
     // Clear the MergeSet element and reset state.
     void clear();
@@ -135,7 +145,7 @@ private:
         bool _is_delete = false;
         Reader* _reader;
 
-        RowCursor _row_cursor;
+        RowCursor _row_cursor; // point to rows inside `_row_block`
         RowBlock* _row_block = nullptr;
     };
 
@@ -149,15 +159,22 @@ private:
     inline OLAPStatus _merge_next(const RowCursor** row, bool* delete_flag);
     inline OLAPStatus _normal_next(const RowCursor** row, bool* delete_flag);
 
-    // If _merge is true, result row must be ordered
-    bool _merge = true;
+    // each ChildCtx corresponds to a rowset reader
+    std::vector<ChildCtx*> _children;
+    // point to the ChildCtx containing the next output row.
+    // null when CollectIterator hasn't been initialized or reaches EOF.
+    ChildCtx* _cur_child = nullptr;
 
+    // when `_merge == true`, rowset reader returns ordered rows and CollectIterator uses a priority queue to merge
+    // sort them. The output of CollectIterator is also ordered.
+    // When `_merge == false`, rowset reader returns *partial* ordered rows. CollectIterator simply returns all rows
+    // from the first rowset, the second rowset, .., the last rowset. The output of CollectorIterator is also
+    // *partially* ordered.
+    bool _merge = true;
+    // used when `_merge == true`
     typedef std::priority_queue<ChildCtx*, std::vector<ChildCtx*>, ChildCtxComparator> MergeHeap;
     MergeHeap _heap;
-
-    std::vector<ChildCtx*> _children;
-    ChildCtx* _cur_child = nullptr;
-    // Used when _merge is false
+    // used when `_merge == false`
     int _child_idx = 0;
 
     // Hold reader point to access read params, such as fetch conditions.
@@ -201,15 +218,6 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
         }
     }
     return OLAP_SUCCESS;
-}
-
-inline OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
-    DCHECK(_cur_child != nullptr);
-    if (_merge) {
-        return _merge_next(row, delete_flag);
-    } else {
-        return _normal_next(row, delete_flag);
-    }
 }
 
 inline OLAPStatus CollectIterator::_merge_next(const RowCursor** row, bool* delete_flag) {
@@ -337,7 +345,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
+OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -352,12 +360,12 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
+OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
     }
-    init_row_with_others(row_cursor, *_next_key);
+    init_row_with_others(row_cursor, *_next_key, arena);
     int64_t merged_count = 0;
     do {
         auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -381,11 +389,11 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         ++merged_count;
     } while (true);
     _merged_rows += merged_count;
-    agg_finalize_row(_value_cids, row_cursor);
+    agg_finalize_row(_value_cids, row_cursor, arena);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
+OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
@@ -395,7 +403,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
         }
     
         cur_delete_flag = _next_delete_flag;
-        init_row_with_others(row_cursor, *_next_key);
+        init_row_with_others(row_cursor, *_next_key, arena);
 
         int64_t merged_count = 0;
         while (NULL != _next_key) {
@@ -411,12 +419,12 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
             if (_aggregation && merged_count > config::doris_scanner_row_num) {
-                agg_finalize_row(_value_cids, row_cursor);
+                agg_finalize_row(_value_cids, row_cursor, arena);
                 break;
             }
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
-                agg_finalize_row(_value_cids, row_cursor);
+                agg_finalize_row(_value_cids, row_cursor, arena);
                 break;
             }
 
@@ -455,13 +463,6 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name()
                         << ", version=" << _version.first << "-" << _version.second;
         return OLAP_ERR_VERSION_NOT_EXIST;
-    }
-    
-    // do not use index stream cache when be/ce/alter/checksum,
-    // to avoid bringing down lru cache hit ratio
-    bool is_using_cache = true;
-    if (read_params.reader_type != READER_QUERY) {
-        is_using_cache = false;
     }
 
     bool eof = false;
@@ -514,9 +515,22 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
 
     if (eof) { return OLAP_SUCCESS; }
 
+    bool need_ordered_result = true;
+    if (read_params.reader_type == READER_QUERY) {
+        if (_tablet->tablet_schema().keys_type() == DUP_KEYS) {
+            // duplicated keys are allowed, no need to merge sort keys in rowset
+            need_ordered_result = false;
+        }
+        if (_aggregation) {
+            // compute engine will aggregate rows with the same key,
+            // it's ok for rowset to return unordered result
+            need_ordered_result = false;
+        }
+    }
+
     _reader_context.reader_type = read_params.reader_type;
     _reader_context.tablet_schema = &_tablet->tablet_schema();
-    _reader_context.preaggregation = _aggregation;
+    _reader_context.need_ordered_result = need_ordered_result;
     _reader_context.return_columns = &_return_columns;
     _reader_context.seek_columns = &_seek_columns;
     _reader_context.load_bf_columns = &_load_bf_columns;
@@ -528,8 +542,6 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_upper_keys_included = &_is_upper_keys_included;
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
-    _reader_context.is_using_cache = is_using_cache;
-    _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
     _reader_context.runtime_state = read_params.runtime_state;
     for (auto& rs_reader : *rs_readers) {
         rs_reader->init(&_reader_context);

@@ -58,6 +58,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -68,6 +69,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
@@ -119,6 +121,35 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     private boolean isJobTypeRead = false;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    // this request id is only used for checking if a load begin request is a duplicate request.
+    protected TUniqueId requestId;
+
+    protected LoadStatistic loadStatistic = new LoadStatistic();
+
+    public static class LoadStatistic {
+        // number of rows processed on BE, this number will be updated periodically by query report.
+        // A load job may has several load tasks, so the map key is load task's plan load id.
+        public Map<TUniqueId, AtomicLong> numLoadedRowsMap = Maps.newConcurrentMap();
+        // number of file to be loaded
+        public int fileNum = 0;
+        public long totalFileSizeB = 0;
+        
+        public String toJson() {
+            long total = 0;
+            for (AtomicLong atomicLong : numLoadedRowsMap.values()) {
+                total += atomicLong.get();
+            }
+
+            Map<String, Object> details = Maps.newHashMap();
+            details.put("LoadedRows", total);
+            details.put("FileNumber", fileNum);
+            details.put("FileSize", totalFileSizeB);
+            details.put("TaskNumber", numLoadedRowsMap.size());
+            Gson gson = new Gson();
+            return gson.toJson(details);
+        }
+    }
 
     // only for log replay
     public LoadJob() {
@@ -189,6 +220,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public long getTransactionId() {
         return transactionId;
+    }
+
+    public void updateLoadedRows(TUniqueId loadId, long loadedRows) {
+        AtomicLong atomicLong = loadStatistic.numLoadedRowsMap.get(loadId);
+        if (atomicLong != null) {
+            atomicLong.set(loadedRows);
+        }
+    }
+
+    public void setLoadFileInfo(int fileNum, long fileSize) {
+        this.loadStatistic.fileNum = fileNum;
+        this.loadStatistic.totalFileSizeB = fileSize;
+    }
+
+    public TUniqueId getRequestId() {
+        return requestId;
     }
 
     /**
@@ -467,6 +514,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
+        loadStatistic.numLoadedRowsMap.clear();
 
         // set failMsg and state
         this.failMsg = failMsg;
@@ -600,6 +648,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
+            jobInfo.add(loadStatistic.toJson());
             return jobInfo;
         } finally {
             readUnlock();
@@ -771,6 +820,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     @Override
     public void onTaskFailed(long taskId, FailMsg failMsg) {
+    }
+
+    // This analyze will be invoked after the replay is finished.
+    // The edit log of LoadJob saves the origin param which is not analyzed.
+    // So, the re-analyze must be invoked between the replay is finished and LoadJobScheduler is started.
+    // Only, the PENDING load job need to be analyzed.
+    public void analyze() {
     }
 
     @Override

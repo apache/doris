@@ -37,6 +37,7 @@
 #include "olap/storage_engine.h"
 #include "olap/data_dir.h"
 #include "runtime/exec_env.h"
+#include "gutil/strings/substitute.h" // for Substitute
 
 using boost::filesystem::path;
 
@@ -86,11 +87,11 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
 
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-    if (tablet.get() != nullptr) {
+    if (tablet != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status::InternalError("tablet already exists, can not restore.");
     }
-    std::string key = std::to_string(tablet_id) + "_" + std::to_string(schema_hash);
+    std::string key = tablet_id_str + "_" + schema_hash_str;
     {
         // check tablet_id + schema_hash already is restoring
         std::lock_guard<std::mutex> l(_tablet_restore_lock);
@@ -121,7 +122,7 @@ Status RestoreTabletAction::_reload_tablet(
                      << ", signature: " << tablet_id;
         // remove tablet data path in data path
         // path: /roo_path/data/shard/tablet_id
-        std::string tablet_path = shard_path + "/" + std::to_string(tablet_id);
+        std::string tablet_path = strings::Substitute("$0/$1/$2", shard_path, tablet_id, schema_hash);
         LOG(INFO) << "remove tablet_path:" << tablet_path;
         Status s = FileUtils::remove_all(tablet_path);
         if (!s.ok()) {
@@ -129,28 +130,19 @@ Status RestoreTabletAction::_reload_tablet(
         }
         return Status::InternalError("command executor load header failed");
     } else {
-        LOG(INFO) << "load header success. status: " << res
-                  << ", signature: " << tablet_id;
-        // remove tablet data path in trash
-        // path: /root_path/trash/time_label, because only one tablet path under time_label
         std::string trash_tablet_schema_hash_dir = "";
-
         {
             // get tablet path in trash
             std::lock_guard<std::mutex> l(_tablet_restore_lock);
             trash_tablet_schema_hash_dir = _tablet_path_map[key];
         }
+        LOG(INFO) << "load header success. status: " << res
+                  << ", signature: " << tablet_id << ", from trash path:" << trash_tablet_schema_hash_dir
+                  << " to shard path:" << shard_path;
 
-        boost::filesystem::path trash_tablet_schema_hash_path(trash_tablet_schema_hash_dir);
-        boost::filesystem::path time_label_path = trash_tablet_schema_hash_path.parent_path().parent_path();
-        LOG(INFO) << "remove time label path:" << time_label_path.string();
-        Status s = FileUtils::remove_all(time_label_path.string());
-        if (!s.ok()) {
-            LOG(WARNING) << "remove time label path:" << time_label_path.string() << " failed";
-        }
         return Status::OK();
     }
-} 
+}
 
 Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, int32_t schema_hash) {
     // get latest tablet path in trash
@@ -185,31 +177,35 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         return s;
     }
     // create hard link for files in /root_path/data/shard/tablet_id/schema_hash
-    std::vector<std::string> files;
-    s = FileUtils::scan_dir(latest_tablet_path, &files);
+    s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
-        LOG(WARNING) << "scan dir failed:" << latest_tablet_path;
+        RETURN_IF_ERROR(FileUtils::remove_all(restore_schema_hash_path));
         return s;
-    }
-    for (auto& file : files) {
-        std::string from = latest_tablet_path + "/" + file;
-        std::string to = restore_schema_hash_path + "/" + file;
-        int link_ret = link(from.c_str(), to.c_str());
-        if (link_ret != 0) {
-            LOG(WARNING) << "link from:" << from
-                    << " to:" << to  << " failed, link ret:" << link_ret;
-            std::string restore_tablet_path = store->get_absolute_tablet_path(&tablet_meta, false);
-            LOG(WARNING) << "remove tablet_path:" << restore_tablet_path;
-            Status s = FileUtils::remove_all(restore_tablet_path);
-            if (!s.ok()) {
-                LOG(WARNING) << "remove invalid tablet path:" << restore_tablet_path << " failed";
-            }
-            return Status::InternalError("create link path failed");
-        }
     }
     std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(tablet_meta.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
+}
+
+Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src, const std::string& dst) {
+    std::vector<std::string> files;
+    RETURN_IF_ERROR(FileUtils::scan_dir(src, &files));
+    for (auto& file : files) {
+        std::string from = src + "/" + file;
+        std::string to = dst + "/" + file;
+        if (FileUtils::is_dir(from)) {
+            RETURN_IF_ERROR(FileUtils::create_dir(to));
+            RETURN_IF_ERROR(_create_hard_link_recursive(from, to));
+        } else {
+            int link_ret = link(from.c_str(), to.c_str());
+            if (link_ret != 0) {
+                LOG(WARNING) << "link from:" << from
+                             << " to:" << to << " failed, link ret:" << link_ret;
+                return Status::InternalError("create link path failed");
+            }
+        }
+    }
+    return Status::OK();
 }
 
 bool RestoreTabletAction::_get_latest_tablet_path_from_trash(

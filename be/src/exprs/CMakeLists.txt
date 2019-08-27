@@ -64,6 +64,7 @@ add_library(Exprs
   hll_hash_function.cpp
   agg_fn.cc
   new_agg_fn_evaluator.cc
+  bitmap_function.cpp
 )
 #ADD_BE_TEST(json_function_test)
 #ADD_BE_TEST(binary_predicate_test)

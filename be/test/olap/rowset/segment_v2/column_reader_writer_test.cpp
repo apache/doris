@@ -58,6 +58,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 
         ColumnWriterOptions writer_opts;
         writer_opts.encoding_type = encoding;
+        writer_opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
+        writer_opts.need_zone_map = true;
 
         ColumnWriter writer(writer_opts, type_info, true, wfile.get());
         st = writer.init();
@@ -75,8 +77,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
         st = writer.write_ordinal_index();
         ASSERT_TRUE(st.ok());
+        st = writer.write_zone_map();
+        ASSERT_TRUE(st.ok());
 
         writer.write_meta(&meta);
+        ASSERT_TRUE(meta.has_zone_map_page());
 
         // close the file
         wfile.reset();
@@ -89,10 +94,12 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
 
         ColumnReaderOptions reader_opts;
-        ColumnReader reader(reader_opts, meta, rfile.get());
+        ColumnReader reader(reader_opts, meta, num_rows, rfile.get());
 
         st = reader.init();
         ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(reader._ordinal_index->num_pages(), reader._column_zone_map->get_column_zone_map().size());
 
         ColumnIterator* iter = nullptr;
         st = reader.new_iterator(&iter);
@@ -174,11 +181,12 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
     test_nullable_data<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 16, "null_largeint_bs");
 
     float* float_vals = new float[num_uint8_rows];
-    test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>((uint8_t*)float_vals, is_null, num_uint8_rows, "null_float_bs");
     for (int i = 0; i < num_uint8_rows; ++i) {
         float_vals[i] = i;
         is_null[i] = ((i % 16) == 0);
     }
+    test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>((uint8_t*)float_vals, is_null, num_uint8_rows, "null_float_bs");
+
     double* double_vals = new double[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         double_vals[i] = i;

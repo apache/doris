@@ -95,7 +95,7 @@ LOAD LABEL db1.label1
     SET
     (
         id=tmp_c2,
-        name=tmp_c1)
+        name=tmp_c1
     ),
     DATA INFILE("hdfs://abc.com:8888/user/palo/test/ml/file2")
     INTO TABLE tbl2
@@ -142,6 +142,10 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 
     在 ```data_desc``` 中可以指定待导入表的 partition 信息，如果待导入数据不属于指定的 partition 则不会被导入。同时，不在指定 Partition 的数据会被认为是错误数据。
        
++ set column mapping
+
+    在 ```data_desc``` 中的 SET 语句负责设置列函数变换，这里的列函数变换支持所有查询的等值表达式变换。如果原始数据的列和表中的列不一一对应，就需要用到这个属性。
+
 #### 导入作业参数
 
 导入作业参数主要指的是 Broker load 创建导入语句中的属于 ```opt_properties```部分的参数。导入作业参数是作用于整个导入作业的。
@@ -224,6 +228,10 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 
 > 注意：10 虽然是一个超过范围的值，但是因为其类型符合 decimal的要求，所以 strict mode对其不产生影响。10 最后会在其他 ETL 处理流程中被过滤。但不会被 strict mode 过滤。
 
+#### Broker 参数
+
+Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../broker.md)
+
 ### 查看导入
 
 Broker load 导入方式由于是异步的，所以用户必须将创建导入的 Label 记录，并且在**查看导入命令中使用 Label 来查看导入结果**。查看导入命令在所有导入方式中是通用的，具体语法可执行 ```HELP SHOW LOAD``` 查看。
@@ -247,6 +255,7 @@ mysql> show load order by createtime desc limit 1\G
  LoadStartTime: 2019-07-27 11:46:44
 LoadFinishTime: 2019-07-27 11:50:16
            URL: http://192.168.1.1:8040/api/_load_error_log?file=__shard_4/error_log_insert_stmt_4bb00753932c491a-a6da6e2725415317_4bb00753932c491a_a6da6e2725415317
+    LoadedRows: 82393000
 ```
 
 下面主要介绍了查看导入命令返回结果集中参数意义：
@@ -280,6 +289,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 + Type
 
     导入任务的类型。Broker load 的 type 取值只有 BROKER。    
+
 + EtlInfo
 
     主要显示了导入的数据量指标 ```dpp.norm.ALL 和 dpp.abnorm.ALL```。用户可以根据这两个指标验证当前导入任务的错误率是否超过 max\_filter\_ratio。
@@ -319,6 +329,14 @@ LoadFinishTime: 2019-07-27 11:50:16
 + URL
 
     导入任务的错误数据样例，访问 URL 地址既可获取本次导入的错误数据样例。当本次导入不存在错误数据时，URL 字段则为 N/A。
+
++ JobDetails
+
+    显示一些作业的详细运行状态。包括导入文件的个数、总大小（字节）、子任务个数、已处理的行数等。
+
+    ```{"LoadedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
+
+    其中已处理的行数，每 5 秒更新一次。该行数仅用于展示当前的进度，不代表最终实际的处理行数。实际处理行数以 EtlInfo 中显示的为准。
 
 ### 取消导入
 

@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -44,8 +45,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -194,6 +195,12 @@ public class Coordinator {
         this.returnedAllResults = false;
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setTimestamp_ms(new Date().getTime());
+        if (context.getSessionVariable().getTimeZone().equals("CST")) {
+            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+        } else {
+            this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());             
+        }
         this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
                 context.getSessionVariable().getResourceGroup());
         this.needReport = context.getSessionVariable().isReportSucc();
@@ -203,7 +210,7 @@ public class Coordinator {
         nextInstanceId.setLo(queryId.lo + 1);
     }
 
-    // Used for pull load task coordinator
+    // Used for broker load task/export task coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
         this.isBlockQuery = true;
@@ -214,6 +221,8 @@ public class Coordinator {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setTimestamp_ms(new Date().getTime());
+        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;
@@ -1096,7 +1105,9 @@ public class Coordinator {
                 // duplicate packet
                 return;
             }
-            execState.profile.update(params.profile);
+            if (params.isSetProfile()) {
+                execState.profile.update(params.profile);
+            }
             done = params.done;
             execState.done = params.done;
         } finally {
@@ -1139,6 +1150,10 @@ public class Coordinator {
                 updateCommitInfos(params.getCommitInfos());
             }
             profileDoneSignal.markedCountDown(params.getFragment_instance_id(), -1L);
+        } 
+
+        if (params.isSetLoaded_rows()) {
+            Catalog.getCurrentCatalog().getLoadManager().updateJobLoadedRows(jobId, params.query_id, params.loaded_rows);
         }
 
         return;

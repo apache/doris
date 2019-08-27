@@ -32,7 +32,7 @@
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "util/descriptor_helper.h"
+#include "runtime/descriptor_helper.h"
 
 namespace doris {
 namespace stream_load {
@@ -335,7 +335,7 @@ TEST_F(OlapTableSinkTest, normal) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -441,7 +441,7 @@ TEST_F(OlapTableSinkTest, convert) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -568,7 +568,7 @@ TEST_F(OlapTableSinkTest, init_fail1) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -626,7 +626,7 @@ TEST_F(OlapTableSinkTest, init_fail3) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -685,7 +685,7 @@ TEST_F(OlapTableSinkTest, init_fail4) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -752,7 +752,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -847,7 +847,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;

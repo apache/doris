@@ -49,39 +49,14 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     Version version = _alpha_rowset_meta->version();
     _is_singleton_rowset = (version.first == version.second);
     _ordinal = 0;
-    bool merge = false;
-    /*
-     * For singleton rowset, there exists three situations.
-     *   1. QUERY task will set preaggregation.
-     *      If preaggregation is set to be true
-     *      there is not necessary to merge row in advance.
-     *   2. QEURY task for DUP_KEYS tablet has no necessities
-     *      to merge row in advance.
-     *   2. COMPACTION/CHECKSUM/ALTER_TABLET task should merge
-     *      row in advance.
-     * For cumulative rowset, there are no necessities to merge row in advance.
-     */
-    RETURN_NOT_OK(_init_merge_ctxs(read_context));
-    if (_is_singleton_rowset && _merge_ctxs.size() > 1) {
-        if (_current_read_context->reader_type == READER_QUERY
-                && _current_read_context->preaggregation) {
-            // 1. QUERY task which set pregaggregation to be true
-            _next_block = &AlphaRowsetReader::_union_block;
-        } else if (_current_read_context->reader_type == READER_QUERY
-                    && _current_read_context->tablet_schema->keys_type() == DUP_KEYS) {
-            // 2. QUERY task for DUP_KEYS tablet
-            _next_block = &AlphaRowsetReader::_union_block;
-        } else {
-            // 3. COMPACTION/CHECKSUM/ALTER_TABLET task
-            _next_block = &AlphaRowsetReader::_merge_block;
-            merge = true;
-        }
-    } else {
-        // query task to scan cumulative rowset
-        _next_block = &AlphaRowsetReader::_union_block;
-    }
 
-    if (merge) {
+    RETURN_NOT_OK(_init_merge_ctxs(read_context));
+
+    // needs to sort merge only when
+    // 1) we are told to return sorted result (need_ordered_result)
+    // 2) we have several segment groups (_is_singleton_rowset && _merge_ctxs.size() > 1)
+    if (_current_read_context->need_ordered_result && _is_singleton_rowset && _merge_ctxs.size() > 1) {
+        _next_block = &AlphaRowsetReader::_merge_block;
         _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
@@ -113,6 +88,8 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
                                                 *(_current_read_context->seek_columns));
             }
         }
+    } else {
+        _next_block = &AlphaRowsetReader::_union_block;
     }
     return OLAP_SUCCESS;
 }
@@ -288,6 +265,9 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         _key_range_size = read_context->lower_bound_keys->size();
     }
 
+    // avoid polluting index stream cache by non-query workload (compaction/alter/checksum)
+    const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
+
     for (auto& segment_group : _segment_groups) {
         std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
@@ -297,10 +277,9 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         }
         new_column_data->set_delete_handler(read_context->delete_handler);
         new_column_data->set_stats(_stats);
-        new_column_data->set_lru_cache(read_context->lru_cache);
         if (read_context->reader_type == READER_ALTER_TABLE) {
             new_column_data->schema_change_init();
-            new_column_data->set_using_cache(read_context->is_using_cache);
+            new_column_data->set_using_cache(use_index_stream_cache);
             if (new_column_data->empty() && new_column_data->zero_num_rows()) {
                 continue;
             }
@@ -310,7 +289,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                     *read_context->load_bf_columns,
                     *read_context->conditions,
                     *read_context->predicates,
-                    read_context->is_using_cache,
+                    use_index_stream_cache,
                     read_context->runtime_state);
             // filter
             if (new_column_data->rowset_pruning_filter()) {

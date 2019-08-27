@@ -46,37 +46,6 @@ using std::sort;
 using std::string;
 using std::vector;
 
-TabletSharedPtr Tablet::create_tablet_from_meta_file(
-            const string& file_path, DataDir* data_dir) {
-    TabletMetaSharedPtr tablet_meta(new(nothrow) TabletMeta());
-    if (tablet_meta == nullptr) {
-        LOG(WARNING) << "fail to malloc TabletMeta.";
-        return NULL;
-    }
-
-    if (tablet_meta->create_from_file(file_path) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to load tablet_meta. file_path=" << file_path;
-        return nullptr;
-    }
-
-    // add new fields
-    boost::filesystem::path file_path_path(file_path);
-    string shard_path = file_path_path.parent_path().parent_path().parent_path().string();
-    string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
-    uint64_t shard = stol(shard_str);
-    tablet_meta->set_shard_id(shard);
-
-    // save tablet_meta info to kv db
-    // tablet_meta key format: tablet_id + "_" + schema_hash
-    OLAPStatus res = TabletMetaManager::save(data_dir, tablet_meta->tablet_id(),
-                                             tablet_meta->schema_hash(), tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save tablet_meta to db. file_path=" << file_path;
-        return nullptr;
-    }
-    return create_tablet_from_meta(tablet_meta, data_dir);
-}
-
 TabletSharedPtr Tablet::create_tablet_from_meta(
         TabletMetaSharedPtr tablet_meta,
         DataDir* data_dir) {
@@ -150,6 +119,8 @@ OLAPStatus Tablet::init_once() {
         _inc_rs_version_map[version] = rowset;
     }
 
+    _cumulative_point = -1;
+
     return res;
 }
 
@@ -169,6 +140,8 @@ string Tablet::tablet_path() const {
     return _tablet_path;
 }
 
+// should save tablet meta to remote meta store
+// if it's a primary replica
 OLAPStatus Tablet::save_meta() {
     OLAPStatus res = _tablet_meta->save_meta(_data_dir);
     if (res != OLAP_SUCCESS) {
@@ -461,8 +434,15 @@ OLAPStatus Tablet::check_version_integrity(const Version& version) {
     return capture_consistent_versions(version, &span_versions);
 }
 
+// if any rowset contains the version's data, it means the version
+// already exist
 bool Tablet::check_version_exist(const Version& version) const {
-    return (_rs_version_map.find(version) != _rs_version_map.end());
+    for (auto& it : _rs_version_map) {
+        if (it.first.first <= version.first && it.first.second >= version.second) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Tablet::list_versions(vector<Version>* versions) const {
@@ -670,6 +650,17 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
     return OLAP_SUCCESS;
 }
 
+void Tablet::compute_version_hash_from_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets, VersionHash* version_hash) const {
+    DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
+    int64_t v_hash  = 0;
+    for (auto& rowset : rowsets) {
+        v_hash ^= rowset->version_hash();
+    }
+    *version_hash = v_hash;
+}
+
+
 void Tablet::calc_missed_versions(int64_t spec_version,
                                   vector<Version>* missed_versions) {
     ReadLock rdlock(&_meta_lock);
@@ -733,6 +724,38 @@ OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, Versio
     }
     *version = max_continuous_version;
     *v_hash = max_continuous_version_hash;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Tablet::calculate_cumulative_point() {
+    WriteLock wrlock(&_meta_lock);
+    if (_cumulative_point != -1)  {
+        return OLAP_SUCCESS;
+    }
+    
+    std::list<Version> existing_versions;
+    for (auto& rs : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(rs->version());
+    }
+
+    // sort the existing versions in ascending order
+    existing_versions.sort([](const Version& a, const Version& b) {
+        // simple because 2 versions are certainly not overlapping
+        return a.first < b.first;
+    });
+
+    int64_t prev_version = -1;
+    for (const Version& version : existing_versions) {
+        if (version.first > prev_version + 1) {
+            break;
+        }
+        if (version.first == version.second) {
+            _cumulative_point = version.first;
+            break;
+        }
+        prev_version = version.second;
+        _cumulative_point = version.second + 1;
+    }
     return OLAP_SUCCESS;
 }
 
@@ -935,6 +958,25 @@ OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
 
 TabletInfo Tablet::get_tablet_info() {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
+}
+
+void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    ReadLock rdlock(&_meta_lock);
+    for (auto& it : _rs_version_map) {
+        if (it.first.first >= _cumulative_point
+            && it.first.first == it.first.second) {
+            candidate_rowsets->push_back(it.second);
+        }
+    }
+}
+
+void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    ReadLock rdlock(&_meta_lock);
+    for (auto& it : _rs_version_map) {
+        if (it.first.first < _cumulative_point) {
+            candidate_rowsets->push_back(it.second);
+        }
+    }
 }
 
 }  // namespace doris

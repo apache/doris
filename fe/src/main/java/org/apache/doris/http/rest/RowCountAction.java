@@ -47,8 +47,6 @@ import io.netty.handler.codec.http.HttpMethod;
  * fe_host:fe_http_port/api/rowcount?db=dbname&table=tablename
  */
 public class RowCountAction extends RestBaseAction {
-    public static final String DB_NAME_PARAM = "db";
-    public static final String TABLE_NAME_PARAM = "table";
 
     public RowCountAction(ActionController controller) {
         super(controller);
@@ -63,12 +61,12 @@ public class RowCountAction extends RestBaseAction {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter(DB_NAME_PARAM);
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }
 
-        String tableName = request.getSingleParameter(TABLE_NAME_PARAM);
+        String tableName = request.getSingleParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
         }

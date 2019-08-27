@@ -43,5 +43,5 @@ add_library(Rowset STATIC
     alpha_rowset_writer.cpp
     alpha_rowset_meta.cpp
     beta_rowset.cpp
-    rowset_id_generator.cpp
-)
+    beta_rowset_writer.cpp
+    rowset_id_generator.cpp)

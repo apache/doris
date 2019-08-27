@@ -14,6 +14,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -189,6 +190,10 @@ namespace doris {
             // REQUIRES: handle must not have been released yet.
             // REQUIRES: handle must have been returned by a method on *this.
             virtual void* value(Handle* handle) = 0;
+
+            // Return the value in Slice format encapsulated in the given handle
+            // returned by a successful lookup()
+            virtual Slice value_slice(Handle* handle) = 0;
 
             // If the cache contains entry for key, erase it.  Note that the
             // underlying entry will be kept around until all existing handles
@@ -366,6 +371,7 @@ namespace doris {
             virtual void release(Handle* handle);
             virtual void erase(const CacheKey& key);
             virtual void* value(Handle* handle);
+            Slice value_slice(Handle* handle) override;
             virtual uint64_t new_id();
             virtual void prune();
             virtual size_t get_memory_usage();

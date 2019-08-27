@@ -23,7 +23,7 @@ import mockit.MockUp;
 public class FakeCatalog extends MockUp<Catalog> {
     
     private static Catalog catalog;
-    
+
     public static void setCatalog(Catalog catalog) {
         FakeCatalog.catalog = catalog;
     }

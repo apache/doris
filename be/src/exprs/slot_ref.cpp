@@ -69,6 +69,24 @@ SlotRef::SlotRef(const TypeDescriptor& type, int offset) :
         _slot_id(-1) {
 }
 
+Status SlotRef::prepare(const SlotDescriptor* slot_desc,
+                        const RowDescriptor& row_desc) {
+    if (!slot_desc->is_materialized()) {
+        std::stringstream error;
+        error << "reference to non-materialized slot. slot_id: " << _slot_id;
+        return Status::InternalError(error.str());
+    }
+    _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
+    if (_tuple_idx == RowDescriptor::INVALID_IDX) {
+        return Status::InternalError("can't support");
+    }
+    _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
+    _slot_offset = slot_desc->tuple_offset();
+    _null_indicator_offset = slot_desc->null_indicator_offset();
+    _is_nullable = slot_desc->is_nullable();
+    return Status::OK();
+}
+
 Status SlotRef::prepare(
         RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
     DCHECK_EQ(_children.size(), 0);
