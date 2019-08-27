@@ -280,7 +280,7 @@ OLAPStatus ColumnDataWriter::_flush_segment_with_verfication() {
     OLAPStatus res = _finalize_segment();
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to finalize segment. [res=%d]", res);
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+        return res;
     }
 
     _new_segment_created = false;
@@ -292,12 +292,12 @@ OLAPStatus ColumnDataWriter::_finalize_segment() {
     OLAPStatus res = OLAP_SUCCESS;
     uint32_t data_segment_size;
 
-    if (OLAP_SUCCESS != _segment_writer->finalize(&data_segment_size)) {
+    if ((res =  _segment_writer->finalize(&data_segment_size)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to finish segment from olap_data.");
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+        return res;
     }
 
-    if (OLAP_SUCCESS != _segment_group->finalize_segment(data_segment_size, _num_rows)) {
+    if ((res != _segment_group->finalize_segment(data_segment_size, _num_rows)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to finish segment from olap_index.");
         return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
     }

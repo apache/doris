@@ -755,6 +755,7 @@ public class RestoreJob extends AbstractJob {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
+        Map<Long, Long> pathBeMap = Maps.newHashMap();
         batchTask = new AgentBatchTask();
         db.readLock();
         try {
@@ -773,9 +774,17 @@ public class RestoreJob extends AbstractJob {
                         true /* is restore task*/);
                 batchTask.addTask(task);
                 unfinishedSignatureToId.put(signature, tablet.getId());
+                pathBeMap.put(replica.getPathHash(), replica.getBackendId());
             }
         } finally {
             db.readUnlock();
+        }
+        
+        // check disk capacity
+        org.apache.doris.common.Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(pathBeMap, true);
+        if (!st.ok()) {
+            status = new Status(ErrCode.COMMON_ERROR, st.getErrorMsg());
+            return;
         }
 
         // send tasks

@@ -137,10 +137,7 @@ OLAPStatus DeltaWriter::init() {
 
     // TODO: new RowsetBuilder according to tablet storage type
     _rowset_writer.reset(new AlphaRowsetWriter());
-    status = _rowset_writer->init(writer_context);
-    if (status != OLAP_SUCCESS) {
-        return OLAP_ERR_ROWSET_WRITER_INIT;
-    }
+    RETURN_NOT_OK(_rowset_writer->init(writer_context));
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
     const TabletSchema& schema = _tablet->tablet_schema();
