@@ -109,6 +109,7 @@ public:
 
     // Counters for segment_v2
     // -----------------------
+    // total number of segments read
     static IntCounter segment_read_total;
     // total number of rows in queried segments (before index pruning)
     static IntCounter segment_row_total;

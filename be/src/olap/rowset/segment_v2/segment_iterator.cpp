@@ -39,7 +39,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
       _column_iterators(_schema.num_columns(), nullptr),
       _row_ranges(RowRanges::create_single(_segment->num_rows())),
       _cur_rowid(0),
-      _cur_range_id(0) {
+      _cur_range_id(0),
+      _inited(false) {
 }
 
 SegmentIterator::~SegmentIterator() {
@@ -48,9 +49,8 @@ SegmentIterator::~SegmentIterator() {
     }
 }
 
-Status SegmentIterator::init(const StorageReadOptions& opts) {
+Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
-    _opts = opts;
     RETURN_IF_ERROR(_get_row_ranges_by_keys());
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     if (!_row_ranges.is_empty()) {
@@ -58,7 +58,6 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
         _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
     }
     RETURN_IF_ERROR(_init_column_iterators());
-
     return Status::OK();
 }
 
@@ -291,6 +290,11 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 }
 
 Status SegmentIterator::next_batch(RowBlockV2* block) {
+    if (UNLIKELY(!_inited)) {
+        RETURN_IF_ERROR(_init());
+        _inited = true;
+    }
+
     if (_row_ranges.is_empty() || _cur_rowid >= _row_ranges.to()) {
         block->resize(0);
         return Status::EndOfFile("no more data in segment");

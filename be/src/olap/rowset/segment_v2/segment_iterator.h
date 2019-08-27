@@ -45,10 +45,15 @@ class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
     ~SegmentIterator() override;
-    Status init(const StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts) override {
+        _opts = opts;
+        return Status::OK();
+    }
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
 private:
+    Status _init();
+
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -58,6 +63,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     Status _get_row_ranges_by_column_conditions();
+    // TODO move column index related logic to ColumnReader
     Status _get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges);
 
     Status _init_column_iterators();
@@ -80,6 +86,8 @@ private:
     rowid_t _cur_rowid;
     // index of the row range where `_cur_rowid` belongs to
     size_t _cur_range_id;
+    // the actual init process is delayed to the first call to next_batch()
+    bool _inited;
 
     StorageReadOptions _opts;
 
