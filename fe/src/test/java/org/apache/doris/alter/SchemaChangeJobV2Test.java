@@ -94,7 +94,7 @@ public class SchemaChangeJobV2Test {
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_60);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_61);
         metaContext.setThreadLocalInfo();
 
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
