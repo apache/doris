@@ -33,7 +33,6 @@ namespace doris {
 
 class RandomAccessFile;
 class SegmentGroup;
-class FieldInfo;
 class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;
@@ -42,7 +41,9 @@ namespace segment_v2 {
 
 class ColumnReader;
 class ColumnIterator;
+class Segment;
 class SegmentIterator;
+using SegmentSharedPtr = std::shared_ptr<Segment>;
 
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
@@ -55,8 +56,7 @@ class SegmentIterator;
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
     Segment(std::string fname, uint32_t segment_id,
-            const std::shared_ptr<TabletSchema>& tablet_schema,
-            size_t num_rows_per_block);
+            const TabletSchema* tablet_schema);
     ~Segment();
 
     Status open();
@@ -71,7 +71,7 @@ private:
     friend class SegmentIterator;
 
     Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
-    uint32_t num_rows_per_block() const { return _num_rows_per_block; }
+    uint32_t num_rows_per_block() const { return _sk_index_decoder->num_rows_per_block(); }
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
     Status _check_magic(uint64_t offset);
@@ -97,8 +97,7 @@ private:
 private:
     std::string _fname;
     uint32_t _segment_id;
-    std::shared_ptr<TabletSchema> _tablet_schema;
-    uint32_t _num_rows_per_block;
+    const TabletSchema* _tablet_schema;
 
     SegmentFooterPB _footer;
     std::unique_ptr<RandomAccessFile> _input_file;

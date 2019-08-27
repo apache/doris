@@ -482,21 +482,6 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnData::get_next_row_block(RowBlock** row_block) {
-    _is_normal_read = true;
-    OLAPStatus res = _get_block(false);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("fail to load data to row block. [res=%d]", res);
-        }
-        *row_block = nullptr;
-        return res;
-    }
-
-    *row_block = _read_block.get();
-    return OLAP_SUCCESS;
-}
-
 bool ColumnData::rowset_pruning_filter() {
     if (empty() || zero_num_rows()) {
         return true;
@@ -516,7 +501,7 @@ int ColumnData::delete_pruning_filter() {
         return DEL_NOT_SATISFIED;
     }
 
-    if (false == _segment_group->has_zone_maps()) {
+    if (!_segment_group->has_zone_maps()) {
         /*
          * if segment_group has no column statistics, we cannot judge whether the data can be filtered or not
          */
@@ -549,9 +534,9 @@ int ColumnData::delete_pruning_filter() {
         }
     }
 
-    if (true == del_stastified) {
+    if (del_stastified) {
         ret = DEL_SATISFIED;
-    } else if (true == del_partial_stastified) {
+    } else if (del_partial_stastified) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_NOT_SATISFIED;

@@ -49,16 +49,19 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
 private:
-    Status _init_short_key_range();
-    Status _prepare_seek();
-    Status _init_row_ranges();
-    Status _get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges);
-    Status _init_column_iterators();
-    Status _create_column_iterator(uint32_t cid, ColumnIterator** iter);
-
+    // calculate row ranges that fall into requested key ranges using short key index
+    Status _get_row_ranges_by_keys();
+    Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     Status _lookup_ordinal(const RowCursor& key, bool is_include,
                            rowid_t upper_bound, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
+
+    // calculate row ranges that satisfy requested column conditions using various column index
+    Status _get_row_ranges_by_column_conditions();
+    Status _get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges);
+
+    Status _init_column_iterators();
+
     Status _next_batch(RowBlockV2* block, size_t* rows_read);
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -68,28 +71,24 @@ private:
     std::shared_ptr<Segment> _segment;
     // TODO(zc): rethink if we need copy it
     Schema _schema;
+    // _column_iterators.size() == _schema.num_columns()
+    // _column_iterators[cid] == nullptr if cid is not in _schema
+    std::vector<ColumnIterator*> _column_iterators;
+    // after init(), `_row_ranges` contains all rowid to scan
+    RowRanges _row_ranges;
+    // the next rowid to read
+    rowid_t _cur_rowid;
+    // index of the row range where `_cur_rowid` belongs to
+    size_t _cur_range_id;
 
     StorageReadOptions _opts;
 
-    // row ranges to scan
-    size_t _cur_range_id;
-    RowRanges _row_ranges;
-
-    // Only used when init is called, help to finish seek_and_peek.
-    // Data will be saved in this batch
+    // row schema of the key to seek
+    // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<Schema> _seek_schema;
-
-    // used to read data from columns when do bianry search to find
-    // oridnal for input bounds
+    // used to binary search the rowid for a given key
+    // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
-    // helper to save row to compare with input bounds
-    std::unique_ptr<RowCursor> _key_cursor;
-
-    std::vector<ColumnIterator*> _column_iterators;
-
-    rowid_t _lower_rowid;
-    rowid_t _upper_rowid;
-    rowid_t _cur_rowid;
 
     Arena _arena;
 };

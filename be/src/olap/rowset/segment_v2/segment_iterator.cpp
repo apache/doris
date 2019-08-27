@@ -34,11 +34,12 @@ namespace segment_v2 {
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
                                  const Schema& schema)
-        : _segment(std::move(segment)),
-        _schema(schema),
-        _cur_range_id(0),
-        _column_iterators(_schema.num_columns(), nullptr),
-        _cur_rowid(0) {
+    : _segment(std::move(segment)),
+      _schema(schema),
+      _column_iterators(_schema.num_columns(), nullptr),
+      _row_ranges(RowRanges::create_single(_segment->num_rows())),
+      _cur_rowid(0),
+      _cur_range_id(0) {
 }
 
 SegmentIterator::~SegmentIterator() {
@@ -50,8 +51,8 @@ SegmentIterator::~SegmentIterator() {
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     DorisMetrics::segment_read_total.increment(1);
     _opts = opts;
-    RETURN_IF_ERROR(_init_short_key_range());
-    RETURN_IF_ERROR(_init_row_ranges());
+    RETURN_IF_ERROR(_get_row_ranges_by_keys());
+    RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     if (!_row_ranges.is_empty()) {
         _cur_range_id = 0;
         _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
@@ -61,58 +62,55 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
-// This function will use input key bounds to get a row range.
-Status SegmentIterator::_init_short_key_range() {
+Status SegmentIterator::_get_row_ranges_by_keys() {
     DorisMetrics::segment_row_total.increment(num_rows());
-    _lower_rowid = 0;
-    _upper_rowid = num_rows();
-    // initial short key row ranges: [0, num_rows())
-    _row_ranges = RowRanges::create_single(_lower_rowid, _upper_rowid);
 
-    // fast path for empty segment
-    if (_upper_rowid == 0) {
+    // fast path for empty segment or empty key ranges
+    if (_row_ranges.is_empty() || _opts.key_ranges().empty()) {
         return Status::OK();
     }
 
-    if (_opts.lower_bound == nullptr && _opts.upper_bound == nullptr) {
-        return Status::OK();
-    }
+    rowid_t lower_rowid = 0;
+    rowid_t upper_rowid = num_rows();
 
-    RETURN_IF_ERROR(_prepare_seek());
-
-    // init row range with short key range
-    if (_opts.upper_bound != nullptr) {
-        // If client want to read upper_bound, the include_upper_bound is true. So we
-        // should get the first ordinal at which key is larger than upper_bound.
-        // So we call _lookup_ordinal with include_upper_bound's negate
-        RETURN_IF_ERROR(_lookup_ordinal(
-                *_opts.upper_bound, !_opts.include_upper_bound, num_rows(), &_upper_rowid));
+    RowRanges result_ranges;
+    for (auto& key_range : _opts.key_ranges()) {
+        RETURN_IF_ERROR(_prepare_seek(key_range));
+        if (key_range.upper_key != nullptr) {
+            // If client want to read upper_bound, the include_upper is true. So we
+            // should get the first ordinal at which key is larger than upper_bound.
+            // So we call _lookup_ordinal with include_upper's negate
+            RETURN_IF_ERROR(_lookup_ordinal(
+                *key_range.upper_key, !key_range.include_upper, num_rows(), &upper_rowid));
+        }
+        if (upper_rowid > 0 && key_range.lower_key != nullptr) {
+            RETURN_IF_ERROR(
+                _lookup_ordinal(*key_range.lower_key, key_range.include_lower, upper_rowid, &lower_rowid));
+        }
+        auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
+        RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
     }
-    if (_upper_rowid > 0 && _opts.lower_bound != nullptr) {
-        RETURN_IF_ERROR(_lookup_ordinal(
-                *_opts.lower_bound, _opts.include_lower_bound, _upper_rowid, &_lower_rowid));
-    }
-    // seeked short key row ranges: [_lower_rowid, _upper_rowid)
-    _row_ranges = RowRanges::create_single(_lower_rowid, _upper_rowid);
-    DorisMetrics::segment_rows_by_short_key.increment(_upper_rowid - _lower_rowid);
+    // pre-condition: _row_ranges == [0, num_rows)
+    _row_ranges = std::move(result_ranges);
+    DorisMetrics::segment_rows_by_short_key.increment(_row_ranges.count());
 
     return Status::OK();
 }
 
 // Set up environment for the following seek.
-Status SegmentIterator::_prepare_seek() {
+Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
     std::vector<const Field*> key_fields;
     std::set<uint32_t> column_set;
-    if (_opts.lower_bound != nullptr) {
-        for (auto cid : _opts.lower_bound->schema()->column_ids()) {
+    if (key_range.lower_key != nullptr) {
+        for (auto cid : key_range.lower_key->schema()->column_ids()) {
             column_set.emplace(cid);
-            key_fields.emplace_back(_opts.lower_bound->schema()->column(cid));
+            key_fields.emplace_back(key_range.lower_key->schema()->column(cid));
         }
     }
-    if (_opts.upper_bound != nullptr) {
-        for (auto cid : _opts.upper_bound->schema()->column_ids()) {
+    if (key_range.upper_key != nullptr) {
+        for (auto cid : key_range.upper_key->schema()->column_ids()) {
             if (column_set.count(cid) == 0) {
-                key_fields.emplace_back(_opts.upper_bound->schema()->column(cid));
+                key_fields.emplace_back(key_range.upper_key->schema()->column(cid));
                 column_set.emplace(cid);
             }
         }
@@ -123,20 +121,20 @@ Status SegmentIterator::_prepare_seek() {
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_create_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
         }
     }
 
     return Status::OK();
 }
 
-Status SegmentIterator::_init_row_ranges() {
-    if (_lower_rowid == _upper_rowid) {
+Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    if (_row_ranges.is_empty()) {
         // no data just return;
         return Status::OK();
     }
 
-    if (_opts.conditions != nullptr) {
+    if (_opts.column_predicates() != nullptr) {
         RowRanges zone_map_row_ranges;
         RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
         RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
@@ -150,7 +148,7 @@ Status SegmentIterator::_init_row_ranges() {
 
 Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& column_condition : _opts.conditions->columns()) {
+    for (auto& column_condition : _opts.column_predicates()->columns()) {
         int32_t column_id = column_condition.first;
         // get row ranges from zone map
         if (!_segment->_column_readers[column_id]->has_zone_map()) {
@@ -174,16 +172,12 @@ Status SegmentIterator::_init_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_create_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
         }
 
         _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
     }
     return Status::OK();
-}
-
-Status SegmentIterator::_create_column_iterator(uint32_t cid, ColumnIterator** iter) {
-    return _segment->new_column_iterator(cid, iter);
 }
 
 // Schema of lhs and rhs are different.
@@ -304,7 +298,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     size_t rows_to_read = block->capacity();
     while (rows_to_read > 0) {
         if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
-            // current row range is read over,
+            // current row range is read over, trying to read from next range
             if (_cur_range_id >= _row_ranges.range_size() - 1) {
                 // there is no more row range
                 break;

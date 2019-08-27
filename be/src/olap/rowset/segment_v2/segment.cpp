@@ -34,12 +34,10 @@ using strings::Substitute;
 
 Segment::Segment(
         std::string fname, uint32_t segment_id,
-        const std::shared_ptr<TabletSchema>& tablet_schema,
-        size_t num_rows_per_block)
+        const TabletSchema* tablet_schema)
         : _fname(std::move(fname)),
         _segment_id(segment_id),
-        _tablet_schema(tablet_schema),
-        _num_rows_per_block(num_rows_per_block) {
+        _tablet_schema(tablet_schema) {
 }
 
 Segment::~Segment() {

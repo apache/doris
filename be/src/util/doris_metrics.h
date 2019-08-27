@@ -107,9 +107,14 @@ public:
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
 
+    // Counters for segment_v2
+    // -----------------------
     static IntCounter segment_read_total;
+    // total number of rows in queried segments (before index pruning)
     static IntCounter segment_row_total;
+    // total number of rows selected by short key index
     static IntCounter segment_rows_by_short_key;
+    // total number of rows selected by zone map index
     static IntCounter segment_rows_read_by_zone_map;
 
     static IntCounter txn_begin_request_total;

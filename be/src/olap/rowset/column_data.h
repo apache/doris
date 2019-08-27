@@ -76,7 +76,6 @@ public:
             RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
-    OLAPStatus get_next_row_block(RowBlock** row_block);
 
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
