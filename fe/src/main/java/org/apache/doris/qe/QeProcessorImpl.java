@@ -105,15 +105,17 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
-        LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                params.backend_num, beAddr);
-        LOG.debug("params: {}", params);
+        if (params.isSetProfile()) {
+            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
+                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
+                    params.backend_num, beAddr);
+            LOG.debug("params: {}", params);
+        }
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {
             result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            LOG.info("ReportExecStatus() runtime error");
+            LOG.info("ReportExecStatus() runtime error, query {} does not exist", params.query_id);
             return result;
         }
         try {
