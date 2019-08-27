@@ -28,27 +28,44 @@ class RowBlockV2;
 class Schema;
 class Conditions;
 
-struct StorageReadOptions {
-    // lower_bound defines the smallest key at which iterator will
-    // return data.
-    // If lower_bound is null, won't return
-    std::shared_ptr<RowCursor> lower_bound;
+class StorageReadOptions {
+public:
+    struct KeyRange {
+        KeyRange()
+            : lower_key(nullptr),
+              include_lower(false),
+              upper_key(nullptr),
+              include_upper(false) {
+        }
 
-    // If include_lower_bound is true, data equal with lower_bound will
-    // be read
-    bool include_lower_bound = false;
+        KeyRange(const RowCursor* lower_key_,
+                 bool include_lower_,
+                 const RowCursor* upper_key_,
+                 bool include_upper_)
+            : lower_key(lower_key_),
+              include_lower(include_lower_),
+              upper_key(upper_key_),
+              include_upper(include_upper_) {
+        }
 
-    // upper_bound defines the extend upto which the iterator can return
-    // data.
-    std::shared_ptr<RowCursor> upper_bound;
+        // the lower bound of the range, nullptr if not existed
+        const RowCursor* lower_key;
+        // whether `lower_key` is included in the range
+        bool include_lower;
+        // the upper bound of the range, nullptr if not existed
+        const RowCursor* upper_key;
+        // whether `upper_key` is included in the range
+        bool include_upper;
+    };
 
-    // If include_upper_bound is true, data equal with upper_bound will
-    // be read
-    bool include_upper_bound = false;
+    // reader's key ranges, empty if not existed.
+    // used by short key index to filter row blocks
+    std::vector<KeyRange> key_ranges;
 
-    // reader's column predicates
-    // used by zone map/bloom filter/secondary index to prune data
-    std::shared_ptr<Conditions> conditions;
+    // reader's column predicates, nullptr if not existed.
+    // used by column index to filter pages and rows
+    // TODO use vector<ColumnPredicate*> instead
+    const Conditions* conditions = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one

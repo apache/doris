@@ -89,7 +89,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
     ASSERT_TRUE(st.ok());
     // reader
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, num_rows_per_block));
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
         st = segment->open();
         LOG(INFO) << "segment open, msg=" << st.to_string();
         ASSERT_TRUE(st.ok());
@@ -97,13 +97,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
         Schema schema(*tablet_schema);
         // scan all rows
         {
-            std::unique_ptr<SegmentIterator> iter;
-            st = segment->new_iterator(schema, &iter);
-            ASSERT_TRUE(st.ok());
-
             StorageReadOptions read_opts;
-            st = iter->init(read_opts);
-            ASSERT_TRUE(st.ok());
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
             Arena arena;
             RowBlockV2 block(schema, 1024, &arena);
@@ -132,14 +127,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
         }
         // test seek, key
         {
-            std::unique_ptr<SegmentIterator> iter;
-            st = segment->new_iterator(schema, &iter);
-            ASSERT_TRUE(st.ok());
-
             // lower bound
-            StorageReadOptions read_opts;
-            read_opts.lower_bound.reset(new RowCursor());
-            RowCursor* lower_bound = read_opts.lower_bound.get();
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
             lower_bound->init(*tablet_schema, 2);
             {
                 auto cell = lower_bound->cell(0);
@@ -151,22 +140,19 @@ TEST_F(SegmentReaderWriterTest, normal) {
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = 100;
             }
-            read_opts.include_lower_bound = false;
 
             // upper bound
-            read_opts.upper_bound.reset(new RowCursor());
-            RowCursor* upper_bound = read_opts.upper_bound.get();
+            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
             upper_bound->init(*tablet_schema, 1);
             {
                 auto cell = upper_bound->cell(0);
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = 200;
             }
-            read_opts.include_upper_bound = true;
 
-            st = iter->init(read_opts);
-            LOG(INFO) << "iterator init msg=" << st.to_string();
-            ASSERT_TRUE(st.ok());
+            StorageReadOptions read_opts;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
@@ -180,26 +166,18 @@ TEST_F(SegmentReaderWriterTest, normal) {
         }
         // test seek, key
         {
-            std::unique_ptr<SegmentIterator> iter;
-            st = segment->new_iterator(schema, &iter);
-            ASSERT_TRUE(st.ok());
-
-            StorageReadOptions read_opts;
-
             // lower bound
-            read_opts.lower_bound.reset(new RowCursor());
-            RowCursor* lower_bound = read_opts.lower_bound.get();
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
             lower_bound->init(*tablet_schema, 1);
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = 40970;
             }
-            read_opts.include_lower_bound = false;
 
-            st = iter->init(read_opts);
-            LOG(INFO) << "iterator init msg=" << st.to_string();
-            ASSERT_TRUE(st.ok());
+            StorageReadOptions read_opts;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
@@ -209,36 +187,26 @@ TEST_F(SegmentReaderWriterTest, normal) {
         }
         // test seek, key (-2, -1)
         {
-            std::unique_ptr<SegmentIterator> iter;
-            st = segment->new_iterator(schema, &iter);
-            ASSERT_TRUE(st.ok());
-
-            StorageReadOptions read_opts;
-
             // lower bound
-            read_opts.lower_bound.reset(new RowCursor());
-            RowCursor* lower_bound = read_opts.lower_bound.get();
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
             lower_bound->init(*tablet_schema, 1);
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = -2;
             }
-            read_opts.include_lower_bound = false;
 
-            read_opts.upper_bound.reset(new RowCursor());
-            RowCursor* upper_bound = read_opts.upper_bound.get();
+            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
             upper_bound->init(*tablet_schema, 1);
             {
                 auto cell = upper_bound->cell(0);
                 cell.set_not_null();
                 *(int*)cell.mutable_cell_ptr() = -1;
             }
-            read_opts.include_upper_bound = false;
 
-            st = iter->init(read_opts);
-            LOG(INFO) << "iterator init msg=" << st.to_string();
-            ASSERT_TRUE(st.ok());
+            StorageReadOptions read_opts;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
             Arena arena;
             RowBlockV2 block(schema, 100, &arena);
@@ -299,18 +267,13 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
 
     // reader with condition
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema, num_rows_per_block));
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
         st = segment->open();
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
         // scan all rows
         {
-            std::unique_ptr<SegmentIterator> iter;
-            st = segment->new_iterator(schema, &iter);
-            ASSERT_TRUE(st.ok());
-
-            StorageReadOptions read_opts;
             TCondition condition;
             condition.__set_column_name("2");
             condition.__set_condition_op("<");
@@ -319,9 +282,11 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
             conditions->append_condition(condition);
-            read_opts.conditions = conditions;
-            st = iter->init(read_opts);
-            ASSERT_TRUE(st.ok());
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
             Arena arena;
             RowBlockV2 block(schema, 1024, &arena);
