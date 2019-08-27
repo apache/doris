@@ -36,6 +36,7 @@ class SegmentGroup;
 class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;
+class StorageReadOptions;
 
 namespace segment_v2 {
 
@@ -61,7 +62,7 @@ public:
 
     Status open();
 
-    Status new_iterator(const Schema& schema, std::unique_ptr<SegmentIterator>* iter);
+    std::unique_ptr<SegmentIterator> new_iterator(const Schema& schema, const StorageReadOptions& read_options);
 
     uint64_t id() const { return _segment_id; }
 

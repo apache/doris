@@ -65,15 +65,14 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     DorisMetrics::segment_row_total.increment(num_rows());
 
     // fast path for empty segment or empty key ranges
-    if (_row_ranges.is_empty() || _opts.key_ranges().empty()) {
+    if (_row_ranges.is_empty() || _opts.key_ranges.empty()) {
         return Status::OK();
     }
 
-    rowid_t lower_rowid = 0;
-    rowid_t upper_rowid = num_rows();
-
     RowRanges result_ranges;
-    for (auto& key_range : _opts.key_ranges()) {
+    for (auto& key_range : _opts.key_ranges) {
+        rowid_t lower_rowid = 0;
+        rowid_t upper_rowid = num_rows();
         RETURN_IF_ERROR(_prepare_seek(key_range));
         if (key_range.upper_key != nullptr) {
             // If client want to read upper_bound, the include_upper is true. So we
@@ -133,7 +132,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
-    if (_opts.column_predicates() != nullptr) {
+    if (_opts.conditions != nullptr) {
         RowRanges zone_map_row_ranges;
         RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
         RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
@@ -147,7 +146,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
 Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& column_condition : _opts.column_predicates()->columns()) {
+    for (auto& column_condition : _opts.conditions->columns()) {
         int32_t column_id = column_condition.first;
         // get row ranges from zone map
         if (!_segment->_column_readers[column_id]->has_zone_map()) {

@@ -69,9 +69,10 @@ Status Segment::open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(const Schema& schema, std::unique_ptr<SegmentIterator>* output) {
-    output->reset(new SegmentIterator(this->shared_from_this(), schema));
-    return Status::OK();
+std::unique_ptr<SegmentIterator> Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options) {
+    auto it = std::unique_ptr<SegmentIterator>(new SegmentIterator(this->shared_from_this(), schema));
+    it->init(read_options);
+    return it;
 }
 
 // Read data at offset of input file, check if the file content match the magic

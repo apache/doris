@@ -58,33 +58,14 @@ public:
         bool include_upper;
     };
 
-    StorageReadOptions() = default;
-
-    StorageReadOptions(const std::vector<KeyRange>& key_ranges, Conditions* conditions)
-        : _key_ranges(key_ranges), _conditions(conditions) {
-    }
-
-    const std::vector<KeyRange>& key_ranges() const { return _key_ranges; }
-    StorageReadOptions& add_key_range(const KeyRange& key_range) {
-        _key_ranges.push_back(key_range);
-        return *this;
-    }
-
-    const Conditions* column_predicates() const { return _conditions; }
-    StorageReadOptions& set_column_predicates(Conditions* conditions) {
-        _conditions = conditions;
-        return *this;
-    }
-
-private:
     // reader's key ranges, empty if not existed.
     // used by short key index to filter row blocks
-    std::vector<KeyRange> _key_ranges;
+    std::vector<KeyRange> key_ranges;
 
     // reader's column predicates, nullptr if not existed.
     // used by column index to filter pages and rows
     // TODO use vector<ColumnPredicate*> instead
-    Conditions* _conditions = nullptr;
+    const Conditions* conditions = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one
