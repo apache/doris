@@ -37,7 +37,7 @@ void TextConverter::unescape_string(StringValue* value, MemPool* pool) {
     value->ptr = new_data;
 }
 
-void TextConverter::unescape_string(const char* src, char* dest, int* len) {
+void TextConverter::unescape_string(const char* src, char* dest, size_t* len) {
     char* dest_ptr = dest;
     const char* end = src + *len;
     bool escape_next_char = false;
