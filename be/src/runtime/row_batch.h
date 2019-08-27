@@ -179,7 +179,7 @@ public:
     // string data).
     int total_byte_size();
 
-    TupleRow* get_row(int row_idx) {
+    TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != NULL);
         DCHECK_GE(row_idx, 0);
         //DCHECK_LT(row_idx, _num_rows + (_has_in_flight_row ? 1 : 0));

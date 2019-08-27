@@ -42,6 +42,9 @@ public:
     // Used for testing.  get_value will return tuple + offset interpreted as 'type'
     SlotRef(const TypeDescriptor& type, int offset);
 
+    Status prepare(const SlotDescriptor* slot_desc,
+                   const RowDescriptor& row_desc);
+
     virtual Status prepare(
         RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
     static void* get_value(Expr* expr, TupleRow* row);

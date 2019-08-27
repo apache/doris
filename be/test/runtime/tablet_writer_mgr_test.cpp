@@ -29,7 +29,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "util/descriptor_helper.h"
+#include "runtime/descriptor_helper.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
 
