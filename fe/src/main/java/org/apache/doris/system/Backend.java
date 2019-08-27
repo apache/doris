@@ -28,6 +28,7 @@ import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -36,11 +37,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -80,6 +83,10 @@ public class Backend implements Writable {
     private AtomicReference<ImmutableMap<String, DiskInfo>> disksRef;
 
     private String heartbeatErrMsg = "";
+    
+    // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
+    // after init it, this variable is set to true.
+    private boolean initPathInfo = false;
 
     public Backend() {
         this.host = "";
@@ -338,9 +345,26 @@ public class Backend implements Writable {
     }
 
     public void updateDisks(Map<String, TDisk> backendDisks) {
-        // update status or add new diskInfo
+
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
-        Map<String, DiskInfo> newDisks = Maps.newHashMap();
+        // The very first time to init the path info
+        if (!initPathInfo) {
+            boolean allPathHashUpdated = true;
+            for (DiskInfo diskInfo : disks.values()) {
+                if (diskInfo.getPathHash() == 0) {
+                    allPathHashUpdated = false;
+                }
+            }
+            if (allPathHashUpdated) {
+                initPathInfo = true;
+                Catalog.getCurrentSystemInfo().updatePathInfo(disks.values().stream().collect(Collectors.toList()), Lists.newArrayList());
+            }
+        }
+
+        // update status or add new diskInfo
+        Map<String, DiskInfo> newDiskInfos = Maps.newHashMap();
+        List<DiskInfo> addedDisks = Lists.newArrayList();
+        List<DiskInfo> removedDisks = Lists.newArrayList();
         /*
          * set isChanged to true only if new disk is added or old disk is dropped.
          * we ignore the change of capacity, because capacity info is only used in master FE.
@@ -356,10 +380,11 @@ public class Backend implements Writable {
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
+                addedDisks.add(diskInfo);
                 isChanged = true;
                 LOG.info("add new disk info. backendId: {}, rootPath: {}", id, rootPath);
             }
-            newDisks.put(rootPath, diskInfo);
+            newDiskInfos.put(rootPath, diskInfo);
 
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
@@ -388,6 +413,7 @@ public class Backend implements Writable {
         for (DiskInfo diskInfo : disks.values()) {
             String rootPath = diskInfo.getRootPath();
             if (!backendDisks.containsKey(rootPath)) {
+                removedDisks.add(diskInfo);
                 isChanged = true;
                 LOG.warn("remove not exist rootPath. backendId: {}, rootPath: {}", id, rootPath);
             }
@@ -395,10 +421,13 @@ public class Backend implements Writable {
 
         if (isChanged) {
             // update disksRef
-            disksRef.set(ImmutableMap.copyOf(newDisks));
+            disksRef.set(ImmutableMap.copyOf(newDiskInfos));
+            Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
         }
+        
+
     }
 
     public static Backend read(DataInput in) throws IOException {

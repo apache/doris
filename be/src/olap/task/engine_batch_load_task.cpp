@@ -117,9 +117,16 @@ AgentStatus EngineBatchLoadTask::_init() {
     }
 
     // Empty remote_path
-    if (!_push_req.__isset.http_file_path) {
+    if (!_push_req.__isset.http_file_path || !_push_req.__isset.http_file_size) {
         _is_init = true;
         return status;
+    }
+
+    // check disk capacity
+    if (_push_req.push_type == TPushType::LOAD) {
+        if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
+            return DORIS_DISK_REACH_CAPACITY_LIMIT;
+        }
     }
     
     // Check remote path

@@ -33,7 +33,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -42,20 +41,22 @@ import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mocked;
 
 public class OlapTableSinkTest {
     private static final Logger LOG = LogManager.getLogger(OlapTableSinkTest.class);
 
     @Injectable
-    OlapTable dstTable;
+    public OlapTable dstTable;
 
-    @Mocked
-    SystemInfoService systemInfoService;
+    @Before
+    public void setUp() {
+
+    }
 
     private TupleDescriptor getTuple() {
         DescriptorTable descTable = new DescriptorTable();

@@ -1891,7 +1891,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-
         RowsetId rowset_id = 0;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
         res = sc_params.new_tablet->next_rowset_id(&rowset_id);

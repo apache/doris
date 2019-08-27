@@ -318,6 +318,15 @@ Status SnapshotLoader::download(
             return Status::InternalError(ss.str());
         }
 
+        TabletSharedPtr tablet = _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id, schema_hash);
+        if (tablet == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get local tablet: " << local_tablet_id;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+        DataDir* data_dir = tablet->data_dir();
+
         for (auto& iter : remote_files) {
 
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
@@ -367,6 +376,12 @@ Status SnapshotLoader::download(
             LOG(INFO) << "begin to download from " << full_remote_file << " to "
                     << full_local_file;
             size_t file_len = file_stat.size;
+
+            // check disk capacity
+            if (data_dir->reach_capacity_limit(file_len)) {
+                return Status::InternalError("capacity limit reached");
+            }
+
             {
                 // 1. open remote file for read
                 std::unique_ptr<BrokerReader> broker_reader;

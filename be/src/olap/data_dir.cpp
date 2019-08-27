@@ -59,14 +59,14 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
         TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path(path),
         _capacity_bytes(capacity_bytes),
+        _available_bytes(0),
+        _disk_capacity_bytes(0),
+        _is_used(false),
         _tablet_manager(tablet_manager),
         _txn_manager(txn_manager),
         _cluster_id(-1),
-        _available_bytes(0),
-        _used_bytes(0),
-        _current_shard(0),
-        _is_used(false),
         _to_be_deleted(false),
+        _current_shard(0),
         _test_file_read_buf(nullptr),
         _test_file_write_buf(nullptr),
         _meta(nullptr) {
@@ -100,6 +100,7 @@ Status DataDir::init() {
         return Status::InternalError("invalid root path: ");
     }
 
+    RETURN_IF_ERROR(update_capacity());
     RETURN_IF_ERROR(_init_cluster_id());
     RETURN_IF_ERROR(_init_extension_and_capacity());
     RETURN_IF_ERROR(_init_file_system());
@@ -1057,4 +1058,35 @@ void DataDir::_remove_check_paths_no_lock(const std::set<std::string>& paths) {
     }
 }
 
+Status DataDir::update_capacity() {
+    try {
+        boost::filesystem::path path_name(_path);
+        boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
+        _available_bytes = path_info.available;
+        if (_disk_capacity_bytes == 0) {
+            // disk capacity only need to be set once
+            _disk_capacity_bytes = path_info.capacity;
+        }
+    } catch (boost::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "get space info failed. path: " << _path << " erro:" << e.what();
+        return Status::InternalError("get path available capacity failed");
+    }
+    LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
+            << ", available capacity: " << _available_bytes;
+
+    return Status::OK();
+}
+
+bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
+    double used_pct = (_available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
+    int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
+    
+    if (used_pct >= config::storage_flood_stage_usage_percent / 100.0
+        && left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
+        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct << ", left bytes: " << left_bytes
+                << ", path: " << _path;
+        return true;
+    }
+    return false;
+}
 } // namespace doris

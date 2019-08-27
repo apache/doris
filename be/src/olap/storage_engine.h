@@ -120,7 +120,7 @@ public:
     void set_store_used_flag(const std::string& root_path, bool is_used);
 
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos);
+    OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
@@ -200,10 +200,6 @@ private:
     OLAPStatus check_all_root_path_cluster_id();
 
     bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
-
-    OLAPStatus _get_path_available_capacity(
-            const std::string& root_path,
-            int64_t* disk_available);
 
     OLAPStatus _config_root_path_unused_flag_file(
             const std::string& root_path,
