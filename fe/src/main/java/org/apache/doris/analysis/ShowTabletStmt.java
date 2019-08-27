@@ -212,7 +212,7 @@ public class ShowTabletStmt extends ShowStmt {
                     break;
                 }
                 backendId = ((IntLiteral) subExpr.getChild(1)).getValue();
-            } else if (leftKey.equalsIgnoreCase("index")) {
+            } else if (leftKey.equalsIgnoreCase("indexname")) {
                 if (!(subExpr.getChild(1) instanceof StringLiteral) || indexName != null) {
                     valid = false;
                     break;
