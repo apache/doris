@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -34,43 +35,55 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/*
+ * Prune the distribution by distribution columns' predicate, recursively.
+ * It only supports binary equal predicate and in predicate with AND combination.
+ * For example:
+ *      where a = 1 and b in (2,3,4) and c in (5,6,7)
+ *      a/b/c are distribution columns
+ * 
+ * the config 'max_distribution_pruner_recursion_depth' will limit the max recursion depth of pruning.
+ * the recursion depth is calculated by the product of element number of all predicates.
+ * The above example's depth is 9(= 1 * 3 * 3)
+ * 
+ * If depth is larger than 'max_distribution_pruner_recursion_depth', all buckets will be return without pruning.
+ */
 public class HashDistributionPruner implements DistributionPruner {
     private static final Logger LOG = LogManager.getLogger(HashDistributionPruner.class);
 
     // partition list, sort by the hash code
-    private List<Long>                   partitionList;
+    private List<Long> bucketsList;
     // partition columns
-    private List<Column>                       partitionColumns;
+    private List<Column>                       distributionColumns;
     // partition column filters
-    private Map<String, PartitionColumnFilter> partitionColumnFilters;
+    private Map<String, PartitionColumnFilter> distributionColumnFilters;
     private int                                hashMod;
 
-    HashDistributionPruner(List<Long> partitions, List<Column> columns,
+    HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
                            Map<String, PartitionColumnFilter> filters, int hashMod) {
-        this.partitionList = partitions;
-        this.partitionColumns = columns;
-        this.partitionColumnFilters = filters;
+        this.bucketsList = bucketsList;
+        this.distributionColumns = columns;
+        this.distributionColumnFilters = filters;
         this.hashMod = hashMod;
     }
 
     // columnId: which column to compute
     // hashKey: the key which to compute hash value
     public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) {
-        if (columnId == partitionColumns.size()) {
+        if (columnId == distributionColumns.size()) {
             // compute Hash Key
             long hashValue = hashKey.getHashValue();
-            return Lists.newArrayList(
-                    partitionList.get((int) ((hashValue & 0xffffffff) % hashMod)));
+            return Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
         }
-        Column keyColumn = partitionColumns.get(columnId);
-        PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
+        Column keyColumn = distributionColumns.get(columnId);
+        PartitionColumnFilter filter = distributionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
             // no filter in this column, no partition Key
             // return all subPartition
-            return Lists.newArrayList(partitionList);
+            return Lists.newArrayList(bucketsList);
         }
         InPredicate inPredicate = filter.getInPredicate();
-        if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
+        if (null == inPredicate || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
             // equal one value
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
                     && filter.lowerBound != null && filter.upperBound != null
@@ -81,18 +94,19 @@ public class HashDistributionPruner implements DistributionPruner {
                 return result;
             }
             // return all SubPartition
-            return Lists.newArrayList(partitionList);
+            return Lists.newArrayList(bucketsList);
         }
         
         if (null != inPredicate) {
-            if (! (inPredicate.getChild(0) instanceof SlotRef)) {
+            if (!(inPredicate.getChild(0) instanceof SlotRef)) {
                 // return all SubPartition
-                return Lists.newArrayList(partitionList);
+                return Lists.newArrayList(bucketsList);
             }
         }
         Set<Long> resultSet = Sets.newHashSet();
+        int inElementNum = inPredicate.getInElementNum();
+        int newComplex = inElementNum * complex;
         int childrenNum = inPredicate.getChildren().size();
-        int newComplex = inPredicate.getChildren().size() * complex;
         for (int i = 1; i < childrenNum; ++i) {
             LiteralExpr expr = (LiteralExpr) inPredicate.getChild(i);
             hashKey.pushColumn(expr, keyColumn.getDataType());
@@ -101,7 +115,7 @@ public class HashDistributionPruner implements DistributionPruner {
                 resultSet.add(subPartitionId);
             }
             hashKey.popColumn();
-            if (resultSet.size() >= partitionList.size()) {
+            if (resultSet.size() >= bucketsList.size()) {
                 break;
             }
         }
