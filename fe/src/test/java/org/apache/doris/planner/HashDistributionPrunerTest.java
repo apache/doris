@@ -109,6 +109,14 @@ public class HashDistributionPrunerTest {
         // 39 is because these is hash conflict
         Assert.assertEquals(39, results.size());
         
+        filters.get("shop_type").getInPredicate().addChild(new StringLiteral("5"));
+        filters.get("shop_type").getInPredicate().addChild(new StringLiteral("6"));
+        filters.get("shop_type").getInPredicate().addChild(new StringLiteral("7"));
+        filters.get("shop_type").getInPredicate().addChild(new StringLiteral("8"));
+        results = pruner.prune();
+        // 120 = 1 * 5 * 2 * 2 * 6 (element num of each filter) > 100
+        Assert.assertEquals(300, results.size());
+
         // check hash conflict
         inList4.add(new StringLiteral("4"));
         PartitionKey hashKey = new PartitionKey();

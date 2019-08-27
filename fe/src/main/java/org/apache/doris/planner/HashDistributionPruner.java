@@ -83,7 +83,7 @@ public class HashDistributionPruner implements DistributionPruner {
             return Lists.newArrayList(bucketsList);
         }
         InPredicate inPredicate = filter.getInPredicate();
-        if (null == inPredicate || inPredicate.getChildren().size() * complex > Config.max_distribution_pruner_recursion_depth) {
+        if (null == inPredicate || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
             // equal one value
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
                     && filter.lowerBound != null && filter.upperBound != null
@@ -104,7 +104,7 @@ public class HashDistributionPruner implements DistributionPruner {
             }
         }
         Set<Long> resultSet = Sets.newHashSet();
-        int inElementNum = inPredicate.getChildren().size() - 1; // the first child is compare expr
+        int inElementNum = inPredicate.getInElementNum();
         int newComplex = inElementNum * complex;
         int childrenNum = inPredicate.getChildren().size();
         for (int i = 1; i < childrenNum; ++i) {
