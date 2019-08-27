@@ -336,6 +336,9 @@ public class ConnectProcessor {
         if (request.isSetUser_ip()) {
             ctx.setRemoteIP(request.getUser_ip());
         }
+        if (request.isSetTime_zone()) {
+            ctx.getSessionVariable().setTimeZone(request.getTime_zone());                       
+        }
 
         ctx.setThreadLocalInfo();
 
