@@ -132,9 +132,6 @@ public class TimeUtilsTest {
 
         DateLiteral datetime = new DateLiteral("2015-03-01 12:00:00", ScalarType.DATETIME);
         Assert.assertEquals(20150301120000L, datetime.getRealValue());
-
-        Assert.assertEquals("2015-03-01", TimeUtils.format(date.getValue(), date.getType()));
-        Assert.assertEquals("2015-03-01 12:00:00", TimeUtils.format(datetime.getValue(), datetime.getType()));
     }
 
 }
