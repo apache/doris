@@ -137,6 +137,7 @@ public:
             _options(options),
             _parsed(false),
             _num_elems(0),
+            _offsets_pos(0),
             _cur_idx(0) { }
 
     Status init() override {
