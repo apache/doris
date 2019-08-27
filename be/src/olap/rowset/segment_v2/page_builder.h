@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <vector>
 
+#include "gutil/macros.h"
 #include "util/slice.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"

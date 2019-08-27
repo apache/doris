@@ -26,8 +26,6 @@
 #include <string.h>
 #include <string>
 
-#include "olap/olap_define.h"
-
 namespace doris {
 
 class faststring;
