@@ -32,6 +32,7 @@
 
 namespace doris {
 
+class DataDir;
 class Merger;
 
 // This class is a base class for compaction.

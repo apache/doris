@@ -17,16 +17,22 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TStorageMedium;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class DiskInfo implements Writable {
+    private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
+
     public enum DiskState {
         ONLINE,
         OFFLINE
@@ -121,6 +127,23 @@ public class DiskInfo implements Writable {
 
     public void setStorageMedium(TStorageMedium storageMedium) {
         this.storageMedium = storageMedium;
+    }
+
+    /*
+     * Check if this disk's capacity reach the limit. Return true if yes.
+     * if floodStage is true, use floodStage threshold to check.
+     *      floodStage threshold means a loosely limit, and we use 'AND' to give a more loosely limit.
+     */
+    public boolean exceedLimit(boolean floodStage) {
+        LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
+                floodStage, diskAvailableCapacityB, totalCapacityB);
+        if (floodStage) {
+            return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes &&
+                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_flood_stage_usage_percent / 100.0);
+        } else {
+            return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes ||
+                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_high_watermark_usage_percent / 100.0);
+        }
     }
 
     @Override

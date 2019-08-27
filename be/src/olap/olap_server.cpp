@@ -157,7 +157,9 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_base_compaction(data_dir);
+        if (!data_dir->reach_capacity_limit(0)) {
+            perform_base_compaction(data_dir);
+        }
 
         usleep(interval * 1000000);
     }
@@ -249,7 +251,9 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_cumulative_compaction(data_dir);
+        if (!data_dir->reach_capacity_limit(0)) {
+            perform_cumulative_compaction(data_dir);
+        }
         usleep(interval * 1000000);
     }
 

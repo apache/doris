@@ -509,7 +509,7 @@ void FragmentMgr::cancel_worker() {
             }
         }
         for (auto& id : to_delete) {
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel fragment " << id;
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel fragment " << print_id(id);
             cancel(id);
         }
 

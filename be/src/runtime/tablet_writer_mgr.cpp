@@ -155,9 +155,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "tablet writer write failed, tablet_id=" << it->first
-                << ", transaction_id=" << _txn_id << ", status=" <<  st;
+                << ", transaction_id=" << _txn_id << ", err=" << st;
             LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str() + ", be: " + BackendOptions::get_localhost());
+            return Status::InternalError(ss.str());
         }
     }
     _next_seqs[params.sender_id()]++;
@@ -187,9 +187,11 @@ Status TabletsChannel::close(int sender_id, bool* finished,
             if (_partition_ids.count(it.second->partition_id()) > 0) {
                 auto st = it.second->close(tablet_vec);
                 if (st != OLAP_SUCCESS) {
-                    LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
-                        << ", transaction_id=" << _txn_id;
-                    _close_status = Status::InternalError("close tablet writer failed");
+                    std::stringstream ss;
+                    ss << "close tablet writer failed, tablet_id=" << it.first
+                        << ", transaction_id=" << _txn_id << ", err=" << st;
+                    LOG(WARNING) << ss.str();
+                    _close_status = Status::InternalError(ss.str());
                     return _close_status;
                 }
             } else {
@@ -233,11 +235,13 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {
-            LOG(WARNING) << "open delta writer failed, tablet_id=" << tablet.tablet_id()
+            std::stringstream ss;
+            ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
                 << ", txn_id=" << _txn_id
                 << ", partition_id=" << tablet.partition_id()
-                << ", status=" << st;
-            return Status::InternalError("open tablet writer failed");
+                << ", err=" << st;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
         }
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }

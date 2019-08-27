@@ -48,12 +48,15 @@ public:
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
+
     DataDirInfo get_dir_info() {
         DataDirInfo info;
         info.path = _path;
         info.path_hash = _path_hash;
-        info.is_used = _is_used;
         info.capacity = _capacity_bytes;
+        info.available = _available_bytes;
+        info.is_used = _is_used;
+        info.storage_medium = _storage_medium;
         return info;
     }
 
@@ -121,6 +124,16 @@ public:
 
     OLAPStatus set_convert_finished();
 
+    // check if the capacity reach the limit after adding the incoming data
+    // return true if limit reached, otherwise, return false.
+    // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
+    // so in order to avoid running out of disk capacity, we currenty use the actual
+    // disk avaiable capacity and total capacity to do the calculation.
+    // So that the capacity Doris actually used may exceeds the user specified capacity.
+    bool reach_capacity_limit(int64_t incoming_data_size);
+
+    Status update_capacity();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -146,23 +159,30 @@ private:
 
 private:
     std::string _path;
-    size_t _path_hash;
+    int64_t _path_hash;
+    // user specified capacity
+    int64_t _capacity_bytes;
+    // the actual avaiable capacity of the disk of this data dir
+    // NOTICE that _available_byte smay be larger than _capacity_bytes, if capacity is set
+    // by user, not the disk's actual capacity
+    int64_t _available_bytes;
+    // the actual capacity of the disk of this data dir
+    int64_t _disk_capacity_bytes;
+    TStorageMedium::type _storage_medium;
+    bool _is_used;
+
     uint32_t _rand_seed;
 
     std::string _file_system;
-    int64_t _capacity_bytes;
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;
     int32_t _cluster_id;
-    int64_t _available_bytes;
-    int64_t _used_bytes;
-    uint64_t _current_shard;
-    bool _is_used;
     // This flag will be set true if this store was not in root path when reloading
     bool _to_be_deleted;
 
+    // used to protect _current_shard and _tablet_set
     std::mutex _mutex;
-    TStorageMedium::type _storage_medium;  // 存储介质类型：SSD|HDD
+    uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
     static const size_t TEST_FILE_BUF_SIZE = 4096;

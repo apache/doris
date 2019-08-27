@@ -213,16 +213,22 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
     std::string data_dir_string = data_dir_path.string();
     DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
-    data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));
-    if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
-            _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
-        LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
-        return res;
-    }
 
     res = _make_file_header(file_header.mutable_message());
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to make file header. [res=%d]", res);
+        return res;
+    }
+
+    // check disk capacity
+    if (data_dir->reach_capacity_limit((int64_t) file_header.file_length())) {
+         return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+    }
+
+    data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));
+    if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
+            _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
+        LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }
 
