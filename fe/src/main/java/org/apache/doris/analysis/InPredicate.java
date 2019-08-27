@@ -29,9 +29,9 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TInPredicate;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,6 +95,11 @@ public class InPredicate extends Predicate {
     protected InPredicate(InPredicate other) {
         super(other);
         isNotIn = other.isNotIn();
+    }
+
+    public int getInElementNum() {
+        // the first child is compare expr
+        return getChildren().size() - 1;
     }
 
     @Override

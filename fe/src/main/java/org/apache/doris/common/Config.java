@@ -857,5 +857,16 @@ public class Config extends ConfigBase {
      * exception will be thrown to user client directly without load label.
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
+
+    /*
+     * This will limit the max recursion depth of hash distribution pruner.
+     * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
+     * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,
+     * So that distribution pruner will no work and just return all buckets.
+     * 
+     * Increase the depth can support distribution pruning for more elements, but may cost more CPU.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_distribution_pruner_recursion_depth = 100;
 }
 
