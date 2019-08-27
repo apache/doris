@@ -29,10 +29,20 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
 
+import org.apache.doris.common.FeConstants;
+import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
+@RunWith(PowerMockRunner.class)
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*"  })
+@PrepareForTest(Catalog.class)
 public class PartitionKeyTest {
 
     private static List<Column> allColumns;
@@ -43,6 +53,8 @@ public class PartitionKeyTest {
     private static Column largeInt;
     private static Column date;
     private static Column datetime;
+    
+    private Catalog catalog;
 
     @BeforeClass
     public static void setUp() {
@@ -143,6 +155,12 @@ public class PartitionKeyTest {
 
     @Test
     public void testSerialization() throws Exception {
+        catalog = EasyMock.createMock(Catalog.class);
+        PowerMock.mockStatic(Catalog.class);
+        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
+        PowerMock.replay(Catalog.class);
+
         // 1. Write objects to file
         File file = new File("./keyRangePartition");
         file.createNewFile();

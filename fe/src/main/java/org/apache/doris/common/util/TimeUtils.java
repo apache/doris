@@ -27,6 +27,8 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,6 +118,16 @@ public class TimeUtils {
         return DATETIME_FORMAT.format(new Date());
     }
 
+    public static TimeZone getTimeZone() {
+        String timezone;
+        if (ConnectContext.get() != null) {
+            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+        } else {
+            timezone = VariableMgr.getGlobalSessionVariable().getTimeZone();
+        }
+        return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
+    }
+
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
             return "N/A";
@@ -124,7 +136,10 @@ public class TimeUtils {
     }
 
     public static synchronized String longToTimeString(long timeStamp) {
-        return longToTimeString(timeStamp, DATETIME_FORMAT);
+        TimeZone timeZone = getTimeZone();
+        SimpleDateFormat dateFormatTimeZone = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        dateFormatTimeZone.setTimeZone(timeZone);
+        return longToTimeString(timeStamp, dateFormatTimeZone);
     }
     
     public static synchronized Date getTimeAsDate(String timeString) {

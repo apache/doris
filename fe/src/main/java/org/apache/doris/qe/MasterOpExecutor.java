@@ -80,6 +80,7 @@ public class MasterOpExecutor {
         params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
         params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         params.setUser_ip(ctx.getRemoteIP());
+        params.setTime_zone(ctx.getSessionVariable().getTimeZone());
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 
