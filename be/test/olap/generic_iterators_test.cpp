@@ -55,11 +55,11 @@ TEST(GenericIteratorsTest, AutoIncrement) {
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
 
-    Arena arena;
-    RowBlockV2 block(schema, 128, &arena);
+    RowBlockV2 block(schema, 128);
 
     size_t row_count = 0;
     do {
+        block.clear();
         st = iter->next_batch(&block);
         for (int i = 0; i < block.num_rows(); ++i) {
             auto row = block.row(i);

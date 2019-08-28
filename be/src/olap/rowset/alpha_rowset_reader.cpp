@@ -110,10 +110,6 @@ VersionHash AlphaRowsetReader::version_hash() {
     return _alpha_rowset_meta->version_hash();
 }
 
-void AlphaRowsetReader::close() {
-    _merge_ctxs.clear();
-}
-
 int64_t AlphaRowsetReader::filtered_rows() {
     return _stats->rows_del_filtered;
 }

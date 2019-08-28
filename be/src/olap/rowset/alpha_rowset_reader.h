@@ -60,9 +60,6 @@ public:
 
     VersionHash version_hash() override;
 
-    // close reader
-    void close() override;
-
     RowsetSharedPtr rowset() override;
 
     int64_t filtered_rows() override;

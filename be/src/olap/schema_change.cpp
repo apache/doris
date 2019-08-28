@@ -1962,19 +1962,12 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         VLOG(10) << "succeed to convert a history version."
                  << " version=" << rs_reader->version().first
                  << "-" << rs_reader->version().second;
-
-        // 释放RowsetReader
-        rs_reader->close();
     }
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
         res = sc_params.new_tablet->check_version_integrity(test_version);
-    }
-
-    for (auto& rs_reader : sc_params.ref_rowset_readers) {
-        rs_reader->close();
     }
     SAFE_DELETE(sc_procedure);
 

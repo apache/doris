@@ -41,6 +41,7 @@ OLAPStatus AlphaRowset::init() {
 
 OLAPStatus AlphaRowset::load(bool use_cache) {
     // load is depend on init, so that check if init here and do init if not
+    // TODO remove the following if block when rowset is guaranteed to be initialized
     if (!is_inited()) {
         OLAPStatus res = init();
         if (res != OLAP_SUCCESS) {
@@ -80,7 +81,6 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
             LOG(WARNING) << "alpha rowset load failed. rowset path:" << _rowset_path;
             return nullptr;
         }
-        set_loaded(true);
     }
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
             _schema->num_rows_per_row_block(), shared_from_this()));

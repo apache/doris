@@ -114,7 +114,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     _seek_schema.reset(new Schema(key_fields, key_fields.size()));
-    _seek_block.reset(new RowBlockV2(*_seek_schema, 1, &_arena));
+    _seek_block.reset(new RowBlockV2(*_seek_schema, 1));
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
@@ -258,8 +258,11 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
         _column_iterators[cid]->seek_to_ordinal(rowid);
     }
     size_t num_rows = 1;
-    _seek_block->resize(num_rows);
+    // please note that usually RowBlockV2.clear() is called to free arena memory before reading the next block,
+    // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
+    // a single arena for all seeked keys.
     RETURN_IF_ERROR(_next_batch(_seek_block.get(), &num_rows));
+    _seek_block->set_num_rows(num_rows);
     return Status::OK();
 }
 
@@ -295,7 +298,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     }
 
     if (_row_ranges.is_empty() || _cur_rowid >= _row_ranges.to()) {
-        block->resize(0);
+        block->set_num_rows(0);
         return Status::EndOfFile("no more data in segment");
     }
     size_t rows_to_read = block->capacity();
@@ -322,7 +325,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         _cur_rowid += to_read_in_range;
         rows_to_read -= to_read_in_range;
     }
-    block->resize(block->capacity() - rows_to_read);
+    block->set_num_rows(block->capacity() - rows_to_read);
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
     }

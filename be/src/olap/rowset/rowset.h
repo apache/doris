@@ -34,6 +34,7 @@ class TabletSchema;
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
+    // TODO don't make this public, all clients should use RowsetFactory to obtain initialized RowsetSharedPtr
     Rowset(const TabletSchema* schema,
            std::string rowset_path,
            DataDir* data_dir,
@@ -42,31 +43,19 @@ public:
     virtual ~Rowset() { }
 
     // this api is for init related objects in memory
+    // TODO don't make this public, all clients should use RowsetFactory to obtain initialized RowsetSharedPtr
     virtual OLAPStatus init() = 0;
 
-    bool is_inited() const {
-        return _is_inited;
-    }
+    // Open all segment files in this rowset and load necessary metadata.
+    // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
+    virtual OLAPStatus load(bool use_cache = true) = 0;
 
-    void set_inited(bool inited) {
-        _is_inited = inited;
-    }
+    // returns nullptr when failed to load segments
+    virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
-    bool is_loaded() const {
-        return _is_loaded;
-    }
+    RowsetMetaSharedPtr rowset_meta() const { return _rowset_meta; }
 
-    void set_loaded(bool loaded) {
-        _is_loaded= loaded;
-    }
-
-    RowsetMetaSharedPtr rowset_meta() const {
-        return _rowset_meta;
-    }
-
-    bool is_pending() const {
-        return _is_pending;
-    }
+    bool is_pending() const { return _is_pending; }
 
     // publish rowset to make it visible to read
     void make_visible(Version version, VersionHash version_hash);
@@ -90,12 +79,6 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
-
-    // this api is for lazy loading data
-    // always means that there are some io
-    virtual OLAPStatus load(bool use_cache = true) = 0;
-
-    virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
@@ -130,6 +113,11 @@ public:
     }
 
 protected:
+    bool is_inited() const { return _is_inited; }
+    void set_inited(bool inited) { _is_inited = inited; }
+    bool is_loaded() const { return _is_loaded; }
+    void set_loaded(bool loaded) { _is_loaded= loaded; }
+
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
 

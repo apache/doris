@@ -22,12 +22,14 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/data_dir.h"
 
 namespace doris {
 
 class BetaRowset;
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
+class BetaRowsetReader;
 
 class BetaRowset : public Rowset {
 public:
@@ -44,7 +46,7 @@ public:
 
     OLAPStatus load(bool use_cache = true) override;
 
-    std::shared_ptr<RowsetReader> create_reader() override;
+    RowsetReaderSharedPtr create_reader() override;
 
     OLAPStatus remove() override;
 
@@ -60,7 +62,8 @@ public:
     bool check_path(const std::string& path) override;
 
 private:
-    // TODO segment readers member
+    friend class BetaRowsetReader;
+    std::vector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris
