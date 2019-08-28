@@ -131,6 +131,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -1146,14 +1147,77 @@ public class ShowExecutor {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-
-                for (Partition partition : olapTable.getPartitions()) {
+                long sizeLimit = -1;
+                if (showStmt.hasOffset() && showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getOffset() + showStmt.getLimit();
+                } else if (showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getLimit();
+                }
+                boolean stop = false;
+                Collection<Partition> partitions = new ArrayList<Partition>();
+                List<String> partitionNames = showStmt.getPartitionNames();
+                if (showStmt.hasPartition()) {
+                    for (Partition partition : olapTable.getPartitions()) {
+                        if (partitionNames.contains(partition.getName())) {
+                            partitions.add(partition);
+                        }
+                    }
+                } else {
+                    partitions = olapTable.getPartitions();
+                }
+                List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                String indexName = showStmt.getIndexName();
+                long indexId = -1;
+                if (indexName != null) {
+                    Long id = olapTable.getIndexIdByName(indexName);
+                    if (id == null) {
+                        // invalid indexName
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getIndexName());
+                    }
+                    indexId = id;
+                }
+                for (Partition partition : partitions) {
+                    if (stop) {
+                        break;
+                    }
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        if (indexId > -1 && index.getId() != indexId) {
+                            continue;
+                        }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
-                        rows.addAll(procDir.fetchResult().getRows());
+                        tableInfos.addAll(procDir.fetchComparableResult(
+                                showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
+                        if (sizeLimit > -1 && tableInfos.size() >= sizeLimit) {
+                            stop = true;
+                            break;
+                        }
                     }
                 }
+                if (sizeLimit > -1 && tableInfos.size() < sizeLimit) {
+                    tableInfos.clear();
+                } else if (sizeLimit > -1) {
+                    tableInfos = tableInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                }
 
+                // order by
+                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                ListComparator<List<Comparable>> comparator = null;
+                if (orderByPairs != null) {
+                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                    comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+                } else {
+                    // order by tabletId, replicaId
+                    comparator = new ListComparator<List<Comparable>>(0, 1);
+                }
+                Collections.sort(tableInfos, comparator);
+
+                for (List<Comparable> tabletInfo : tableInfos) {
+                    List<String> oneTablet = new ArrayList<String>(tableInfos.size());
+                    for (Comparable column : tabletInfo) {
+                        oneTablet.add(column.toString());
+                    }
+                    rows.add(oneTablet);
+                }
             } finally {
                 db.readUnlock();
             }
