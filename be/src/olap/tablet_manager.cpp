@@ -1169,7 +1169,7 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
     tablet_info->version_hash = v_hash;
     tablet_info->__set_partition_id(tablet->partition_id());
     if (_available_storage_medium_type_count > 1) {
-        tablet_info.__set_storage_medium(tablet->data_dir()->storage_medium());
+        tablet_info->__set_storage_medium(tablet->data_dir()->storage_medium());
     }
     tablet_info->__set_version_count(tablet->version_count());
     tablet_info->__set_path_hash(tablet->data_dir()->path_hash());
