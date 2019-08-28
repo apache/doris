@@ -36,9 +36,14 @@ public:
     // it saves the batch end id into meta env
     virtual OLAPStatus next_id(RowsetId* rowset_id) = 0;
 
-    virtual bool id_in_use(RowsetId& rowset_id) = 0;
+    // check whether the rowset id is userful or validate
+    // for example, during gc logic, gc thread finds a file
+    // and it could not find it under rowset list. but it maybe in use
+    // during load procedure. Gc thread will check it using this method.
+    virtual bool id_in_use(const RowsetId& rowset_id) = 0;
 
-    virtual void release_id(RowsetId& rowset_id) = 0;
+    // remove the rowsetid from useful rowsetid list.
+    virtual void release_id(const RowsetId& rowset_id) = 0;
 }; // RowsetIdGenerator
 
 } // namespace doris

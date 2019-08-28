@@ -280,7 +280,7 @@ struct RowsetId {
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
         if (low >= MAX_ROWSET_ID) {
-            LOG(FATAL) << "low is too large" << low;
+            LOG(FATAL) << "low is too large:" << low;
         }
         hi = high;
         mi = middle;
@@ -318,7 +318,7 @@ struct RowsetId {
         }
     }
 
-    friend std::ostream &operator<<(std::ostream &out, const RowsetId& rowset_id) {
+    friend std::ostream& operator<<(std::ostream &out, const RowsetId& rowset_id) {
         out << rowset_id.to_string();
         return out;
     }

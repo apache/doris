@@ -427,6 +427,10 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
     int32_t return_snapshot_version = PREFERRED_SNAPSHOT_VERSION;
+    // if the request's snapshot version is less than current be's snapshot version
+    // it means the request be is under old version. just set the request version to 1
+    // current be will generate snapshot files like tabletid_schemahash_startversion_endversion
+    // format. Every be is able to parse this format snapshot files.
     if (snapshot_request.preferred_snapshot_version <  PREFERRED_SNAPSHOT_VERSION) {
         return_snapshot_version = 1;
     }

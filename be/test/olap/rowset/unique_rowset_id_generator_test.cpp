@@ -62,7 +62,17 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     UniqueId backend_uid;
+    UniqueId backend_uid2;
+    ASSERT_TRUE(backend_uid != backend_uid2);
     UniqueRowsetIdGenerator id_generator(backend_uid);
+    UniqueRowsetIdGenerator id_generator2(backend_uid2);
+    {
+        RowsetId rowset_id1;
+        id_generator.next_id(&rowset_id1);
+        RowsetId rowset_id2;
+        id_generator2.next_id(&rowset_id2);
+        ASSERT_TRUE(rowset_id1.hi != rowset_id2.hi);
+    }
     {
         int64_t max_id = 2;
         max_id = max_id << 56;
