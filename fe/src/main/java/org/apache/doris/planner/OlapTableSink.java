@@ -55,8 +55,9 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
@@ -295,26 +296,27 @@ public class OlapTableSink extends DataSink {
 
     private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
-        Map<Long, Long> allPathBeMap = Maps.newHashMap();
+        // BE id -> path hash
+        Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Partition partition : table.getPartitions()) {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    Map<Long, Long> pathBeMap = tablet.getNormalReplicaBackendPathMap();
-                    if (pathBeMap.size() < quorum) {
-                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + pathBeMap.size());
+                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                    if (bePathsMap.keySet().size() < quorum) {
+                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
                     }
-                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(pathBeMap.values())));
-                    allPathBeMap.putAll(pathBeMap);
+                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    allBePathsMap.putAll(bePathsMap);
                 }
             }
         }
         
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
-        Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allPathBeMap, true);
+        Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
         if (!st.ok()) {
             throw new DdlException(st.getErrorMsg());
         }

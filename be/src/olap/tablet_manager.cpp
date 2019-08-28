@@ -953,7 +953,7 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     }
 
     _build_tablet_info(tablet, tablet_info);
-    LOG(INFO) << "success to process report tablet info.";
+    VLOG(10) << "success to process report tablet info.";
     return res;
 } // report_tablet_info
 
@@ -986,13 +986,6 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             StorageEngine::instance()->txn_manager()->get_expire_txns(tablet_ptr->tablet_id(), 
                 tablet_ptr->schema_hash(), tablet_ptr->tablet_uid(), &transaction_ids);
             tablet_info.__set_transaction_ids(transaction_ids);
-
-            if (_available_storage_medium_type_count > 1) {
-                tablet_info.__set_storage_medium(tablet_ptr->data_dir()->storage_medium());
-            }
-
-            tablet_info.__set_version_count(tablet_ptr->version_count());
-            tablet_info.__set_path_hash(tablet_ptr->data_dir()->path_hash());
 
             tablet.tablet_infos.push_back(tablet_info);
         }
@@ -1175,6 +1168,11 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
     tablet_info->version = version.second;
     tablet_info->version_hash = v_hash;
     tablet_info->__set_partition_id(tablet->partition_id());
+    if (_available_storage_medium_type_count > 1) {
+        tablet_info->__set_storage_medium(tablet->data_dir()->storage_medium());
+    }
+    tablet_info->__set_version_count(tablet->version_count());
+    tablet_info->__set_path_hash(tablet->data_dir()->path_hash());
 }
 
 void TabletManager::_build_tablet_stat() {
