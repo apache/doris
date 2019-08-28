@@ -595,6 +595,10 @@ public class RollupJob extends AlterJob {
         // the version is not set now
         rollupReplica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
+        if (finishTabletInfo.isSetPath_hash()) {
+            rollupReplica.setPathHash(finishTabletInfo.getPath_hash());
+        }
+
         setReplicaFinished(partitionId, rollupReplicaId);
         rollupReplica.setState(ReplicaState.NORMAL);
 
