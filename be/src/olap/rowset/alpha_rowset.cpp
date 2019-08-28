@@ -17,6 +17,7 @@
 
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/row.h"
 #include "util/hash_util.hpp"
@@ -83,7 +84,7 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
         }
     }
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_rows_per_row_block(), shared_from_this()));
+        _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
 }
 
 OLAPStatus AlphaRowset::remove() {

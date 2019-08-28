@@ -34,7 +34,6 @@ class RecordBatch;
 
 namespace doris {
 
-class Arena;
 class RowBlockV2;
 class Schema;
 
@@ -58,11 +57,9 @@ Status convert_to_arrow_batch(const RowBlockV2& block,
 
 
 // Convert an Arrow RecordBatch to a Doris RowBlockV2. Schema should match
-// with RecordBatch's schema. Memory used by result RowBlockV2 will be
-// allocated from arena.
+// with RecordBatch's schema.
 Status convert_to_row_block(const arrow::RecordBatch& batch,
                             const Schema& schema,
-                            Arena* arena,
                             std::shared_ptr<RowBlockV2>* result);
 
 }

@@ -21,6 +21,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/rowset/column_data.h"
+#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 
 #include <vector>
@@ -44,7 +45,7 @@ struct MergeContext {
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_rows_per_row_block, RowsetSharedPtr rowset);
+    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset);
 
     ~AlphaRowsetReader() override;
 
@@ -80,7 +81,7 @@ private:
 
 private:
     int _num_rows_per_row_block;
-    RowsetSharedPtr _rowset;
+    AlphaRowsetSharedPtr _rowset;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
     const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;

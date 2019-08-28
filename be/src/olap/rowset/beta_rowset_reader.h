@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
 
+#include "olap/row_block.h"
+#include "olap/row_block2.h"
+#include "olap/row_cursor.h"
+#include "olap/iterators.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
 
 namespace doris {
-
-class RowBlockV2;
-class RowCursor;
-class RowwiseIterator;
 
 class BetaRowsetReader : public RowsetReader {
 public:
@@ -37,7 +37,7 @@ public:
 
     OLAPStatus next_block(RowBlock** block) override;
 
-    bool delete_flag() override { _rowset->delete_flag(); }
+    bool delete_flag() override { return _rowset->delete_flag(); }
 
     Version version() override { return _rowset->version(); }
 

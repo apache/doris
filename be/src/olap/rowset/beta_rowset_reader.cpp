@@ -26,7 +26,7 @@
 
 namespace doris {
 
-BetaRowsetReader::BetaRowsetReader(doris::BetaRowsetSharedPtr rowset)
+BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
     : _rowset(std::move(rowset)) {
 }
 

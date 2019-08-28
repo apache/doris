@@ -84,7 +84,8 @@ RowsetReaderSharedPtr BetaRowset::create_reader() {
             return nullptr;
         }
     }
-    return std::make_shared<BetaRowsetReader>(this->shared_from_this());
+    return std::shared_ptr<RowsetReader>(new BetaRowsetReader(
+        std::static_pointer_cast<BetaRowset>(shared_from_this())));
 }
 
 OLAPStatus BetaRowset::remove() {
