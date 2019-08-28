@@ -239,8 +239,8 @@ public class ShowTabletStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: Version = \"version\","
-                    + " State = \"NORMAL|ROLLUP|CLONE|DECOMMISSION\", or BackendId = 10000"
-                    + " or compound predicate with operator AND");
+                    + " or state = \"NORMAL|ROLLUP|CLONE|DECOMMISSION\", or BackendId = 10000,"
+                    + " indexname=\"rollup_name\" or compound predicate with operator AND");
         }
     }
 

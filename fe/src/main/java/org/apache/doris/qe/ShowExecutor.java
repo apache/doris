@@ -1167,7 +1167,15 @@ public class ShowExecutor {
                 }
                 List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
                 String indexName = showStmt.getIndexName();
-                long indexId = indexName == null ? -1 : olapTable.getIndexIdByName(indexName);
+                long indexId = -1;
+                if (indexName != null) {
+                    Long id = olapTable.getIndexIdByName(indexName);
+                    if (id == null) {
+                        // invalid indexName
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getIndexName());
+                    }
+                    indexId = id;
+                }
                 for (Partition partition : partitions) {
                     if (stop) {
                         break;
