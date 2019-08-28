@@ -1734,7 +1734,7 @@ public class SingleNodePlanner {
             boolean isAllSlotReferingGroupBys = true;
             for (SlotId slotId : slotIds) {
                 final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
-                Expr sourceExpr = slotDesc.getSourceExprs.get(0);
+                Expr sourceExpr = slotDesc.getSourceExprs().get(0);
                 if (sourceExpr.getFn() instanceof AggregateFunction) {
                     isAllSlotReferingGroupBys = false;
                 }
