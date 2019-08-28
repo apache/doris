@@ -5,7 +5,7 @@
 
 `TO_BITMAP(expr)` : 将TINYINT,SMALLINT和INT类型的列转为Bitmap
 
-`BITMAP_UNION(expr)` : 计算两个Bitmap的交集，返回值是序列化后的Bitmap值
+`BITMAP_UNION(expr)` : 计算两个Bitmap的并集，返回值是序列化后的Bitmap值
 
 `BITMAP_COUNT(expr)` : 计算Bitmap中不同值的个数
 
@@ -49,7 +49,7 @@ mysql> select bitmap_union_int (id2) from bitmap_udaf;
 
 CREATE TABLE `bitmap_test` (
   `id` int(11) NULL COMMENT "",
-  `id2` varchar(20) bitmap_union NULL
+  `id2` varchar(0) bitmap_union NULL  // 注意： bitmap_union的varchar长度需要指定为0
 ) ENGINE=OLAP
 AGGREGATE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10;

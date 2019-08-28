@@ -301,8 +301,8 @@
         (
         k1 TINYINT,
         k2 DECIMAL(10, 2) DEFAULT "10.5",
-        v1 VARCHAR(20) BITMAP_UNION,
-        v2 VARCHAR(20) BITMAP_UNION
+        v1 VARCHAR(0) BITMAP_UNION,  // 注意： bitmap_union的varchar长度需要指定为0
+        v2 VARCHAR(0) BITMAP_UNION
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
