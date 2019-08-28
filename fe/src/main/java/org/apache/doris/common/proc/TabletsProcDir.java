@@ -55,9 +55,8 @@ public class TabletsProcDir implements ProcDirInterface {
         this.db = db;
         this.index = index;
     }
-    
-    @Override
-    public ProcResult fetchResult() {
+
+    public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(index);
 
@@ -92,11 +91,15 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfos.add(tabletInfo);
                 } else {
                     for (Replica replica : tablet.getReplicas()) {
+                        if ((version > -1 && replica.getVersion() != version)
+                                || (backendId > -1 && replica.getBackendId() != backendId)
+                                || (state != null && replica.getState() != state)) {
+                            continue;
+                        }
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
-                        long backendId = replica.getBackendId();
                         tabletInfo.add(replica.getBackendId());
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getVersionHash());
@@ -122,7 +125,16 @@ public class TabletsProcDir implements ProcDirInterface {
         } finally {
             db.readUnlock();
         }
+        return tabletInfos;
+    }
 
+    private List<List<Comparable>> fetchComparableResult() {
+        return fetchComparableResult(-1, -1, null);
+    }
+
+    @Override
+    public ProcResult fetchResult() {
+        List<List<Comparable>> tabletInfos = fetchComparableResult();
         // sort by tabletId, replicaId
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1);
         Collections.sort(tabletInfos, comparator);
@@ -162,6 +174,16 @@ public class TabletsProcDir implements ProcDirInterface {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
         return new ReplicasProcNode(replicas);
+    }
+
+    public static int analyzeColumn(String columnName) throws AnalysisException {
+        for (String title : TITLE_NAMES) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return TITLE_NAMES.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 }
 

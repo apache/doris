@@ -19,27 +19,46 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-
 import com.google.common.base.Strings;
 
-public class ShowTabletStmt extends ShowStmt {
+import java.util.ArrayList;
+import java.util.List;
 
+public class ShowTabletStmt extends ShowStmt {
     private String dbName;
     private String tableName;
     private long tabletId;
+    private List<String> partitionNames;
+    private Expr whereClause;
+    private List<OrderByElement> orderByElements;
+    private LimitElement limitElement;
+
+    private long version;
+    private long backendId;
+    private String indexName;
+    private Replica.ReplicaState replicaState;
+    private ArrayList<OrderByPair> orderByPairs;
 
     private boolean isShowSingleTablet;
 
     public ShowTabletStmt(TableName dbTableName, long tabletId) {
+        this(dbTableName, tabletId, null, null, null,null);
+    }
+
+    public ShowTabletStmt(TableName dbTableName, long tabletId, List<String> partitionNames,
+            Expr whereClause, List<OrderByElement> orderByElements, LimitElement limitElement) {
         if (dbTableName == null) {
             this.dbName = null;
             this.tableName = null;
@@ -50,6 +69,16 @@ public class ShowTabletStmt extends ShowStmt {
             this.isShowSingleTablet = false;
         }
         this.tabletId = tabletId;
+        this.partitionNames = partitionNames;
+        this.whereClause = whereClause;
+        this.orderByElements = orderByElements;
+        this.limitElement = limitElement;
+
+        this.version = -1;
+        this.backendId = -1;
+        this.indexName = null;
+        this.replicaState = null;
+        this.orderByPairs = null;
     }
 
     public String getDbName() {
@@ -68,8 +97,35 @@ public class ShowTabletStmt extends ShowStmt {
         return isShowSingleTablet;
     }
 
+    public boolean hasOffset() { return limitElement != null && limitElement.hasOffset(); }
+
+    public long getOffset() { return limitElement.getOffset(); }
+
+    public boolean hasPartition() { return partitionNames != null; }
+
+    public List<String> getPartitionNames() { return partitionNames; }
+    
+    public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
+
+    public long getLimit() { return  limitElement.getLimit(); }
+
+    public long getVersion() { return version; }
+
+    public long getBackendId() { return backendId; }
+
+    public String getIndexName() { return indexName; }
+
+    public List<OrderByPair> getOrderByPairs() { return orderByPairs; }
+
+    public Replica.ReplicaState getReplicaState() { return  replicaState; }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        // check access first
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
+        }
+
         super.analyze(analyzer);
         if (!isShowSingleTablet && Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -79,10 +135,112 @@ public class ShowTabletStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
+        if (limitElement != null) {
+            limitElement.analyze(analyzer);
+        }
 
-        // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
+        // analyze where clause if not null
+        if (whereClause != null) {
+            if (whereClause instanceof CompoundPredicate) {
+                CompoundPredicate cp = (CompoundPredicate) whereClause;
+                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+                    throw new AnalysisException("Only allow compound predicate with operator AND");
+                }
+
+                analyzeSubPredicate(cp.getChild(0));
+                analyzeSubPredicate(cp.getChild(1));
+            } else {
+                analyzeSubPredicate(whereClause);
+            }
+        }
+
+        // order by
+        if (orderByElements != null && !orderByElements.isEmpty()) {
+            orderByPairs = new ArrayList<OrderByPair>();
+            for (OrderByElement orderByElement : orderByElements) {
+                if (!(orderByElement.getExpr() instanceof SlotRef)) {
+                    throw new AnalysisException("Should order by column");
+                }
+                SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                int index = TabletsProcDir.analyzeColumn(slotRef.getColumnName());
+                OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
+                orderByPairs.add(orderByPair);
+            }
+        }
+    }
+
+    private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
+        if (subExpr == null) {
+            return;
+        }
+        if (subExpr instanceof CompoundPredicate) {
+            CompoundPredicate cp = (CompoundPredicate) subExpr;
+            if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+                throw new AnalysisException("Only allow compound predicate with operator AND");
+            }
+
+            analyzeSubPredicate(cp.getChild(0));
+            analyzeSubPredicate(cp.getChild(1));
+            return;
+        }
+        boolean valid = true;
+        do {
+            if (!(subExpr instanceof  BinaryPredicate)) {
+                valid = false;
+                break;
+            }
+            BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
+            if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
+                valid = false;
+                break;
+            }
+
+            if (!(subExpr.getChild(0) instanceof SlotRef)) {
+                valid = false;
+                break;
+            }
+            String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
+            if (leftKey.equalsIgnoreCase("version")) {
+                 if (!(subExpr.getChild(1) instanceof IntLiteral) || version > -1) {
+                     valid = false;
+                     break;
+                 }
+                 version = ((IntLiteral) subExpr.getChild(1)).getValue();
+            } else if (leftKey.equalsIgnoreCase("backendid")) {
+                if (!(subExpr.getChild(1) instanceof IntLiteral) || backendId > -1) {
+                    valid = false;
+                    break;
+                }
+                backendId = ((IntLiteral) subExpr.getChild(1)).getValue();
+            } else if (leftKey.equalsIgnoreCase("indexname")) {
+                if (!(subExpr.getChild(1) instanceof StringLiteral) || indexName != null) {
+                    valid = false;
+                    break;
+                }
+                indexName = ((StringLiteral) subExpr.getChild(1)).getValue();
+            } else if (leftKey.equalsIgnoreCase("state")) {
+                if (!(subExpr.getChild(1) instanceof StringLiteral) || replicaState != null) {
+                    valid = false;
+                    break;
+                }
+                String state = ((StringLiteral) subExpr.getChild(1)).getValue().toUpperCase();
+                try {
+                    replicaState = Replica.ReplicaState.valueOf(state);
+                } catch (Exception e) {
+                    replicaState = null;
+                    valid = false;
+                    break;
+                }
+            } else {
+                valid = false;
+                break;
+            }
+        } while(false);
+
+        if (!valid) {
+            throw new AnalysisException("Where clause should looks like: Version = \"version\","
+                    + " or state = \"NORMAL|ROLLUP|CLONE|DECOMMISSION\", or BackendId = 10000,"
+                    + " indexname=\"rollup_name\" or compound predicate with operator AND");
         }
     }
 
@@ -93,7 +251,14 @@ public class ShowTabletStmt extends ShowStmt {
         if (isShowSingleTablet) {
             sb.append(tabletId);
         } else {
-            sb.append("`").append(dbName).append("`.`").append(tableName).append("`");
+            sb.append(" from ").append("`").append(dbName).append("`.`").append(tableName).append("`");
+        }
+        if (limitElement != null) {
+            if (limitElement.hasOffset() && limitElement.hasLimit()) {
+                sb.append(" ").append(limitElement.getOffset()).append(",").append(limitElement.getLimit());
+            } else if (limitElement.hasLimit()){
+                sb.append(" ").append(limitElement.getLimit());
+            }
         }
         return sb.toString();
     }
