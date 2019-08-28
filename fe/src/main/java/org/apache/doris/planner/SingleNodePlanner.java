@@ -1647,37 +1647,36 @@ public class SingleNodePlanner {
 
     /**
      * Entrance for push-down rules, it will execute possible push-down rules from top to down
-     * and the planner will be responsible for assigning all predicates to PlanNode.
+     * and the planner will be responsible for assigning all predicates to PlanNode. 
      */
     private void pushDownPredicates(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        // Push down predicates according to the semantic requirements of SQL.
         pushDownPredicatesPastSort(analyzer, stmt);
         pushDownPredicatesPastWindows(analyzer, stmt);
         pushDownPredicatesPastAggregation(analyzer, stmt);
     }
 
     private void pushDownPredicatesPastSort(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
-        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed.
+        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed. 
         if (stmt.evaluateOrderBy() || stmt.getLimit() >= 0 || stmt.getOffset() > 0 || stmt.getSortInfo() == null) {
             return;
         } 
-
         final List<Expr> predicates = getBoundPredicates(analyzer, stmt.getSortInfo().getSortTupleDescriptor());
         if (predicates.size() <= 0) {
             return;
         }
-
         final List<Expr> pushDownPredicates = getPredicatesReplacedSlotWithSourceExpr(predicates, analyzer);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
-        
+
+        // Push down predicates to sort's child until they are assigned successfully.
         if (putPredicatesOnWindows(stmt, analyzer, pushDownPredicates)) {
             return;
         }
         if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
             return;
         }
-
         putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
     }
 
@@ -1686,21 +1685,19 @@ public class SingleNodePlanner {
         if (analyticInfo == null || analyticInfo.getCommonPartitionExprs().size() == 0) {
             return;
         }
-
         final List<Expr> predicates = getBoundPredicates(analyzer, analyticInfo.getOutputTupleDesc());
         if (predicates.size() <= 0) {
             return;
         }
 
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(predicates, analyzer);
+        // Push down predicates to Windows' child until they are assigned successfully.
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
-
         if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
             return;
         }
-
         putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
     }
 
@@ -1709,21 +1706,20 @@ public class SingleNodePlanner {
         if (aggregateInfo == null || aggregateInfo.getGroupingExprs().size() <= 0) {
             return;
         }
-
         final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
         if (predicates.size() <= 0) {
             return;
         }
 
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(predicates, analyzer);
+        // Push down predicates to aggregation's child until they are assigned successfully.
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
-
         putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
     }
 
-    private List<Expr> getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer) {
         final List<Expr> predicatesCanPushDown = Lists.newArrayList();
         for (Expr predicate : predicates) {
             if (predicate.isConstant()) {
@@ -1738,7 +1734,8 @@ public class SingleNodePlanner {
             boolean isAllSlotReferingGroupBys = true;
             for (SlotId slotId : slotIds) {
                 final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
-                if (slotDesc.getSourceExprs().get(0).getFn() instanceof AggregateFunction) {
+                Expr sourceExpr = slotDesc.getSourceExprs.get(0);
+                if (sourceExpr.getFn() instanceof AggregateFunction) {
                     isAllSlotReferingGroupBys = false;
                 }
             }
@@ -1755,17 +1752,17 @@ public class SingleNodePlanner {
         analyzer.markConjunctsAssigned(predicates);
         for (Expr predicate : predicates) {
             final Expr newPredicate = predicate.clone();
-            replacePredicateSlotRefWithSlotRefSource(newPredicate, analyzer);
+            replacePredicateSlotRefWithSource(newPredicate, analyzer);
             predicatesCanPushDown.add(newPredicate);
         }
         return predicatesCanPushDown;
     }
 
-    private void replacePredicateSlotRefWithSlotRefSource(Expr predicate, Analyzer analyzer) {
-        replacePredicateSlotRefWithSlotRefSource(null, predicate, -1, analyzer);
+    private void replacePredicateSlotRefWithSource(Expr predicate, Analyzer analyzer) {
+        replacePredicateSlotRefWithSource(null, predicate, -1, analyzer);
     }
 
-    private void replacePredicateSlotRefWithSlotRefSource(Expr parent, Expr predicate, int childIndex, Analyzer analyzer) {
+    private void replacePredicateSlotRefWithSource(Expr parent, Expr predicate, int childIndex, Analyzer analyzer) {
         if (predicate instanceof SlotRef) {
             final SlotRef slotRef =  (SlotRef)predicate;
             if (parent != null && childIndex >= 0) {
@@ -1776,10 +1773,11 @@ public class SingleNodePlanner {
 
         for (int i = 0; i < predicate.getChildren().size(); i++) {
             final Expr child = predicate.getChild(i);
-            replacePredicateSlotRefWithSlotRefSource(predicate, child, i, analyzer);
+            replacePredicateSlotRefWithSource(predicate, child, i, analyzer);
         }
     }
 
+    // Register predicates with Aggregation's output tuple id.
     private boolean putPredicatesOnAggregation(SelectStmt stmt, Analyzer analyzer,
                                       List<Expr> predicates) throws AnalysisException {
         final AggregateInfo aggregateInfo = stmt.getAggInfo();
@@ -1790,6 +1788,7 @@ public class SingleNodePlanner {
         return false;
     }
 
+    // Register predicates with Windows's tuple id.
     private boolean putPredicatesOnWindows(SelectStmt stmt, Analyzer analyzer,
                                  List<Expr> predicates) throws AnalysisException {
         final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
@@ -1800,6 +1799,7 @@ public class SingleNodePlanner {
         return false;
     }
 
+    // Register predicates with TableRef's tuple id.
     private void putPredicatesOnFrom(SelectStmt stmt, Analyzer analyzer, List<Expr> predicates) throws AnalysisException {
         final List<TupleId> tableTupleIds = Lists.newArrayList();
         for (TableRef tableRef : stmt.getTableRefs()) {
