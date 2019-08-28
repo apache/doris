@@ -115,14 +115,14 @@ public class BrokerLoadJob extends LoadJob {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
                     stmt.getBrokerDesc(), originStmt);
             brokerLoadJob.setJobProperties(stmt.getProperties());
-            brokerLoadJob.checkAndDataSourceInfo(db, stmt.getDataDescriptions());
+            brokerLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
     }
 
-    private void checkAndDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    private void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         // check data source info
         db.readLock();
         try {
@@ -278,7 +278,7 @@ public class BrokerLoadJob extends LoadJob {
             if (db == null) {
                 throw new DdlException("Database[" + dbId + "] does not exist");
             }
-            checkAndDataSourceInfo(db, stmt.getDataDescriptions());
+            checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("origin_stmt", originStmt)
@@ -340,6 +340,7 @@ public class BrokerLoadJob extends LoadJob {
         // divide job into broker loading task by table
         db.readLock();
         try {
+            List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
             for (Map.Entry<Long, List<BrokerFileGroup>> entry :
                     dataSourceInfo.getIdToFileGroups().entrySet()) {
                 long tableId = entry.getKey();
@@ -362,6 +363,9 @@ public class BrokerLoadJob extends LoadJob {
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(tableId), attachment.getFileNumByTable(tableId));
                 idToTasks.put(task.getSignature(), task);
+                // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
+                // use newLoadingTasks to save new created loading tasks and submit them later.
+                newLoadingTasks.add(task);
                 loadStatistic.numLoadedRowsMap.put(loadId, new AtomicLong(0));
 
                 // save all related tables and rollups in transaction state
@@ -372,7 +376,7 @@ public class BrokerLoadJob extends LoadJob {
                 txnState.addTableIndexes(table);
             }
             // submit all tasks together
-            for (LoadTask loadTask : idToTasks.values()) {
+            for (LoadTask loadTask : newLoadingTasks) {
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
             }
         } finally {
