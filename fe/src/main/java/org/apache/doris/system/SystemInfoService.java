@@ -36,6 +36,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
@@ -1116,19 +1117,21 @@ public class SystemInfoService {
 
     /*
      * Check if the specified disks' capacity has reached the limit.
-     * pathBeMap is (path hash -> BE id)
+     * bePathsMap is (BE id -> list of path hash)
      * If floodStage is true, it will check with the floodStage threshold.
      * 
      * return Status.OK if not reach the limit
      */
-    public Status checkExceedDiskCapacityLimit(Map<Long, Long> pathBeMap, boolean floodStage) {
-        LOG.debug("pathBeMap: {}", pathBeMap);
+    public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
+        LOG.debug("pathBeMap: {}", bePathsMap);
         ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
-        for (Long pathHash : pathBeMap.keySet()) {
-            DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
-            if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
-                return new Status(TStatusCode.CANCELLED,
-                        "disk " + pathHash + " on backend " + pathBeMap.get(pathHash) + " exceed limit usage");
+        for (Long beId : bePathsMap.keySet()) {
+            for (Long pathHash : bePathsMap.get(beId)) {
+                DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
+                if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
+                    return new Status(TStatusCode.CANCELLED,
+                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                }
             }
         }
         return Status.OK;
