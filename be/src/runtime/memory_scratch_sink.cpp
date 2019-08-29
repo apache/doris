@@ -140,7 +140,7 @@ Status MemoryScratchSink::add_per_col(RuntimeState* state, TupleRow* row, std::s
                 break;
             case TYPE_TIME: {
                 double time = *static_cast<double *>(item);
-                std::string time_str = time_str_from_int((int64_t) time);
+                std::string time_str = time_str_from_double(time);
                 result->cols[i].__isset.string_vals = true;
                 result->cols[i].string_vals.push_back(std::move(time_str));
                 break;

@@ -60,7 +60,7 @@ StringVal TimeOperators::cast_to_string_val(
     if (val.is_null) {
         return StringVal::null();
     }
-    return AnyValUtil::from_string_temp(ctx, time_str_from_int(val.val));
+    return AnyValUtil::from_string_temp(ctx, time_str_from_double(val.val));
 }
 
 DateTimeVal TimeOperators::cast_to_datetime_val(

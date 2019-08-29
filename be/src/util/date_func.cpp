@@ -58,7 +58,7 @@ uint24_t timestamp_from_date(const std::string& date_str) {
     return uint24_t(value);
 }
 
-std::string time_str_from_int(int64_t time) {
+std::string time_str_from_double(double time) {
     std::stringstream time_ss;
     if (time < 0) {
         time_ss << "-";
