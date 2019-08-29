@@ -398,13 +398,12 @@ public class DateLiteral extends LiteralExpr {
     //Return the date stored in the dateliteral as pattern format.
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         if (type == Type.DATE) {
             return DATE_FORMATTER.parseLocalDateTime(getStringValue())
-                .toString(formatBuilder(pattern).toFormatter());
+                    .toString(formatBuilder(pattern).toFormatter());
         } else {
             return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue())
-                .toString(formatBuilder(pattern).toFormatter());
+                    .toString(formatBuilder(pattern).toFormatter());
         }
     }
 
