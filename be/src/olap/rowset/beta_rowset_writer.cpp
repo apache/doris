@@ -41,6 +41,7 @@ BetaRowsetWriter::BetaRowsetWriter()
     auto size = static_cast<double>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
+    _max_segment_row_size = OLAP_MAX_ROWS_SEGMENT_FILE;
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -84,8 +85,10 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer());
     }
-    if (PREDICT_FALSE(_segment_writer->reach_capacity())) {
-        RETURN_NOT_OK(_flush_segment_writer());
+    if (PREDICT_FALSE(_segment_writer->num_rows_written() >= _max_segment_row_size)) {
+        LOG(ERROR) << "Segment column size=" << _segment_writer->num_rows_written()
+                   << " exceeds max size=" << _max_segment_row_size;
+        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
     // TODO update rowset's zonemap
     auto s = _segment_writer->append_row(row);
@@ -93,7 +96,8 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
         LOG(WARNING) << "failed to append row: " << s.to_string();
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
-    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size)) {
+    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size ||
+            _segment_writer->num_rows_written() == _max_segment_row_size)) {
         RETURN_NOT_OK(_flush_segment_writer());
     }
     _num_rows_written++;
