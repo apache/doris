@@ -223,7 +223,7 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
     // put sentinel
-    if (_queue) {
+    if (_queue != nullptr) {
         _queue->blocking_put(nullptr);
     }
     Expr::close(_output_expr_ctxs, state);

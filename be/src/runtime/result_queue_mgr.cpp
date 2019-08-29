@@ -48,8 +48,8 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
         if (*result == nullptr) {
             *eos = true;
             // put sentinel for consistency, avoid repeated invoking fetch result when hava no rowbatch
-            if (_queue) {
-                _queue->blocking_put(nullptr);
+            if (queue != nullptr) {
+                queue->blocking_put(nullptr);
             }
         } else {
             *eos = false;
