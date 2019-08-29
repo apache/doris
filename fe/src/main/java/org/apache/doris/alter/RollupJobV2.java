@@ -147,7 +147,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancelImpl("Databasee " + dbId + " does not exist");
+            cancelImpl("Database " + dbId + " does not exist");
             return;
         }
 
