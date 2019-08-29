@@ -101,7 +101,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return 0;
 }
 
-uint64_t SegmentWriter::num_rows_written() {
+uint32_t SegmentWriter::num_rows_written() {
     return _row_count;
 }
 
