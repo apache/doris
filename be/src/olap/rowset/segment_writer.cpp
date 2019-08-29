@@ -231,7 +231,7 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
          return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
     }
 
-    data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));
+    data_dir->add_pending_ids(ROWSET_ID_PREFIX + _segment_group->rowset_id().to_string());
     if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
             _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";

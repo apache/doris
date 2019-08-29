@@ -21,12 +21,11 @@
 
 namespace doris {
 
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(UniqueId backend_uid) :
+UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid) :
     _backend_uid(backend_uid), _inc_id(1) {
 }
-// generator a id according to data dir
-// rowsetid is not globally unique, it is dir level
-// it saves the batch end id into meta env
+
+// generate a unique rowset id and save it in a set to check whether it is valid in the future
 OLAPStatus UniqueRowsetIdGenerator::next_id(RowsetId* rowset_id) {
     std::lock_guard<SpinLock> l(_lock);
     rowset_id->init(_version, _backend_uid.hi, _backend_uid.lo, ++_inc_id);

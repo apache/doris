@@ -88,6 +88,7 @@ static Status _validate_options(const EngineOptions& options) {
 
 Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
+    LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
     auto st = engine->open();
     if (st != OLAP_SUCCESS) {

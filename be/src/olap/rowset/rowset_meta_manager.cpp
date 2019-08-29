@@ -34,7 +34,7 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
-bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id) {
+bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
@@ -44,7 +44,7 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, 
     return true;
 }
 
-OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, RowsetMetaSharedPtr rowset_meta) {
+OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
@@ -65,7 +65,7 @@ OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_u
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, std::string* json_rowset_meta) {
+OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, std::string* json_rowset_meta) {
     RowsetMetaSharedPtr rowset_meta_ptr(new(std::nothrow) RowsetMeta());
     OLAPStatus status = get_rowset_meta(meta, tablet_uid, rowset_id, rowset_meta_ptr);
     if (status != OLAP_SUCCESS) {
@@ -79,7 +79,7 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tab
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     bool ret = rowset_meta->serialize(&value);
@@ -95,7 +95,7 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, RowsetI
     return status;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id, const string& meta_binary) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, const string& meta_binary) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
     if (status == OLAP_SUCCESS) {
@@ -104,7 +104,7 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, RowsetI
     return status;
 }
 
-OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, RowsetId rowset_id) {
+OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     LOG(INFO) << "start to remove rowset, key:" << key;
     OLAPStatus status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -113,7 +113,7 @@ OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, Rowse
 }
 
 OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
-            std::function<bool(const TabletUid&, RowsetId, const std::string&)> const& func) {
+            std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func) {
     auto traverse_rowset_meta_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: rst_uuid_rowset_id

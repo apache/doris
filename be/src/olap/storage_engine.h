@@ -201,7 +201,7 @@ public:
 
     bool rowset_id_in_use(RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
 
-    void release_rowset_id(RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
+    void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
@@ -340,7 +340,7 @@ private:
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
 
-    RowsetIdGenerator* _rowset_id_generator;
+    std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

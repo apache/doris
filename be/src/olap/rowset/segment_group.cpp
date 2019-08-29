@@ -65,7 +65,7 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
             const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
             bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _tablet_id(tablet_id),
@@ -101,7 +101,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSc
     }
 }
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
         const std::string& rowset_path_prefix, bool delete_flag,
         int32_t segment_group_id, int32_t num_segments, bool is_pending,
         TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),

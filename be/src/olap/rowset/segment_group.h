@@ -48,11 +48,11 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(int64_t tablet_id, RowsetId rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
@@ -248,7 +248,7 @@ public:
 
     int64_t get_tablet_id();
 
-    RowsetId rowset_id() {
+    const RowsetId& rowset_id() {
         return _rowset_id;
     }
 
