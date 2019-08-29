@@ -5,15 +5,22 @@
 `DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
 
 
-将unix时间戳转化位对应的time格式，返回的格式由string_format指定
+将 unix 时间戳转化位对应的 time 格式，返回的格式由 `string_format` 指定
 
-默认为yyyy-MM-dd HH:mm:ss
+默认为 yyyy-MM-dd HH:mm:ss
 
 传入的是整形，返回的是字符串类型
 
-目前string_format只支持两种类型的格式：yyyy-MM-dd，yyyy-MM-dd HH:mm:ss
+目前 `string_format` 支持格式：
 
-其余string_format格式是非法的，返回NULL
+    %Y：年。例：2014，1900
+    %m：月。例：12，09
+    %d：日。例：11，01
+    %H：时。例：23，01，12
+    %i：分。例：05，11
+    %s：秒。例：59，01
+
+其余 `string_format` 格式是非法的，返回NULL
 
 如果给定的时间戳小于 0 或大于 253402271999，则返回 NULL。即时间戳范围是：
 
@@ -29,16 +36,16 @@ mysql> select from_unixtime(1196440219);
 | 2007-12-01 00:30:19       |
 +---------------------------+
 
-mysql> select from_unixtime(1196440219, 'yyyy-MM-dd');
+mysql> select from_unixtime(1196440219, '%Y-%m-%d');
 +-----------------------------------------+
-| from_unixtime(1196440219, 'yyyy-MM-dd') |
+| from_unixtime(1196440219, '%Y-%m-%d') |
 +-----------------------------------------+
 | 2007-12-01                              |
 +-----------------------------------------+
 
-mysql> select from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss');
+mysql> select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s');
 +--------------------------------------------------+
-| from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') |
+| from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') |
 +--------------------------------------------------+
 | 2007-12-01 00:30:19                              |
 +--------------------------------------------------+

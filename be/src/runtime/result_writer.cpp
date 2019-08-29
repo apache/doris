@@ -107,7 +107,7 @@ Status ResultWriter::add_one_row(TupleRow* row) {
 
         case TYPE_TIME: {
             double time = *static_cast<double *>(item);
-            std::string time_str = time_str_from_int((int) time);
+            std::string time_str = time_str_from_double(time);
             buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
             break;
         }

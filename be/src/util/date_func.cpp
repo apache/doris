@@ -58,15 +58,15 @@ uint24_t timestamp_from_date(const std::string& date_str) {
     return uint24_t(value);
 }
 
-std::string time_str_from_int(int time) {
+std::string time_str_from_double(double time) {
     std::stringstream time_ss;
     if (time < 0) {
         time_ss << "-";
         time = -time;
     }
-    int hour = time / 60 / 60;
-    int minute = time / 60 % 60;
-    int second = time % 60;
+    int64_t hour = time / 60 / 60;
+    int minute = ((int64_t)(time / 60)) % 60;
+    int second = ((int64_t) time) % 60;
     
     time_ss << std::setw(2) << std::setfill('0') << hour 
         << ":" << std::setw(2) << std::setfill('0') << minute 
