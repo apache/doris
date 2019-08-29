@@ -117,6 +117,8 @@ public:
     static IntCounter segment_rows_by_short_key;
     // total number of rows selected by zone map index
     static IntCounter segment_rows_read_by_zone_map;
+	// total number of rows selected by bloom filter index
+    static IntCounter segment_rows_read_by_bloom_filter;
 
     static IntCounter txn_begin_request_total;
     static IntCounter txn_commit_request_total;

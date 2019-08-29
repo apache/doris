@@ -22,7 +22,7 @@
 
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
+TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -31,6 +31,7 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
     column._is_nullable = is_nullable;
     column._length = 4;
     column._index_length = 4;
+    column._is_bf_column = is_bf_column;
     return column;
 }
 

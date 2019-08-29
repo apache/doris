@@ -89,7 +89,7 @@ private:
 // Page index 
 class OrdinalPageIndex {
 public:
-    OrdinalPageIndex(const Slice& data, uint64_t num_rows)
+    OrdinalPageIndex(const Slice& data, uint32_t num_rows)
         : _data(data), _num_rows(num_rows), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
     }
     ~OrdinalPageIndex();
@@ -118,6 +118,10 @@ public:
         return _num_pages;
     }
 
+    uint32_t num_rows() {
+        return _num_rows;
+    }
+
 private:
     uint32_t _header_size() const { return 8; }
 
@@ -125,7 +129,7 @@ private:
     friend OrdinalPageIndexIterator;
 
     Slice _data;
-    uint64_t _num_rows;
+    uint32_t _num_rows;
 
     // valid after laod
     int32_t _num_pages;

@@ -93,6 +93,8 @@ message ColumnMetaPB {
     optional PagePointerPB ordinal_index_page = 7;
     // zone map page
     optional PagePointerPB zone_map_page = 8;
+    // bloom filter page
+    optional PagePointerPB bloom_filter_page = 9;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
@@ -143,6 +145,13 @@ message ShortKeyFooterPB {
     optional uint32 num_segment_rows = 6;
     // Total bytes for this segment
     optional uint32 segment_bytes = 7;
+}
+
+message BloomFilterPageFooterPB {
+    // hash function number
+    optional uint32 hash_function_num = 1;
+    // number of entry in one block
+    optional uint32 expected_num = 2;
 }
 
 message SegmentFooterPB {

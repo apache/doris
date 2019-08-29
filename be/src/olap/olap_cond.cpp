@@ -459,7 +459,7 @@ bool Cond::eval(const BloomFilter& bf) const {
         break;
     }
 
-    return false;
+    return true;
 }
 
 CondColumn::~CondColumn() {

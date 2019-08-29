@@ -94,6 +94,7 @@ add_library(Olap STATIC
     rowset/segment_v2/segment_iterator.cpp
     rowset/segment_v2/segment_writer.cpp
     rowset/segment_v2/column_zone_map.cpp
+    rowset/segment_v2/bloom_filter_page.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp
     task/engine_clear_alter_task.cpp

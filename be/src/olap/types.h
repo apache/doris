@@ -74,6 +74,7 @@ public:
     inline void set_to_min(void* buf) const { _set_to_min(buf); }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const { return _hash_code(data, seed); }
+    inline uint64_t hash_code64(const void* data, uint64_t seed) const { return _hash_code64(data, seed); }
     inline const size_t size() const { return _size; }
 
     inline FieldType type() const { return _field_type; }
@@ -93,6 +94,7 @@ private:
     void (*_set_to_min)(void* buf);
 
     uint32_t (*_hash_code)(const void* data, uint32_t seed);
+    uint64_t (*_hash_code64)(const void* data, uint64_t seed);
 
     const size_t _size;
     const FieldType _field_type;
@@ -211,6 +213,10 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline uint32_t hash_code(const void* data, uint32_t seed) {
         return HashUtil::hash(data, sizeof(CppType), seed);
+    }
+
+    static inline uint64_t hash_code64(const void* data, uint64_t seed) {
+        return HashUtil::hash64(data, sizeof(CppType), seed);
     }
 
     static std::string to_string(const void* src) {
@@ -564,6 +570,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     static uint32_t hash_code(const void* data, uint32_t seed) {
         auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
+    }
+
+    static uint64_t hash_code64(const void* data, uint64_t seed) {
+        auto slice = reinterpret_cast<const Slice*>(data);
+        return HashUtil::hash64(slice->data, slice->size, seed);
     }
 };
 

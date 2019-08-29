@@ -97,6 +97,8 @@ Status ColumnReader::init() {
 
     RETURN_IF_ERROR(_init_column_zone_map());
 
+    RETURN_IF_ERROR(_init_column_bloom_filter_page());
+
     return Status::OK();
 }
 
@@ -218,6 +220,20 @@ void ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_index
     }
 }
 
+void ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
+    size_t block_num = _column_bloom_filter_page->block_num();
+    RowRanges bf_row_ranges;
+    uint32_t expected_num = _column_bloom_filter_page->expected_num();
+    for (int i = 0; i < block_num; ++i) {
+        std::shared_ptr<BloomFilter> bf = _column_bloom_filter_page->get_bloom_filter(i);
+        if (cond_column->eval(*bf)) {
+            RowRanges::ranges_union(bf_row_ranges,
+                RowRanges::create_single(i * expected_num, (i + 1) * expected_num), &bf_row_ranges);
+        }
+    }
+    *row_ranges = std::move(bf_row_ranges);
+}
+
 // initial ordinal index
 Status ColumnReader::_init_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
@@ -243,6 +259,21 @@ Status ColumnReader::_init_column_zone_map() {
     }
     return Status::OK();
 }
+
+// initialize column bloom filter
+Status ColumnReader::_init_column_bloom_filter_page() {                                                                                                             
+    if (has_bloom_filter()) {
+        PagePointer pp = _meta.bloom_filter_page();
+        PageHandle ph;
+        RETURN_IF_ERROR(read_page(pp, &ph));
+        _column_bloom_filter_page.reset(new BloomFilterPage(ph.data()));
+        RETURN_IF_ERROR(_column_bloom_filter_page->load());
+    } else {
+        _column_bloom_filter_page.reset(nullptr);
+    }
+    return Status::OK();
+}
+
 
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
     *iter = _ordinal_index->begin();

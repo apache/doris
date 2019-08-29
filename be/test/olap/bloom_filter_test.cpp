@@ -102,6 +102,24 @@ TEST_F(TestBloomFilter, add_and_test_bytes) {
     ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 }
 
+TEST_F(TestBloomFilter, test_init_with_deep) {
+    BloomFilter bf; 
+    bf.init(1024);
+    std::vector<std::string> values;
+    for (int i = 0; i < 1024; ++i) {
+        std::string tmp = "string_" + std::to_string(rand());
+        bf.add_bytes(tmp.data(), tmp.size());
+        values.emplace_back(tmp);
+    }
+
+    // read
+    BloomFilter bf2;
+    bf2.init_with_deep_copy(bf.bit_set_data(), bf.bit_set_data_len(), bf.hash_function_num());
+    for (auto value : values) {
+        ASSERT_TRUE(bf2.test_bytes(value.data(), value.size()));
+    }
+}
+
 // Print bloom filter buffer and points of specified string
 TEST_F(TestBloomFilter, bloom_filter_info) {
     string bytes;

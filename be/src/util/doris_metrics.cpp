@@ -91,6 +91,7 @@ IntCounter DorisMetrics::segment_read_total;
 IntCounter DorisMetrics::segment_row_total;
 IntCounter DorisMetrics::segment_rows_by_short_key;
 IntCounter DorisMetrics::segment_rows_read_by_zone_map;
+IntCounter DorisMetrics::segment_rows_read_by_bloom_filter;
 
 IntCounter DorisMetrics::txn_begin_request_total;
 IntCounter DorisMetrics::txn_commit_request_total;
@@ -236,6 +237,9 @@ void DorisMetrics::initialize(
     _metrics->register_metric(
         "segment_read", MetricLabels().add("type", "segment_rows_read_by_zone_map"),
         &segment_rows_read_by_zone_map);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_rows_read_by_bloom_filter"),
+        &segment_rows_read_by_bloom_filter);
 
     _metrics->register_metric(
         "txn_request", MetricLabels().add("type", "begin"),

@@ -136,7 +136,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         RowRanges zone_map_row_ranges;
         RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
         RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
-        // TODO(hkp): get row ranges from bloom filter and secondary index
+
+        RowRanges bf_row_ranges;
+        RETURN_IF_ERROR(_get_row_ranges_from_bloom_filter(&bf_row_ranges));
+        RowRanges::ranges_intersection(_row_ranges, bf_row_ranges, &_row_ranges);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -173,6 +176,26 @@ Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ra
     }
     *zone_map_row_ranges = std::move(origin_row_ranges);
     DorisMetrics::segment_rows_read_by_zone_map.increment(zone_map_row_ranges->count());
+    return Status::OK();
+}
+
+Status SegmentIterator::_get_row_ranges_from_bloom_filter(RowRanges* bf_row_ranges) {
+    RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
+    for (auto& column_condition : _opts.conditions->columns()) {
+        int32_t column_id = column_condition.first;
+        // get row ranges from bloom filter
+        if (!_segment->_column_readers[column_id]->has_bloom_filter()) {
+            // there is no bloom filter for this column
+            continue;
+        }   
+        // get row ranges by bloom filter of this column
+        RowRanges column_bf_row_ranges;
+        _segment->_column_readers[column_id]->get_row_ranges_by_bloom_filter(column_condition.second, &column_bf_row_ranges);
+        // intersection different columns's row ranges to get final row ranges by bloom filter
+        RowRanges::ranges_intersection(origin_row_ranges, column_bf_row_ranges, &origin_row_ranges);
+    }   
+    *bf_row_ranges = std::move(origin_row_ranges);
+    DorisMetrics::segment_rows_read_by_bloom_filter.increment(bf_row_ranges->count());
     return Status::OK();
 }
 

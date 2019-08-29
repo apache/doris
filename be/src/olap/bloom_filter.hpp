@@ -71,6 +71,16 @@ public:
         return true;
     }
 
+    bool init_with_deep_copy(uint64_t* data, uint32_t data_len) {
+        _data = new(std::nothrow) uint64_t[data_len];
+        if (_data == nullptr) {
+            return false;
+        }
+        memcpy(_data, data, data_len * sizeof(uint64_t));
+        _data_len = data_len;
+        return true;
+    }
+
     // Set the bit specified by param, note that uint64_t type contains 2^6 bits
     void set(uint32_t index) {
         _data[index >> 6] |= 1L << (index % 64);
@@ -136,6 +146,7 @@ private:
 class BloomFilter {
 public:
     BloomFilter() : _bit_num(0), _hash_function_num(0) {}
+
     ~BloomFilter() {}
 
     // Create BloomFilter with given entry num and fpp, which is used for loading data
@@ -160,6 +171,13 @@ public:
         _bit_num = sizeof(uint64_t) * 8 * len;
         _hash_function_num = hash_function_num;
         return _bit_set.init(data, len);
+    }
+
+    // init with deep copy
+    bool init_with_deep_copy(uint64_t* data, uint32_t len, uint32_t hash_function_num) {
+        _bit_num = sizeof(uint64_t) * 8 * len;
+        _hash_function_num = hash_function_num;
+        return _bit_set.init_with_deep_copy(data, len);
     }
 
     // Compute hash value of given buffer and add to BloomFilter

@@ -216,7 +216,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
     FileUtils::remove_all(dname);
 }
 
-TEST_F(SegmentReaderWriterTest, TestZoneMap) {
+TEST_F(SegmentReaderWriterTest, TestIndex) {
     size_t num_rows_per_block = 10;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
@@ -225,7 +225,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
     tablet_schema->_num_short_key_columns = 2;
     tablet_schema->_num_rows_per_row_block = num_rows_per_block;
     tablet_schema->_cols.push_back(create_int_key(1));
-    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(2, true, true));
     tablet_schema->_cols.push_back(create_int_key(3));
     tablet_schema->_cols.push_back(create_int_value(4));
 
@@ -276,7 +276,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
-        // scan all rows
+        // test zone map
         {
             TCondition condition;
             condition.__set_column_name("2");
@@ -376,6 +376,50 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 rowid += rows_read;
             }
             ASSERT_EQ(16 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+        // test bloom filter
+        {
+            StorageReadOptions read_opts;
+            TCondition condition;
+            condition.__set_column_name("2");
+            condition.__set_condition_op("=");
+            std::vector<std::string> vals = {"101"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+            read_opts.conditions = conditions.get();
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            Arena arena;
+            RowBlockV2 block(schema, 1024, &arena);
+
+            // only first block(first 1024 rows) will be read because of bloom filter
+            int left = 1024;
+
+            int rowid = 0;
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok()) << "st:" << st.to_string();
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
+                    }
+                }
+                rowid += rows_read;
+            }
+            ASSERT_EQ(1024, rowid);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());

@@ -31,6 +31,7 @@
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -156,7 +157,12 @@ public:
 
         // Decode trailer
         _num_elems = decode_fixed32_le((const uint8_t *)&_data[_data.get_size() - sizeof(uint32_t)]);
-        _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
+        uint32_t tail_length = (_num_elems + 1) * sizeof(uint32_t);
+        if (_data.get_size() <= tail_length) {
+            return Status::Corruption(
+                    strings::Substitute("invalid data size:$0, num_elems:$1", _data.get_size(), _num_elems));
+        }
+        _offsets_pos = _data.get_size() - tail_length;
 
         _parsed = true;
 

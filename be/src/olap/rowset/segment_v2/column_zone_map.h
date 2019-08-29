@@ -25,6 +25,7 @@
 #include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/index_page_builder.h"
 
 namespace doris {
 

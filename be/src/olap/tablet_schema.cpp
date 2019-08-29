@@ -235,7 +235,23 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     }
 }
 
-TabletColumn::TabletColumn() {}
+TabletColumn::TabletColumn() : _unique_id(0),
+    _col_name(""),
+    _type(OLAP_FIELD_TYPE_UNKNOWN),
+    _is_key(false),
+    _aggregation(OLAP_FIELD_AGGREGATION_NONE),
+    _is_nullable(false),
+    _has_default_value(false),
+    _default_value(""),
+    _is_decimal(false),
+    _precision(0),
+    _frac(0),
+    _length(0),
+    _index_length(0),
+    _is_bf_column(false),
+    _has_referenced_column(false),
+    _referenced_column_id(-1),
+    _referenced_column("") { }
 
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
     _aggregation = agg;
@@ -313,10 +329,16 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
 }
 
 TabletSchema::TabletSchema()
-    : _num_columns(0),
+    : _keys_type(AGG_KEYS),
+      _num_columns(0),
       _num_key_columns(0),
       _num_null_columns(0),
-      _num_short_key_columns(0) { }
+      _num_short_key_columns(0),
+      _num_rows_per_row_block(0),
+      _compress_kind(COMPRESS_NONE),
+      _next_column_unique_id(0),
+      _has_bf_fpp(false),
+      _bf_fpp(0.0) { }
 
 OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _keys_type = schema.keys_type();

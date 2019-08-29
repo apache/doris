@@ -23,9 +23,11 @@
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h" // for slice
+#include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
+#include "olap/rowset/segment_v2/bloom_filter_page.h" // for BloomFilterPageBuilder
 
 namespace doris {
 
@@ -42,7 +44,13 @@ struct ColumnWriterOptions {
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
+    // for zone map index
     bool need_zone_map = false;
+
+    // for bloom filter index
+    bool is_bf_column = false;
+    size_t bloom_filter_block_size = 1024;
+    double fpp = BLOOM_FILTER_DEFAULT_FPP;
 };
 
 class EncodingInfo;
@@ -96,6 +104,7 @@ public:
     Status write_data();
     Status write_ordinal_index();
     Status write_zone_map();
+    Status write_bloom_filter();
     void write_meta(ColumnMetaPB* meta);
 
 private:
@@ -154,9 +163,11 @@ private:
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
     std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builder;
     std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
+    std::unique_ptr<BloomFilterPageBuilder> _bloom_filter_page_builder;
 
     PagePointer _ordinal_index_pp;
     PagePointer _zone_map_pp;
+    PagePointer _bloom_filter_pp;
     uint64_t _written_size = 0;
 };
 
