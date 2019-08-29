@@ -118,6 +118,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
 
+        // check disk capacity
+        int64_t tablet_size = tablet->tablet_footprint();
+        if (stores[0]->reach_capacity_limit(tablet_size)) {
+            res = OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+            break;
+        }
+
+        // get shard
         uint64_t shard = 0;
         res = stores[0]->get_shard(&shard);
         if (res != OLAP_SUCCESS) {

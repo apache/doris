@@ -662,15 +662,26 @@ public class Config extends ConfigBase {
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
     
     /*
-     * storage_high_watermark_usage_percent limit the max capacity usage percent of a Backend storage path.
-     * storage_min_left_capacity_bytes limit the minimum left capacity of a Backend storage path.
+     * 'storage_high_watermark_usage_percent' limit the max capacity usage percent of a Backend storage path.
+     * 'storage_min_left_capacity_bytes' limit the minimum left capacity of a Backend storage path.
      * If both limitations are reached, this storage path can not be chose as tablet balance destination.
      * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_high_watermark_usage_percent = 0.85;
+    public static int storage_high_watermark_usage_percent = 85;
     @ConfField(mutable = true, masterOnly = true)
-    public static double storage_min_left_capacity_bytes = 1000 * 1024 * 1024; // 1G
+    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
+
+    /*
+     * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
+     * the following operation will be rejected:
+     * 1. load job
+     * 2. restore job
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int storage_flood_stage_usage_percent = 95;
+    @ConfField(mutable = true, masterOnly = true)
+    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 100MB
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
@@ -857,5 +868,16 @@ public class Config extends ConfigBase {
      * exception will be thrown to user client directly without load label.
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
+
+    /*
+     * This will limit the max recursion depth of hash distribution pruner.
+     * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
+     * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,
+     * So that distribution pruner will no work and just return all buckets.
+     * 
+     * Increase the depth can support distribution pruning for more elements, but may cost more CPU.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_distribution_pruner_recursion_depth = 100;
 }
 

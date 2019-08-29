@@ -99,7 +99,7 @@ public:
     ~Schema();
 
     const std::vector<Field*>& columns() const { return _cols; }
-    const Field* column(int idx) const { return _cols[idx]; }
+    const Field* column(ColumnId cid) const { return _cols[cid]; }
 
     size_t num_key_columns() const {
         return _num_key_columns;
@@ -133,8 +133,11 @@ public:
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
 private:
-    std::vector<Field*> _cols;
+    // all valid ColumnIds in this schema
     std::vector<ColumnId> _col_ids;
+    // _cols[cid] is ony valid when cid is contained in `_col_ids`
+    std::vector<Field*> _cols;
+    // _col_offsets[cid] is ony valid when cid is contained in `_col_ids`
     std::vector<size_t> _col_offsets;
     size_t _num_key_columns;
     size_t _schema_size;

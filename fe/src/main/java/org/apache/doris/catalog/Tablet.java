@@ -26,7 +26,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -182,6 +184,24 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
         return beIds;
+    }
+
+    // return map of (BE id -> path hash) of normal replicas
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
+        Multimap<Long, Long> map = HashMultimap.create();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        for (Replica replica : replicas) {
+            if (replica.isBad()) {
+                continue;
+            }
+
+            ReplicaState state = replica.getState();
+            if (infoService.checkBackendAlive(replica.getBackendId())
+                    && (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE)) {
+                map.put(replica.getBackendId(), replica.getPathHash());
+            }
+        }
+        return map;
     }
 
     // for query

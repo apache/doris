@@ -468,6 +468,12 @@ AgentStatus EngineCloneTask::_clone_copy(
                 break;
             }
 
+            // check disk capacity
+            if (data_dir.reach_capacity_limit(file_size)) {
+                status = DORIS_DISK_REACH_CAPACITY_LIMIT;
+                break;
+            }
+
             total_file_size += file_size;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
             if (estimate_timeout < config::download_low_speed_time) {

@@ -236,6 +236,8 @@ public:
 
     uint32_t num_items() const { return _footer.num_items(); }
 
+    uint32_t num_rows_per_block() const { return _footer.num_rows_per_block(); }
+
     Slice key(ssize_t ordinal) const {
         DCHECK(ordinal >= 0 && ordinal < num_items());
         return {_key_data.data + _offsets[ordinal], _offsets[ordinal + 1] - _offsets[ordinal]};

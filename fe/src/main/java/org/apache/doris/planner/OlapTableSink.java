@@ -31,8 +31,10 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -53,7 +55,9 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
@@ -292,19 +296,29 @@ public class OlapTableSink extends DataSink {
 
     private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
+        // BE id -> path hash
+        Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Partition partition : table.getPartitions()) {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    List<Long> beIds = tablet.getNormalReplicaBackendIds();
-                    if (beIds.size() < quorum) {
-                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + beIds.size());
+                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                    if (bePathsMap.keySet().size() < quorum) {
+                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
                     }
-                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), beIds));
+                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    allBePathsMap.putAll(bePathsMap);
                 }
             }
+        }
+        
+        // check if disk capacity reach limit
+        // this is for load process, so use high water mark to check
+        Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
+        if (!st.ok()) {
+            throw new DdlException(st.getErrorMsg());
         }
         return locationParam;
     }

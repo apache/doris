@@ -143,7 +143,7 @@ public class MasterImpl {
             switch (taskType) {
                 case CREATE:
                     Preconditions.checkState(request.isSetReport_version());
-                    finishCreateReplica(task, request.getReport_version());
+                    finishCreateReplica(task, request);
                     break;
                 case PUSH:
                     checkHasTabletInfo(request);
@@ -224,20 +224,27 @@ public class MasterImpl {
         }
     }
 
-    private void finishCreateReplica(AgentTask task, long reportVersion) {
+    private void finishCreateReplica(AgentTask task, TFinishTaskRequest request) {
         // if we get here, this task will be removed from AgentTaskQueue for certain.
         // because in this function, the only problem that cause failure is meta missing.
         // and if meta is missing, we no longer need to resend this task
 
         CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
         long tabletId = createReplicaTask.getTabletId();
+        
+        if (request.isSetFinish_tablet_infos()) {
+            Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
+                    createReplicaTask.getBackendId());
+            replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+        }
 
         // this should be called before 'countDownLatch()'
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
+        Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(),
+                task.getDbId());
 
         createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
         LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                tabletId, task.getBackendId(), reportVersion);
+                tabletId, task.getBackendId(), request.getReport_version());
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
     }
     

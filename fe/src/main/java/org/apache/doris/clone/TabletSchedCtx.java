@@ -876,6 +876,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                     reportedTablet.getData_size(), reportedTablet.getRow_count());
+            if (reportedTablet.isSetPath_hash()) {
+                replica.setPathHash(reportedTablet.getPath_hash());
+            }
             
             if (this.type == Type.BALANCE) {
                 long partitionVisibleVersion = partition.getVisibleVersion();

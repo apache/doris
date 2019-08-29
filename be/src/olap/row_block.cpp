@@ -49,7 +49,6 @@ RowBlock::~RowBlock() {
 }
 
 OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
-    _field_count = _schema->num_columns();
     _info = block_info;
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;

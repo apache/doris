@@ -268,7 +268,7 @@ public class SystemHandler extends AlterHandler {
 
             // if the space we needed is larger than the current available capacity * 0.85,
             // we refuse this decommission operation.
-            if (totalNeededCapacityB > totalAvailableCapacityB * Config.storage_high_watermark_usage_percent) {
+            if (totalNeededCapacityB > totalAvailableCapacityB * (Config.storage_high_watermark_usage_percent / 100.0)) {
                 throw new DdlException("No available capacity for decommission in cluster: " + clusterName
                         + ", needed: " + totalNeededCapacityB + ", available: " + totalAvailableCapacityB
                         + ", threshold: " + Config.storage_high_watermark_usage_percent);

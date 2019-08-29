@@ -20,6 +20,7 @@
 #include <google/protobuf/stubs/common.h>
 
 #include "olap/field.h"
+#include "olap/wrapper_field.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "runtime/mem_pool.h"
@@ -326,6 +327,20 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, STRING_COLUMN) {
+    TabletSchema char_tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "CHAR",
+                 "REPLACE", 5, false, true, &char_tablet_schema);
+    // test WrapperField.from_string() for char type
+    WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
+    ASSERT_EQ(OLAP_SUCCESS, field->from_string("true"));
+    const std::string tmp = field->to_string();
+    ASSERT_EQ(5, tmp.size());
+    ASSERT_EQ('t', tmp[0]);
+    ASSERT_EQ('r', tmp[1]);
+    ASSERT_EQ('u', tmp[2]);
+    ASSERT_EQ('e', tmp[3]);
+    ASSERT_EQ(0, tmp[4]);
+
     TabletSchema tablet_schema;
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
                  "REPLACE", 1, false, true, &tablet_schema);
