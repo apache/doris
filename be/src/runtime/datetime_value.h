@@ -470,9 +470,6 @@ private:
         _hour = (hms >> 12);
         _neg = 0;
         _type = TIME_DATETIME;
-
-        LOG(INFO) << "from_packed_time: " << packed_time << ": " << _day << ", " << _month << "," << _year << ","
-            << _second << ", " << _minute << "," <<  _hour << ", " << _neg << ", " << _type;
     }
 
     int64_t make_packed_time(int64_t time, int64_t second_part) const {
