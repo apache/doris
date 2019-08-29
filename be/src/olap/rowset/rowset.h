@@ -50,8 +50,8 @@ public:
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     virtual OLAPStatus load(bool use_cache = true) = 0;
 
-    // returns nullptr when failed to load segments
-    virtual std::shared_ptr<RowsetReader> create_reader() = 0;
+    // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
+    virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
     RowsetMetaSharedPtr rowset_meta() const { return _rowset_meta; }
 

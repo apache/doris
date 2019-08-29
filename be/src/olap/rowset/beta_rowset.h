@@ -46,7 +46,7 @@ public:
 
     OLAPStatus load(bool use_cache = true) override;
 
-    RowsetReaderSharedPtr create_reader() override;
+    OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
     OLAPStatus remove() override;
 

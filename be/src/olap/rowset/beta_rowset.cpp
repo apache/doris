@@ -76,16 +76,15 @@ OLAPStatus BetaRowset::load(bool use_cache) {
     return OLAP_SUCCESS;
 }
 
-RowsetReaderSharedPtr BetaRowset::create_reader() {
+OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     if (!is_loaded()) {
         OLAPStatus status = load();
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "beta rowset load failed. rowset path:" << _rowset_path;
-            return nullptr;
+            return OLAP_ERR_ROWSET_CREATE_READER;
         }
     }
-    return std::shared_ptr<RowsetReader>(new BetaRowsetReader(
-        std::static_pointer_cast<BetaRowset>(shared_from_this())));
+    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus BetaRowset::remove() {

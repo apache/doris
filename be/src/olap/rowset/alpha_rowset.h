@@ -51,7 +51,7 @@ public:
     // always means that there are some io
     OLAPStatus load(bool use_cache = true) override;
 
-    std::shared_ptr<RowsetReader> create_reader() override;
+    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
     OLAPStatus remove() override;
 

@@ -33,7 +33,8 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
 
-    Schema schema(_context->tablet_schema->columns(), *(_context->seek_columns));
+    // SegmentIterator will load seek columns on demand
+    Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;

@@ -100,14 +100,14 @@ TEST_F(SegmentReaderWriterTest, normal) {
             StorageReadOptions read_opts;
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 1024, &arena);
+            RowBlockV2 block(schema, 1024);
 
             int left = 4096;
 
             int rowid = 0;
             while (left > 0)  {
                 int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
@@ -154,8 +154,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.ok());
             ASSERT_EQ(11, block.num_rows());
@@ -179,8 +178,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
@@ -208,8 +206,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
@@ -288,8 +285,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
 
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 1024, &arena);
+            RowBlockV2 block(schema, 1024);
 
             // only first page will be read because of zone map
             int left = 16 * 1024;
@@ -297,6 +293,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             int rowid = 0;
             while (left > 0)  {
                 int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());

@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -88,11 +89,11 @@ TEST(GenericIteratorsTest, Union) {
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
 
-    Arena arena;
-    RowBlockV2 block(schema, 128, &arena);
+    RowBlockV2 block(schema, 128);
 
     size_t row_count = 0;
     do {
+        block.clear();
         st = iter->next_batch(&block);
         for (int i = 0; i < block.num_rows(); ++i) {
             size_t base_value = row_count;
@@ -127,11 +128,11 @@ TEST(GenericIteratorsTest, Merge) {
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
 
-    Arena arena;
-    RowBlockV2 block(schema, 128, &arena);
+    RowBlockV2 block(schema, 128);
 
     size_t row_count = 0;
     do {
+        block.clear();
         st = iter->next_batch(&block);
         for (int i = 0; i < block.num_rows(); ++i) {
             size_t base_value = 0;

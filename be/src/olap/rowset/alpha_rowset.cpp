@@ -75,16 +75,16 @@ OLAPStatus AlphaRowset::load(bool use_cache) {
     return OLAP_SUCCESS;
 }
 
-std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
+OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
     if (!is_loaded()) {
         OLAPStatus status = load();
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "alpha rowset load failed. rowset path:" << _rowset_path;
-            return nullptr;
+            return OLAP_ERR_ROWSET_CREATE_READER;
         }
     }
-    return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
+    result->reset(new AlphaRowsetReader(
         _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {

@@ -1116,14 +1116,14 @@ bool SchemaChangeWithSorting::_external_sorting(
     int64_t merged_rows = 0;
     int64_t filtered_rows = 0;
     vector<RowsetReaderSharedPtr> rs_readers;
-    for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
-            it != src_rowsets.end(); ++it) {
-        RowsetReaderSharedPtr rs_reader = (*it)->create_reader();
-        if (rs_reader == nullptr) {
+    for (auto& rowset : src_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        auto res = rowset->create_reader(&rs_reader);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create rowset reader.";
             return false;
         }
-        rs_readers.push_back(rs_reader);
+        rs_readers.push_back(std::move(rs_reader));
     }
 
     if (OLAP_SUCCESS != merger.merge(rs_readers, &merged_rows, &filtered_rows)) {
@@ -1664,7 +1664,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
 
-    RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
+    RowsetReaderSharedPtr rowset_reader;
+    RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     rowset_reader->init(&_reader_context);
 
     RowsetId rowset_id;
