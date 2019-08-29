@@ -54,6 +54,7 @@ public:
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
                 slice->size = value_string.size();
                 slice->data = _arena.Allocate(slice->size);
+                memset(slice->data, 0, slice->size);
             }
         }
         return _rep->from_string(_field_buf + 1, value_string);
