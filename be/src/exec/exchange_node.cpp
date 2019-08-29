@@ -151,8 +151,6 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         {
             SCOPED_TIMER(_convert_row_batch_timer);
             RETURN_IF_CANCELLED(state);
-            // RETURN_IF_ERROR(QueryMaintenance(state));
-            RETURN_IF_ERROR(state->check_query_state());
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
             while (!reached_limit() && !output_batch->at_capacity()
                     && _input_batch != NULL && _next_row_idx < _input_batch->capacity()) {
@@ -211,8 +209,9 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
 Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     DCHECK_EQ(output_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    std::stringstream msg;
+    msg << "Exchange, while merging next.";
+    RETURN_IF_ERROR(state->check_query_state(msg.str()));
 
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
     while ((_num_rows_skipped < _offset)) {

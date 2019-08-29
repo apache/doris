@@ -232,8 +232,9 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
         SCOPED_TIMER(_build_timer);
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
-        RETURN_IF_LIMIT_EXCEEDED(state, 
-                "Hash join was constructing the hash table.");
+        std::stringstream msg;
+        msg << "Hash join, while constructing the hash table.";
+        RETURN_IF_LIMIT_EXCEEDED(state, msg.str());
 
         // Call codegen version if possible
         if (_process_build_batch_fn == NULL) {

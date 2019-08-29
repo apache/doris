@@ -305,7 +305,9 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
   bool eos = false;
   do {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(QueryMaintenance(state));
+    std::stringstream msg;
+    msg << "New partitioned aggregation, while getting next from child 0.";
+    RETURN_IF_ERROR(state->check_query_state(msg.str()));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
@@ -407,7 +409,9 @@ Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
   SCOPED_TIMER(_runtime_profile->total_time_counter());
   RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
   RETURN_IF_CANCELLED(state);
-  RETURN_IF_ERROR(state->check_query_state());
+  std::stringstream msg;
+  msg << "New partitioned aggregation, while getting next.";
+  RETURN_IF_ERROR(state->check_query_state(msg.str()));
   // clear tmp expr result alocations
   expr_results_pool_->clear();
 
@@ -486,7 +490,9 @@ Status NewPartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     // maintenance every N iterations.
     if ((count++ & (N - 1)) == 0) {
       RETURN_IF_CANCELLED(state);
-      RETURN_IF_ERROR(QueryMaintenance(state));
+      std::stringstream msg;
+      msg << "New partitioned aggregation, while getting rows from partition.";
+      RETURN_IF_ERROR(state->check_query_state(msg.str()));
     }
 
     int row_idx = row_batch->add_row();
@@ -527,7 +533,9 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
   do {
     DCHECK_EQ(out_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(QueryMaintenance(state));
+    std::stringstream msg;
+    msg << "New partitioned aggregation, while getting rows in streaming.";
+    RETURN_IF_ERROR(state->check_query_state(msg.str()));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
     SCOPED_TIMER(streaming_timer_);
@@ -834,7 +842,11 @@ Status NewPartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows)
   DCHECK(!parent->is_streaming_preagg_);
   DCHECK(!is_closed);
   DCHECK(!is_spilled());
-  RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
+  // TODO(ml): enable spill
+  std::stringstream msg;
+  msg << "New partitioned Aggregation in spill";
+  LIMIT_EXCEEDED(parent->mem_tracker(), parent->state_, msg.str());
+  // RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
 
   RETURN_IF_ERROR(SerializeStreamForSpilling());
 
@@ -1345,7 +1357,9 @@ Status NewPartitionedAggregationNode::ProcessStream(BufferedTupleStream3* input_
       RETURN_IF_ERROR(input_stream->GetNext(&batch, &eos));
       RETURN_IF_ERROR(
           ProcessBatch<AGGREGATED_ROWS>(&batch, ht_ctx_.get()));
-      RETURN_IF_ERROR(state_->check_query_state());
+      std::stringstream msg;
+      msg << "New partitioned aggregation, while processing stream.";
+      RETURN_IF_ERROR(state_->check_query_state(msg.str()));
       batch.reset();
     } while (!eos);
   }

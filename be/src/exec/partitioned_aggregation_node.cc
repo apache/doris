@@ -232,8 +232,9 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     bool eos = false;
     do {
         RETURN_IF_CANCELLED(state);
-        // RETURN_IF_ERROR(QueryMaintenance(state));
-        RETURN_IF_ERROR(state->check_query_state());
+        std::stringstream msg;
+        msg << "Partitioned aggregation, while getting next from child 0.";
+        RETURN_IF_ERROR(state->check_query_state(msg.str()));
         RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
 
         if (UNLIKELY(VLOG_ROW_IS_ON)) {
@@ -277,8 +278,9 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    std::stringstream msg;
+    msg << "Partitioned aggregation, before evaluating conjuncts.";
+    RETURN_IF_ERROR(state->check_query_state(msg.str()));
 
     if (reached_limit()) {
         *eos = true;
@@ -335,8 +337,10 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
         // maintenance every N iterations.
         if ((count++ & (N - 1)) == 0) {
             RETURN_IF_CANCELLED(state);
-            // RETURN_IF_ERROR(QueryMaintenance(state));
-            RETURN_IF_ERROR(state->check_query_state());
+            msg.clear();
+            msg.str(std::string());
+            msg << "Partitioned aggregation, while evaluating conjuncts.";
+            RETURN_IF_ERROR(state->check_query_state(msg.str()));
         }
 
         int row_idx = row_batch->add_row();
