@@ -222,8 +222,8 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    // shutdown queue, then blocking_get return false, put sentinel
-    if (_queue) {
+    // put sentinel
+    if (_queue != nullptr) {
         _queue->blocking_put(nullptr);
     }
     Expr::close(_output_expr_ctxs, state);
