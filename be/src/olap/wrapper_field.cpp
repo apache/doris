@@ -78,6 +78,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = _var_length;
         slice->data = _arena.Allocate(_var_length);
+        memset(slice->data, 0, slice->size);
     }
 }
 
