@@ -199,7 +199,7 @@ public class LoadStmt extends DdlStmt {
         }
 
         // time zone
-        final String timezone = properties.get(STRICT_MODE);
+        final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
             TimeUtils.checkTimeZoneValid(timezone);
         }
