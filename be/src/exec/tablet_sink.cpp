@@ -707,6 +707,12 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             case TYPE_VARCHAR: {
                 // Fixed length string
                 StringValue* str_val = (StringValue*)slot;
+                // todo(kks): varchar(0) means bitmap_union agg type
+                // we will remove this special handle when we add a special type for bitmap_union
+                if (desc->type().type == TYPE_VARCHAR && desc->type().len == 0) {
+                    continue;
+                }
+
                 if (str_val->len > desc->type().len) {
                     std::stringstream ss;
                     ss << "the length of input is too long than schema. "
