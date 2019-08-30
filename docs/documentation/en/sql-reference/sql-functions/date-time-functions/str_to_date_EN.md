@@ -1,6 +1,6 @@
-3500; Str_to_date
-Description
-'35;'35;' 35; Syntax
+# Str_to_date
+## Description
+### Syntax
 
 'DATETIME STR TWO DATES (VARCHAR STR, VARCHAR format)'
 
@@ -9,7 +9,7 @@ Convert STR to DATE type by format specified, if the conversion result does not 
 
 The format format supported is consistent with date_format
 
-'35;'35; example
+## example
 
 ```
 mysql > select str to u date ('2014 -12 -21 12:34:56','%Y -%m -%d%H:%i:%s');

@@ -1,13 +1,13 @@
-35; 'ST -u Y'
-Description
-'35;'35;' 35; Syntax
+# `ST_Y`
+## Description
+### Syntax
 
 `DOUBLE ST_Y(POINT point)`
 
 
 When point is a valid POINT type, the corresponding Y coordinate value is returned.
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT ST_Y(ST_Point(24.7, 56.7));

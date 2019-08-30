@@ -1,5 +1,5 @@
 # CREATE TABLE
-Description
+## Description
 This statement is used to create a table.
 Grammar:
 CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
@@ -177,7 +177,7 @@ PROPERTIES (
 "colocate_with"="table1"
 )
 
-'35;'35; example
+## example
 1. Create an OLAP table, use HASH buckets, use column storage, aggregate records of the same key
 CREATE TABLE example_db.table_hash
 (

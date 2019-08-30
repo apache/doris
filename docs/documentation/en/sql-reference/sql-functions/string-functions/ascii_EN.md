@@ -1,13 +1,13 @@
-It35; ASCII
-Description
-'35;'35;' 35; Syntax
+# ASCII
+## Description
+### Syntax
 
 'INT AXES (WARCHAR STR)'
 
 
 Returns the ASCII code corresponding to the first character of the string
 
-'35;'35; example
+## example
 
 ```
 mysql > select ascii ('1');

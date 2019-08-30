@@ -1,5 +1,5 @@
 # DROP FILE
-Description
+## Description
 
 This statement is used to delete an uploaded file.
 
@@ -15,7 +15,7 @@ properties 支持以下参数:
 
 Catalog: Yes. Classification of documents.
 
-'35;'35; example
+## example
 
 1. Delete the file ca.pem
 

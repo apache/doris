@@ -1,5 +1,5 @@
 # CREATE USER
-Description
+##Description
 
 Syntax:
 
@@ -14,7 +14,7 @@ The host part can also be specified as a domain with the grammar:'user_name'@['d
 
 If a role (ROLE) is specified, the permissions that the role has are automatically granted to the newly created user. If not specified, the user defaults to having no permissions. The specified ROLE must already exist.
 
-'35;'35; example
+## example
 
 1. Create a passwordless user (without specifying host, it is equivalent to Jack @'%')
 

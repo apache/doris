@@ -1,6 +1,6 @@
-Time diff
-Description
-'35;'35;' 35; Syntax
+# timediff
+## Description
+### Syntax
 
 'TIME TIMEDIFF (DATETIME expr1, DATETIME expr2)'
 
@@ -11,7 +11,7 @@ The TIMEDIFF function returns the result of expr1 - expr2 expressed as a time va
 
 The results are limited to TIME values ranging from - 838:59:59 to 838:59:59.
 
-'35;'35; example
+### example
 
 ```
 mysql> SELECT TIMEDIFF(now(),utc_timestamp());

@@ -1,14 +1,14 @@
-'35; CAST
-Description
+# CAST
+##Description
 
 
 ```
 cast (input as type)
 ```
 
-'35;'35;' 35; BIGINT type
+### BIGINT type
 
-'35;'35;' 35; Syntax (BIGINT)
+### Syntax (BIGINT)
 
 ``` cast (input as BIGINT) ```
 
@@ -18,7 +18,7 @@ Converts input to the specified type
 
 Converting the current column input to BIGINT type
 
-'35;'35; example
+## example
 
 1. Turn constant, or a column in a table
 

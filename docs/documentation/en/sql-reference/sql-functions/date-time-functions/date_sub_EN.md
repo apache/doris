@@ -1,6 +1,6 @@
-3500; date sub
-Description
-'35;'35;' 35; Syntax
+# date_sub
+## Description
+### Syntax
 
 `INT DATE_SUB(DATETIME date,INTERVAL expr type)`
 
@@ -13,7 +13,7 @@ The expr parameter is the interval you want to add.
 
 Sweet, sweet, sweet
 
-'35;'35; example
+## example
 
 ```
 mysql > select date sub ('2010 -11 -30 23:59:59', INTERVAL 2 DAY);

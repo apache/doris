@@ -1,13 +1,13 @@
 # now
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'DATETIME NOW ()'
 
 
 Get the current time and return it in Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select now();

@@ -1,6 +1,6 @@
 # year
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `INT YEAR(DATETIME date)`
 
@@ -9,7 +9,7 @@ Returns the year part of the date type, ranging from 1000 to 9999
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select year('1987-01-01');

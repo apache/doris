@@ -1,6 +1,6 @@
 # datediff
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'DATETIME DATEDIFF (DATETIME expr1,DATETIME expr2)'
 
@@ -11,7 +11,7 @@ Expr1 and expr2 parameters are valid date or date/time expressions.
 
 Note: Only the date part of the value participates in the calculation.
 
-'35;'35; example
+### example
 
 ```
 MySQL > select DateDiff (CAST ('2007 -12 -31 23:59:59 'AS DATETIME), CAST (2007 -12 -30' AS DATETIME));

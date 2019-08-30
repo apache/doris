@@ -1,5 +1,5 @@
-"35; RESTORE
-Description
+# RESTORE
+## Description
 1. RESTOR
 This statement is used to restore the data previously backed up by the BACKUP command to the specified database. This command is an asynchronous operation. After successful submission, you need to check progress through the SHOW RESTORE command. Restoring tables of OLAP type is supported only.
 Grammar:
@@ -23,7 +23,7 @@ Explain:
 "Timeout" = "3600": Task timeout, default to one day. Unit seconds.
 "Meta_version" = 40: Use the specified meta_version to read the previously backed up metadata. Note that as a temporary solution, this parameter is only used to restore the data backed up by the older version of Doris. The latest version of the backup data already contains metaversion, no need to specify.
 
-'35;'35; example
+## example
 1. Restore backup table backup_tbl in snapshot_1 from example_repo to database example_db1 with the time version of "2018-05-04-16-45-08". Restore to one copy:
 RESTORE SNAPSHOT example_db1.`snapshot_1`
 FROM `example 'u repo'

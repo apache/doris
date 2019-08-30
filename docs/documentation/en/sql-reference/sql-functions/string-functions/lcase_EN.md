@@ -1,6 +1,6 @@
-'35; lcase
-Description
-'35;'35;' 35; Syntax
+# lcase
+## Description
+### Syntax
 
 'INT lcase (VARCHAR str)'
 

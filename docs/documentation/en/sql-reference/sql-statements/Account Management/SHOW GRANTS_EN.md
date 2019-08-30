@@ -1,5 +1,5 @@
 # SHOW GRANTS
-Description
+## Description
 
 This statement is used to view user rights.
 
@@ -12,7 +12,7 @@ Explain:
 3. If you do not specify user_identity, view the permissions of the current user.
 
 
-'35;'35; example
+## example
 
 1. View all user rights information
 

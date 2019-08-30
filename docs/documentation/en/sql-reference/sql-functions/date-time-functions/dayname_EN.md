@@ -1,6 +1,6 @@
 # dayname
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'VARCHAR DAYNAME (DATE)'
 
@@ -9,7 +9,7 @@ Date name corresponding to return date
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql > select dayname ('2007 -02 -03 00:00');

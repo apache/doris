@@ -1,13 +1,13 @@
-~35instr
-Description
-'35;'35;' 35; Syntax
+# instr
+## Description
+### Syntax
 
 'INT INSR (WARCHAR STR, WARCHAR substrate)'
 
 
 Returns the location where substr first appeared in str (counting from 1). If substr does not appear in str, return 0.
 
-'35;'35; example
+## example
 
 ```
 mysql> select instr("abc", "b");

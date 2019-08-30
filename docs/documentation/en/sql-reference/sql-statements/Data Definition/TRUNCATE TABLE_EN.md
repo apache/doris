@@ -1,5 +1,5 @@
-'35; TRUNCATE TABLES
-Description
+# TRUNCATE TABLES
+## Description
 This statement is used to empty the data of the specified table and partition
 Grammar:
 
@@ -12,7 +12,7 @@ Explain:
 4. The data deleted by this operation is not recoverable.
 5. When using this command, the table state should be NORMAL, i.e. SCHEMA CHANGE operations are not allowed.
 
-'35;'35; example
+## example
 
 1. Clear the table TBL under example_db
 

@@ -1,5 +1,5 @@
 # TINYINT
-Description
+## Description
 TINYINT
 1 byte signed integer, range [-128, 127]
 

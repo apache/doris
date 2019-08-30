@@ -1,6 +1,6 @@
-Date 35; Date Add
-Description
-'35;'35;' 35; Syntax
+# date_add
+## Description
+### Syntax
 
 `INT DATE_ADD(DATETIME date,INTERVAL expr type)`
 
@@ -13,7 +13,7 @@ The expr parameter is the interval you want to add.
 
 Sweet, sweet, sweet
 
-'35;'35; example
+## example
 
 ```
 mysql > select date to add ('2010 -11 -30 23:59:59', INTERVAL 2 DAY);

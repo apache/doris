@@ -1,6 +1,6 @@
 # unix_timestamp
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `INT UNIX_TIMESTAMP(), UNIX_TIMESTAMP(DATETIME date)`
 
@@ -11,7 +11,7 @@ If there are no parameters, the current time is converted into a timestamp
 
 The parameter needs to be Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select unix_timestamp();

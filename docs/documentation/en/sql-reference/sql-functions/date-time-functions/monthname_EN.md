@@ -1,6 +1,6 @@
-\ 35; Monthname
-Description
-'35;'35;' 35; Syntax
+# Monthname
+## Description
+### Syntax
 
 'VARCHAR MONTHNAME (DATE)'
 
@@ -9,7 +9,7 @@ Month name corresponding to return date
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql > select monthname ('2008 -02 -03 00:00');

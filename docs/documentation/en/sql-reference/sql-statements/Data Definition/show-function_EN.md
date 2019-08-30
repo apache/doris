@@ -1,6 +1,6 @@
 # SHOW FUNCTION
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 ```
 SHOW FUNCTION [FROM db]
@@ -15,7 +15,7 @@ Look at all the custom functions under the database. If the user specifies the d
 
 You need `SHOW'privileges for this database
 
-'35;'35; example
+## example
 
 ```
 mysql> show function in testDb\G

@@ -1,5 +1,5 @@
 # ALTER TABLE
-Description
+## Description
 This statement is used to modify an existing table. If no rollup index is specified, the default operation is base index.
 该语句分为三种操作类型： schema change 、rollup 、partition
 These three types of operations cannot appear in an ALTER TABLE statement at the same time.
@@ -135,7 +135,7 @@ RENAME ROLLUP old_rollup_name new_rollup_name;
 Grammar:
 Rename old partition name and new partition name
 
-'35;'35; example
+## example
 [partition]
 1. Increase partitions, existing partitions [MIN, 2013-01-01], increase partitions [2013-01-01, 2014-01-01], using default bucket partitioning
 ALTER TABLE example_db.my_table

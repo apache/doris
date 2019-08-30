@@ -1,6 +1,6 @@
 # utc_timestamp
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `DATETIME UTC_TIMESTAMP()`
 
@@ -11,7 +11,7 @@ A Value of "YYYYMMDDHMMSS" Format
 
 Depending on whether the function is used in a string or numeric context
 
-'35;'35; example
+## example
 
 ```
 mysql> select utc_timestamp(),utc_timestamp() + 1;
