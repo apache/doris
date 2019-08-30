@@ -90,7 +90,8 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
         LOG(WARNING) << "failed to append row: " << s.to_string();
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
-    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size)) {
+    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size ||
+            _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
         RETURN_NOT_OK(_flush_segment_writer());
     }
     _num_rows_written++;
