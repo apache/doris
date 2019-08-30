@@ -463,6 +463,8 @@ public class BrokerScanNode extends ScanNode {
                 expr.setType(Type.HLL);
             }
 
+            checkBitmapCompatibility(destSlotDesc, expr);
+
             // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));

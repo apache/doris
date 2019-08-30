@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -729,6 +730,10 @@ public class SelectStmt extends QueryStmt {
             if (col.getDataType() == PrimitiveType.HLL && !fromInsert) {
                 throw new AnalysisException (
                         "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
+            }
+            if (col.getAggregationType() == AggregateType.BITMAP_UNION && !fromInsert) {
+                throw new AnalysisException (
+                        "BITMAP_UNION agg column only use in TO_BITMAP or BITMAP_UNION , BITMAP_COUNT and so on.");
             }
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
