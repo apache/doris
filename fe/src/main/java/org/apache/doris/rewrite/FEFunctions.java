@@ -114,8 +114,9 @@ public class FEFunctions {
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unixTimestamp(LiteralExpr arg) throws AnalysisException {
         long unix_time = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
-        // date before 1970-01-01 00:00:00 should return 0 for unix_timestamp() function
+        // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
         unix_time = unix_time < 0 ? 0 : unix_time;
+        unix_time = unix_time > Integer.MAX_VALUE ? 0 : unix_time;
         return new IntLiteral(unix_time, Type.INT);
     }
 

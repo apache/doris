@@ -1540,7 +1540,9 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
     boost::posix_time::ptime utc_start(boost::gregorian::date(1970, 1, 1));
     boost::posix_time::time_duration dur = utc_ptime - utc_start;
     int64_t ts = dur.total_milliseconds() / 1000;
-    // date before 1970-01-01 00:00:00 should return 0 for unix_timestamp() function
+    // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
+    ts = ts < 0 ? 0 : ts;
+    ts = ts > INT_MAX ? 0 : ts;
     *timestamp = ts < 0 ? 0 : ts;
     return true;
 }

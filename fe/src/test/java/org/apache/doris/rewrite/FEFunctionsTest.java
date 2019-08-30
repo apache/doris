@@ -50,12 +50,18 @@ public class FEFunctionsTest {
         try {
             IntLiteral timestamp = FEFunctions.unixTimestamp(new DateLiteral("2018-01-01", Type.DATE));
             Assert.assertEquals(1514736000, timestamp.getValue());
-            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 00:00:00", Type.DATE));
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 08:00:00", Type.DATETIME));
             Assert.assertEquals(0, timestamp.getValue());
-            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1969-01-01 00:00:00", Type.DATE));
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 00:00:00", Type.DATETIME));
             Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1969-01-01 00:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("2038-01-19 03:14:07", Type.DATETIME));
+            // CST time zone
+            Assert.assertEquals(Integer.MAX_VALUE - 8 * 3600, timestamp.getValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
+            Assert.fail();
         }
     }
 
