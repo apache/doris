@@ -17,10 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -400,6 +402,11 @@ public class InsertStmt extends DdlStmt {
                     Expr expr = queryStmt.getResultExprs().get(i);
                     checkHllCompatibility(column, expr);
                 }
+
+                if (column.getAggregationType() == AggregateType.BITMAP_UNION) {
+                    Expr expr = queryStmt.getResultExprs().get(i);
+                    checkBitmapCompatibility(column, expr);
+                }
             }
         }
     }
@@ -417,6 +424,10 @@ public class InsertStmt extends DdlStmt {
             // TargeTable's hll column must be hll_hash's result
             if (col.getType().equals(Type.HLL)) {
                 checkHllCompatibility(col, expr);
+            }
+
+            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
+                checkBitmapCompatibility(col, expr);
             }
 
             if (expr instanceof DefaultValueExpr) {
@@ -475,6 +486,36 @@ public class InsertStmt extends DdlStmt {
             }
         } else {
             throw new AnalysisException(hllMismatchLog);
+        }
+    }
+
+    private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
+        boolean isCompatible = false;
+        final String bitmapMismatchLog = "Column's agg type is bitmap_union,"
+                + " SelectList must contains bitmap_union column, to_bitmap or bitmap_union function's result, column=" + col.getName();
+        if (expr instanceof SlotRef) {
+            final SlotRef slot = (SlotRef) expr;
+            Column column = slot.getDesc().getColumn();
+            if (column != null && column.getAggregationType() == AggregateType.BITMAP_UNION) {
+                isCompatible = true;  // select * from bitmap_table
+            } else if (slot.getDesc().getSourceExprs().size() == 1) {
+                Expr sourceExpr = slot.getDesc().getSourceExprs().get(0);
+                if (sourceExpr instanceof FunctionCallExpr) {
+                    FunctionCallExpr functionExpr = (FunctionCallExpr) sourceExpr;
+                    if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
+                        isCompatible = true; // select id, bitmap_union(id2) from bitmap_table group by id
+                    }
+                }
+            }
+        } else if (expr instanceof FunctionCallExpr) {
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
+            if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
+                isCompatible = true; // select id, to_bitmap(id2) from table;
+            }
+        }
+
+        if (!isCompatible) {
+            throw new AnalysisException(bitmapMismatchLog);
         }
     }
 
