@@ -60,7 +60,7 @@ public:
 
     uint64_t estimate_segment_size();
 
-    uint32_t num_rows_written();
+    uint32_t num_rows_written() { return _row_count; }
 
     Status finalize(uint32_t* segment_file_size);
 

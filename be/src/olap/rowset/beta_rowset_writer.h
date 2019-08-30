@@ -73,7 +73,6 @@ private:
 
     int _num_segment;
     uint32_t _max_segment_size;
-    int32_t _max_segment_row_size;
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
     // counters and statistics maintained during data write

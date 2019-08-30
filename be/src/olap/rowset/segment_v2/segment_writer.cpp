@@ -101,10 +101,6 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return 0;
 }
 
-uint32_t SegmentWriter::num_rows_written() {
-    return _row_count;
-}
-
 Status SegmentWriter::finalize(uint32_t* segment_file_size) {
     for (auto column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
