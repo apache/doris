@@ -703,7 +703,7 @@ public class Load {
                 throw new DdlException("Column has no default value. column: " + columnName);
             }
 
-            // check negative for sum aggreate type
+            // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
                 for (Column column : tableSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
