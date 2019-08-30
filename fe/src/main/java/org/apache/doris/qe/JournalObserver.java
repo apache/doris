@@ -85,6 +85,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
             } while (leftTimeoutMs > 0);
 
             if (!ok) {
+                LOG.warn("timeout waiting result from master. timeout ms: {}", timeoutMs);
                 throw new DdlException("Execute timeout, the command may be succeed, you'd better retry");
             }
 

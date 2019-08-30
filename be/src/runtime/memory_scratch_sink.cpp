@@ -140,7 +140,7 @@ Status MemoryScratchSink::add_per_col(RuntimeState* state, TupleRow* row, std::s
                 break;
             case TYPE_TIME: {
                 double time = *static_cast<double *>(item);
-                std::string time_str = time_str_from_int((int) time);
+                std::string time_str = time_str_from_double(time);
                 result->cols[i].__isset.string_vals = true;
                 result->cols[i].string_vals.push_back(std::move(time_str));
                 break;
@@ -222,8 +222,8 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    // shutdown queue, then blocking_get return false, put sentinel
-    if (_queue) {
+    // put sentinel
+    if (_queue != nullptr) {
         _queue->blocking_put(nullptr);
     }
     Expr::close(_output_expr_ctxs, state);

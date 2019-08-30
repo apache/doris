@@ -17,6 +17,8 @@
 
 package org.apache.doris.rewrite;
 
+import static org.junit.Assert.fail;
+
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -31,7 +33,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import static org.junit.Assert.fail;
+import java.util.Locale;
 
 /*
  * Author: Chenmingyu
@@ -123,7 +125,7 @@ public class FEFunctionsTest {
     @Test
     public void dateFormatUtilTest() {
         try {
-
+            Locale.setDefault(Locale.ENGLISH);
             DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIME);
             Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
             Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
@@ -499,5 +501,15 @@ public class FEFunctionsTest {
         actualResult = FEFunctions.divideDecimalV2(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
         expectedResult = new DecimalLiteral("0.11");
         Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void timeDiffTest() throws AnalysisException {
+        DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIME);
+        Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
+        Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
+        Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
     }
 }
