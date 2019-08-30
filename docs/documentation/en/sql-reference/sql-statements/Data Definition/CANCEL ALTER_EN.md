@@ -1,5 +1,5 @@
 # CANCEL ALTER
-Description
+## Description
 This statement is used to undo an ALTER operation.
 1. 撤销 ALTER TABLE COLUMN 操作
 Grammar:
@@ -16,7 +16,7 @@ Grammar:
 (To be realized...
 
 
-'35;'35; example
+## example
 [CANCEL ALTER TABLE COLUMN]
 1. 撤销针对 my_table 的 ALTER COLUMN 操作。
 CANCEL ALTER TABLE COLUMN

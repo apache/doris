@@ -1,13 +1,13 @@
 # lower
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'INT lower (WARCHAR str)'
 
 
 Convert all strings in parameters to lowercase
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT lower("AbC123");

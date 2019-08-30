@@ -1,6 +1,6 @@
 # day
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `INT DAY(DATETIME date)`
 
@@ -9,7 +9,7 @@ Get the day information in the date, and return values range from 1 to 31.
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select day('1987-01-31');

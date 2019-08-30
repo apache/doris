@@ -1,13 +1,13 @@
 # right
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
-'WARCHAR RIGHT (WARCHAR STR)'
+'VARCHAR RIGHT (VARCHAR STR)'
 
 
 It returns the right part of a string of specified length
 
-'35;'35; example
+## example
 
 ```
 mysql> select right("Hello doris",5);

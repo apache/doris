@@ -1,5 +1,5 @@
 # SET PASSWORD
-Description
+## Description
 
 Syntax:
 
@@ -13,7 +13,7 @@ Note that the user_identity here must match exactly the user_identity specified 
 PASSWORD () input is a plaintext password, and direct use of strings, you need to pass the encrypted password.
 If you change the password of other users, you need to have administrator privileges.
 
-'35;'35; example
+## example
 
 1. Modify the password of the current user
 

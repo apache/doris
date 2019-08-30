@@ -1,5 +1,5 @@
-'35; OLD DATABASE
-Description
+# ALTER DATABASE
+## description
 This statement is used to set the properties of the specified database. (Administrators only)
 Grammar:
 1) Setting database data quota in B/K/KB/M/MB/G/GB/T/TB/P/PB
@@ -11,7 +11,7 @@ ALTER DATABASE db_name RENAME new_db_name;
 Explain:
 After renaming the database, use REVOKE and GRANT commands to modify the corresponding user rights if necessary.
 
-'35;'35; example
+## example
 1. Setting the specified database data quota
 ALTER DATABASE example_db SET DATA QUOTA 10995116277760;
 The above units are bytes, equivalent to

@@ -1,13 +1,13 @@
 # MAX
-Description
-'35;'35;' 35; Syntax
+## description
+### Syntax
 
-'MAX (expr)
+`MAX(expr)`
 
 
 Returns the maximum value of an expr expression
 
-'35;'35; example
+## example
 ```
 MySQL > select max(scan_rows) from log_statis group by datetime;
 +------------------+

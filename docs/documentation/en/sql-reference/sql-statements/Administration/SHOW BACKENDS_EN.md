@@ -1,5 +1,5 @@
 # SHOW BACKENDS
-Description
+## Description
 This statement is used to view BE nodes in the cluster
 Grammar:
 SHOW BACKENDS;

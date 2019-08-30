@@ -1,5 +1,5 @@
 # SHOW SNAPSHOT
-Description
+## Description
 This statement is used to view existing backups in the warehouse.
 Grammar:
 SHOW SNAPSHOT ON `repo_name`

@@ -1,5 +1,5 @@
 # ADMIN CANCEL REPAIR
-Description
+## Description
 
 This statement is used to cancel repairing a specified table or partition with high priority
 
@@ -11,7 +11,7 @@ Explain:
 
 1. This statement only indicates that the system no longer repairs fragmented copies of specified tables or partitions with high priority. The system will still repair the copy by default scheduling.
 
-'35;'35; example
+## example
 
 1. Cancel High Priority Repair
 

@@ -1,5 +1,5 @@
 # RECOVER
-Description
+## Description
 This statement is used to restore previously deleted databases, tables, or partitions
 Grammar:
 1)24674;"22797database;
@@ -13,7 +13,7 @@ Explain:
 1. This operation can only recover the meta-information deleted in the previous period of time. The default is 3600 seconds.
 2. If new meta-information of the same name and type is created after deleting meta-information, the previously deleted meta-information cannot be restored.
 
-'35;'35; example
+## example
 1. Restore the database named example_db
 RECOVER DATABASE example_db;
 

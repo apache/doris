@@ -1,6 +1,6 @@
 # PERCENTILE_APPROX
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `PERCENTILE_APPROX(expr, DOUBLE p)`
 
@@ -9,7 +9,7 @@ Return the approximation of the point p, where the value of P is between 0 and 1
 
 This function uses fixed size memory, so less memory can be used for columns with high cardinality, and can be used to calculate statistics such as tp99.
 
-'35;'35; example
+## example
 ```
 MySQL > select `table`, percentile_approx(cost_time,0.99) from log_statis group by `table`;
 +---------------------+---------------------------+

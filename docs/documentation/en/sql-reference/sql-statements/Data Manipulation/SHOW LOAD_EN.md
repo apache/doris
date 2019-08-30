@@ -1,5 +1,5 @@
 # SHOW LOAD
-Description
+## Description
 This statement is used to show the execution of the specified import task
 Grammar:
 SHOW LOAD
@@ -24,7 +24,7 @@ Explain:
 
 SHOW LOAD WARNINGS ON 'url'
 
-'35;'35; example
+## example
 1. Show all import tasks of default DB
 SHOW LOAD;
 

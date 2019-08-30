@@ -1,13 +1,13 @@
-'35; ` ST GeometryFromText','ST GeomFromText '
-Description
-'35;'35;' 35; Syntax
+# `ST_GeometryFromText`,`ST GeomFromText`
+## Description
+### Syntax
 
 'GEOMETRY ST'u GeometryFromText (VARCHAR wkt)'
 
 
 Converting a WKT (Well Known Text) into a corresponding memory geometry
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
@@ -18,4 +18,4 @@ mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
 +---------------------------------------------------------+
 ```
 ##keyword
-ST. GEOMETRYFROMTEXT,ST. GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT
+ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT

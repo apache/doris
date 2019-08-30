@@ -1,6 +1,6 @@
-month
-Description
-'35;'35;' 35; Syntax
+# month
+## Description
+### Syntax
 
 INT MONTH (DATETIME date)
 
@@ -9,7 +9,7 @@ Returns month information in the time type, ranging from 1,12
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select month('1987-01-01');

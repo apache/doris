@@ -1,8 +1,8 @@
-Get two copies
-Description
-'35;'35;' 35; Syntax
+# get_json_double
+## description
+### Syntax
 
-"DOUBLE get" is a double (VARCHAR is on the street, VARCHAR is on the path)
+`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)
 
 
 Parse and get the floating-point content of the specified path in the JSON string.
@@ -11,7 +11,7 @@ Use [] to denote array subscripts, starting at 0.
 The content of path cannot contain ",[and].
 If the json_string format is incorrect, or the json_path format is incorrect, or matches cannot be found, NULL is returned.
 
-'35;'35; example
+## example
 
 1. Get the value of key as "k1"
 

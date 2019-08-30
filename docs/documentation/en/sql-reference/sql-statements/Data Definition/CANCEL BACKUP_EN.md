@@ -1,10 +1,10 @@
 # CANCEL BACKUP
-Description
+## Description
 This statement is used to cancel an ongoing BACKUP task.
 Grammar:
 CANCEL BACKUP FROM db_name;
 
-'35;'35; example
+## example
 1. Cancel the BACKUP task under example_db.
 CANCEL BACKUP FROM example_db;
 

@@ -1,5 +1,5 @@
-Grant
-Description
+# Grant
+## Description
 
 The GRANT command is used to give the specified user or role the specified permissions.
 
@@ -36,7 +36,7 @@ The user_identity syntax here is the same as CREATE USER. And you must create us
 
 You can also grant permissions to the specified ROLE, which is automatically created if the specified ROLE does not exist.
 
-'35;'35; example
+## example
 
 1. Grant permissions to all libraries and tables to users
 

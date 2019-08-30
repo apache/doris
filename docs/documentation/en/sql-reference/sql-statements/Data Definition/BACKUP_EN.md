@@ -1,5 +1,5 @@
 # BACKUP
-Description
+## Description
 This statement is used to backup data under the specified database. This command is an asynchronous operation. After successful submission, you need to check progress through the SHOW BACKUP command. Only tables of OLAP type are backed up.
 Grammar:
 BACKUP SNAPSHOT [db_name].{snapshot_name}
@@ -17,7 +17,7 @@ Explain:
 "Type" = "full": means that this is a full update (default).
 "Timeout" = "3600": Task timeout, default to one day. Unit seconds.
 
-'35;'35; example
+## example
 
 1. Back up the table example_tbl under example_db in full to the warehouse example_repo:
 BACKUP SNAPSHOT example_db.snapshot_label1

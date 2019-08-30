@@ -1,5 +1,5 @@
 # SHOW ROUTINE LOAD
-'35;'35; example
+## example
 
 1. Show all routine import jobs named test 1 (including stopped or cancelled jobs). The result is one or more lines.
 

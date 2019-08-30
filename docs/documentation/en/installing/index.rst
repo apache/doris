@@ -1,9 +1,9 @@
-===========
-编译与部署
-===========
+===============================
+Compilation and deployment
+===============================
 
 .. toctree::
 
-    compilation.md
-    install-deploy.md
-    upgrade.md
+    compilation_EN.md
+    install-deploy_EN.md
+    upgrade_EN.md

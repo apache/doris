@@ -1,10 +1,10 @@
 # CREATE DATABASE
-Description
+## Description
 This statement is used to create a new database
 Grammar:
 CREATE DATABASE [IF NOT EXISTS] db_name;
 
-'35;'35; example
+## example
 1. New database db_test
 CREATE DATABASE db_test;
 
