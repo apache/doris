@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
@@ -677,14 +679,19 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnToHadoopFunction();
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+            List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
+            Map<String, Expr> parsedColumnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                parsedColumnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+            }
             for (Column column : tableSchema) {
                 String columnName = column.getName();
                 if (columnNames.contains(columnName)) {
                     continue;
                 }
 
-                if (assignColumnToFunction != null && assignColumnToFunction.containsKey(columnName)) {
+                if (parsedColumnExprMap.containsKey(columnName)) {
                     continue;
                 }
 
@@ -692,18 +699,10 @@ public class Load {
                     continue;
                 }
 
-                if (deleteFlag && !column.isKey()) {
-                    List<String> args = Lists.newArrayList();
-                    args.add("0");
-                    Pair<String, List<String>> functionPair = new Pair<String, List<String>>("default_value", args);
-                    assignColumnToFunction.put(columnName, functionPair);
-                    continue;
-                }
-
                 throw new DdlException("Column has no default value. column: " + columnName);
             }
 
-            // check negative for sum aggreate type
+            // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
                 for (Column column : tableSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
@@ -715,7 +714,7 @@ public class Load {
             // check hll
             for (Column column : tableSchema) {
                 if (column.getDataType() == PrimitiveType.HLL) {
-                    if (assignColumnToFunction != null && !assignColumnToFunction.containsKey(column.getName())) {
+                    if (columnToHadoopFunction != null && !columnToHadoopFunction.containsKey(column.getName())) {
                         throw new DdlException("Hll column is not assigned. column:" + column.getName());
                     }
                 }
@@ -727,9 +726,9 @@ public class Load {
             for (String columnName : columnNames) {
                 columnNameMap.put(columnName, columnName);
             }
-            if (assignColumnToFunction != null) {
+            if (columnToHadoopFunction != null) {
                 columnToFunction = Maps.newHashMap();
-                for (Entry<String, Pair<String, List<String>>> entry : assignColumnToFunction.entrySet()) {
+                for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                     String mappingColumnName = entry.getKey();
                     if (!nameToTableColumn.containsKey(mappingColumnName)) {
                         throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
