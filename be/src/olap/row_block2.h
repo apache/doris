@@ -61,12 +61,12 @@ public:
     // notice the life time of returned value
     Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
 
-    // Get column block for input column index. This input is the index in
-    // this row block, is not the index in table's schema
-    ColumnBlock column_block(size_t col_idx) const {
-        const TypeInfo* type_info = _schema.column(col_idx)->type_info();
-        uint8_t* data = _column_datas[col_idx];
-        uint8_t* null_bitmap = _column_null_bitmaps[col_idx];
+    // Get the column block for one of the columns in this row block.
+    // `cid` must be one of `schema()->column_ids()`.
+    ColumnBlock column_block(ColumnId cid) const {
+        const TypeInfo* type_info = _schema.column(cid)->type_info();
+        uint8_t* data = _column_datas[cid];
+        uint8_t* null_bitmap = _column_null_bitmaps[cid];
         return ColumnBlock(type_info, data, null_bitmap, _arena.get());
     }
 

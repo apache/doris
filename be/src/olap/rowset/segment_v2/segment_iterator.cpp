@@ -266,16 +266,13 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
     return Status::OK();
 }
 
-// Try to read data as much to block->num_rows(). The number of read rows
-// will be set in rows_read when return OK. rows_read will small than
-// block->num_rows() when reach the end of this segment
+// Trying to read `rows_read` rows into `block`. Return the actual number of rows read in `*rows_read`.
 Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
     bool has_read = false;
     size_t first_read = 0;
-    for (int i = 0; i < block->schema()->column_ids().size(); ++i) {
-        auto cid = block->schema()->column_ids()[i];
+    for (auto cid : block->schema()->column_ids()) {
         size_t num_rows = has_read ? first_read : *rows_read;
-        auto column_block = block->column_block(i);
+        auto column_block = block->column_block(cid);
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &column_block));
         if (!has_read) {
             has_read = true;
