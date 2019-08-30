@@ -1,13 +1,13 @@
 # split_part
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)'
 
 
 Returns the specified partition (counting from the beginning) by splitting the string according to the partitioner.
 
-'35;'35; example
+## example
 
 ```
 mysql> select split_part("hello world", " ", 1);

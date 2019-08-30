@@ -1,5 +1,5 @@
 # RESUME ROUTINE LOAD
-'35;'35; example
+## example
 
 1. Restore the routine import job named test 1.
 

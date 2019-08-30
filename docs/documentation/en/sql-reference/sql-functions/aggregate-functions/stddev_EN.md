@@ -1,13 +1,13 @@
 # STDDEV,STDDEV_POP
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
-"`stddev (expl)'
+`stddev (expl)`
 
 
 Returns the standard deviation of the expr expression
 
-'35;'35; example
+## example
 ```
 MySQL > select stddev(scan_rows) from log_statis group by datetime;
 +---------------------+

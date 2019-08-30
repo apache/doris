@@ -1,5 +1,5 @@
 # SHOW BACKUP
-Description
+## Description
 This statement is used to view BACKUP tasks
 Grammar:
 SHOW BACKUP [FROM db_name]
@@ -28,7 +28,7 @@ Unfinished Tasks: The unfinished sub-task ID is displayed in the SNAP HOTING and
 Status: Display failure information if the job fails
 Timeout: Job timeout, per second
 
-'35;'35; example
+## example
 1. See the last BACKUP task under example_db.
 SHOW BACKUP FROM example_db;
 

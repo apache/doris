@@ -1,5 +1,5 @@
 # STREAM LOAD
-Description
+## Description
 NAME:
 stream-load: load data to table in streaming
 
@@ -64,7 +64,7 @@ SHOW LOAD WARNINGS ON 'url'
 
 The URL is the URL given by Error URL.
 
-'35;'35; example
+## example
 
 1. Import the data from the local file'testData'into the table'testTbl' in the database'testDb', and use Label for de-duplication.
 curl --location-trusted -u root -H "label:123" -T testData http://host:port/api/testDb/testTbl/_stream_load

@@ -1,13 +1,13 @@
-'35; ltrim
-Description
-'35;'35;' 35; Syntax
+# ltrim
+## Description
+### Syntax
 
 'VARCHAR ltrim (VARCHAR str)'
 
 
 Remove the space that appears continuously from the beginning of the parameter str
 
-'35;'35; example
+## example
 
 ```
 mysql > SELECT ltrim (ab d');

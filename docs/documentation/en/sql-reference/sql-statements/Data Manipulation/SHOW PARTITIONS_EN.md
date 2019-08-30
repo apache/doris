@@ -1,10 +1,10 @@
 # SHOW PARTITIONS
-Description
+## Description
 This statement is used to display partition information
 Grammar:
 SHOW PARTITIONS FROM [db_name.]table_name [PARTITION partition_name];
 
-'35;'35; example
+## example
 1. Display partition information for the specified table below the specified DB
 SHOW PARTITIONS FROM example_db.table_name;
 

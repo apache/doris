@@ -1,13 +1,13 @@
-'35; ` ST LineFromText','ST LineStringFromText '
-Description
-'35;'35;' 35; Syntax
+# `ST_LineFromText`,`ST_LineStringFromText`
+## Description
+### Syntax
 
 'GEOMETRY ST LineFromText (VARCHAR wkt)'
 
 
 Converting a WKT (Well Known Text) into a Line-style memory representation
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
@@ -18,4 +18,4 @@ mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
 +---------------------------------------------------------+
 ```
 ##keyword
-ST. LINEFROMTEXT, ST. LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT
+ST_LINEFROMTEXT, ST_LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT

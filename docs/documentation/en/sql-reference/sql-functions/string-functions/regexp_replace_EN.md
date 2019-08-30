@@ -1,13 +1,13 @@
-Replace regexp
-Description
-'35;'35;' 35; Syntax
+# regexp_replace
+## description
+### Syntax
 
-VARCHAR regexp replace (VARCHAR str, VARCHAR pattern, VARCHAR repl)
+`VARCHAR regexp_replace(VARCHAR str, VARCHAR pattern, VARCHAR repl)
 
 
 Regular matching of STR strings, replacing the part hitting pattern with repl
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT regexp_replace('a b c', " ", "-");

@@ -1,5 +1,5 @@
 # SET PROPERTY
-Description
+## Description
 
 Syntax:
 
@@ -26,7 +26,7 @@ Load_cluster. {cluster_name}. hadoop_configs: configuration of hadoop, where fs.
 Load ucluster. {cluster  name}. hadoop port: Hadoop HDFS name node http}
 Default_load_cluster: The default import cluster.
 
-'35;'35; example
+## example
 
 1. Modify the maximum number of user jacks to 1000
 SET PROPERTY FOR 'jack' 'max_user_connections' = '1000';

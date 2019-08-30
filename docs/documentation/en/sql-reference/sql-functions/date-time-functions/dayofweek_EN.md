@@ -1,6 +1,6 @@
 # dayofweek
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 INT DayOfWeek (DATETIME date)
 
@@ -9,7 +9,7 @@ The DAYOFWEEK function returns the index value of the working day of the date, t
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql> select dayofweek('2019-06-25');

@@ -1,6 +1,6 @@
-Concat w
-Description
-'35;'35;' 35; Syntax
+# Concat_ws
+## Description
+### Syntax
 
 'VARCHAR concat ws (VARCHAR sep., VARCHAR str,...)'
 
@@ -9,7 +9,7 @@ Using the first parameter SEP as a connector, the second parameter and all subse
 If the separator is NULL, return NULL.
 ` The concat_ws` function does not skip empty strings, but NULL values.
 
-'35;'35; example
+## example
 
 ```
 mysql> select concat_ws("or", "d", "is");
@@ -34,4 +34,4 @@ Concat ws ("or", "d", NULL,"is").
 +---------------------------------+
 ```
 ##keyword
-CONCAT WS,CONCAT,WS
+CONCAT_WS,CONCAT,WS

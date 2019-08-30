@@ -1,13 +1,13 @@
 # strleft
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
-'WARCHAR STRAIGHT (WARCHAR STR)'
+'VARCHAR STRAIGHT (VARCHAR STR)'
 
 
 It returns the left part of a string of specified length
 
-'35;'35; example
+## example
 
 ```
 mysql> select strleft("Hello doris",5);

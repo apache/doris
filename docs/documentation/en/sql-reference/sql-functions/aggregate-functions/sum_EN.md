@@ -1,13 +1,13 @@
 # SUM
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 ` Sum (Expr)'
 
 
 Used to return the sum of all values of the selected field
 
-'35;'35; example
+## example
 ```
 MySQL > select sum(scan_rows) from log_statis group by datetime;
 +------------------+

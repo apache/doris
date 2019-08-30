@@ -1,6 +1,6 @@
-'35; weekofyear
-Description
-'35;'35;' 35; Syntax
+# weekofyear
+## Description
+### Syntax
 
 'INT WEEKOFYEAR (DATETIME DATE)'
 
@@ -10,7 +10,7 @@ Get the Weeks of the Year
 
 The parameter is Date or Datetime type
 
-'35;'35; example
+## example
 
 ```
 mysql > select weekofyear ('2008 -02 -20 00:00:00');

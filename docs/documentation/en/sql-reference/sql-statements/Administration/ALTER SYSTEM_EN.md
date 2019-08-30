@@ -1,5 +1,5 @@
 # ALTER SYSTEM
-Description
+## Description
 
 This statement is used to operate on nodes in a system. (Administrator only!)
 Grammar:
@@ -47,7 +47,7 @@ Broker: Name of broker
 Path: Remote Storage Path
 Other properties: Other information necessary to access remote storage, such as authentication information.
 
-'35;'35; example
+## example
 
 1. Add a node
 ALTER SYSTEM ADD BACKEND "host:port";

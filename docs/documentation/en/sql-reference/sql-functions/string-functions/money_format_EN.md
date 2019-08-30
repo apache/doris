@@ -1,13 +1,13 @@
 # money_format
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 VARCHAR money format (Number)
 
 
 The number is output in currency format, the integer part is separated by commas every three bits, and the decimal part is reserved for two bits.
 
-'35;'35; example
+## example
 
 ```
 mysql> select money_format(17014116);

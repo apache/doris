@@ -1,5 +1,5 @@
 # CREATE FILE
-Description
+## Description
 
 This statement is used to create and upload a file to the Doris cluster.
 This function is usually used to manage files that need to be used in some other commands, such as certificates, public key, private key, etc.
@@ -24,7 +24,7 @@ Url: Must. Specify a download path for a file. Currently only unauthenticated HT
 Catalog: Yes. The classification name of the file can be customized. But in some commands, files in the specified catalog are looked up. For example, in a routine import, when the data source is kafka, the file under the name of catalog is looked up.
 Md5: Optional. MD5 of the file. If specified, it will be checked after downloading the file.
 
-'35;'35; example
+## example
 
 1. Create a file ca. pem, categorized as Kafka
 

@@ -1,13 +1,13 @@
 # from_days
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `DATE FROM_DAYS(INT N)`
 
 
 Calculate which day by the number of days from 0000-01-01
 
-'35;'35; example
+## example
 
 ```
 mysql > select from u days (730669);

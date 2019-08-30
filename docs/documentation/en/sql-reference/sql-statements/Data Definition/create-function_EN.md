@@ -1,6 +1,6 @@
 # CREATE FUNCTION
-Description
-'35;'35;' 35; Syntax
+##Description
+### Syntax
 
 ```
 CREATE [AGGREGATE] FUNCTION function_name
@@ -45,7 +45,7 @@ This statement creates a custom function. Executing this command requires that t
 
 If the `function_name'contains the database name, the custom function will be created in the corresponding database, otherwise the function will be created in the database where the current session is located. The name and parameters of the new function cannot be the same as functions already existing in the current namespace, otherwise the creation will fail. But only with the same name and different parameters can the creation be successful.
 
-'35;'35; example
+## example
 
 1. Create a custom scalar function
 
