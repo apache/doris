@@ -306,10 +306,10 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     int64_t timestamp;
     value.from_date_int64(19691231);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
-    ASSERT_EQ(-115200, timestamp);
+    ASSERT_EQ(0, timestamp);
     value.from_date_int64(19700101);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
-    ASSERT_EQ(-28800, timestamp);
+    ASSERT_EQ(0, timestamp);
     value.from_date_int64(19700102);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
     ASSERT_EQ(86400 - 28800, timestamp);
@@ -321,7 +321,7 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     ASSERT_EQ(2147472000 - 28800, timestamp);
     value.from_date_int64(20380120);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
-    ASSERT_EQ(2147529600, timestamp);
+    ASSERT_EQ(0, timestamp);
 }
 
 // Calculate format
