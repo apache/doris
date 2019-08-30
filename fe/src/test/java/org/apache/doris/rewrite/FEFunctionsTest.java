@@ -48,8 +48,12 @@ public class FEFunctionsTest {
     @Test
     public void unixtimestampTest() {
         try {
-            IntLiteral timestamp = FEFunctions.unix_timestamp(new DateLiteral("2018-01-01", Type.DATE));
+            IntLiteral timestamp = FEFunctions.unixTimestamp(new DateLiteral("2018-01-01", Type.DATE));
             Assert.assertEquals(1514736000, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 00:00:00", Type.DATE));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1969-01-01 00:00:00", Type.DATE));
+            Assert.assertEquals(0, timestamp.getValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
         }

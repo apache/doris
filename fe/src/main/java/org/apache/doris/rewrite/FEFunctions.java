@@ -26,8 +26,10 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import com.google.common.base.Preconditions;
 import org.apache.doris.common.util.TimeUtils;
+
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,8 +112,11 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
-    public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000, Type.INT);
+    public static IntLiteral unixTimestamp(LiteralExpr arg) throws AnalysisException {
+        long unix_time = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        // date before 1970-01-01 00:00:00 should return 0 for unix_timestamp() function
+        unix_time = unix_time < 0 ? 0 : unix_time;
+        return new IntLiteral(unix_time, Type.INT);
     }
 
     @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
