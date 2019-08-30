@@ -1,5 +1,5 @@
 # CREATE CLUSTER
-Description
+## Description
 
 This statement is used to create a new logical cluster, requiring administrator privileges. If you don't use multiple tenants, create a cluster named default_cluster directly. Otherwise, create a cluster with a custom name.
 
@@ -21,7 +21,7 @@ Instancefn Microsoft Yahei
 
 2. Identify by'password'each logical cluster contains a superuser whose password must be specified when creating a logical cluster
 
-'35;'35; example
+## example
 
 1. Create a new test_cluster with three be nodes and specify its superuser password
 

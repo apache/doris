@@ -1,6 +1,6 @@
 # DROP FUNCTION
-Description
-'35;'35;' 35; Syntax
+##Description
+### Syntax
 
 ```
 DROP FUNCTION function_name
@@ -17,7 +17,7 @@ DROP FUNCTION function_name
 
 Delete a custom function. The name of the function and the type of the parameter are exactly the same before they can be deleted.
 
-'35;'35; example
+## example
 
 1. Delete a function
 

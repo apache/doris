@@ -1,13 +1,13 @@
-'35; concat
-Description
-'35;'35;' 35; Syntax
+# concat
+## Description
+### Syntax
 
 'VARCHAR concat (VARCHAR,...)'
 
 
 Connect multiple strings and return NULL if any of the parameters is NULL
 
-'35;'35; example
+## example
 
 ```
 mysql> select concat("a", "b");

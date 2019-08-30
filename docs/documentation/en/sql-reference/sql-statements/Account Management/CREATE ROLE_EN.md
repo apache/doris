@@ -1,5 +1,5 @@
 # CREATE ROLE
-Description
+## Description
 The statement user creates a role
 
 Grammar:
@@ -7,7 +7,7 @@ CREATE ROLE role1;
 
 This statement creates an unauthorized role that can be subsequently granted permission through the GRANT command.
 
-'35;'35; example
+## example
 
 1. Create a role
 

@@ -1,5 +1,5 @@
 # REVOKE
-Description
+## Description
 
 The REVOKE command is used to revoke the rights specified by the specified user or role.
 Syntax
@@ -11,7 +11,7 @@ The user_identity syntax here is the same as CREATE USER. And you must create us
 
 You can also revoke the permission of the specified ROLE, which must exist for execution.
 
-'35;'35; example
+## example
 
 1. Revoke the rights of user Jack database testDb
 

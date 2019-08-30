@@ -1,8 +1,8 @@
-THE EUROPEAN UNION
-Description
-'35;'35;' 35; Syntax
+# HLL_UNION_AGG
+## description
+### Syntax
 
-'HLL UNION'u AGG (hll)'
+`HLL_UNION_AGG(hll)`
 
 
 HLL is an engineering implementation based on HyperLog algorithm, which is used to save the intermediate results of HyperLog calculation process.
@@ -13,7 +13,7 @@ Based on this, we get an estimate with an error of about 1%. The HLL column is g
 
 When importing, hll_hash function is used to specify which column in data is used to generate HLL column. It is often used to replace count distinct, and to calculate UV quickly in business by combining rollup.
 
-'35;'35; example
+## example
 ```
 MySQL > select HLL_UNION_AGG(uv_set) from test_uv;;
 +-------------------------+

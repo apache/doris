@@ -1,5 +1,5 @@
 # SHOW ALTER
-Description
+## Description
 This statement is used to show the execution of various modification tasks currently under way.
 Grammar:
 SHOW ALTER [CLUSTER | TABLE [COLUMN | ROLLUP] [FROM db_name]];
@@ -10,7 +10,7 @@ TABLE ROLLUP: Shows the task of creating or deleting ROLLUP index
 If db_name is not specified, use the current default DB
 CLUSTER: Show the cluster operation related tasks (only administrators use! To be realized...
 
-'35;'35; example
+## example
 1. Show the task execution of all modified columns of default DB
 SHOW ALTER TABLE COLUMN;
 

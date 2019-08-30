@@ -1,5 +1,5 @@
 # SHOW RESTORE
-Description
+## Description
 This statement is used to view RESTORE tasks
 Grammar:
 SHOW RESTORE [FROM db_name]
@@ -32,7 +32,7 @@ Unfinished Tasks: The unfinished sub-task ID is displayed in the SNAP HOTING, DO
 Status: Display failure information if the job fails
 Timeout: Job timeout, per second
 
-'35;'35; example
+## example
 1. Check the last RESTORE task under example_db.
 SHOW RESTORE FROM example_db;
 

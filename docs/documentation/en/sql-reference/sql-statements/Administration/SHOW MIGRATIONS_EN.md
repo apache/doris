@@ -1,5 +1,5 @@
 # SHOW MIGRATIONS
-Description
+## Description
 
 This statement is used to view the progress of database migration
 

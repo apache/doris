@@ -1,5 +1,5 @@
 # ROUTINE LOAD
-Description
+## Description
 
 Routine Load enables users to submit a permanent import task and import data into Doris by constantly reading data from a specified data source.
 Currently only support importing text format (CSV) data from Kakfa through unauthenticated or SSL authentication.
@@ -198,7 +198,7 @@ Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 String class (CHAR/VARCHAR) (without quotation marks): I am a student, a
 NULL value: N
 
-'35;'35; example
+## example
 
 1. Create a Kafka routine import task named test 1 for example_tbl of example_db.
 

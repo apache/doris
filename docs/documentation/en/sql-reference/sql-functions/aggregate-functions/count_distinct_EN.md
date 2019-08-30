@@ -1,13 +1,13 @@
 # COUNT_DISTINCT
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `COUNT_DISTINCT(expr)`
 
 
 The number of rows used to return the required number, or the number of non-NULL rows
 
-'35;'35; example
+## example
 
 ```
 MySQL > select count_distinct(query_id) from log_statis group by datetime;

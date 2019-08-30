@@ -1,13 +1,13 @@
 # left
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'VARCHAR left (VARCHAR str)'
 
 
 It returns the left part of a string of specified length
 
-'35;'35; example
+## example
 
 ```
 mysql> select left("Hello doris",5);

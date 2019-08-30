@@ -1,5 +1,5 @@
 # STOP ROUTINE LOAD
-'35;'35; example
+## example
 
 1. Stop the routine import job named test 1.
 

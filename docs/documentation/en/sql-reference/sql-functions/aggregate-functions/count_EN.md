@@ -1,13 +1,13 @@
 # COUNT
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 `COUNT([DISTINCT] expr)`
 
 
 Number of rows used to return the required rows
 
-'35;'35; example
+## example
 
 ```
 MySQL > select count(*) from log_statis group by datetime;

@@ -1,5 +1,5 @@
 # SHOW REPOSITORIES
-Description
+## Description
 This statement is used to view the currently created warehouse.
 Grammar:
 SHOW REPOSITORIES;
@@ -14,7 +14,7 @@ Location: The root directory in the repository for backing up data
 Broker: Dependent Broker
 ErrMsg: Palo regularly checks the connectivity of the warehouse, and if problems occur, error messages are displayed here.
 
-'35;'35; example
+## example
 1. View the warehouse that has been created:
 SHOW REPOSITORIES;
 

@@ -1,13 +1,13 @@
-"35; VARIANCE SAMP, VARIANCE SAMP
-Description
-'35;'35;' 35; Syntax
+# VARIANCE_SAMP,VARIANCE_SAMP
+## Description
+### Syntax
 
 'VAR SAMP (expr)'
 
 
 Returns the sample variance of the expr expression
 
-'35;'35; example
+## example
 ```
 MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 +-----------------------+

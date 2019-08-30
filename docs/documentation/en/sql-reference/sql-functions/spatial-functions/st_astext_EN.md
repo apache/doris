@@ -1,13 +1,13 @@
-'35; 'ST AsText','ST AsWKT'
-Description
-'35;'35;' 35; Syntax
+# `ST_AsText`,`ST_AsWKT`
+## Description
+### Syntax
 
 'VARCHAR ST'u AsText (GEOMETRY geo)'
 
 
 Converting a geometric figure into a WKT (Well Known Text) representation
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
@@ -18,4 +18,4 @@ mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
 +---------------------------------+
 ```
 ##keyword
-ST. ASTEXT, ST. ASWKT, ST, ASTEXT, ASWKT
+ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ASWKT

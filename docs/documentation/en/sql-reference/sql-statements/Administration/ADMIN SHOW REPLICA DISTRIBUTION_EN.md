@@ -1,5 +1,5 @@
 # ADMIN SHOW REPLICA DISTRIBUTION
-Description
+## Description
 
 This statement is used to show the distribution status of a table or partition replica
 
@@ -11,7 +11,7 @@ Explain:
 
 The Graph column in the result shows the distribution ratio of replicas graphically
 
-'35;'35; example
+## example
 
 1. View the distribution of replicas of tables
 

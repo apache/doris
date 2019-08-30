@@ -1,5 +1,5 @@
 # SHOW EXPORT
-Description
+## Description
 This statement is used to show the execution of the specified export task
 Grammar:
 SHOW EXPORT
@@ -18,7 +18,7 @@ Explain:
 3) Any column combination can be sorted using ORDER BY
 4) If LIMIT is specified, the limit bar matching record is displayed. Otherwise, all of them will be displayed.
 
-'35;'35; example
+## example
 1. Show all export tasks of default DB
 SHOW EXPORT;
 

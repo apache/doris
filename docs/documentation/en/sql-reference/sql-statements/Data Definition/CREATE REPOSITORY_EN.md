@@ -1,5 +1,5 @@
 # CREATE REPOSITORY
-Description
+## Description
 This statement is used to create the warehouse. The warehouse is used for backup or recovery. Only root or superuser users can create warehouses.
 Grammar:
 CREATE [READ ONLY] REPOSITORY `repo_name`
@@ -12,7 +12,7 @@ Explain:
 2. If it is a read-only warehouse, it can only be restored on the warehouse. If not, you can backup and restore operations.
 3. According to the different types of broker, PROPERTIES is different, see the example.
 
-'35;'35; example
+## example
 1. Create a warehouse named bos_repo, which relies on BOS broker "bos_broker", and the data root directory is: bos://palo_backup.
 CREATE REPOSITORY `bos_repo`
 WITH BROKER `bos_broker`

@@ -1,5 +1,5 @@
 # Colocate Join
-Description
+## Description
 Colocate/Local Join means that when multiple nodes are Join, there is no data movement and network transmission, and each node is only Join locally.
 The premise of Join locally is to import data from the same Join Key into a fixed node according to the same rules.
 

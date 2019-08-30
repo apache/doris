@@ -1,5 +1,5 @@
 # ADMIN SHOW CONFIG
-Description
+## Description
 
 This statement is used to show the configuration of the current cluster (currently only supporting the display of FE configuration items)
 
@@ -17,7 +17,7 @@ The implications of the results are as follows:
 5. MasterOnly： 是否仅适用于 Master FE
 6. Comment: Configuration Item Description
 
-'35;'35; example
+## example
 
 1. View the configuration of the current FE node
 

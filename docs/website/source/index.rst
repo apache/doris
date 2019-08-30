@@ -157,7 +157,7 @@ increased response latency. For example, Hive metadata query latency is
 sometimes up to tens of seconds or even minutes. In order to speedup the
 metadata access, we adopt the in-memory catalog storage.
 
-.. figure:: ./resources/iamges/log_replication.jpg
+.. figure:: ./resources/images/log_replication.jpg
    :alt: log replication
 
    log replication
@@ -586,10 +586,5 @@ downstream systems for further processing.
 .. toctree::
     :hidden:
 
-    Docs/cn/installing/index
-    Docs/cn/getting-started/index
-    Docs/cn/administrator-guide/index
-    Docs/cn/extending-doris/index
-    Docs/cn/internal/index
-    Docs/cn/sql-reference/index
-    Docs/cn/community/index
+    Docs/cn/index
+    Docs/en/index

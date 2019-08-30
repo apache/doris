@@ -1,6 +1,6 @@
-'35; AVG
-Description
-'35;'35;' 35; Syntax
+#AVG
+## Description
+### Syntax
 
 `AVG([DISTINCT] expr)`
 
@@ -9,7 +9,7 @@ Used to return the average value of the selected field
 
 Optional field DISTINCT parameters can be used to return the weighted average
 
-'35;'35; example
+## example
 
 ```
 mysql> SELECT datetime, AVG(cost_time) FROM log_statis group by datetime;

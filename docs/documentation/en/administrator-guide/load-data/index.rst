@@ -1,12 +1,12 @@
 =============
-数据导入
+Load Data
 =============
 
 .. toctree::
     :maxdepth: 2
 
-    load-manual.md
-    broker-load-manual.md
-    stream-load-manual.md
-    routine-load-manual.md
-    insert-into-manual.md
+    load-manual_EN.md
+    broker-load-manual_EN.md
+    stream-load-manual_EN.md
+    routine-load-manual_EN.md
+    insert-into-manual_EN.md

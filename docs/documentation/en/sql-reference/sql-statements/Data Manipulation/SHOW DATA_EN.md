@@ -1,5 +1,5 @@
 # SHOW DATA
-Description
+## Description
 This statement is used to show the amount of data
 Grammar:
 SHOW DATA [FROM db_name[.table_name]];
@@ -9,7 +9,7 @@ Explain:
 2. If the FROM clause is specified, the amount of data subdivided into indices under the table is shown.
 3. If you want to see the size of individual Partitions, see help show partitions
 
-'35;'35; example
+## example
 1. Display the data volume and aggregate data volume of each table of default DB
 SHOW DATA;
 

@@ -1,13 +1,13 @@
 # length
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'INT length (VARCHAR str)'
 
 
 Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 10.
 
-'35;'35; example
+## example
 
 ```
 mysql> select length("abc");

@@ -1,5 +1,5 @@
 # DROP TABLE
-Description
+## Description
 This statement is used to delete the table.
 Grammar:
 DROP TABLE [IF EXISTS] [db_name.]table_name;
@@ -7,7 +7,7 @@ DROP TABLE [IF EXISTS] [db_name.]table_name;
 Explain:
 After executing DROP TABLE for a period of time, the deleted table can be restored through the RECOVER statement. See RECOVER statement for details
 
-'35;'35; example
+## example
 1. Delete a table
 DROP TABLE my_table;
 

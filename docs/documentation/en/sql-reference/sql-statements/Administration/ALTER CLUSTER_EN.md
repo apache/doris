@@ -1,5 +1,5 @@
-OLD CLUSES
-Description
+# ALTER CLUSTER
+## description
 
 This statement is used to update the logical cluster. Administrator privileges are required
 
@@ -13,7 +13,7 @@ Proerties ("Instrume = Unum"= "3")
 
 Instancefn Microsoft Yahei
 
-'35;'35; example
+## example
 
 1. Reduce the number of be of logical cluster test_cluster containing 3 be by 2.
 

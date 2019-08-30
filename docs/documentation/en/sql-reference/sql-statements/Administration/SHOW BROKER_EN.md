@@ -1,5 +1,5 @@
 # SHOW BROKER
-Description
+## Description
 This statement is used to view the existing broker
 Grammar:
 SHOW BROKER;

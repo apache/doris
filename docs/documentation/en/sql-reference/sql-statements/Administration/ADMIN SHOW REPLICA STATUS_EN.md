@@ -1,5 +1,5 @@
 # ADMIN SHOW REPLICA STATUS
-Description
+## Description
 
 This statement is used to display copy status information for a table or partition
 
@@ -18,7 +18,7 @@ VERSION_ERROR: The replica data version is missing
 SCHEMA ERROR: replica schema hash
 MISSING: replica does not exist
 
-'35;'35; example
+## example
 
 1. View the status of all copies of the table
 

@@ -1,12 +1,12 @@
-=============
-开始使用
-=============
+====================
+Getting started
+====================
 
 .. toctree::
 
-    basic-usage.md
-    advance-usage.md
-    best-practice.md
-    data-partition.md
-    data-model-rollup.md
-    hit-the-rollup.md
+    basic-usage_EN.md
+    advance-usage_EN.md
+    best-practice_EN.md
+    data-partition_EN.md
+    data-model-rollup_EN.md
+    hit-the-rollup_EN.md
