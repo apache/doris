@@ -54,7 +54,7 @@ For variable parameters, see the following example, UDF `String md5sum (String,.
 
 Executing `sh build.sh` in the Doris root directory generates the corresponding `headers|libs` in `output/udf/`
 
-### 编写CMakeLists.txt
+### Edit CMakeLists.txt
 
 Based on the `headers | libs` generated in the previous step, users can introduce the dependency using tools such as `CMakeLists`; in `CMakeLists`, dynamic libraries can be added by adding `-I|L` to `CMAKE_CXX_FLAGS`, respectively. For example, in `be/src/udf_samples/CMakeLists.txt`, a `udf sample` dynamic library is added using `add_library` (udfsample SHARED udf_sample.cpp). You need to write down all the source files involved later (no header files included).
 

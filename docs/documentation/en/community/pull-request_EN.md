@@ -68,7 +68,7 @@ At this time, the `Create pull request` button will appear. If not, please check
 
 ![create PR](../../../resources/images//create-pr.png)
 
-#### （3）填写 Commit Message
+#### (3) Fill Commit Message
 Here, please fill in the summary and details of the comment, and then click `Create pull request` to create it.
 
 For how to write Commit Message, here are some Tips:

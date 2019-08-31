@@ -1,52 +1,48 @@
 # get\_log\_file
 
-Users can access FE log files through the HTTP interface.
+To get FE log via HTTP
 
-## Log type
+## Types of FE log
 
-The following types of FE logs are supported:
+1. fe.audit.log (Audit log)
 
-1. fe.audit.log (audit log)
-
-	The audit log records information that has been requested by all request statements for the corresponding FE node. The file naming rules for audit logs are as follows:
+    The audit log records the all statements executed. Audit log's name format as follow:
 
     ```
-    fe.audit.log                # Current Latest Log
-    fe.audit.log.20190603.1     # The audit log of the corresponding date generates a serial suffix when the log size of the corresponding date exceeds 1GB. The smaller the serial number, the newer the content.
+    fe.audit.log                # The latest audit log
+    fe.audit.log.20190603.1     # The historical audit log. The smaller the sequence number, the newer the log.
     fe.audit.log.20190603.2
     fe.audit.log.20190602.1
     ...
     ```
 
-## Interface examples
+## Example
 
-1. Get a list of log files of the corresponding type
+1. Get the list of specified type of logs
 
-	Examples:
-
-	`curl -X HEAD -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log`
-
-	Result:
-
+    Example
+    
+    `curl -X HEAD -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log`
+    
+    Returns:
+    
     ```
     HTTP/1.1 200 OK
     file_infos: {"fe.audit.log":24759,"fe.audit.log.20190528.1":132934}
     content-type: text/html
     connection: keep-alive
     ```
-	In the returned header, the `file_infos'field displays the list of files in JSON format and the corresponding file size (in bytes)
+    
+    In the header of result, the `file_infos` section saves the file list and file size in JSON format.
+    
+2. Download files
 
-2. Download log files
-
-	Examples:
-
+    Example:
+    
     ```
     curl -X GET -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log\&file=fe.audit.log.20190528.1
     ```
-	Result:
 
-	Download the specified file as a file.
+## Notification
 
-## Interface description
-
-The interface requires admin privileges.
+Need ADMIN priviledge.
