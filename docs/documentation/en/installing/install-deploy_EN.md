@@ -83,7 +83,7 @@ Doris instances communicate directly over the network. The following table shows
 > 2. Make sure that each port has access in its proper direction before deployment.
 > 3. brpc port replaced be rpc_port after version 0.8.2
 
-#### IP 绑定
+#### IP binding
 
 Because of the existence of multiple network cards, or the existence of virtual network cards caused by the installation of docker and other environments, the same host may have multiple different ips. Currently Doris does not automatically identify available IP. So when you encounter multiple IP on the deployment host, you must force the correct IP to be specified through the priority\_networks configuration item.
 
@@ -111,7 +111,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 ### Manual deployment
 
-#### FE 部署
+#### Deploy FE
 
 * Copy the FE deployment file to the specified node
 
@@ -130,7 +130,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * For deployment of multiple FEs, see the section "FE scaling and downsizing"
 
-#### BE 部署
+#### Deploy BE
 
 * Copy BE deployment files to all nodes to deploy BE
 
@@ -272,7 +272,7 @@ All of the above methods require Doris's root user rights.
 
 The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document] (../administrator-guide/operation/tablet-repair-and-balance.md).
 
-#### 增加 BE 节点
+#### Add BE nodes
 
 The BE node is added in the same way as in the **BE deployment** section. The BE node is added by the `ALTER SYSTEM ADD BACKEND` command.
 

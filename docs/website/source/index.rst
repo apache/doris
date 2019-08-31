@@ -586,5 +586,5 @@ downstream systems for further processing.
 .. toctree::
     :hidden:
 
-    Docs/cn/index
-    Docs/en/index
+    documentation/cn/index
+    documentation/en/index
