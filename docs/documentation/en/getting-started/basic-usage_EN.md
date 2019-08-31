@@ -326,7 +326,7 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 5 rows in set (0.01 sec)
 ```
 
-### 3.3 Join 查询
+### 3.3 Join Query
 
 Examples:
 

@@ -468,7 +468,7 @@ Best Regards,
 xxx
 ```
 
-## 13. 上传 package 到 release
+## 13. Upload package to release
 
 When the formal voting is successful, email [Result] first, and then prepare the release package.
 Copy the source package, signature file and hash file from the corresponding RC folder published under dev to another directory 0.9.0-incubating. Note that the file name does not need rcxx (rename, but do not recalculate signatures, hash can recalculate, the results will not change)

@@ -60,7 +60,7 @@ DUPLICATE KEY (visitor time, session time)
 DISTRIBUTED BY HASH(sessionid, visitorid) BUCKETS 10;
 ```
 
-### 1.2 大宽表与 Star Schema
+### 1.2 Wide Table vs. Star Schema
 
 In order to adapt to the front-end business, business side often does not distinguish dimension information from indicator information, but defines Schema as a wide table. For Doris, the performance of such wide gauges is often unsatisfactory:
 
@@ -88,7 +88,7 @@ The data is divided into different buckets according to the hash value.
 * It is suggested that columns with large differentiation should be used as buckets to avoid data skew.
 * In order to facilitate data recovery, it is suggested that the size of a single bucket should not be too large and should be kept within 10GB. Therefore, the number of buckets should be considered reasonably when building tables or increasing partitions, among which different partitions can specify different buckets.
 
-### 1.5 稀疏索引和 Bloom Filter
+### 1.5 Sparse Index and Bloom Filter
 
 Doris stores the data in an orderly manner, and builds a sparse index for Doris on the basis of ordered data. The index granularity is block (1024 rows).
 
