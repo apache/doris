@@ -75,12 +75,11 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 
-rm -rf ${CUR}/source/Docs/*
+rm -rf ${CUR}/source/documentation/
 rm -rf ${CUR}/source/resources/
-mkdir -p ${CUR}/source/Docs/cn
-mkdir -p ${CUR}/source/Docs/en
-cp -r ${DORIS_HOME}/docs/documentation/cn/ ${CUR}/source/Docs/cn/
-cp -r ${DORIS_HOME}/docs/documentation/en/ ${CUR}/source/Docs/en/
-cp -r ${DORIS_HOME}/docs/resources/ ${CUR}/source/resources/
+mkdir -p ${CUR}/source/documentation
+mkdir -p ${CUR}/source/resources
+cp -r ${DORIS_HOME}/docs/documentation/* ${CUR}/source/documentation/
+cp -r ${DORIS_HOME}/docs/resources/* ${CUR}/source/resources/
 make clean && make html
 

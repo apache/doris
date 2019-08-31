@@ -90,7 +90,7 @@ SHOW PROC '/colocation_group';
 * Tablet Ids: The group contains a list of Tables'ID.
 * Buckets Num: Number of barrels.
 * Replication Num: Number of copies.
-* DistCols：         Distribution columns，即分桶列类型。
+* DistCols: Distribution columns, 
 * IsStable: Is the group stable (for the definition of stability, see section `Collocation replica balancing and repair').
 
 You can further view the data distribution of a group by following commands:
@@ -117,7 +117,7 @@ SHOW PROC '/colocation_group/10005.10008';
 
 > The above commands require AMDIN privileges. Normal user view is not supported at this time.
 
-### 修改表 Colocate Group 属性
+### Modify Colocate Group
 
 You can modify the Colocation Group property of a table that has been created. Examples:
 
@@ -237,7 +237,8 @@ DESC SELECT * FROM tbl1 INNER JOIN tbl2 ON (tbl1.k2 = tbl2.k2);
 |      tuple ids: 0                                  |
 +----------------------------------------------------+
 ```
-如果 Colocation Join 生效，则 Hash Join 节点会显示 `colocate: true`。
+
+If Colocation Join works, the Hash Join Node will show `colocate: true`。
 
 If not, the query plan is as follows:
 
@@ -308,7 +309,7 @@ Whether to close Doris's automatic Colocation replica repair. The default is fal
 
 Whether to turn off automatic Colocation replica balancing for Doris. The default is false, i.e. not closed. This parameter only affects the replica balance of the Collocation table, but does not affect the common table.
 
-以上参数可以动态修改，设置方式请参阅 `HELP ADMIN SHOW CONFIG;` 和 `HELP ADMIN SET CONFIG;`。
+User can set these configurations at runtime. See `HELP ADMIN SHOW CONFIG;` and `HELP ADMIN SET CONFIG;`.
 
 * disable\_colocate\_join
 
@@ -329,7 +330,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
     ```
     GET /api/colocate
     
-    返回以 Json 格式表示内部 Colocation 信息。
+    Return the internal Colocation info in JSON format:
     
     {
     	"colocate_meta": {
@@ -386,22 +387,22 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
     	"status": "OK"
     }
     ```
-2. 将 Group 标记为 Stable 或 Unstable
+2. Mark Group as Stable or Unstable
 
-	* 标记为 Stable
+	* Mark as Stable
 
         ```
         POST /api/colocate/group_stable?db_id=10005&group_id=10008
         
-        返回：200
+        Returns: 200
         ```
 
-	* 标记为 Unstable
+	* Mark as Unstable
 
         ```
         DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
         
-        返回：200
+        Returns: 200
         ```
 
 3. Setting Data Distribution for Group
@@ -414,7 +415,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
     Body:
     [[10004,10002],[10003,10002],[10002,10004],[10003,10002],[10002,10004],[10003,10002],[10003,10004],[10003,10004],[10003,10004],[10002,10004]]
     
-    返回 200
+    Returns: 200
     ```
 	Body is a Buckets Sequence represented by a nested array and the ID of the BE where the fragments are distributed in each Bucket.
 

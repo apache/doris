@@ -17,7 +17,7 @@ Doris's data model is divided into three main categories:
 
 Let's introduce them separately.
 
-## Aggregate 模型
+## Aggregate Model
 
 We illustrate what aggregation model is and how to use it correctly with practical examples.
 
@@ -274,7 +274,7 @@ AGGREGATE KEY(`user_id`, `user_name`)
 
 That is to say, Uniq model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
 
-## Duplicate 模型
+## Duplicate Model
 
 In some multidimensional analysis scenarios, data has neither primary keys nor aggregation requirements. Therefore, we introduce Duplicate data model to meet this kind of demand. Examples are given.
 
@@ -323,7 +323,7 @@ The basic function of ROLLUP tables is to obtain coarser aggregated data on the 
 
 Let's illustrate the ROLLUP tables and their roles in different data models with examples.
 
-#### Aggregate 和 Uniq 模型中的 ROLLUP
+#### ROLLUP in Aggregate Model and Uniq Model
 
 Because Uniq is only a special case of the Aggregate model, we do not distinguish it here.
 
@@ -599,7 +599,7 @@ Add a count column and import the data with the column value ** equal to 1 **. T
 
 Another way is to ** change the aggregation type of the `count'column above to REPLACE, and still weigh 1 **. Then `select sum (count) from table; `and `select count (*) from table; `the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
-### Duplicate 模型
+### Duplicate Model
 
 Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
 

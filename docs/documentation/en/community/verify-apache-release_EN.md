@@ -1,4 +1,4 @@
-# Verify Apaceh Release
+# Verify Apache Release
 
 To verify the release, following checklist can used to reference:
 

@@ -1,21 +1,17 @@
 # PMC Members & Committer
 
-## Mentors
+## Mentors (3)
 
-|id	|githubUsername	|public name	|
+|Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
 |wave	|dave2wave	|Dave Fisher	|
-|lukehan	|	|Luke Han	
 |shaofengshi	|shaofengshi|	Shao Feng Shi	|
 |ningjiang	|WillemJiang	|Willem Ning Jiang|
 
-
-## PPMC (13)
+## PPMC (9)
 (the listing below excludes mentors)
 
-See table below:
-
-|id	|githubUsername	|public name	|
+|Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
 |lingbin|	lingbin	|Bin Ling	|
 |lichaoyong	|chaoyli	|Chaoyong Li	|
@@ -23,9 +19,22 @@ See table below:
 |lide	|lide-reed, doris-ci	|De Li	|
 |chenhao	|chenhao7253886	|Hao Chen	|
 |morningman	|morningman	|Mingyu Chen|
-|maruyue	||	Ruyue Ma	|
+|maruyue	|maruyue|	Ruyue Ma	|
 |sijie	|sijie	|Sijie Guo	|
 |zshao	|zshao	|Zheng Shao|
 
-## Committers (13)
-All committers are members of the PPMC
+## Committers (11)
+
+|Apache ID|Github Username	|Public Name|
+|--------|-----------|----------|
+|lingbin|	lingbin	|Bin Ling	|
+|lichaoyong	|chaoyli	|Chaoyong Li	|
+|zhaoc	|imay	|Chun Zhao	|
+|lide	|lide-reed, doris-ci	|De Li	|
+|chenhao	|chenhao7253886	|Hao Chen	|
+|morningman	|morningman	|Mingyu Chen|
+|maruyue	|maruyue|	Ruyue Ma	|
+|sijie	|sijie	|Sijie Guo	|
+|zshao	|zshao	|Zheng Shao|
+|kangkaisen|kangkaisen|Kaisen Kang|
+|lingmiao|EmmyMiao87|Ling Miao|
