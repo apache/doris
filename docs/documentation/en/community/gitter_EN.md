@@ -1,4 +1,4 @@
-# Gitter 使用指南
+# Gitter Manual
 
 ## Gitter introduction
 
