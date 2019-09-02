@@ -56,9 +56,7 @@ Status SpillSortNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    std::stringstream msg;
-    msg << "Spill sort, while open.";
-    RETURN_IF_ERROR(state->check_query_state(msg.str()));
+    RETURN_IF_ERROR(state->check_query_state("Spill sort, while open."));
     RETURN_IF_ERROR(child(0)->open(state));
 
     // These objects must be created after opening the _sort_exec_exprs. Avoid creating
@@ -89,9 +87,7 @@ Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    std::stringstream msg;
-    msg << "Spill sort, while getting next.";
-    RETURN_IF_ERROR(state->check_query_state(msg.str()));
+    RETURN_IF_ERROR(state->check_query_state("Spill sort, while getting next."));
 
     if (reached_limit()) {
         *eos = true;
@@ -168,9 +164,7 @@ Status SpillSortNode::sort_input(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
         RETURN_IF_ERROR(_sorter->add_batch(&batch));
         RETURN_IF_CANCELLED(state);
-        std::stringstream msg;
-        msg << "Spill sort, while sorting input.";
-        RETURN_IF_ERROR(state->check_query_state(msg.str()));
+        RETURN_IF_ERROR(state->check_query_state("Spill sort, while sorting input."));
     } while (!eos);
 
     RETURN_IF_ERROR(_sorter->input_done());

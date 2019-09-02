@@ -334,7 +334,7 @@ public:
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
     // or a mem limit was exceeded). Exec nodes should check this periodically so execution
     // doesn't continue if the query terminates abnormally.
-    Status check_query_state(const std::string& msg);
+    Status check_query_state(const char* msg);
 
     std::vector<std::string>& output_files() {
         return _output_files;

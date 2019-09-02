@@ -209,9 +209,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
 Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     DCHECK_EQ(output_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    std::stringstream msg;
-    msg << "Exchange, while merging next.";
-    RETURN_IF_ERROR(state->check_query_state(msg.str()));
+    RETURN_IF_ERROR(state->check_query_state("Exchange, while merging next."));
 
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
     while ((_num_rows_skipped < _offset)) {

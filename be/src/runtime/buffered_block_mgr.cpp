@@ -77,9 +77,7 @@ Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
     new_block->_buffer_desc->block = new_block;
     *block = new_block;
 
-    std::stringstream msg;
-    msg << "Buffered block mgr, while getting new block";
-    RETURN_IF_LIMIT_EXCEEDED(_state, msg.str());
+    RETURN_IF_LIMIT_EXCEEDED(_state, "Buffered block mgr, while getting new block");
 
     return Status::OK();
 }

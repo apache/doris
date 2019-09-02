@@ -199,9 +199,7 @@ Status AggregationNode::open(RuntimeState* state) {
     while (true) {
         bool eos = false;
         RETURN_IF_CANCELLED(state);
-        std::stringstream msg;
-        msg << "Aggregation, before getting next from child 0.";
-        RETURN_IF_ERROR(state->check_query_state(msg.str()));
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, before getting next from child 0."));
         RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
         // SCOPED_TIMER(_build_timer);
         if (VLOG_ROW_IS_ON) {
@@ -229,10 +227,7 @@ Status AggregationNode::open(RuntimeState* state) {
         }
 
         // RETURN_IF_LIMIT_EXCEEDED(state);
-        msg.clear();
-        msg.str(std::string());
-        msg << "Aggregation, after hashing the child 0.";
-        RETURN_IF_ERROR(state->check_query_state(msg.str()));
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, after hashing the child 0."));
 
         COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
         COUNTER_SET(memory_used_counter(),
@@ -243,10 +238,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
         batch.reset();
 
-        msg.clear();
-        msg.str(std::string());
-        msg << "Aggregation, after setting the counter.";
-        RETURN_IF_ERROR(state->check_query_state(msg.str()));
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, after setting the counter."));
         if (eos) {
             break;
         }
@@ -270,9 +262,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    std::stringstream msg;
-    msg << "Aggregation, before evaluating conjuncts.";
-    RETURN_IF_ERROR(state->check_query_state(msg.str()));
+    RETURN_IF_ERROR(state->check_query_state("Aggregation, before evaluating conjuncts."));
     SCOPED_TIMER(_get_results_timer);
 
     if (reached_limit()) {
@@ -290,10 +280,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         // maintenance every N iterations.
         if (count++ % N == 0) {
             RETURN_IF_CANCELLED(state);
-            msg.clear();
-            msg.str(std::string());
-            msg << "Aggregation, while evaluating conjuncts.";
-            RETURN_IF_ERROR(state->check_query_state(msg.str()));
+            RETURN_IF_ERROR(state->check_query_state("Aggregation, while evaluating conjuncts."));
         }
         int row_idx = row_batch->add_row();
         TupleRow* row = row_batch->get_row(row_idx);
