@@ -86,7 +86,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
     *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
-    tablet_meta_pb.set_end_rowset_id(10000);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -263,29 +262,6 @@ OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
 }
 
 OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
-    // check if rowset id all valid, should remove it later
-    for (auto& rs_meta : _rs_metas) {
-        if (rs_meta->rowset_id() >= _next_rowset_id) {
-            LOG(FATAL) << "meta contains invalid rowsetid " 
-                       << " tablet=" << full_name() 
-                       << " rowset_id=" <<  rs_meta->rowset_id()
-                       << " next_rowset_id=" << _next_rowset_id;
-        }
-    }
-    for (auto& rs_meta : _inc_rs_metas) {
-        if (rs_meta->rowset_id() >= _next_rowset_id) {
-            LOG(FATAL) << "meta contains invalid rowsetid " 
-                       << " tablet=" << full_name() 
-                       << " rowset_id=" <<  rs_meta->rowset_id()
-                       << " next_rowset_id=" << _next_rowset_id;
-        }
-    }
-    // check if _end_rowset_id > 10000
-    if (_end_rowset_id < 10000) {
-        LOG(FATAL) << "end_rowset_id is invalid" 
-                   << " tablet=" << full_name() 
-                   << " end_rowset_id=" << _end_rowset_id; 
-    }
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
         LOG(FATAL) << "tablet_uid is invalid" 
@@ -338,9 +314,6 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _creation_time = tablet_meta_pb.creation_time();
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
-    _end_rowset_id = tablet_meta_pb.end_rowset_id();
-    _initial_end_rowset_id = tablet_meta_pb.end_rowset_id();
-    _next_rowset_id = _end_rowset_id + 1;
 
     // init _tablet_state
     switch (tablet_meta_pb.tablet_state()) {
@@ -404,7 +377,6 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
-    tablet_meta_pb->set_end_rowset_id(_end_rowset_id);
     switch (tablet_state()) {
         case TABLET_NOTREADY:
             tablet_meta_pb->set_tablet_state(PB_NOTREADY);
@@ -678,37 +650,6 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
 
     return false;
 }
-
-OLAPStatus TabletMeta::get_next_rowset_id(RowsetId* gen_rowset_id, DataDir* data_dir) {
-    WriteLock wrlock(&_meta_lock);
-    if (_next_rowset_id >= _end_rowset_id) {
-        ++_next_rowset_id;
-        _end_rowset_id = _next_rowset_id + _batch_interval;
-        RETURN_NOT_OK(_save_meta(data_dir));
-    }
-    *gen_rowset_id = _next_rowset_id;
-    ++_next_rowset_id;
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus TabletMeta::set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir) {
-    WriteLock wrlock(&_meta_lock);
-    // must be < not <=
-    if (new_rowset_id < _next_rowset_id) {
-        return OLAP_SUCCESS;
-    }
-    if (new_rowset_id >= _end_rowset_id) {
-        _end_rowset_id = new_rowset_id + _batch_interval;
-        RETURN_NOT_OK(_save_meta(data_dir));
-    }
-    _next_rowset_id = new_rowset_id + 1;
-    return OLAP_SUCCESS;
-}
-
-RowsetId TabletMeta::get_cur_rowset_id() {
-    return _next_rowset_id;
-}
-
 
 // return value not reference
 // MVCC modification for alter task, upper application get a alter task mirror

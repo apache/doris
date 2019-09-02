@@ -28,7 +28,7 @@ Compaction::Compaction(TabletSharedPtr tablet)
       _state(CompactionState::INITED)
 { }
 
-Compaction::~Compaction() { }
+Compaction::~Compaction() {}
 
 OLAPStatus Compaction::do_compaction() {
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name();
@@ -83,8 +83,8 @@ OLAPStatus Compaction::do_compaction() {
 }
 
 OLAPStatus Compaction::construct_output_rowset_writer() {
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
+    RowsetId rowset_id;
+    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
     context.tablet_uid = _tablet->tablet_uid();

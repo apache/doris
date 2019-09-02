@@ -41,12 +41,24 @@ using std::string;
 
 namespace doris {
 
+static StorageEngine* k_engine = nullptr;
+
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.json";
 
 class TxnManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
+        
+        std::vector<StorePath> paths;
+        paths.emplace_back("_engine_data_path", -1);
+        EngineOptions options;
+        options.store_paths = paths;
+        options.backend_uid = doris::UniqueId();
+        if (k_engine == nullptr) {
+            k_engine = new StorageEngine(options);
+        }
+
         std::string meta_path = "./meta";
         boost::filesystem::remove_all("./meta");
         ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
@@ -65,8 +77,8 @@ public:
             _json_rowset_meta = _json_rowset_meta + buffer + "\n";
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
-
-        uint64_t rowset_id = 10000;
+        RowsetId rowset_id;
+        rowset_id.init(10000);
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
@@ -82,8 +94,8 @@ public:
             _json_rowset_meta = _json_rowset_meta + buffer2 + "\n";
             std::cout << _json_rowset_meta << std::endl;
         }
-        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1); 
-        rowset_id = 10001;
+        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        rowset_id.init(10001);
         RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);

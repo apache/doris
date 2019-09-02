@@ -47,6 +47,7 @@
 #include "olap/tablet_sync_service.h"
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
+#include "olap/rowset/rowset_id_generator.h"
 
 namespace doris {
 
@@ -191,10 +192,16 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
 
-    bool check_rowset_id_in_unused_rowsets(RowsetId rowset_id);
+    bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
     // TODO(ygl)
     TabletSyncService* tablet_sync_service() { return nullptr; }
+
+    OLAPStatus next_rowset_id(RowsetId* rowset_id) { return _rowset_id_generator->next_id(rowset_id); };
+
+    bool rowset_id_in_use(const RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
+
+    void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
@@ -332,6 +339,8 @@ private:
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
+
+    std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

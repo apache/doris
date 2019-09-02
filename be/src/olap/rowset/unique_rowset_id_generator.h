@@ -17,28 +17,32 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-
-#include "olap/olap_define.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-struct StorePath {
-    StorePath() : capacity_bytes(-1) { }
-    StorePath(const std::string& path_, int64_t capacity_bytes_)
-        : path(path_), capacity_bytes(capacity_bytes_) { }
-    std::string path;
-    int64_t capacity_bytes;
-};
+class UniqueRowsetIdGenerator : public RowsetIdGenerator {
+public:    
+    UniqueRowsetIdGenerator(const UniqueId& backend_uid);
+    ~UniqueRowsetIdGenerator() {}
 
-OLAPStatus parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
+    // generator a id according to data dir
+    // rowsetid is not globally unique, it is dir level
+    // it saves the batch end id into meta env
+    OLAPStatus next_id(RowsetId* rowset_id) override; 
 
-struct EngineOptions {
-    // list paths that tablet will be put into.
-    std::vector<StorePath> store_paths;
-    UniqueId backend_uid;
-};
+    bool id_in_use(const RowsetId& rowset_id) override;
 
-}
+    void release_id(const RowsetId& rowset_id) override;
+
+private:
+    SpinLock _lock;
+    UniqueId _backend_uid;
+    const int64_t _version = 2; // modify it when create new version id generator
+    int64_t _inc_id = 0;
+    std::set<RowsetId> _valid_rowset_ids; 
+}; // FeBasedRowsetIdGenerator
+
+} // namespace doris

@@ -114,7 +114,7 @@ public:
 
     // return an unique identifier string for this rowset
     std::string unique_id() const {
-        return _rowset_path + "/" + std::to_string(rowset_id());
+        return _rowset_path + "/" + rowset_id().to_string();
     }
 
     bool need_delete_file() const {

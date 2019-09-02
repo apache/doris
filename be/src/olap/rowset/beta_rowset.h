@@ -38,7 +38,7 @@ public:
 
     virtual ~BetaRowset() {}
 
-    static std::string segment_file_path(const std::string& segment_dir, RowsetId rowset_id, int segment_id);
+    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
     OLAPStatus init() override;
 

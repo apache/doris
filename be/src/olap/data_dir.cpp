@@ -106,12 +106,6 @@ Status DataDir::init() {
     RETURN_IF_ERROR(_init_file_system());
     RETURN_IF_ERROR(_init_meta());
 
-    _id_generator = new RowsetIdGenerator(_meta);
-    auto res = _id_generator->init();
-    if (res != OLAP_SUCCESS) {
-        return Status::InternalError("Id generator initialized failed.");
-    }
-
     _is_used = true;
     return Status::OK();
 }
@@ -582,7 +576,9 @@ OLAPStatus DataDir::_convert_old_tablet() {
         for (auto& rowset_pb : pending_rowsets) {
             string meta_binary;
             rowset_pb.SerializeToString(&meta_binary);
-            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_pb.rowset_id() , meta_binary);
+            RowsetId rowset_id;
+            rowset_id.init(rowset_pb.rowset_id_v2());
+            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_id, meta_binary);
             if (status != OLAP_SUCCESS) {
                 LOG(FATAL) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
                              << tablet_id << "." << schema_hash;
@@ -903,11 +899,12 @@ void DataDir::perform_path_gc() {
                 }
             } else {
                 bool valid = tablet->check_path(path);
+                // TODO(ygl): should change a method to do gc
                 if (!valid) {
-                    RowsetId rowset_id = -1;
+                    RowsetId rowset_id;
                     bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
                     if (is_rowset_file) {
-                        std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
+                        std::string rowset_path_id = ROWSET_ID_PREFIX + rowset_id.to_string();
                         bool exist_in_pending = _check_pending_ids(rowset_path_id);
                         if (!exist_in_pending) {
                             _process_garbage_path(path);
@@ -959,18 +956,19 @@ void DataDir::perform_path_gc_by_rowsetid() {
             // tablet schema hash path or rowset file path
             // gc thread should get tablet include deleted tablet
             // or it will delete rowset file before tablet is garbage collected
-            RowsetId rowset_id = -1;
+            RowsetId rowset_id;
             bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet != nullptr) {
                     bool valid = tablet->check_rowset_id(rowset_id);
                     if (!valid) {
-                        // if the rowset id is less than tablet's initial end rowset id
+                        // if the rowset id is in using rowset set
                         // and the rowsetid is not in unused_rowsets
                         // and the rowsetid is not in committed rowsets
                         // then delete the path.
-                        if (rowset_id < tablet->initial_end_rowset_id()
+                        // TODO(ygl): check rowset id
+                        if (!StorageEngine::instance()->rowset_id_in_use(rowset_id)
                                 && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)
                                 && !RowsetMetaManager::check_rowset_meta(_meta, tablet->tablet_uid(), rowset_id)) {
                             _process_garbage_path(path);
