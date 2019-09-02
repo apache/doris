@@ -122,6 +122,9 @@ public:
     void close();
 
     // Reader next row with aggregation.
+    // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
+    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+    // Return others when unexpected error happens.
     OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, Arena* arena, bool *eof) {
         return (this->*_next_row_func)(row_cursor, arena, eof);
     }

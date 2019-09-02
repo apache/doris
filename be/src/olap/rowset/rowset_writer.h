@@ -35,7 +35,6 @@ class RowsetWriter {
 public:
     RowsetWriter() = default;
     virtual ~RowsetWriter() = default;
-    DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
@@ -44,10 +43,15 @@ public:
     virtual OLAPStatus add_row(const RowCursor& row) = 0;
     virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
+    // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
+
+    // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset_for_linked_schema_change(
                 RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) = 0;
 
+    // explicit flush all buffered rows into segment file.
+    // note that `add_row` could also trigger flush when certain conditions are met
     virtual OLAPStatus flush() = 0;
 
     // get a rowset
@@ -60,6 +64,9 @@ public:
     virtual RowsetId rowset_id() = 0;
 
     virtual DataDir* data_dir() = 0;
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
 
 } // namespace doris

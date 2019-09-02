@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
@@ -1236,41 +1237,40 @@ OLAPStatus TabletManager::_create_inital_rowset(
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
-            context.rowset_type = ALPHA_ROWSET;
+            context.rowset_type = DEFAULT_ROWSET_TYPE;
             context.rowset_path_prefix = tablet->tablet_path();
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;
             context.data_dir = tablet->data_dir();
             context.version = version;
             context.version_hash = request.version_hash;
-            RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
-            if (builder == nullptr) {
-                LOG(WARNING) << "fail to new rowset.";
-                res = OLAP_ERR_MALLOC_ERROR;
+
+            std::unique_ptr<RowsetWriter> builder;
+            res = RowsetFactory::create_rowset_writer(context, &builder);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to init rowset writer for tablet " << tablet->full_name();
                 break;
             }
-            builder->init(context);
             res = builder->flush();
-            if (OLAP_SUCCESS != res) {
-                LOG(WARNING) << "fail to finalize writer. tablet=" << tablet->full_name();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to flush rowset writer for tablet " << tablet->full_name();
                 break;
             }
 
             new_rowset = builder->build();
             res = tablet->add_rowset(new_rowset);
             if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to add rowset to tablet. "
-                            << "tablet=" << tablet->full_name();
+                LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
                 break;
             }
         } while (0);
 
         // Unregister index and delete files(index and data) if failed
         if (res != OLAP_SUCCESS) {
-            StorageEngine::instance()->add_unused_rowset(new_rowset);
-            LOG(WARNING) << "fail to create init base version. " 
+            LOG(WARNING) << "fail to create init base version. "
                          << " res=" << res 
                          << " version=" << request.version;
+            StorageEngine::instance()->add_unused_rowset(new_rowset);
             return res;
         }
     }

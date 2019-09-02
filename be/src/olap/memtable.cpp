@@ -87,7 +87,7 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
+OLAPStatus MemTable::flush(RowsetWriter* rowset_writer) {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -105,7 +105,7 @@ OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(RowsetWriterSharedPtr rowset_writer) {
+OLAPStatus MemTable::close(RowsetWriter* rowset_writer) {
     return flush(rowset_writer);
 }
 
