@@ -72,7 +72,9 @@ private:
 };
 
 void do_check(RowsetMeta rowset_meta) {
-    ASSERT_EQ(540081, rowset_meta.rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(540081);
+    ASSERT_EQ(rowset_id, rowset_meta.rowset_id());
     ASSERT_EQ(15673, rowset_meta.tablet_id());
     ASSERT_EQ(4042, rowset_meta.txn_id());
     ASSERT_EQ(567997577, rowset_meta.tablet_schema_hash());
@@ -112,7 +114,9 @@ TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
 }
 
 void do_check_for_alpha(AlphaRowsetMeta alpha_rowset_meta) {
-    ASSERT_EQ(540081, alpha_rowset_meta.rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(540081);
+    ASSERT_EQ(rowset_id, alpha_rowset_meta.rowset_id());
     ASSERT_EQ(15673, alpha_rowset_meta.tablet_id());
     ASSERT_EQ(4042, alpha_rowset_meta.txn_id());
     ASSERT_EQ(567997577, alpha_rowset_meta.tablet_schema_hash());

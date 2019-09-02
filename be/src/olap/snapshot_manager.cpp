@@ -157,40 +157,11 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     TabletSchema tablet_schema;
     RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
 
-    RowsetId max_rowset_id = 0;
-    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
-        if (visible_rowset.rowset_id() > max_rowset_id) {
-            max_rowset_id = visible_rowset.rowset_id();
-        }
-    }
-
-    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
-        if (inc_rowset.rowset_id() > max_rowset_id) {
-            max_rowset_id = inc_rowset.rowset_id();
-        }
-    }
-    RowsetId next_rowset_id = 0;
-    if (tablet == nullptr) {
-        next_rowset_id = 10000;
-    } else {
-        RETURN_NOT_OK(tablet->next_rowset_id(&next_rowset_id));
-    }
-    if (next_rowset_id <= max_rowset_id) {
-        next_rowset_id = max_rowset_id + 1;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->set_next_rowset_id(next_rowset_id));
-        }
-    }
-
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-        RowsetId rowset_id = 0;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        } else {
-            rowset_id = ++next_rowset_id;
-        }
+        RowsetId rowset_id;
+        RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
         RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
@@ -207,23 +178,12 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
             continue;
         }
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
-        RowsetId rowset_id = 0;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        } else {
-            rowset_id = ++next_rowset_id;
-        }
+        RowsetId rowset_id;
+        RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
         RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
-    RowsetId new_next_rowset_id = 0;
-    if (tablet != nullptr) {
-        RETURN_NOT_OK(tablet->next_rowset_id(&new_next_rowset_id));
-    } else {
-        new_next_rowset_id = next_rowset_id + 1;
-    }
-    new_tablet_meta_pb.set_end_rowset_id(new_next_rowset_id);
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
@@ -235,7 +195,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
 }
 
 OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-    DataDir& data_dir, TabletSchema& tablet_schema, RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
+    DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);

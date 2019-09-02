@@ -29,7 +29,6 @@ using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextB
 
 struct RowsetWriterContext {
     RowsetWriterContext() :
-        rowset_id(0),
         tablet_id(0),
         tablet_schema_hash(0),
         partition_id(0),
@@ -46,7 +45,7 @@ struct RowsetWriterContext {
         tablet_uid.hi = 0;
         tablet_uid.lo = 0;
     }
-    int64_t rowset_id;
+    RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
     int64_t partition_id;

@@ -183,6 +183,5 @@
     "tablet_uid": {
         "hi": 10,
         "lo": 10
-    },
-    "end_rowset_id": 10000
+    }
 }

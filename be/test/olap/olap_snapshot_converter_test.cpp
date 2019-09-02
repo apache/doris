@@ -45,15 +45,27 @@ using std::string;
 
 namespace doris {
 
+static StorageEngine* k_engine = nullptr;
+
 class OlapSnapshotConverterTest : public testing::Test {
 public:
     virtual void SetUp() {
+        std::vector<StorePath> paths;
+        paths.emplace_back("_engine_data_path", -1);
+        EngineOptions options;
+        options.store_paths = paths;
+        options.backend_uid = doris::UniqueId();
+        if (k_engine == nullptr) {
+            k_engine = new StorageEngine(options);
+        }
+
         auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
         FileHandler::set_fd_cache(cache);
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
         create_dirs(_engine_data_path);
+
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _meta_path = "./meta";

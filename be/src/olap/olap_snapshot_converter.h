@@ -52,10 +52,10 @@ public:
 
     OLAPStatus convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta);
 
-    OLAPStatus convert_to_rowset_meta(const PDelta& delta, int64_t rowset_id, int64_t tablet_id, 
+    OLAPStatus convert_to_rowset_meta(const PDelta& delta, const RowsetId& rowset_id, int64_t tablet_id, 
         int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
-    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, int64_t rowset_id, 
+    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, const RowsetId& rowset_id, 
         int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
     OLAPStatus to_column_pb(const ColumnMessage& column_msg, ColumnPB* column_pb);

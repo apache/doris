@@ -24,6 +24,7 @@
 #include <boost/algorithm/string/trim.hpp>
 
 #include "olap/olap_define.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "common/logging.h"
 #include "json2pb/json_to_pb.h"
@@ -33,8 +34,8 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
-bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s != OLAP_SUCCESS) {
@@ -43,8 +44,8 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, 
     return true;
 }
 
-OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, RowsetMetaSharedPtr rowset_meta) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
@@ -64,7 +65,7 @@ OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_u
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, std::string* json_rowset_meta) {
+OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, std::string* json_rowset_meta) {
     RowsetMetaSharedPtr rowset_meta_ptr(new(std::nothrow) RowsetMeta());
     OLAPStatus status = get_rowset_meta(meta, tablet_uid, rowset_id, rowset_meta_ptr);
     if (status != OLAP_SUCCESS) {
@@ -72,14 +73,14 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tab
     }
     bool ret = rowset_meta_ptr->json_rowset_meta(json_rowset_meta);
     if (!ret) {
-        std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
+        std::string error_msg = "get json rowset meta failed. rowset id:" + rowset_id.to_string();
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMeta* rowset_meta) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, RowsetMeta* rowset_meta) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     bool ret = rowset_meta->serialize(&value);
     if (!ret) {
@@ -88,17 +89,23 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, int64_t
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    if (status == OLAP_SUCCESS) {
+        StorageEngine::instance()->release_rowset_id(rowset_id);
+    }
     return status;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, const string& meta_binary) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, const string& meta_binary) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
+    if (status == OLAP_SUCCESS) {
+        StorageEngine::instance()->release_rowset_id(rowset_id);
+    }
     return status;
 }
 
-OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     LOG(INFO) << "start to remove rowset, key:" << key;
     OLAPStatus status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     LOG(INFO) << "remove rowset key:" << key << " finished";
@@ -106,7 +113,7 @@ OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, int64
 }
 
 OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
-            std::function<bool(const TabletUid&, uint64_t, const std::string&)> const& func) {
+            std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func) {
     auto traverse_rowset_meta_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: rst_uuid_rowset_id
@@ -115,8 +122,8 @@ OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
             LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
             return true;
         }
-        uint64_t rowset_id = std::stol(parts[2].c_str(), NULL, 10);
-        // TODO(ygl): parset tablet id from parts[1]
+        RowsetId rowset_id;
+        rowset_id.init(parts[2]);
         std::vector<std::string> uid_parts;
         split_string<char>(parts[1], '-', &uid_parts);
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
@@ -142,7 +149,7 @@ OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::s
         LOG(WARNING) << error_msg;
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
-    uint64_t rowset_id = rowset_meta.rowset_id();
+    RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();
     OLAPStatus status = save(meta, tablet_uid, rowset_id, &rowset_meta);
     return status;

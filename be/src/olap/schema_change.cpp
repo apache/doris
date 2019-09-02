@@ -1074,8 +1074,8 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
         LOG(WARNING) << "new rowset builder failed";
         return false;
     }
-    RowsetId rowset_id = 0;
-    OLAPStatus status = new_tablet->next_rowset_id(&rowset_id);
+    RowsetId rowset_id;
+    OLAPStatus status = StorageEngine::instance()->next_rowset_id(&rowset_id);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "get next rowset id failed";
         return false;
@@ -1098,10 +1098,10 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     rowset_writer->init(context);
     if (!merger.merge(row_block_arr, rowset_writer, &merged_rows)) {
         LOG(WARNING) << "failed to merge row blocks.";
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         return false;
     }
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
     add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
     return true;
@@ -1667,8 +1667,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
     rowset_reader->init(&_reader_context);
 
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
+    RowsetId rowset_id;
+    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     RowsetWriterContext writer_context;
     writer_context.rowset_id = rowset_id;
     writer_context.tablet_uid = new_tablet->tablet_uid();
@@ -1696,11 +1696,11 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                          << "-" << (*base_rowset)->version().second;
         }
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         goto SCHEMA_VERSION_CONVERT_ERR;
     }
     *new_rowset = rowset_writer->build();
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
     if (*new_rowset == nullptr) {
         LOG(WARNING) << "build rowset failed.";
         res = OLAP_ERR_MALLOC_ERROR;
@@ -1891,9 +1891,9 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        RowsetId rowset_id = 0;
+        RowsetId rowset_id;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-        res = sc_params.new_tablet->next_rowset_id(&rowset_id);
+        res = StorageEngine::instance()->next_rowset_id(&rowset_id);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "generate next id failed";
             goto PROCESS_ALTER_EXIT;
@@ -1923,10 +1923,10 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                          << " version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
             goto PROCESS_ALTER_EXIT;
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
         sc_params.new_tablet->obtain_push_lock();
