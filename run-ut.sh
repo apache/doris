@@ -208,6 +208,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
+${DORIS_TEST_BINARY_DIR}/runtime/mem_pool_test
 # Running expr Unittest
 
 # Running http

@@ -596,7 +596,7 @@ void RowBatch::swap(RowBatch* other) {
 
     // The destination row batch should be empty.
     DCHECK(!_has_in_flight_row);
-    DCHECK_EQ(_tuple_data_pool->get_total_chunk_sizes(), 0);
+    DCHECK_EQ(_tuple_data_pool->total_reserved_bytes(), 0);
 
     std::swap(_has_in_flight_row, other->_has_in_flight_row);
     std::swap(_num_rows, other->_num_rows);
