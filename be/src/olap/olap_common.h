@@ -246,9 +246,9 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
-// 128 bit backend uid, it is a uuid bit, id version
 // 8 bit rowset id version 
 // 56 bit, inc number from 0
+// 128 bit backend uid, it is a uuid bit, id version
 struct RowsetId {
     int8_t version = 0;
     int64_t hi = 0;
@@ -259,8 +259,8 @@ struct RowsetId {
         // for new rowsetid its a 48 hex string
         // if the len < 48, then it is an old format rowset id
         if (rowset_id_str.length() < 48) {
-            int64_t low = std::stol(rowset_id_str, nullptr, 10);
-            init(1, 0, 0, low);
+            int64_t high = std::stol(rowset_id_str, nullptr, 10);
+            init(1, high, 0, 0);
         } else {
             int64_t high = 0;
             int64_t middle = 0;
@@ -268,28 +268,28 @@ struct RowsetId {
             from_hex(&high, rowset_id_str.substr(0, 16));
             from_hex(&middle, rowset_id_str.substr(16, 16));
             from_hex(&low, rowset_id_str.substr(32, 16));
-            init(low >> 56, high, middle, low & LOW_56_BITS);
+            init(high >> 56, high & LOW_56_BITS, middle, low);
         }
     }
 
     // to compatiable with old version
     void init(int64_t rowset_id) {
-        init(1, 0, 0, rowset_id);
+        init(1, rowset_id, 0, 0);
     }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
-        if (low >= MAX_ROWSET_ID) {
-            LOG(FATAL) << "low is too large:" << low;
+        if (high >= MAX_ROWSET_ID) {
+            LOG(FATAL) << "inc rowsetid is too large:" << high;
         }
-        hi = high;
+        hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;
-        lo = (id_version << 56) + (low & LOW_56_BITS);
+        lo = low;
     }
 
     std::string to_string() const {
         if (version < 2) {
-            return std::to_string(lo & LOW_56_BITS);
+            return std::to_string(hi & LOW_56_BITS);
         } else {
             char buf[48];
             to_hex(hi, buf);
@@ -301,11 +301,11 @@ struct RowsetId {
 
     // std::unordered_map need this api
     bool operator==(const RowsetId& rhs) const {
-        return lo == rhs.lo && hi == rhs.hi && mi == rhs.mi ;
+        return hi == rhs.hi && mi == rhs.mi && lo == rhs.lo;
     }
 
     bool operator!=(const RowsetId& rhs) const {
-        return lo != rhs.lo || hi != rhs.hi || mi != rhs.mi ;
+        return hi != rhs.hi || mi != rhs.mi || lo != rhs.lo;
     }
 
     bool operator<(const RowsetId& rhs) const {
