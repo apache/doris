@@ -891,7 +891,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
 }
 
 // check whether any unused rowsets's id equal to rowset_id
-bool StorageEngine::check_rowset_id_in_unused_rowsets(RowsetId rowset_id) {
+bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     _gc_mutex.lock();
     for (auto& _unused_rowset_pair : _unused_rowsets) {
         if (_unused_rowset_pair.second->rowset_id() == rowset_id) {

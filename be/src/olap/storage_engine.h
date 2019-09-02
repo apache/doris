@@ -192,14 +192,14 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
 
-    bool check_rowset_id_in_unused_rowsets(RowsetId rowset_id);
+    bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
     // TODO(ygl)
     TabletSyncService* tablet_sync_service() { return nullptr; }
 
     OLAPStatus next_rowset_id(RowsetId* rowset_id) { return _rowset_id_generator->next_id(rowset_id); };
 
-    bool rowset_id_in_use(RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
+    bool rowset_id_in_use(const RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
 
     void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
 

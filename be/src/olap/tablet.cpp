@@ -871,7 +871,7 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
-bool Tablet::check_rowset_id(RowsetId rowset_id) {
+bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     ReadLock rdlock(&_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {

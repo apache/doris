@@ -195,7 +195,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
 }
 
 OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-    DataDir& data_dir, TabletSchema& tablet_schema, RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
+    DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);

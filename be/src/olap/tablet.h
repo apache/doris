@@ -216,7 +216,7 @@ public:
     void delete_all_files();
 
     bool check_path(const std::string& check_path);
-    bool check_rowset_id(RowsetId rowset_id);
+    bool check_rowset_id(const RowsetId& rowset_id);
 
     OLAPStatus set_partition_id(int64_t partition_id);
 

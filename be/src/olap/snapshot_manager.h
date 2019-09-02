@@ -99,7 +99,7 @@ private:
             DataDir* store);
     
     OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-        DataDir& data_dir, TabletSchema& tablet_schema, RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
+        DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
 
 private:
     static SnapshotManager* _s_instance;

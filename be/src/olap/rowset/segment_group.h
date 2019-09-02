@@ -262,12 +262,12 @@ public:
 
     OLAPStatus copy_files_to(const std::string& dir);
 
-    OLAPStatus link_segments_to_path(const std::string& dest_path, RowsetId rowset_id);
+    OLAPStatus link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id);
 
 private:
     
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
-    std::string _construct_file_name(RowsetId rowset_id, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const std::string& suffix) const;
 
     std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
     

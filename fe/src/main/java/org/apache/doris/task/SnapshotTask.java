@@ -22,6 +22,8 @@ import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TTaskType;
 
 public class SnapshotTask extends AgentTask {
+    private static final int PREFERRED_SNAPSHOT_VERSION = 3;
+    
     private long jobId;
 
     private long version;
@@ -79,7 +81,7 @@ public class SnapshotTask extends AgentTask {
         request.setVersion(version);
         request.setVersion_hash(versionHash);
         request.setList_files(true);
-        request.setPreferred_snapshot_version(3);
+        request.setPreferred_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
         request.setTimeout(timeoutMs / 1000);
         return request;
     }

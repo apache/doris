@@ -160,7 +160,7 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
     return file_name;
 }
 
-std::string SegmentGroup::_construct_file_name(RowsetId rowset_id, int32_t segment_id, const string& suffix) const {
+std::string SegmentGroup::_construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const string& suffix) const {
     std::string file_name = rowset_id.to_string() + "_"
             + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
@@ -855,7 +855,7 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, RowsetId rowset_id) {
+OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id) {
     if (dest_path.empty()) {
         LOG(WARNING) << "dest path is empty, return error";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
