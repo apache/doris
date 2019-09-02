@@ -69,6 +69,10 @@ private:
     int _batch_size;
 
     std::string _cached_response;
+    // keep-alive for es scroll
+    std::string _scroll_keep_alive;
+    // timeout for es http connetion
+    int _http_timeout_ms;
 };
 }
 

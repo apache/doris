@@ -21,6 +21,7 @@
 #include <string>
 #include <sstream>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/es/es_scroll_query.h"
@@ -31,9 +32,8 @@ const std::string REQUEST_SCROLL_PATH = "_scroll";
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
-const std::string REQUEST_SCROLL_TIME = "5m";
 
-ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props) {
+ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props) : _scroll_keep_alive(config::es_scroll_keepalive), _http_timeout_ms(config::es_http_timeout_ms) {
     _target = target;
     _index = props.at(KEY_INDEX);
     _type = props.at(KEY_TYPE);
@@ -51,7 +51,7 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
     }
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
-    _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + REQUEST_SCROLL_TIME + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
+    _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + _scroll_keep_alive + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
     _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     _eos = false;
 }
@@ -91,9 +91,9 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         RETURN_IF_ERROR(_network_client.init(_next_scroll_url));
         _network_client.set_basic_auth(_user_name, _passwd);
         _network_client.set_content_type("application/json");
-        _network_client.set_timeout_ms(5 * 1000);
+        _network_client.set_timeout_ms(_http_timeout_ms);
         RETURN_IF_ERROR(_network_client.execute_post_request(
-                        ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, REQUEST_SCROLL_TIME), &response));
+                        ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, _scroll_keep_alive), &response));
         long status = _network_client.get_http_status();
         if (status == 404) {
             LOG(WARNING) << "request scroll search failure 404[" 
