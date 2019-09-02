@@ -70,7 +70,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
-        LOG(ERROR) << "failed to init iterator:" << s.to_string();
+        LOG(WARNING) << "failed to init iterator: " << s.to_string();
         return OLAP_ERR_ROWSET_READER_INIT;
     }
     _iterator.reset(final_iterator);
@@ -100,7 +100,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
             *block = nullptr;
             return OLAP_ERR_DATA_EOF;
         }
-        LOG(ERROR) << "failed to read next block: " << s.to_string();
+        LOG(WARNING) << "failed to read next block: " << s.to_string();
         return OLAP_ERR_ROWSET_READ_FAILED;
     }
     // convert to output block
@@ -110,7 +110,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
         _output_block->get_row(row_idx, _row.get());
         s = _input_block->copy_to_row_cursor(row_idx, _row.get());
         if (!s.ok()) {
-            LOG(ERROR) << "failed to copy row: " << s.to_string();
+            LOG(WARNING) << "failed to copy row: " << s.to_string();
             return OLAP_ERR_ROWSET_READ_FAILED;
         }
     }
