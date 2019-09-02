@@ -35,6 +35,7 @@
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -226,7 +227,6 @@ private:
 
     std::list<RowBatchInterface*> _scan_row_batches;
 
-    std::list<OlapScanner*> _all_olap_scanners;
     std::list<OlapScanner*> _olap_scanners;
 
     int _max_materialized_row_batches;
@@ -240,7 +240,7 @@ private:
     int _nice;
 
     // protect _status, for many thread may change _status
-    boost::mutex _status_mutex;
+    SpinLock _status_mutex;
     Status _status;
     RuntimeState* _runtime_state;
     RuntimeProfile::Counter* _scan_timer;
