@@ -724,10 +724,10 @@ Status ExecNode::enable_deny_reservation_debug_action() {
 }
 */
 
-Status ExecNode::QueryMaintenance(RuntimeState* state, const char* msg) {
+Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
   // TODO chenhao , when introduce latest AnalyticEvalNode open it
   // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-  return state->check_query_state(*msg);
+  return state->check_query_state(msg);
 }
 
 }

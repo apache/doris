@@ -388,7 +388,7 @@ protected:
     /// Nodes may override this to add extra periodic cleanup, e.g. freeing other local
     /// allocations. ExecNodes overriding this function should return
     /// ExecNode::QueryMaintenance().
-    virtual Status QueryMaintenance(RuntimeState* state, const char* msg) WARN_UNUSED_RESULT;
+    virtual Status QueryMaintenance(RuntimeState* state, const std::string& msg) WARN_UNUSED_RESULT;
 
 private:
     bool _is_closed;

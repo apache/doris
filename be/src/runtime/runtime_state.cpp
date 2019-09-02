@@ -397,7 +397,7 @@ Status RuntimeState::set_mem_limit_exceeded(
     return _process_status;
 }
 
-Status RuntimeState::check_query_state(const char* msg) {
+Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
     RETURN_IF_LIMIT_EXCEEDED(this, msg);

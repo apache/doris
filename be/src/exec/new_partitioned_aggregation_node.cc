@@ -305,8 +305,8 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
   bool eos = false;
   do {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("New partitioned aggregation, "
-                                             + "while getting next from child 0."));
+    RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting next from child 0."));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
@@ -487,8 +487,8 @@ Status NewPartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     // maintenance every N iterations.
     if ((count++ & (N - 1)) == 0) {
       RETURN_IF_CANCELLED(state);
-      RETURN_IF_ERROR(state->check_query_state("New partitioned aggregation, "
-                                               + "while getting rows from partition."));
+      RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting rows from partition."));
     }
 
     int row_idx = row_batch->add_row();
@@ -529,8 +529,8 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
   do {
     DCHECK_EQ(out_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("New partitioned aggregation, "
-                                             + "while getting rows in streaming."));
+    RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting rows in streaming."));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
     SCOPED_TIMER(streaming_timer_);
