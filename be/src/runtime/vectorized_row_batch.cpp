@@ -139,8 +139,11 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
     row_block->_limit = _size;
     row_block->_info.row_num = _size;
     row_block->_block_status = _block_status;
-    row_block->mem_pool()->free_all();
-    row_block->mem_pool()->acquire_data(_mem_pool.get(), false);
+
+    // exchange two memory pool to reduce chunk allocate in MemPool,
+    row_block->mem_pool()->exchange_data(_mem_pool.get());
+    // Clear to reuse already allocated chunk
+    _mem_pool->clear();
 }
 
 } // namespace doris
