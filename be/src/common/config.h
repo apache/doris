@@ -424,6 +424,12 @@ namespace config {
     // note: unit is minute, default is 5min
     CONF_Int32(scan_context_gc_interval_min, "5");
 
+    // es scroll keep-alive
+    CONF_String(es_scroll_keepalive, "5m");
+
+    // HTTP connection timeout for es
+    CONF_Int32(es_http_timeout_ms, 5000);
+
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the
     // same cache size configuration.
