@@ -92,7 +92,7 @@ public class DataDescription {
      * Merged from columns and columnMappingList
      * ImportColumnDesc: column name to expr or null
      **/
-    private List<ImportColumnDesc> parsedColumnExprList;
+    private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
 
     private boolean isHadoopLoad = false;
 
@@ -233,7 +233,6 @@ public class DataDescription {
         // used to check duplicated column name
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         // Order of parsedColumnExprList: columns(fileFieldNames) + columnsFromPath
-        parsedColumnExprList = Lists.newArrayList();
         // Step1: analyze columns
         for (String columnName : columnList) {
             if (!columnNames.add(columnName)) {
