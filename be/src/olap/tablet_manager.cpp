@@ -705,12 +705,12 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static std::regex rgx ("/data/\\d+/\\d+/\\d+/(\\d+)_.*");
+    static std::regex rgx ("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
     std::smatch sm;
     bool ret = std::regex_search(path, sm, rgx);
     if (ret) {
         if (sm.size() == 2) {
-            *rowset_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
+            rowset_id->init(sm.str(1));
             return true;
         } else {
             return false;
@@ -1225,7 +1225,8 @@ OLAPStatus TabletManager::_create_inital_rowset(
                 res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                 break;
             }
-            RowsetId rowset_id = 1;
+            RowsetId rowset_id;
+            RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
             // if we know this is the first rowset in this tablet, then not call
             // tablet to generate rowset id, just set it to 1
             // RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));

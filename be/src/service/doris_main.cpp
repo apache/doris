@@ -56,6 +56,7 @@
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
 #include "util/frontend_helper.h"
+#include "util/uid_util.h"
 
 static void help(const char*);
 
@@ -153,6 +154,7 @@ int main(int argc, char** argv) {
     // options
     doris::EngineOptions options;
     options.store_paths = paths;
+    options.backend_uid = doris::UniqueId();
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {

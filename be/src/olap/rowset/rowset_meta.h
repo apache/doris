@@ -44,11 +44,13 @@ public:
         if (!ret) {
             return false;
         }
+        _init();
         return true;
     }
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
         _rowset_meta_pb = rowset_meta_pb;
+        _init();
         return true;
     }
 
@@ -57,6 +59,7 @@ public:
         if (!ret) {
             return false;
         }
+        _init();
         return true;
     }
 
@@ -71,12 +74,15 @@ public:
         return ret;
     }
 
-    int64_t rowset_id() const {
-        return _rowset_meta_pb.rowset_id();
+    RowsetId rowset_id() const {
+        return _rowset_id;
     }
 
-    void set_rowset_id(int64_t rowset_id) {
-        _rowset_meta_pb.set_rowset_id(rowset_id);
+    void set_rowset_id(RowsetId rowset_id) {
+        // rowset id is a required field, just set it to 0
+        _rowset_meta_pb.set_rowset_id(0);
+        _rowset_id = rowset_id;
+        _rowset_meta_pb.set_rowset_id_v2(rowset_id.to_string());
     }
 
     int64_t tablet_id() const {
@@ -312,8 +318,17 @@ private:
         return _rowset_meta_pb.mutable_alpha_rowset_extra_meta_pb();
     }
 
+    void _init() {
+        if (_rowset_meta_pb.rowset_id() > 0) {
+            _rowset_id.init(_rowset_meta_pb.rowset_id());
+        } else {
+            _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
+        }
+    }
+
 private:
     RowsetMetaPB _rowset_meta_pb;
+    RowsetId _rowset_id;
 };
 
 } // namespace doris

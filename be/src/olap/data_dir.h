@@ -92,15 +92,7 @@ public:
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
-/*
-    OLAPStatus next_id(RowsetId* id) {
-        return _id_generator->get_next_id(id);
-    }
-
-    OLAPStatus set_next_id(RowsetId new_rowset_id) {
-        return _id_generator->set_next_id(new_rowset_id);
-    }
-*/
+    
     // load data from meta and data files
     OLAPStatus load();
 

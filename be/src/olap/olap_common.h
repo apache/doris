@@ -23,6 +23,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <typeinfo>
@@ -35,7 +36,11 @@
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
+#define LOW_56_BITS 0x00ffffffffffffff
+
 namespace doris {
+
+static const int64_t MAX_ROWSET_ID = 1L << 56;
 
 typedef int32_t SchemaHash;
 typedef int64_t VersionHash;
@@ -241,7 +246,84 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
-typedef int64_t RowsetId;
+// 128 bit backend uid, it is a uuid bit, id version
+// 8 bit rowset id version 
+// 56 bit, inc number from 0
+struct RowsetId {
+    int8_t version = 0;
+    int64_t hi = 0;
+    int64_t mi = 0;
+    int64_t lo = 0;
+
+    void init(const std::string& rowset_id_str) {
+        // for new rowsetid its a 48 hex string
+        // if the len < 48, then it is an old format rowset id
+        if (rowset_id_str.length() < 48) {
+            int64_t low = std::stol(rowset_id_str, nullptr, 10);
+            init(1, 0, 0, low);
+        } else {
+            int64_t high = 0;
+            int64_t middle = 0;
+            int64_t low = 0;
+            from_hex(&high, rowset_id_str.substr(0, 16));
+            from_hex(&middle, rowset_id_str.substr(16, 16));
+            from_hex(&low, rowset_id_str.substr(32, 16));
+            init(low >> 56, high, middle, low & LOW_56_BITS);
+        }
+    }
+
+    // to compatiable with old version
+    void init(int64_t rowset_id) {
+        init(1, 0, 0, rowset_id);
+    }
+
+    void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
+        version = id_version;
+        if (low >= MAX_ROWSET_ID) {
+            LOG(FATAL) << "low is too large:" << low;
+        }
+        hi = high;
+        mi = middle;
+        lo = (id_version << 56) + (low & LOW_56_BITS);
+    }
+
+    std::string to_string() const {
+        if (version < 2) {
+            return std::to_string(lo & LOW_56_BITS);
+        } else {
+            char buf[48];
+            to_hex(hi, buf);
+            to_hex(mi, buf + 16);
+            to_hex(lo, buf + 32);
+            return {buf, 48};
+        }
+    }
+
+    // std::unordered_map need this api
+    bool operator==(const RowsetId& rhs) const {
+        return lo == rhs.lo && hi == rhs.hi && mi == rhs.mi ;
+    }
+
+    bool operator!=(const RowsetId& rhs) const {
+        return lo != rhs.lo || hi != rhs.hi || mi != rhs.mi ;
+    }
+
+    bool operator<(const RowsetId& rhs) const {
+        if (hi != rhs.hi) {
+            return hi < rhs.hi;
+        } else if (mi != rhs.mi) {
+            return mi < rhs.mi;
+        } else {
+            return lo < rhs.lo;
+        }
+    }
+
+    friend std::ostream& operator<<(std::ostream& out, const RowsetId& rowset_id) {
+        out << rowset_id.to_string();
+        return out;
+    }
+
+};
 
 }  // namespace doris
 

@@ -110,6 +110,8 @@ message RowsetMetaPB {
     optional PUniqueId tablet_uid = 21;
     // total number of segments
     optional int64 num_segments = 22;
+    // rowset id definition, it will replace required rowset id 
+    optional string rowset_id_v2 = 23;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
 }
