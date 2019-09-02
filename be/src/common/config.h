@@ -428,7 +428,7 @@ namespace config {
     CONF_String(es_scroll_keepalive, "5m");
 
     // HTTP connection timeout for es
-    CONF_Int32(es_http_timeout_ms, 5000);
+    CONF_Int32(es_http_timeout_ms, "5000");
 
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the
