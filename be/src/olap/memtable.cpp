@@ -68,7 +68,7 @@ void MemTable::insert(Tuple* tuple) {
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena());
+        _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena(), &_agg_object_pool);
     }
 
     bool overwritten = false;

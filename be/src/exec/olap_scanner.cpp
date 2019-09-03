@@ -43,6 +43,7 @@ OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
+        bool need_agg_finalize,
         const TPaloScanRange& scan_range,
         const std::vector<OlapScanRange*>& key_ranges)
             : _runtime_state(runtime_state),
@@ -52,6 +53,7 @@ OlapScanner::OlapScanner(
             _string_slots(parent->_string_slots),
             _is_open(false),
             _aggregation(aggregation),
+            _need_agg_finalize(need_agg_finalize),
             _tuple_idx(parent->_tuple_idx),
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
@@ -213,6 +215,11 @@ Status OlapScanner::_init_params(
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
 
+    // If a agg node is this scan node direct parent
+    // we will not call agg object finalize method in scan node,
+    // to avoid the unnecessary SerDe and improve query performance
+    _params.need_agg_finalize = _need_agg_finalize;
+
     return Status::OK();
 }
 
@@ -264,7 +271,7 @@ Status OlapScanner::get_batch(
                 break;
             }
             // Read one row from reader
-            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, arena.get(), eof);
+            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, arena.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 return Status::InternalError("Internal Error: read storage fail.");
             }

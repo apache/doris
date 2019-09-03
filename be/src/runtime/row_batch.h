@@ -245,6 +245,9 @@ public:
     MemPool* tuple_data_pool() {
         return _tuple_data_pool.get();
     }
+    ObjectPool* agg_object_pool() {
+        return _agg_object_pool.get();
+    }
     int num_io_buffers() const {
         return _io_buffers.size();
     }
@@ -322,6 +325,7 @@ public:
 
     // Transfer ownership of resources to dest.  This includes tuple data in mem
     // pool and io buffers.
+    // we firstly update dest resource, and then reset current resource
     void transfer_resource_ownership(RowBatch* dest);
 
     void copy_row(TupleRow* src, TupleRow* dest) {
@@ -384,14 +388,6 @@ public:
     int num_buffers() const { 
         return _buffers.size(); 
     }
-    // Swaps all of the row batch state with 'other'.  This is used for scan nodes
-    // which produce RowBatches asynchronously.  Typically, an ExecNode is handed
-    // a row batch to populate (pull model) but ScanNodes have multiple threads
-    // which push row batches.  This function is used to swap the pushed row batch
-    // contents with the row batch that's passed from the caller.
-    // TODO: this is wasteful and makes a copy that's unnecessary.  Think about cleaning
-    // this up.
-    void swap(RowBatch* other);
 
     const RowDescriptor& row_desc() const {
         return _row_desc;
@@ -483,6 +479,9 @@ private:
 
     // holding (some of the) data referenced by rows
     boost::scoped_ptr<MemPool> _tuple_data_pool;
+
+    // holding some complex agg object data (bitmap, hll)
+    std::unique_ptr<ObjectPool> _agg_object_pool;
 
     // IO buffers current owned by this row batch. Ownership of IO buffers transfer
     // between row batches. Any IO buffer will be owned by at most one row batch
