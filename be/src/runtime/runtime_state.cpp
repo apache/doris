@@ -25,6 +25,7 @@
 #include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "exprs/timezone_db.h"
 #include "runtime/buffered_block_mgr.h"
@@ -396,12 +397,10 @@ Status RuntimeState::set_mem_limit_exceeded(
     return _process_status;
 }
 
-Status RuntimeState::check_query_state() {
+Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (_instance_mem_tracker->any_limit_exceeded()) {
-        return set_mem_limit_exceeded();
-    }
+    RETURN_IF_LIMIT_EXCEEDED(this, msg);
     return query_status();
 }
 

@@ -87,8 +87,7 @@ Status TopNNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Top n, before open."));
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
 
     // Avoid creating them after every Reset()/Open().
@@ -122,8 +121,7 @@ Status TopNNode::open(RuntimeState* state) {
                 insert_tuple_row(batch.get_row(i));
             }
             RETURN_IF_CANCELLED(state);
-            // RETURN_IF_LIMIT_EXCEEDED(state);
-            RETURN_IF_ERROR(state->check_query_state());
+            RETURN_IF_ERROR(state->check_query_state("Top n, while getting next from child 0."));
         } while (!eos);
     }
 
@@ -142,8 +140,7 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Top n, before moving result to row_batch."));
 
     while (!row_batch->at_capacity() && (_get_next_iter != _sorted_top_n.end())) {
         if (_num_rows_skipped < _offset) {

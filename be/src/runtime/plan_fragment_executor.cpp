@@ -514,7 +514,7 @@ void PlanFragmentExecutor::update_status(const Status& status) {
 
         if (_status.ok()) {
             if (status.is_mem_limit_exceeded()) {
-                _runtime_state->set_mem_limit_exceeded();
+                _runtime_state->set_mem_limit_exceeded(status.get_error_msg());
             }
             _status = status;
         }
