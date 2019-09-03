@@ -29,7 +29,6 @@ namespace doris {
 class ContiguousRow;
 class RowCursor;
 class RowsetWriter;
-using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 
 class RowsetWriter {
 public:

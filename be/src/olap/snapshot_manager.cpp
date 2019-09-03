@@ -30,7 +30,7 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/olap_snapshot_converter.h"
-#include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"

@@ -995,6 +995,7 @@ bool SchemaChangeWithSorting::process(
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
+                               rowset_reader->rowset()->rowset_meta()->rowset_type(),
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
