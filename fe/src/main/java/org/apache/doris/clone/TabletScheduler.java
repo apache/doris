@@ -442,7 +442,7 @@ public class TabletScheduler extends Daemon {
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
-        LOG.debug("schedule tablet: {}", tabletCtx.getTabletId());
+        LOG.debug("schedule tablet: {}, type: {}, status: {}", tabletCtx.getTabletId(), tabletCtx.getType(), tabletCtx.getTabletStatus());
         long currentTime = System.currentTimeMillis();
         tabletCtx.setLastSchedTime(currentTime);
         tabletCtx.setLastVisitedTime(currentTime);

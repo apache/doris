@@ -174,8 +174,6 @@ public class StreamLoadTask {
         // so we keep the columnExprDescs in routine load job as origin.
         if (routineLoadJob.getColumnDescs() != null) {
             columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
-        } else {
-            columnExprDescs = null;
         }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
@@ -183,6 +181,7 @@ public class StreamLoadTask {
         strictMode = routineLoadJob.isStrictMode();
     }
 
+    // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
         String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));

@@ -470,7 +470,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 // in catalog.
                 MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
                 Preconditions.checkNotNull(shadowIdx, shadowIdxId);
-                partition.deleteRollupIndex(originIdxId);
+                MaterializedIndex droppedIdx = partition.deleteRollupIndex(originIdxId);
+
+                // delete origin replicas
+                for (Tablet originTablet : droppedIdx.getTablets()) {
+                    Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
+                }
+
                 // set replica state
                 for (Tablet tablet : shadowIdx.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
