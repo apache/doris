@@ -23,6 +23,7 @@
 
 #include "codegen/codegen_anyval.h"
 #include "codegen/llvm_codegen.h"
+#include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
@@ -118,7 +119,7 @@ Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, i
   int scratch_row_size = sizeof(Tuple*) * num_build_tuples;
   scratch_row_ = reinterpret_cast<TupleRow*>(malloc(scratch_row_size));
   if (UNLIKELY(scratch_row_ == NULL)) {
-    return Status::InternalError(Substitute("Failed to allocate $0 bytes for scratch row of "
+      return Status::InternalError(Substitute("Failed to allocate $0 bytes for scratch row of "
         "NewPartitionedHashTableCtx.", scratch_row_size));
   }
 

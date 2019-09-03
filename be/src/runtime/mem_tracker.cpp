@@ -24,6 +24,7 @@
 //#include <boost/shared_ptr.hpp>
 //include <boost/weak_ptr.hpp>
 
+#include "exec/exec_node.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -320,9 +321,7 @@ Status MemTracker::MemLimitExceeded(RuntimeState* state, const std::string& deta
     // }
     // ss << tracker_to_log->LogUsage();
     // Status status = Status::MemLimitExceeded(ss.str());
-    Status status = Status::MemoryLimitExceeded("Memory limit exceeded");
-    if (state != nullptr) state->log_error(status.get_error_msg());
-    return status;
+    LIMIT_EXCEEDED(this, state, ss.str());
 }
 
 void MemTracker::AddGcFunction(GcFunction f) {
