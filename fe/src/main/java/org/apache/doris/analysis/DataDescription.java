@@ -74,18 +74,21 @@ public class DataDescription {
             "default_value",
             "md5sum",
             "replace_value",
-            "now", "hll_hash",
+            "now",
+            "hll_hash",
             "substitute");
 
     private final String tableName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
-    // the column name list of data desc
-    private List<String> columns;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
-    private final List<String> columnsFromPath;
     private final boolean isNegative;
+
+    // column names of source files
+    private List<String> fileFieldNames;
+    // column names in the path
+    private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
 
@@ -93,10 +96,8 @@ public class DataDescription {
     private TNetworkAddress beAddr;
     private String lineDelimiter;
 
-    /*
-     * Merged from columns and columnMappingList
-     * ImportColumnDesc: column name to expr or null
-     */
+    // Merged from fileFieldNames, columnsFromPath and columnMappingList
+    // ImportColumnDesc: column name to (expr or null)
     private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
     /*
      * This param only include the hadoop function which need to be checked in the future.
@@ -130,7 +131,7 @@ public class DataDescription {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
-        this.columns = columns;
+        this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
         this.fileFormat = fileFormat;
         this.columnsFromPath = columnsFromPath;
@@ -150,12 +151,11 @@ public class DataDescription {
         return filePaths;
     }
 
-    // only return the column names of SlotRef in columns
-    public List<String> getColumnNames() {
-        if (columns == null || columns.isEmpty()) {
+    public List<String> getFileFieldNames() {
+        if (fileFieldNames == null || fileFieldNames.isEmpty()) {
             return null;
         }
-        return columns;
+        return fileFieldNames;
     }
 
     public String getFileFormat() {
@@ -193,6 +193,7 @@ public class DataDescription {
         this.lineDelimiter = lineDelimiter;
     }
 
+    @Deprecated
     public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
         if (Strings.isNullOrEmpty(functionName) || pair == null) {
             return;
@@ -216,20 +217,20 @@ public class DataDescription {
         return isHadoopLoad;
     }
 
-    /**
+    /*
      * Analyze parsedExprMap and columnToHadoopFunction from columns, columns from path and columnMappingList
      * Example: 
      *      columns (col1, tmp_col2, tmp_col3) 
      *      columns from path as (col4, col5)
      *      set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
-     * Result: 
-     * 
+     *      
+     * Result:
      *      parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null, "col4": null, "col5": null,
      *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}                 
      */
     private void analyzeColumns() throws AnalysisException {
-        if ((columns == null || columns.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
+        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
         }
 
@@ -238,8 +239,8 @@ public class DataDescription {
 
         // merge columns exprs from columns, columns from path and columnMappingList
         // 1. analyze columns
-        if (columns != null && !columns.isEmpty()) {
-            for (String columnName : columns) {
+        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
+            for (String columnName : fileFieldNames) {
                 if (!columnNames.add(columnName)) {
                     throw new AnalysisException("Duplicate column: " + columnName);
                 }
@@ -563,11 +564,11 @@ public class DataDescription {
      * 
      */
     public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
-        if (columns != null && !columns.isEmpty()) {
+        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             return;
         }
 
-        columns = Lists.newArrayList();
+        fileFieldNames = Lists.newArrayList();
 
         Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
@@ -578,10 +579,10 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            columns.add(column.getName());
+            fileFieldNames.add(column.getName());
         }
 
-        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", columns, parsedColumnExprList);
+        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
     }
 
     public String toSql() {
@@ -608,9 +609,9 @@ public class DataDescription {
             sb.append(" COLUMNS FROM PATH AS (");
             Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
-        if (columns != null && !columns.isEmpty()) {
+        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
-            Joiner.on(", ").appendTo(sb, columns).append(")");
+            Joiner.on(", ").appendTo(sb, fileFieldNames).append(")");
         }
         if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");

@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
@@ -40,7 +39,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -308,17 +306,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (properties.containsKey(LoadStmt.TIMEZONE)) {
                 timezone = properties.get(LoadStmt.TIMEZONE);
             }
-        }
-    }
-
-    protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions,
-            EtlJobType jobType) throws DdlException {
-        for (DataDescription dataDescription : dataDescriptions) {
-            // loadInfo is a temporary param for the method of checkAndCreateSource.
-            // <TableId,<PartitionId,<LoadInfoList>>>
-            Map<Long, Map<Long, List<Source>>> loadInfo = Maps.newHashMap();
-            // only support broker load now
-            Load.checkAndCreateSource(db, dataDescription, loadInfo, jobType);
         }
     }
 

@@ -18,19 +18,28 @@
 package org.apache.doris.load;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
@@ -47,6 +56,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -65,6 +75,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
@@ -79,6 +90,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
+import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -484,11 +496,11 @@ public class Load {
             PullLoadSourceInfo sourceInfo = new PullLoadSourceInfo();
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-                fileGroup.parse(db);
+                fileGroup.parse(db, dataDescription);
                 sourceInfo.addFileGroup(fileGroup);
             }
             job.setPullLoadSourceInfo(sourceInfo);
-            LOG.info("Source info is {}", sourceInfo);
+            LOG.info("source info is {}", sourceInfo);
         }
 
         if (etlJobType == EtlJobType.MINI) {
@@ -592,7 +604,7 @@ public class Load {
     }
 
     /*
-     * This is used for both hadoop load and broker load v2
+     * This is only used for hadoop load
      */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
             Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
@@ -642,8 +654,8 @@ public class Load {
             // source columns
             List<String> columnNames = Lists.newArrayList();
             List<String> assignColumnNames = Lists.newArrayList();
-            if (dataDescription.getColumnNames() != null) {
-                assignColumnNames.addAll(dataDescription.getColumnNames());
+            if (dataDescription.getFileFieldNames() != null) {
+                assignColumnNames.addAll(dataDescription.getFileFieldNames());
                 if (dataDescription.getColumnsFromPath() != null) {
                     assignColumnNames.addAll(dataDescription.getColumnsFromPath());
                 }
@@ -719,36 +731,40 @@ public class Load {
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
                 if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                    /*
-                     * There is a case that if user does not specify the related origin column, eg:
-                     * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
-                     * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
-                     * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
-                     */
                     String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
-                    Expr mappingExpr = parsedColumnExprMap.get(originCol);
-                    if (mappingExpr != null) {
-                        /*
-                         * eg:
-                         * (A, C) SET (B = func(xx)) 
-                         * ->
-                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
-                         */
-                        if (columnToHadoopFunction.containsKey(originCol)) {
-                            columnToHadoopFunction.put(column.getName(), columnToHadoopFunction.get(originCol));
+                    if (parsedColumnExprMap.containsKey(originCol)) {
+                        Expr mappingExpr = parsedColumnExprMap.get(originCol);
+                        if (mappingExpr != null) {
+                            /*
+                             * eg:
+                             * (A, C) SET (B = func(xx)) 
+                             * ->
+                             * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                             */
+                            if (columnToHadoopFunction.containsKey(originCol)) {
+                                columnToHadoopFunction.put(column.getName(), columnToHadoopFunction.get(originCol));
+                            }
+                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                            parsedColumnExprList.add(importColumnDesc);
+                        } else {
+                            /*
+                             * eg:
+                             * (A, B, C)
+                             * ->
+                             * (A, B, C) SET (__doris_shadow_B = substitute(B))
+                             */
+                            columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
+                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
+                            parsedColumnExprList.add(importColumnDesc);
                         }
-                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
-                        parsedColumnExprList.add(importColumnDesc);
                     } else {
                         /*
-                         * eg:
-                         * (A, B, C)
-                         * ->
-                         * (A, B, C) SET (__doris_shadow_B = substitute(B))
+                         * There is a case that if user does not specify the related origin column, eg:
+                         * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                         * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                         * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
                          */
-                        columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
-                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
-                        parsedColumnExprList.add(importColumnDesc);
+                        // do nothing
                     }
                     
                 }
@@ -842,6 +858,327 @@ public class Load {
             }
             sources.add(source);
         }
+    }
+
+    /*
+     * This function will do followings:
+     * 1. fill the column exprs if user does not specify any column or column mapping.
+     * 2. For not specified columns, check if they have default value.
+     * 3. Add any shadow columns if have.
+     * 4. validate hadoop functions
+     * 5. init slot descs and expr map for load plan
+     * 
+     * This function should be used for broker load v2 and stream load.
+     * And it must be called in same db lock when planing.
+     */
+    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+            Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
+            Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        // If user does not specify the column expr descs, generate it by using base schema of table.
+        // So that the following process can be unified
+        if (columnExprs == null || columnExprs.isEmpty()) {
+            List<Column> columns = tbl.getBaseSchema();
+            for (Column column : columns) {
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                LOG.debug("add base column {} to stream load task", column.getName());
+                columnExprs.add(columnDesc);
+            }
+        }
+        // generate a map for checking easily
+        Map<String, Expr> columnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+        }
+
+        // check default value
+        for (Column column : tbl.getBaseSchema()) {
+            String columnName = column.getName();
+            if (columnExprMap.containsKey(columnName)) {
+                continue;
+            }
+            if (column.getDefaultValue() != null || column.isAllowNull()) {
+                continue;
+            }
+            throw new DdlException("Column has no default value. column: " + columnName);
+        }
+
+        // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
+        // their names. These columns are invisible to user, but we need to generate data for these columns.
+        // So we add column mappings for these column.
+        // eg1:
+        // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+        // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
+        for (Column column : tbl.getFullSchema()) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                if (columnExprMap.containsKey(originCol)) {
+                    Expr mappingExpr = columnExprMap.get(originCol);
+                    if (mappingExpr != null) {
+                        /*
+                         * eg:
+                         * (A, C) SET (B = func(xx)) 
+                         * ->
+                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                         */
+                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                        columnExprs.add(importColumnDesc);
+                    } else {
+                        /*
+                         * eg:
+                         * (A, B, C)
+                         * ->
+                         * (A, B, C) SET (__doris_shadow_B = B)
+                         */
+                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
+                                new SlotRef(null, originCol));
+                        columnExprs.add(importColumnDesc);
+                    }
+                } else {
+                    /*
+                     * There is a case that if user does not specify the related origin column, eg:
+                     * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                     * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                     * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                     */
+                    // do nothing
+                }
+            }
+        }
+
+        // validate hadoop functions
+        if (columnToHadoopFunction != null) {
+            Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : columnExprs) {
+                if (importColumnDesc.isColumn()) {
+                    columnNameMap.put(importColumnDesc.getColumnName(), importColumnDesc.getColumnName());
+                }
+            }
+            for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
+                String mappingColumnName = entry.getKey();
+                Column mappingColumn = tbl.getColumn(mappingColumnName);
+                if (mappingColumn == null) {
+                    throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+                }
+
+                Pair<String, List<String>> function = entry.getValue();
+                try {
+                    DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
+                            mappingColumn, false);
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+        }
+
+        // init slot desc add expr map, also transform hadoop functions
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            // make column name case match with real column name
+            String columnName = importColumnDesc.getColumnName();
+            String realColName = tbl.getColumn(columnName) == null ? columnName
+                    : tbl.getColumn(columnName).getName();
+            if (importColumnDesc.getExpr() != null) {
+                Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
+                exprsByName.put(realColName, expr);
+            } else {
+                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                slotDesc.setIsMaterialized(true);
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable.
+                slotDesc.setIsNullable(true);
+                params.addToSrc_slot_ids(slotDesc.getId().asInt());
+                slotDescByName.put(realColName, slotDesc);
+            }
+        }
+        LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
+
+        // analyze all exprs
+        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
+            ExprSubstitutionMap smap = new ExprSubstitutionMap();
+            List<SlotRef> slots = Lists.newArrayList();
+            entry.getValue().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
+                if (slotDesc == null) {
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                            + ", reference=" + slot.getColumnName());
+                }
+                smap.getLhs().add(slot);
+                smap.getRhs().add(new SlotRef(slotDesc));
+            }
+            Expr expr = entry.getValue().clone(smap);
+            expr.analyze(analyzer);
+
+            // check if contain aggregation
+            List<FunctionCallExpr> funcs = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, funcs);
+            for (FunctionCallExpr fn : funcs) {
+                if (fn.isAggregateFunction()) {
+                    throw new AnalysisException("Don't support aggregation function in load expression");
+                }
+            }
+            exprsByName.put(entry.getKey(), expr);
+        }
+        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    /**
+     * This method is used to transform hadoop function.
+     * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
+     * It rewrites those function with real function name and param.
+     * For the other function, the expr only go through this function and the origin expr is returned.
+     * 
+     * @param columnName
+     * @param originExpr
+     * @return
+     * @throws UserException
+     */
+    private static Expr transformHadoopFunctionExpr(Table tbl, String columnName, Expr originExpr)
+            throws UserException {
+        Column column = tbl.getColumn(columnName);
+        if (column == null) {
+            // the unknown column will be checked later.
+            return originExpr;
+        }
+
+        // To compatible with older load version
+        if (originExpr instanceof FunctionCallExpr) {
+            FunctionCallExpr funcExpr = (FunctionCallExpr) originExpr;
+            String funcName = funcExpr.getFnName().getFunction();
+
+            if (funcName.equalsIgnoreCase("replace_value")) {
+                List<Expr> exprs = Lists.newArrayList();
+                SlotRef slotRef = new SlotRef(null, columnName);
+                // We will convert this to IF(`col` != child0, `col`, child1),
+                // because we need the if return type equal to `col`, we use NE
+
+                /*
+                 * We will convert this based on different cases:
+                 * case 1: k1 = replace_value(null, anyval);
+                 *     to: k1 = if (k1 is not null, k1, anyval);
+                 * 
+                 * case 2: k1 = replace_value(anyval1, anyval2);
+                 *     to: k1 = if (k1 is not null, if(k1 != anyval1, k1, anyval2), null);
+                 */
+                if (funcExpr.getChild(0) instanceof NullLiteral) {
+                    // case 1
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    exprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        exprs.add(funcExpr.getChild(1));
+                    } else {
+                        if (column.getDefaultValue() != null) {
+                            exprs.add(new StringLiteral(column.getDefaultValue()));
+                        } else {
+                            if (column.isAllowNull()) {
+                                exprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
+                        }
+                    }
+                } else {
+                    // case 2
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    List<Expr> innerIfExprs = Lists.newArrayList();
+                    innerIfExprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
+                    innerIfExprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        innerIfExprs.add(funcExpr.getChild(1));
+                    } else {
+                        if (column.getDefaultValue() != null) {
+                            innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                        } else {
+                            if (column.isAllowNull()) {
+                                innerIfExprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
+                        }
+                    }
+                    FunctionCallExpr innerIfFn = new FunctionCallExpr("if", innerIfExprs);
+                    exprs.add(innerIfFn);
+                    exprs.add(NullLiteral.create(Type.VARCHAR));
+                }
+
+                LOG.debug("replace_value expr: {}", exprs);
+                FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
+                return newFn;
+            } else if (funcName.equalsIgnoreCase("strftime")) {
+                // FROM_UNIXTIME(val)
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                return fromUnixFunc;
+            } else if (funcName.equalsIgnoreCase("time_format")) {
+                // DATE_FORMAT(STR_TO_DATE(dt_str, dt_fmt))
+                FunctionName strToDateName = new FunctionName("STR_TO_DATE");
+                List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
+                FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
+                        strToDateName, new FunctionParams(false, strToDateExprs));
+
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                return dateFormatFunc;
+            } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
+                /*
+                 * change to:
+                 * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(ts), "%Y-01-01 00:00:00"));
+                 * 
+                 */
+
+                // FROM_UNIXTIME
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                // DATE_FORMAT
+                StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
+                StringLiteral format;
+                if (precision.getStringValue().equalsIgnoreCase("year")) {
+                    format = new StringLiteral("%Y-01-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("month")) {
+                    format = new StringLiteral("%Y-%m-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("day")) {
+                    format = new StringLiteral("%Y-%m-%d 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
+                    format = new StringLiteral("%Y-%m-%d %H:00:00");
+                } else {
+                    throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
+                }
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                // UNIX_TIMESTAMP
+                FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
+                List<Expr> unixTimeArgs = Lists.newArrayList();
+                unixTimeArgs.add(dateFormatFunc);
+                FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
+                        unixTimeName, new FunctionParams(false, unixTimeArgs));
+
+                return unixTimeFunc;
+            } else if (funcName.equalsIgnoreCase("default_value")) {
+                return funcExpr.getChild(0);
+            } else if (funcName.equalsIgnoreCase("now")) {
+                FunctionName nowFunctionName = new FunctionName("NOW");
+                FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
+                return newFunc;
+            } else if (funcName.equalsIgnoreCase("substitute")) {
+                return funcExpr.getChild(0);
+            }
+        }
+        return originExpr;
     }
 
     public void unprotectAddLoadJob(LoadJob job, boolean isReplay) throws DdlException {

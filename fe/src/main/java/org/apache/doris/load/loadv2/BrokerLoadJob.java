@@ -126,10 +126,9 @@ public class BrokerLoadJob extends LoadJob {
         // check data source info
         db.readLock();
         try {
-            LoadJob.checkDataSourceInfo(db, dataDescriptions, EtlJobType.BROKER);
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-                fileGroup.parse(db);
+                fileGroup.parse(db, dataDescription);
                 dataSourceInfo.addFileGroup(fileGroup);
             }
         } finally {

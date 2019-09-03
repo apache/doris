@@ -52,7 +52,7 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
 
     // optional
-    private List<ImportColumnDesc> columnExprDescs;
+    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
     private String partitions;

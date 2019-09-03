@@ -17,13 +17,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -33,11 +31,11 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.Load;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanNode;
@@ -50,7 +48,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -122,90 +119,8 @@ public class StreamLoadScanNode extends ScanNode {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         params.setStrict_mode(streamLoadTask.isStrictMode());
 
-        // parse columns header. this contain map from input column to column of destination table
-        // columns: k1, k2, v1, v2=k1 + k2
-        // this means that there are three columns(k1, k2, v1) in source file,
-        // and v2 is derived from (k1 + k2)
-
-        // If user does not specify the column expr descs, generate it by using base schema of table.
-        // So that the following process can be unified
-        if (streamLoadTask.getColumnExprDescs() == null || streamLoadTask.getColumnExprDescs().isEmpty()) {
-            List<Column> columns = dstTable.getBaseSchema();
-            for (Column column : columns) {
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                LOG.debug("add base column {} to stream load task", column.getName());
-                streamLoadTask.addColumnExprDesc(columnDesc);
-            }
-        }
-
-        // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
-        // their names. These columns are visible to user, but we need to generate data for these columns.
-        // So we add column mappings for these column.
-        // eg:
-        // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
-        // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = B);
-        List<Column> fullSchema = dstTable.getFullSchema();
-        for (Column column : fullSchema) {
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                String baseColName = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, baseColName));
-                LOG.debug("add shadow column {} to stream load task, base name: {}", column.getName(), baseColName);
-                streamLoadTask.addColumnExprDesc(columnDesc);
-            }
-        }
-        Preconditions.checkState(streamLoadTask.getColumnExprDescs() != null);
-        Preconditions.checkState(!streamLoadTask.getColumnExprDescs().isEmpty());
-
-        for (ImportColumnDesc importColumnDesc : streamLoadTask.getColumnExprDescs()) {
-            // make column name case match with real column name
-            String columnName = importColumnDesc.getColumnName();
-            String realColName = dstTable.getColumn(columnName) == null ? columnName
-                    : dstTable.getColumn(columnName).getName();
-            if (importColumnDesc.getExpr() != null) {
-                exprsByName.put(realColName, importColumnDesc.getExpr());
-            } else {
-                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setIsMaterialized(true);
-                // ISSUE A: src slot should be nullable even if the column is not nullable.
-                // because src slot is what we read from file, not represent to real column value.
-                // If column is not nullable, error will be thrown when filling the dest slot,
-                // which is not nullable.
-                slotDesc.setIsNullable(true);
-                params.addToSrc_slot_ids(slotDesc.getId().asInt());
-                slotDescByName.put(realColName, slotDesc);
-            }
-        }
-
-        LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
-
-        // analyze all exprs
-        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
-            ExprSubstitutionMap smap = new ExprSubstitutionMap();
-            List<SlotRef> slots = Lists.newArrayList();
-            entry.getValue().collect(SlotRef.class, slots);
-            for (SlotRef slot : slots) {
-                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
-                if (slotDesc == null) {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
-                }
-                smap.getLhs().add(slot);
-                smap.getRhs().add(new SlotRef(slotDesc));
-            }
-            Expr expr = entry.getValue().clone(smap);
-            expr.analyze(analyzer);
-
-            // check if contain aggregation
-            List<FunctionCallExpr> funcs = Lists.newArrayList();
-            expr.collect(FunctionCallExpr.class, funcs);
-            for (FunctionCallExpr fn : funcs) {
-                if (fn.isAggregateFunction()) {
-                    throw new AnalysisException("Don't support aggregation function in load expression");
-                }
-            }
-            exprsByName.put(entry.getKey(), expr);
-        }
+        Load.initColumns(dstTable, streamLoadTask.getColumnExprDescs(), null /* no hadoop function */,
+                exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
         if (streamLoadTask.getWhereExpr() != null) {
