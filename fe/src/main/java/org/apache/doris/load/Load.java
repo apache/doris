@@ -871,13 +871,13 @@ public class Load {
      * This function should be used for broker load v2 and stream load.
      * And it must be called in same db lock when planing.
      */
-    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+    public static void initColumns(Table tbl, boolean specifyFileFieldNames, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction,
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
-        // If user does not specify the column expr descs, generate it by using base schema of table.
+        // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
-        if (columnExprs == null || columnExprs.isEmpty()) {
+        if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema();
             for (Column column : columns) {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());

@@ -119,8 +119,9 @@ public class StreamLoadScanNode extends ScanNode {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         params.setStrict_mode(streamLoadTask.isStrictMode());
 
-        Load.initColumns(dstTable, streamLoadTask.getColumnExprDescs(), null /* no hadoop function */,
-                exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
+        boolean specifyFileFieldNames = streamLoadTask.getColumnExprDescs().stream().anyMatch(p -> p.isColumn());
+        Load.initColumns(dstTable, specifyFileFieldNames, streamLoadTask.getColumnExprDescs(),
+                null /* no hadoop function */, exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
         if (streamLoadTask.getWhereExpr() != null) {
