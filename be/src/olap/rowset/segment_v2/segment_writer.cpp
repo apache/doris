@@ -40,11 +40,7 @@ SegmentWriter::SegmentWriter(std::string fname, uint32_t segment_id,
         _opts(opts) {
 }
 
-SegmentWriter::~SegmentWriter() {
-    for (auto writer : _column_writers) {
-        delete writer;
-    }
-}
+SegmentWriter::~SegmentWriter() = default;
 
 Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     // create for write
@@ -71,7 +67,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         }
         std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, type_info, is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
-        _column_writers.push_back(writer.release());
+        _column_writers.push_back(std::move(writer));
     }
     _index_builder.reset(new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
     return Status::OK();
@@ -88,7 +84,6 @@ Status SegmentWriter::append_row(const RowType& row) {
         std::string encoded_key;
         encode_key(&encoded_key, row, _tablet_schema->num_short_key_columns());
         RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
-        _block_count++;
     }
     _row_count++;
     return Status::OK();
@@ -102,7 +97,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
 }
 
 Status SegmentWriter::finalize(uint32_t* segment_file_size) {
-    for (auto column_writer : _column_writers) {
+    for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_raw_data({k_segment_magic}));
@@ -116,7 +111,7 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
 
 // write column data to file one by one
 Status SegmentWriter::_write_data() {
-    for (auto column_writer : _column_writers) {
+    for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
     }
     return Status::OK();
@@ -124,14 +119,14 @@ Status SegmentWriter::_write_data() {
 
 // write ordinal index after data has been written
 Status SegmentWriter::_write_ordinal_index() {
-    for (auto column_writer : _column_writers) {
+    for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
     return Status::OK();
 }
 
 Status SegmentWriter::_write_zone_map() {
-    for (auto column_writer : _column_writers) {
+    for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_zone_map());
     }
     return Status::OK();

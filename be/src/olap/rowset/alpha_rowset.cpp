@@ -17,6 +17,7 @@
 
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/row.h"
 #include "util/hash_util.hpp"
@@ -41,6 +42,7 @@ OLAPStatus AlphaRowset::init() {
 
 OLAPStatus AlphaRowset::load(bool use_cache) {
     // load is depend on init, so that check if init here and do init if not
+    // TODO remove the following if block when rowset is guaranteed to be initialized
     if (!is_inited()) {
         OLAPStatus res = init();
         if (res != OLAP_SUCCESS) {
@@ -73,17 +75,16 @@ OLAPStatus AlphaRowset::load(bool use_cache) {
     return OLAP_SUCCESS;
 }
 
-std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
+OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
     if (!is_loaded()) {
         OLAPStatus status = load();
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "alpha rowset load failed. rowset path:" << _rowset_path;
-            return nullptr;
+            return OLAP_ERR_ROWSET_CREATE_READER;
         }
-        set_loaded(true);
     }
-    return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_rows_per_row_block(), shared_from_this()));
+    result->reset(new AlphaRowsetReader(
+        _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {

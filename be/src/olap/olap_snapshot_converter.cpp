@@ -18,6 +18,7 @@
 #include "olap/olap_snapshot_converter.h"
 
 #include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_id_generator.h"
 
 namespace doris {
