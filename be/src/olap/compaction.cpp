@@ -106,12 +106,9 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
-        RowsetReaderSharedPtr rs_reader(rowset->create_reader());
-        if (rs_reader == nullptr) {
-            LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
-            return OLAP_ERR_ROWSET_CREATE_READER;
-        }
-        _input_rs_readers.push_back(rs_reader);
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
 }

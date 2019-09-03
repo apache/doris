@@ -38,7 +38,6 @@ RowCursor::~RowCursor() {
 OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
                             const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
-    _fixed_len = _schema->schema_size();
     _variable_len = 0;
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
