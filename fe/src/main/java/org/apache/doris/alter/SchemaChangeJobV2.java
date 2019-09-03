@@ -470,12 +470,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 // in catalog.
                 MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
                 Preconditions.checkNotNull(shadowIdx, shadowIdxId);
-                MaterializedIndex droppedIdx = partition.deleteRollupIndex(originIdxId);
-
-                // delete origin replicas
-                for (Tablet originTablet : droppedIdx.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
+                MaterializedIndex droppedIdx = null;
+                if (originIdxId == partition.getBaseIndex().getId()) {
+                    droppedIdx = partition.getBaseIndex();
+                } else {
+                    droppedIdx = partition.deleteRollupIndex(originIdxId);
                 }
+                Preconditions.checkNotNull(droppedIdx, originIdxId + " vs. " + shadowIdxId);
 
                 // set replica state
                 for (Tablet tablet : shadowIdx.getTablets()) {
@@ -485,6 +486,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
 
                 partition.visualiseShadowIndex(shadowIdxId, originIdxId == partition.getBaseIndex().getId());
+
+                // delete origin replicas
+                for (Tablet originTablet : droppedIdx.getTablets()) {
+                    Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
+                }
             }
         }
 

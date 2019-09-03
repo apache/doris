@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJob.JobState;
-import org.apache.doris.alter.RollupJob;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
@@ -600,11 +598,7 @@ public class OlapTable extends Table {
     // it is used for stream load
     // the caller should get db lock when call this method
     public boolean shouldLoadToNewRollup() {
-        RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(id);
-        if (rollupJob != null && rollupJob.getState() == JobState.FINISHING) {
-            return false;
-        }
-        return true;
+        return false;
     }
 
     public TTableDescriptor toThrift() {
