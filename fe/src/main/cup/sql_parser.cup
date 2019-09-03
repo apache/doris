@@ -3055,6 +3055,10 @@ opt_plan_hints ::=
         }
         RESULT = hints;
     :}
+    | COMMENTED_PLAN_HINT_START ident_list:l COMMENTED_PLAN_HINT_END
+    {:
+        RESULT = l;
+    :}
     | LBRACKET ident_list:l RBRACKET
     {:
         RESULT = l;
