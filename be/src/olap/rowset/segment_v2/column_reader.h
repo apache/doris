@@ -29,7 +29,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
-#include "olap/rowset/segment_v2/bloom_filter_page.h" // for RowRanges
+#include "olap/rowset/segment_v2/bloom_filter_page.h" // for BloomFilterPage
 
 namespace doris {
 

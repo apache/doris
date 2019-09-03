@@ -23,7 +23,6 @@
 #include <string>
 #include <sstream>
 
-#include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/hash_util.hpp"
 
@@ -146,7 +145,6 @@ private:
 class BloomFilter {
 public:
     BloomFilter() : _bit_num(0), _hash_function_num(0) {}
-
     ~BloomFilter() {}
 
     // Create BloomFilter with given entry num and fpp, which is used for loading data

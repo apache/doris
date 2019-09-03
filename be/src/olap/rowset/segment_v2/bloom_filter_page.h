@@ -24,7 +24,6 @@
 #include "util/slice.h"
 #include "olap/bloom_filter.hpp"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/index_page_builder.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 
 namespace doris {
@@ -36,7 +35,7 @@ namespace segment_v2 {
 // the format is as following:
 //      BloomFilter of blocks
 //      BloomFilterPageFooterPB
-class BloomFilterPageBuilder : public IndexPageBuilder {
+class BloomFilterPageBuilder {
 public:
     BloomFilterPageBuilder(const TypeInfo* type_info, size_t bloom_filter_block_size, double fp_rate)
             : _type_info(type_info), _block_size(bloom_filter_block_size), _num_inserted(0) {

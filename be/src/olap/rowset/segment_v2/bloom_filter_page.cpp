@@ -16,7 +16,9 @@
 // under the License.
 
 #include "olap/rowset/segment_v2/bloom_filter_page.h"
+
 #include "util/debug_util.h"
+#include "gen_cpp/segment_v2.pb.h"
 
 namespace doris {
 namespace segment_v2 {

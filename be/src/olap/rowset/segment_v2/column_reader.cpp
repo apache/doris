@@ -274,7 +274,6 @@ Status ColumnReader::_init_column_bloom_filter_page() {
     return Status::OK();
 }
 
-
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {

@@ -118,7 +118,7 @@ Status ColumnWriter::init() {
         _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_type_info));
     }
 
-	if (_opts.is_bf_column) {
+    if (_opts.is_bf_column) {
         _bloom_filter_page_builder.reset(new BloomFilterPageBuilder(_type_info,
                 _opts.bloom_filter_block_size, _opts.fpp));
     }
@@ -131,7 +131,7 @@ Status ColumnWriter::append_nulls(size_t num_rows) {
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
     }
-	if (_opts.is_bf_column) {
+    if (_opts.is_bf_column) {
         _bloom_filter_page_builder->add(nullptr, num_rows);
     }
     return Status::OK();
@@ -152,7 +152,7 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         if (_opts.need_zone_map) {
             RETURN_IF_ERROR(_column_zone_map_builder->add(*ptr, num_written));
         }
-		if (_opts.is_bf_column) {
+        if (_opts.is_bf_column) {
             RETURN_IF_ERROR(_bloom_filter_page_builder->add(*ptr, num_written));
         }
 
@@ -186,7 +186,7 @@ Status ColumnWriter::append_nullable(
             if (_opts.need_zone_map) {
                 RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
             }
-			if (_opts.is_bf_column) {
+            if (_opts.is_bf_column) {
                 _bloom_filter_page_builder->add(nullptr, this_run);
 			}
         } else {
