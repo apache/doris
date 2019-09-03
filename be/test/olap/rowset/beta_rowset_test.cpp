@@ -102,7 +102,9 @@ protected:
 
     void create_rowset_writer_context(TabletSchema* tablet_schema,
                                       RowsetWriterContext* rowset_writer_context) {
-        rowset_writer_context->rowset_id = 10000;
+        RowsetId rowset_id;
+        rowset_id.init(10000);
+        rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->tablet_id = 12345;
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
