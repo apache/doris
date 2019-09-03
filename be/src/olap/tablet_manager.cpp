@@ -370,9 +370,13 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 break;
             }
         } else {
-            // add alter task to new tablet if it is a new tablet during schema change
-            tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
-                vector<Version>(), alter_type);
+            if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
+                LOG(INFO) << "this request is for alter tablet request v2, so that not add alter task to tablet";
+            } else {
+                // add alter task to new tablet if it is a new tablet during schema change
+                tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
+                    vector<Version>(), alter_type);
+            }
             // 有可能出现以下2种特殊情况：
             // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
             // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
@@ -755,6 +759,10 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                         // it means cur tablet is a new tablet during schema change or rollup, skip compaction
                         continue;
                     }
+            }
+            // if tablet is not ready, it maybe a new tablet under schema change, not do compaction
+            if (table_ptr->tablet_state() == TABLET_NOTREADY) {
+                continue;
             }
 
             if (table_ptr->data_dir()->path_hash() != data_dir->path_hash()
