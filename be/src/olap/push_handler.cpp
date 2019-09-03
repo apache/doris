@@ -264,8 +264,6 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
     uint32_t num_rows = 0;
-    RowsetId rowset_id;
-    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
@@ -320,7 +318,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         // 2. init RowsetBuilder of cur_tablet for current push
         VLOG(3) << "init RowsetBuilder.";
         RowsetWriterContext context;
-        context.rowset_id = rowset_id;
+        context.rowset_id = StorageEngine::instance()->next_rowset_id();
         context.tablet_uid = cur_tablet->tablet_uid();
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;

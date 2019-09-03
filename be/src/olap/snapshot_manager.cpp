@@ -160,8 +160,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-        RowsetId rowset_id;
-        RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
+        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
         RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
@@ -178,8 +177,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
             continue;
         }
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
-        RowsetId rowset_id;
-        RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
+        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
         RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);

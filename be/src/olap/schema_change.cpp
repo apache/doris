@@ -1071,14 +1071,8 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     uint64_t merged_rows = 0;
     RowBlockMerger merger(new_tablet);
 
-    RowsetId rowset_id;
-    OLAPStatus status = StorageEngine::instance()->next_rowset_id(&rowset_id);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "get next rowset id failed";
-        return false;
-    }
     RowsetWriterContext context;
-    context.rowset_id = rowset_id;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = new_tablet->tablet_uid();
     context.tablet_id = new_tablet->tablet_id();
     context.partition_id = new_tablet->partition_id();
@@ -1094,8 +1088,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
             << ", block_row_size=" << new_tablet->num_rows_per_row_block();
 
     std::unique_ptr<RowsetWriter> rowset_writer;
-    status = RowsetFactory::create_rowset_writer(context, &rowset_writer);
-    if (status != OLAP_SUCCESS) {
+    if (RowsetFactory::create_rowset_writer(context, &rowset_writer) != OLAP_SUCCESS) {
         return false;
     }
 
@@ -1667,10 +1660,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     rowset_reader->init(&_reader_context);
 
-    RowsetId rowset_id;
-    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = rowset_id;
+    writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
     writer_context.tablet_uid = new_tablet->tablet_uid();
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
@@ -1892,16 +1883,10 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        RowsetId rowset_id;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-        res = StorageEngine::instance()->next_rowset_id(&rowset_id);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "generate next id failed";
-            goto PROCESS_ALTER_EXIT;
-        }
 
         RowsetWriterContext writer_context;
-        writer_context.rowset_id = rowset_id;
+        writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
         writer_context.tablet_uid = new_tablet->tablet_uid();
         writer_context.tablet_id = new_tablet->tablet_id();
         writer_context.partition_id = new_tablet->partition_id();

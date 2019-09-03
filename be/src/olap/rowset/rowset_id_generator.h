@@ -26,17 +26,16 @@ namespace doris {
 
 class OlapMeta;
 
+// all implementations must be thread-safe
 class RowsetIdGenerator {
 public:    
     RowsetIdGenerator() {}
     virtual ~RowsetIdGenerator() {}
 
-    // generator a id according to data dir
-    // rowsetid is not globally unique, it is dir level
-    // it saves the batch end id into meta env
-    virtual OLAPStatus next_id(RowsetId* rowset_id) = 0;
+    // generate and return the next global unique rowset id
+    virtual RowsetId next_id() = 0;
 
-    // check whether the rowset id is userful or validate
+    // check whether the rowset id is useful or validate
     // for example, during gc logic, gc thread finds a file
     // and it could not find it under rowset list. but it maybe in use
     // during load procedure. Gc thread will check it using this method.

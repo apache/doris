@@ -84,10 +84,8 @@ OLAPStatus Compaction::do_compaction() {
 }
 
 OLAPStatus Compaction::construct_output_rowset_writer() {
-    RowsetId rowset_id;
-    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     RowsetWriterContext context;
-    context.rowset_id = rowset_id;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = _tablet->tablet_uid();
     context.tablet_id = _tablet->tablet_id();
     context.partition_id = _tablet->partition_id();
