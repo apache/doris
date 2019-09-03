@@ -277,7 +277,7 @@ public class ExportMgr {
         }
     }
 
-    public Integer getJobNum(ExportJob.JobState state, long dbId) {
+    public long getJobNum(ExportJob.JobState state, long dbId) {
         int size = 0;
         readLock();
         try {

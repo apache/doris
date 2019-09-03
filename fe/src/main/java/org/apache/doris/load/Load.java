@@ -1723,7 +1723,7 @@ public class Load {
         return jobs;
     }
 
-    public int getLoadJobNum(JobState jobState, long dbId) {
+    public long getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
             List<LoadJob> loadJobs = this.dbToLoadJobs.get(dbId);
@@ -3399,7 +3399,7 @@ public class Load {
         return infos;
     }
 
-    public int getDeleteJobNumByState(long dbId, JobState state) {
+    public long getDeleteJobNumByState(long dbId, JobState state) {
         readLock();
         try {
             List<LoadJob> deleteJobs = dbToDeleteJobs.get(dbId);
