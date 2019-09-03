@@ -93,7 +93,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
         row_idx++;
         _rows_returned++;
     }
-    block->resize(row_idx);
+    block->set_num_rows(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     }
@@ -114,7 +114,7 @@ class MergeContext {
 public:
     // This class don't take iter's ownership, client should delete it
     MergeContext(RowwiseIterator* iter)
-        : _iter(iter), _block(iter->schema(), 1024, &_arena) {
+        : _iter(iter), _block(iter->schema(), 1024) {
     }
 
     // Intialize this context and will prepare data for current_row()
@@ -144,7 +144,6 @@ private:
 
 private:
     RowwiseIterator* _iter;
-    Arena _arena;
     // used to store data load from iterator
     RowBlockV2 _block;
 
@@ -176,6 +175,7 @@ Status MergeContext::advance() {
 Status MergeContext::_load_next_block() {
     Status st;
     do {
+        _block.clear();
         st = _iter->next_batch(&_block);
         if (!st.ok()) {
             _valid = false;
@@ -191,23 +191,9 @@ Status MergeContext::_load_next_block() {
     return Status::OK();
 }
 
-struct MergeContextComaprator {
-    MergeContextComaprator(Schema* schema) : _schema(schema) { }
-    bool operator()(const MergeContext* lhs, const MergeContext* rhs) const {
-        auto lhs_row = lhs->current_row();
-        auto rhs_row = rhs->current_row();
-
-        return compare_row(lhs_row, rhs_row) > 0;
-    }
-private:
-    Schema* _schema;
-};
-
 class MergeIterator : public RowwiseIterator {
 public:
-    // Iterators' ownership it transfered to this class.
-    // This class will delete all iterators when destructs
-    // Client should not use iterators any more.
+    // MergeIterator takes the ownership of input iterators
     MergeIterator(std::vector<RowwiseIterator*> iters)
         : _origin_iters(std::move(iters)) {
     }
@@ -231,7 +217,16 @@ private:
     std::vector<MergeContext*> _merge_ctxs;
 
     std::unique_ptr<Schema> _schema;
-    using MergeHeap = std::priority_queue<MergeContext*, std::vector<MergeContext*>, MergeContextComaprator>;
+
+    struct MergeContextComparator {
+        bool operator()(const MergeContext* lhs, const MergeContext* rhs) const {
+            auto lhs_row = lhs->current_row();
+            auto rhs_row = rhs->current_row();
+
+            return compare_row(lhs_row, rhs_row) > 0;
+        }
+    };
+    using MergeHeap = std::priority_queue<MergeContext*, std::vector<MergeContext*>, MergeContextComparator>;
     std::unique_ptr<MergeHeap> _merge_heap;
 };
 
@@ -240,7 +235,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
         return Status::OK();
     }
     _schema.reset(new Schema(_origin_iters[0]->schema()));
-    _merge_heap.reset(new MergeHeap(MergeContextComaprator(_schema.get())));
+    _merge_heap.reset(new MergeHeap);
 
     for (auto iter : _origin_iters) {
         std::unique_ptr<MergeContext> ctx(new MergeContext(iter));
@@ -269,7 +264,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
             _merge_heap->push(ctx);
         }
     }
-    block->resize(row_idx);
+    block->set_num_rows(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     } else {

@@ -26,60 +26,46 @@
 using strings::Substitute;
 namespace doris {
 
-RowBlockV2::RowBlockV2(const Schema& schema,
-                       uint16_t capacity, Arena* arena)
-        : _schema(schema),
-        _column_datas(_schema.num_columns(), nullptr),
-        _column_null_bitmaps(_schema.num_columns(), nullptr),
-        _capacity(capacity),
-        _num_rows(0),
-        _arena(arena) {
+RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
+    : _schema(schema),
+      _capacity(capacity),
+      _column_datas(_schema.num_columns(), nullptr),
+      _column_null_bitmaps(_schema.num_columns(), nullptr) {
     auto bitmap_size = BitmapSize(capacity);
-    int i = 0;
-    for (auto& col_schema : _schema.columns()) {
-        size_t data_size = col_schema->type_info()->size() * _capacity;
-        _column_datas[i] = new uint8_t[data_size];
+    for (auto cid : _schema.column_ids()) {
+        size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;
+        _column_datas[cid] = new uint8_t[data_size];
 
-        uint8_t* null_bitmap = nullptr;
-        if (col_schema->is_nullable()) {
-            null_bitmap = new uint8_t[bitmap_size];
+        if (_schema.column(cid)->is_nullable()) {
+            _column_null_bitmaps[cid] = new uint8_t[bitmap_size];;
         }
-        _column_null_bitmaps[i] = null_bitmap;
-
-        i++;
     }
+    clear();
 }
 
 RowBlockV2::~RowBlockV2() {
     for (auto data : _column_datas) {
-        delete data;
+        delete[] data;
     }
     for (auto null_bitmap : _column_null_bitmaps) {
-        delete null_bitmap;
+        delete[] null_bitmap;
     }
 }
 
 Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
     if (row_idx >= _num_rows) {
         return Status::InvalidArgument(
-            Substitute("Row index is large than number rows, $0 vs $1", row_idx, _num_rows));
+            Substitute("invalid row index $0 (num_rows=$1)", row_idx, _num_rows));
     }
-#if 0
-    for (int i = 0; i < _column_ids.size(); ++i) {
-        auto cid = _column_ids[i];
-        bool is_null = _column_schemas[cid].field_info().is_allow_null
-            && BitmapTest(_column_null_bitmaps[i], row_idx);
+    for (auto cid : _schema.column_ids()) {
+        bool is_null = _schema.column(cid)->is_nullable() && BitmapTest(_column_null_bitmaps[cid], row_idx);
         if (is_null) {
             cursor->set_null(cid);
         } else {
-            const TypeInfo* type_info = _column_schemas[cid].type_info();
             cursor->set_not_null(cid);
-            char* dest = cursor->get_field_content_ptr(cid);
-            char* src = (char*)_column_datas[i] + row_idx * type_info->size();
-            type_info->direct_copy(dest, src);
+            cursor->set_field_content_shallow(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
         }
     }
-#endif
     return Status::OK();
 }
 

@@ -237,11 +237,9 @@ Status convert_to_arrow_batch(const RowBlockV2& block,
 class ToRowBlockConverter : public arrow::ArrayVisitor {
 public:
     ToRowBlockConverter(const arrow::RecordBatch& batch,
-                        const Schema& schema,
-                        Arena* arena)
+                        const Schema& schema)
         : _batch(batch),
-        _schema(schema),
-        _arena(arena) { }
+        _schema(schema) { }
 
     ~ToRowBlockConverter() override { }
 
@@ -285,7 +283,6 @@ private:
 private:
     const arrow::RecordBatch& _batch;
     const Schema& _schema;
-    Arena* _arena;
 
     size_t _cur_field_idx;
 
@@ -299,7 +296,7 @@ Status ToRowBlockConverter::convert(std::shared_ptr<RowBlockV2>* result) {
     }
 
     auto num_rows = _batch.num_rows();
-    _output.reset(new RowBlockV2(_schema, num_rows, _arena));
+    _output.reset(new RowBlockV2(_schema, num_rows));
     for (int idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
         auto arrow_st = arrow::VisitArrayInline(*_batch.column(idx), this);
@@ -307,16 +304,15 @@ Status ToRowBlockConverter::convert(std::shared_ptr<RowBlockV2>* result) {
             return to_status(arrow_st);
         }
     }
-    _output->resize(num_rows);
+    _output->set_num_rows(num_rows);
     *result = std::move(_output);
     return Status::OK();
 }
 
 Status convert_to_row_block(const arrow::RecordBatch& batch,
                             const Schema& schema,
-                            Arena* arena,
                             std::shared_ptr<RowBlockV2>* result) {
-    ToRowBlockConverter converter(batch, schema, arena);
+    ToRowBlockConverter converter(batch, schema);
     return converter.convert(result);
 }
 

@@ -20,8 +20,6 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_group.h"
-#include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/data_dir.h"
 #include "olap/tuple.h"
@@ -33,6 +31,8 @@ namespace doris {
 
 class AlphaRowset;
 using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
+class AlphaRowsetWriter;
+class AlphaRowsetReader;
 
 class AlphaRowset : public Rowset {
 public:
@@ -51,7 +51,7 @@ public:
     // always means that there are some io
     OLAPStatus load(bool use_cache = true) override;
 
-    std::shared_ptr<RowsetReader> create_reader() override;
+    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
     OLAPStatus remove() override;
 

@@ -21,6 +21,7 @@
 #include <stdio.h>  // for remove()
 #include <unistd.h> // for link()
 #include "gutil/strings/substitute.h"
+#include "olap/rowset/beta_rowset_reader.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -40,19 +41,50 @@ OLAPStatus BetaRowset::init() {
     if (is_inited()) {
         return OLAP_SUCCESS;
     }
-    // TODO init segment readers
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
+        _segments.emplace_back(new segment_v2::Segment(seg_path, seg_id, _schema));
+    }
     set_inited(true);
     return OLAP_SUCCESS;
 }
 
+// `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::load(bool use_cache) {
-    // TODO load segment footers
+    // DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
+    // TODO remove the following if block when rowset is guaranteed to be initialized
+    if (!is_inited()) {
+        OLAPStatus res = init();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to init rowset before load"
+                         << " rowset id " << rowset_id();
+            return res;
+        }
+    }
+    if (is_loaded()) {
+        return OLAP_SUCCESS;
+    }
+    for (auto& seg : _segments) {
+        auto s = seg->open();
+        if (!s.ok()) {
+            LOG(WARNING) << "failed to open segment " << seg->id() << " under rowset " << unique_id()
+                         << " : " << s.to_string();
+            return OLAP_ERR_ROWSET_LOAD_FAILED;
+        }
+    }
+    set_loaded(true);
     return OLAP_SUCCESS;
 }
 
-std::shared_ptr<RowsetReader> BetaRowset::create_reader() {
-    // TODO return BetaRowsetReader or RowwiseIterator?
-    return nullptr;
+OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
+    if (!is_loaded()) {
+        OLAPStatus status = load();
+        if (status != OLAP_SUCCESS) {
+            return OLAP_ERR_ROWSET_CREATE_READER;
+        }
+    }
+    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus BetaRowset::remove() {

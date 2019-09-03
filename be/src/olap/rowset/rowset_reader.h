@@ -32,14 +32,16 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
-    static RowsetReader* create();
-    
     virtual ~RowsetReader() { }
 
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context) = 0;
 
-    // read next block data
+    // read next block data into *block.
+    // Returns
+    //      OLAP_SUCCESS when read successfully.
+    //      OLAP_ERR_DATA_EOF and set *block to null when there is no more block.
+    //      Others when error happens.
     virtual OLAPStatus next_block(RowBlock** block) = 0;
 
     virtual bool delete_flag() = 0;
@@ -49,9 +51,6 @@ public:
     virtual VersionHash version_hash() = 0;
 
     virtual RowsetSharedPtr rowset() = 0;
-
-    // close reader
-    virtual void close() = 0;
 
     virtual int64_t filtered_rows() = 0;
 };

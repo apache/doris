@@ -31,7 +31,6 @@
 #include <arrow/record_batch.h>
 
 #include "olap/tablet_schema_helper.h"
-#include "util/arena.h"
 #include "olap/schema.h"
 #include "olap/row_block2.h"
 
@@ -70,9 +69,8 @@ TEST_F(ArrowRowBlockTest, Normal) {
     auto doris_st = convert_to_doris_schema(*record_batch->schema(), &schema);
     ASSERT_TRUE(doris_st.ok());
 
-    Arena arena;
     std::shared_ptr<RowBlockV2> row_block;
-    doris_st = convert_to_row_block(*record_batch, *schema, &arena, &row_block);
+    doris_st = convert_to_row_block(*record_batch, *schema, &row_block);
     ASSERT_TRUE(doris_st.ok());
 
     {

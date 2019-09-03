@@ -232,8 +232,9 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     rowset_id.init(10000);
     ASSERT_EQ(rowset_id, alpha_rowset->rowset_id());
     ASSERT_EQ(1, alpha_rowset->num_rows());
-    RowsetReaderSharedPtr rowset_reader = alpha_rowset->create_reader();
-    ASSERT_TRUE(rowset_reader != nullptr);
+    RowsetReaderSharedPtr rowset_reader;
+    res = alpha_rowset->create_reader(&rowset_reader);
+    ASSERT_EQ(OLAP_SUCCESS, res);
     std::vector<uint32_t> return_columns;
     for (int i = 0;  i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);

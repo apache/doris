@@ -36,26 +36,38 @@ class RowCursor;
 // in block, however it is used by old code, which we don't want to change.
 class RowBlockV2 {
 public:
-    RowBlockV2(const Schema& schema, uint16_t capacity, Arena* arena);
+    RowBlockV2(const Schema& schema, uint16_t capacity);
     ~RowBlockV2();
 
-    void resize(size_t num_rows) { _num_rows = num_rows; }
+    // update number of rows contained in this block
+    void set_num_rows(size_t num_rows) { _num_rows = num_rows; }
+    // return number of rows contained in this block
     size_t num_rows() const { return _num_rows; }
+    // return the maximum number of rows that can be contained in this block.
+    // invariant: 0 <= num_rows() <= capacity()
     size_t capacity() const { return _capacity; }
-    Arena* arena() const { return _arena; }
+    Arena* arena() const { return _arena.get(); }
+
+    // reset the state of the block so that it can be reused for write.
+    // all previously returned ColumnBlocks are invalidated after clear(), accessing them
+    // will result in undefined behavior.
+    void clear() {
+        _num_rows = 0;
+        _arena.reset(new Arena);
+    }
 
     // Copy the row_idx row's data into given row_cursor.
     // This function will use shallow copy, so the client should
     // notice the life time of returned value
     Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
 
-    // Get column block for input column index. This input is the index in
-    // this row block, is not the index in table's schema
-    ColumnBlock column_block(size_t col_idx) const {
-        const TypeInfo* type_info = _schema.column(col_idx)->type_info();
-        uint8_t* data = _column_datas[col_idx];
-        uint8_t* null_bitmap = _column_null_bitmaps[col_idx];
-        return ColumnBlock(type_info, data, null_bitmap, _arena);
+    // Get the column block for one of the columns in this row block.
+    // `cid` must be one of `schema()->column_ids()`.
+    ColumnBlock column_block(ColumnId cid) const {
+        const TypeInfo* type_info = _schema.column(cid)->type_info();
+        uint8_t* data = _column_datas[cid];
+        uint8_t* null_bitmap = _column_null_bitmaps[cid];
+        return ColumnBlock(type_info, data, null_bitmap, _arena.get());
     }
 
     RowBlockRow row(size_t row_idx) const;
@@ -64,11 +76,18 @@ public:
 
 private:
     Schema _schema;
-    std::vector<uint8_t*> _column_datas;
-    std::vector<uint8_t*> _column_null_bitmaps;
     size_t _capacity;
+    // keeps fixed-size (field_size x capacity) data vector for each column,
+    // _column_datas[cid] == null if cid is not in `_schema`.
+    // memory are not allocated from `_arena` because we don't wan't to reallocate them in clear()
+    std::vector<uint8_t*> _column_datas;
+    // keeps null bitmap for each column,
+    // _column_null_bitmaps[cid] == null if cid is not in `_schema` or the column is not null.
+    // memory are not allocated from `_arena` because we don't wan't to reallocate them in clear()
+    std::vector<uint8_t*> _column_null_bitmaps;
     size_t _num_rows;
-    Arena* _arena;
+    // manages the memory for slice's data
+    std::unique_ptr<Arena> _arena;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference
