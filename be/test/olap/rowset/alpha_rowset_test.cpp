@@ -25,6 +25,7 @@
 #include "json2pb/json_to_pb.h"
 #include "util/logging.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/alpha_rowset.h"
