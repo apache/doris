@@ -188,7 +188,7 @@ Status ColumnWriter::append_nullable(
             }
             if (_opts.is_bf_column) {
                 _bloom_filter_page_builder->add(nullptr, this_run);
-			}
+            }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
         }
