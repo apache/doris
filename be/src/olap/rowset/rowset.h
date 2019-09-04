@@ -32,6 +32,9 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetReader;
 class TabletSchema;
 
+// TODO(gaodayue) change to BETA_ROWSET when we're going to release segment v2
+const RowsetTypePB DEFAULT_ROWSET_TYPE = ALPHA_ROWSET;
+
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
     // TODO don't make this public, all clients should use RowsetFactory to obtain initialized RowsetSharedPtr

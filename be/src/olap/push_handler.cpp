@@ -23,7 +23,7 @@
 
 #include <boost/filesystem.hpp>
 
-#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -263,15 +263,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    if (rowset_writer == nullptr) {
-        LOG(WARNING) << "new rowset writer failed.";
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    RowsetWriterContext context;
     uint32_t num_rows = 0;
-    RowsetId rowset_id;
-    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
@@ -326,19 +318,27 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         // 2. init RowsetBuilder of cur_tablet for current push
         VLOG(3) << "init RowsetBuilder.";
         RowsetWriterContext context;
-        context.rowset_id = rowset_id;
+        context.rowset_id = StorageEngine::instance()->next_rowset_id();
         context.tablet_uid = cur_tablet->tablet_uid();
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.rowset_type = ALPHA_ROWSET;
+        context.rowset_type = DEFAULT_ROWSET_TYPE;
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.data_dir = cur_tablet->data_dir();
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
-        rowset_writer->init(context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
+        if (OLAP_SUCCESS != res) {
+            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
+                         << ", txn_id=" << _request.transaction_id
+                         << ", res=" << res;
+            break;
+        }
 
         // 3. New RowsetBuilder to write data into rowset
         VLOG(3) << "init rowset builder. tablet=" << cur_tablet->full_name()

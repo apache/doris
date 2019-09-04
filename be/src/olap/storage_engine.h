@@ -197,7 +197,7 @@ public:
     // TODO(ygl)
     TabletSyncService* tablet_sync_service() { return nullptr; }
 
-    OLAPStatus next_rowset_id(RowsetId* rowset_id) { return _rowset_id_generator->next_id(rowset_id); };
+    RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
 
     bool rowset_id_in_use(const RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
 

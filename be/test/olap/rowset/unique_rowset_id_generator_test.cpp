@@ -67,17 +67,14 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     UniqueRowsetIdGenerator id_generator(backend_uid);
     UniqueRowsetIdGenerator id_generator2(backend_uid2);
     {
-        RowsetId rowset_id1;
-        id_generator.next_id(&rowset_id1);
-        RowsetId rowset_id2;
-        id_generator2.next_id(&rowset_id2);
+        RowsetId rowset_id1 = id_generator.next_id();
+        RowsetId rowset_id2 = id_generator2.next_id();
         ASSERT_TRUE(rowset_id1.hi != rowset_id2.hi);
     }
     {
         int64_t max_id = 2;
         max_id = max_id << 56;
-        RowsetId rowset_id;
-        id_generator.next_id(&rowset_id);
+        RowsetId rowset_id = id_generator.next_id();
         ASSERT_TRUE(rowset_id.hi == (1 + max_id));
         ASSERT_TRUE(rowset_id.version == 2);
         ASSERT_TRUE(backend_uid.lo == rowset_id.lo);
@@ -90,7 +87,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
         ASSERT_TRUE(in_use == false);
 
         int64_t high = rowset_id.hi + 1;
-        id_generator.next_id(&rowset_id);
+        rowset_id = id_generator.next_id();
         ASSERT_TRUE(rowset_id.hi == high);
         in_use = id_generator.id_in_use(rowset_id);
         ASSERT_TRUE(in_use == true);

@@ -48,7 +48,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset_factory.h"
+#include "olap/rowset/rowset_factory.h"
 
 namespace doris {
 
@@ -794,10 +794,10 @@ OLAPStatus DataDir::load() {
             continue;
         }
         RowsetSharedPtr rowset;
-        OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
-                                                             tablet->tablet_path(), 
-                                                             tablet->data_dir(), 
-                                                             rowset_meta, &rowset);
+        OLAPStatus create_status = RowsetFactory::create_rowset(&tablet->tablet_schema(),
+                                                              tablet->tablet_path(),
+                                                              tablet->data_dir(),
+                                                              rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
