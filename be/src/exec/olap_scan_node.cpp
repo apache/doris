@@ -373,12 +373,7 @@ Status OlapScanNode::close(RuntimeState* state) {
 Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-        boost::shared_ptr<DorisScanRange> doris_scan_range(
-            new DorisScanRange(scan_range.scan_range.palo_scan_range));
-        RETURN_IF_ERROR(doris_scan_range->init());
-        VLOG(1) << "doris_scan_range table=" << scan_range.scan_range.palo_scan_range.table_name <<
-                " version" << scan_range.scan_range.palo_scan_range.version;
-        _doris_scan_ranges.push_back(doris_scan_range);
+        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
 
@@ -396,17 +391,9 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     // 2. Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
 
-    VLOG(1) << "SelectScanRanges";
-    // 3. Using `Partition Column`'s ColumnValueRange to select ScanRange
-    RETURN_IF_ERROR(select_scan_ranges());
-
     VLOG(1) << "BuildScanKey";
     // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to serval `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
-
-    VLOG(1) << "SplitScanRange";
-    // 5. Query StorageEngine to split `Sub ScanRange` to serval `Sub Sub ScanRange`
-    RETURN_IF_ERROR(split_scan_range());
 
     VLOG(1) << "StartScanThread";
     // 6. Start multi thread to read serval `Sub Sub ScanRange`
@@ -548,30 +535,6 @@ Status OlapScanNode::build_olap_filters() {
     return Status::OK();
 }
 
-Status OlapScanNode::select_scan_ranges() {
-
-    std::list<boost::shared_ptr<DorisScanRange> >::iterator scan_range_iter
-        = _doris_scan_ranges.begin();
-
-    while (scan_range_iter != _doris_scan_ranges.end()) {
-        if (!select_scan_range(*scan_range_iter)) {
-            if ((*scan_range_iter)->scan_range().partition_column_ranges.size() != 0) {
-                VLOG(1) << "Remove ScanRange: ["
-                        << (*scan_range_iter)->scan_range().partition_column_ranges[0].begin_key << ", "
-                        << (*scan_range_iter)->scan_range().partition_column_ranges[0].end_key << ")";
-            } else {
-                VLOG(1) << "Remove ScanRange";
-            }
-
-            _doris_scan_ranges.erase(scan_range_iter++);
-        } else {
-            scan_range_iter++;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status OlapScanNode::build_scan_key() {
     const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
     const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
@@ -593,75 +556,150 @@ Status OlapScanNode::build_scan_key() {
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
-    _scan_keys.debug();
+    VLOG(1) << _scan_keys.debug_string();
 
     return Status::OK();
 }
 
-Status OlapScanNode::split_scan_range() {
-    std::vector<OlapScanRange> sub_ranges;
-    VLOG(1) << "_doris_scan_ranges.size()=" << _doris_scan_ranges.size();
+static Status get_hints(
+        const TPaloScanRange& scan_range,
+        int block_row_count,
+        bool is_begin_include,
+        bool is_end_include,
+        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range, 
+        RuntimeProfile* profile) {
+    auto tablet_id = scan_range.tablet_id;
+    int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), NULL, 10);
+    std::string err;
+    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
+        tablet_id, schema_hash, true, &err);
+    if (table == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get tablet: " << tablet_id << "with schema hash: "
+            << schema_hash << ", reason: " << err;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
 
-    // doris scan range is related with one tablet
-    // split scan range for every tablet
-    for (auto scan_range : _doris_scan_ranges) {
-        sub_ranges.clear();
-        RETURN_IF_ERROR(get_sub_scan_range(scan_range, &sub_ranges));
+    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
+    std::vector<std::vector<OlapTuple>> ranges;
+    bool have_valid_range = false;
+    for (auto& key_range : scan_key_range) {
+        if (key_range->begin_scan_range.size() == 1 
+                && key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+            continue;
+        }
+        SCOPED_TIMER(show_hints_timer);
+    
+        OLAPStatus res = OLAP_SUCCESS;
+        std::vector<OlapTuple> range;
+        res = table->split_range(key_range->begin_scan_range,
+                                 key_range->end_scan_range,
+                                 block_row_count, &range);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+        have_valid_range = true;
+    }
 
-        for (auto sub_range : sub_ranges) {
-            VLOG(1) << "SubScanKey=" << (sub_range.begin_include ? "[" : "(")
-                    << sub_range.begin_scan_range
-                    << " : " << sub_range.end_scan_range <<
-                    (sub_range.end_include ? "]" : ")");
-            // just to get sub_range related scan_range? why not create a object?
-            _query_key_ranges.push_back(sub_range);
-            _query_scan_ranges.push_back(scan_range);
+    if (!have_valid_range) {
+        std::vector<OlapTuple> range;
+        auto res = table->split_range({}, {}, block_row_count, &range);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+    }
+
+    for (int i = 0; i < ranges.size(); ++i) {
+        for (int j = 0; j < ranges[i].size(); j += 2) {
+            std::unique_ptr<OlapScanRange> range(new OlapScanRange);
+            range->begin_scan_range.reset();
+            range->begin_scan_range = ranges[i][j];
+            range->end_scan_range.reset();
+            range->end_scan_range = ranges[i][j + 1];
+
+            if (0 == j) {
+                range->begin_include = is_begin_include;
+            } else {
+                range->begin_include = true;
+            }
+
+            if (j + 2 == ranges[i].size()) {
+                range->end_include = is_end_include;
+            } else {
+                range->end_include = false;
+            }
+
+            sub_scan_range->emplace_back(std::move(range));
         }
     }
 
-    DCHECK(_query_key_ranges.size() == _query_scan_ranges.size());
-
     return Status::OK();
 }
 
-Status OlapScanNode::start_scan_thread(RuntimeState* state) {
-    VLOG(1) << "Query ScanRange Num: " << _query_scan_ranges.size();
 
-    // thread num
-    if (0 == _query_scan_ranges.size()) {
+Status OlapScanNode::start_scan_thread(RuntimeState* state) {
+    if (_scan_ranges.empty()) {
         _transfer_done = true;
         return Status::OK();
     }
 
-    int key_range_size = _query_key_ranges.size();
-    int key_range_num_per_scanner = key_range_size / 64;
-
-    if (0 == key_range_num_per_scanner) {
-        key_range_num_per_scanner = 1;
+    // ranges constructed from scan keys
+    std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
+    RETURN_IF_ERROR(_scan_keys.get_key_range(&cond_ranges));
+    // if we can't get ranges from conditions, we give it a total range
+    if (cond_ranges.empty()) {
+        cond_ranges.emplace_back(new OlapScanRange());
     }
 
-    // scan range per therad
-    for (int i = 0; i < key_range_size;) {
-        boost::shared_ptr<DorisScanRange> scan_range = _query_scan_ranges[i];
-        std::vector<OlapScanRange> key_ranges;
-        key_ranges.push_back(_query_key_ranges[i]);
-        ++i;
+    bool need_split = true;
+    // If we have ranges more than 64, there is no need to call
+    // ShowHint to split ranges
+    if (limit() != -1 || cond_ranges.size() > 64) {
+        need_split = false;
+    }
 
-        for (int j = 1;
-             j < key_range_num_per_scanner
-             && i < key_range_size
-             && _query_scan_ranges[i] == _query_scan_ranges[i - 1]
-             && _query_key_ranges[i].end_include == _query_key_ranges[i - 1].end_include;
-             j++, i++) {
-            key_ranges.push_back(_query_key_ranges[i]);
+    int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
+    for (auto& scan_range : _scan_ranges) {
+        std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
+        std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
+        if (need_split) {
+            auto st = get_hints(
+                    *scan_range,
+                    config::doris_scan_range_row_count,
+                    _scan_keys.begin_include(),
+                    _scan_keys.end_include(),
+                    cond_ranges,
+                    &split_ranges,
+                    _runtime_profile.get());
+            if (st.ok()) {
+                ranges = &split_ranges;
+            }
         }
 
-        OlapScanner* scanner = new OlapScanner(
-            state, this, _olap_scan_node.is_preaggregation,
-            scan_range.get(), key_ranges);
-
-        _scanner_pool->add(scanner);
-        _olap_scanners.push_back(scanner);
+        int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
+        int num_ranges = ranges->size();
+        for (int i = 0; i < num_ranges;) {
+            std::vector<OlapScanRange*> scanner_ranges;
+            scanner_ranges.push_back((*ranges)[i].get());
+            ++i;
+            for (int j = 1;
+                 i < num_ranges &&
+                 j < ranges_per_scanner &&
+                 (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+                 ++j, ++i) {
+                scanner_ranges.push_back((*ranges)[i].get());
+            }
+            OlapScanner* scanner = new OlapScanner(
+                state, this, _olap_scan_node.is_preaggregation, *scan_range, scanner_ranges);
+            _scanner_pool->add(scanner);
+            _olap_scanners.push_back(scanner);
+        }
     }
 
     // init progress
@@ -972,56 +1010,6 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 VLOG(1) << slot->col_name() << " op: "
                         << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
                         << " value: " << *reinterpret_cast<T*>(value);
-            }
-        }
-    }
-
-    return Status::OK();
-}
-
-bool OlapScanNode::select_scan_range(boost::shared_ptr<DorisScanRange> scan_range) {
-    std::map<std::string, ColumnValueRangeType>::iterator iter
-        = _column_value_ranges.begin();
-
-    while (iter != _column_value_ranges.end()) {
-        // return false if it's partition column range has no intersection with
-        // column range deduce by conjunct
-        if (0 == scan_range->has_intersection(iter->first, iter->second)) {
-            return false;
-        }
-
-        ++iter;
-    }
-
-    return true;
-}
-
-Status OlapScanNode::get_sub_scan_range(
-        boost::shared_ptr<DorisScanRange> scan_range,
-        std::vector<OlapScanRange>* sub_range) {
-    std::vector<OlapScanRange> scan_key_range;
-    RETURN_IF_ERROR(_scan_keys.get_key_range(&scan_key_range));
-
-    if (limit() != -1 ||
-        scan_key_range.size() > 64) {
-        if (scan_key_range.size() != 0) {
-            *sub_range = scan_key_range;
-        } else { // [-oo, +oo]
-            sub_range->resize(1);
-        }
-    } else {
-        if (!EngineMetaReader::get_hints(
-                    scan_range,
-                    config::doris_scan_range_row_count,
-                    _scan_keys.begin_include(),
-                    _scan_keys.end_include(),
-                    scan_key_range,
-                    sub_range,
-                    _runtime_profile.get()).ok()) {
-            if (scan_key_range.size() != 0) {
-                *sub_range = scan_key_range;
-            } else { // [-oo, +oo]
-                sub_range->resize(1);
             }
         }
     }
