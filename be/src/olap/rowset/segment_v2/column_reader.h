@@ -79,14 +79,20 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() { return _meta.has_zone_map_page(); }
-    void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
+
+    // get row ranges with zone map
+    // cond_column is user's query predicate
+    // delete_conditions is a vector of delete predicate of different version
+    void get_row_ranges_by_zone_map(CondColumn* cond_column,
+            const std::vector<CondColumn*>& delete_conditions, RowRanges* row_ranges);
 
 private:
     Status _init_ordinal_index();
 
     Status _init_column_zone_map();
 
-    void _get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes);
+    void _get_filtered_pages(CondColumn* cond_column,
+            const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes);
 
     void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 

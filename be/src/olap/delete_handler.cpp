@@ -343,5 +343,17 @@ void DeleteHandler::finalize() {
     _is_inited = false;
 }
 
+void DeleteHandler::get_delete_conditions_after_version(int32_t version,
+        std::vector<const Conditions*>* delete_conditions) const {
+    if (delete_conditions == nullptr) {
+        return;
+    }
+    for (auto& del_cond : _del_conds) {
+        if (del_cond.filter_version > version) {
+            delete_conditions->emplace_back(del_cond.del_cond);
+        }
+    }
+}
+
 }  // namespace doris
 

@@ -253,7 +253,13 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
-            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+            if (i >= 16 * 1024 && i < 32 * 1024) {
+                // make second page all rows equal
+                *(int*)cell.mutable_cell_ptr() = 164000 + j;
+
+            } else {
+                *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+            }
         }
         writer.append_row(row);
     }
@@ -288,6 +294,64 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             RowBlockV2 block(schema, 1024);
 
             // only first page will be read because of zone map
+            int left = 16 * 1024;
+
+            int rowid = 0;
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
+                    }
+                }
+                rowid += rows_read;
+            }
+            ASSERT_EQ(16 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+        // test zone map with query predicate an delete predicate
+        {
+            // the first two page will be read by this condition
+            TCondition condition;
+            condition.__set_column_name("2");
+            condition.__set_condition_op("<");
+            std::vector<std::string> vals = {"165000"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            // the second page read will be pruned by the following delete predicate
+            TCondition delete_condition;
+            delete_condition.__set_column_name("2");
+            delete_condition.__set_condition_op("=");
+            std::vector<std::string> vals2 = {"164001"};
+            delete_condition.__set_condition_values(vals2);
+            std::shared_ptr<Conditions> delete_conditions(new Conditions());
+            delete_conditions->set_tablet_schema(tablet_schema.get());
+            delete_conditions->append_condition(delete_condition);
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+            read_opts.delete_conditions.push_back(delete_conditions.get());
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            // so the first page will be read because of zone map
             int left = 16 * 1024;
 
             int rowid = 0;

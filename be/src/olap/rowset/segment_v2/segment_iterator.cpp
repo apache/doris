@@ -146,16 +146,28 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
 Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
+    std::set<int32_t> cids;
     for (auto& column_condition : _opts.conditions->columns()) {
-        int32_t column_id = column_condition.first;
+        cids.insert(column_condition.first);
+    }
+    std::map<int, std::vector<CondColumn*>> column_delete_conditions;
+    for (auto& delete_condition : _opts.delete_conditions) {
+        for (auto& column_condition : delete_condition->columns()) {
+            cids.insert(column_condition.first);
+            std::vector<CondColumn*>& conditions = column_delete_conditions[column_condition.first];
+            conditions.emplace_back(column_condition.second);
+        }
+    }
+    for (auto& cid : cids) {
         // get row ranges from zone map
-        if (!_segment->_column_readers[column_id]->has_zone_map()) {
+        if (!_segment->_column_readers[cid]->has_zone_map()) {
             // there is no zone map for this column
             continue;
         }
         // get row ranges by zone map of this column
         RowRanges column_zone_map_row_ranges;
-        _segment->_column_readers[column_id]->get_row_ranges_by_zone_map(column_condition.second, &column_zone_map_row_ranges);
+        _segment->_column_readers[cid]->get_row_ranges_by_zone_map(_opts.conditions->get_column(cid),
+                column_delete_conditions[cid], &column_zone_map_row_ranges);
         // intersection different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
     }
