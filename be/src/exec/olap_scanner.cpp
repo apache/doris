@@ -43,8 +43,8 @@ OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges)
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges)
             : _runtime_state(runtime_state),
             _parent(parent),
             _tuple_desc(parent->_tuple_desc),
@@ -68,16 +68,16 @@ OlapScanner::~OlapScanner() {
 }
 
 Status OlapScanner::_prepare(
-        DorisScanRange* scan_range, const std::vector<OlapScanRange>& key_ranges,
+        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
-    TTabletId tablet_id = scan_range->scan_range().tablet_id;
+    TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash =
-        strtoul(scan_range->scan_range().schema_hash.c_str(), nullptr, 10);
+        strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
     _version =
-        strtoul(scan_range->scan_range().version.c_str(), nullptr, 10);
+        strtoul(scan_range.version.c_str(), nullptr, 10);
     VersionHash version_hash =
-        strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
+        strtoul(scan_range.version_hash.c_str(), nullptr, 10);
     {
         std::string err;
         _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
@@ -155,7 +155,7 @@ Status OlapScanner::open() {
 
 // it will be called under tablet read lock because capture rs readers need 
 Status OlapScanner::_init_params(
-        const std::vector<OlapScanRange>& key_ranges,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls) {
     RETURN_IF_ERROR(_init_return_columns());
@@ -173,17 +173,17 @@ Status OlapScanner::_init_params(
         _params.conditions.push_back(is_null_str);
     }
     // Range
-    for (auto& key_range : key_ranges) {
-        if (key_range.begin_scan_range.size() == 1 &&
-                key_range.begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+    for (auto key_range : key_ranges) {
+        if (key_range->begin_scan_range.size() == 1 &&
+                key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
             continue;
         }
 
-        _params.range = (key_range.begin_include ? "ge" : "gt");
-        _params.end_range = (key_range.end_include ? "le" : "lt");
+        _params.range = (key_range->begin_include ? "ge" : "gt");
+        _params.end_range = (key_range->end_include ? "le" : "lt");
 
-        _params.start_key.push_back(key_range.begin_scan_range);
-        _params.end_key.push_back(key_range.end_scan_range);
+        _params.start_key.push_back(key_range->begin_scan_range);
+        _params.end_key.push_back(key_range->end_scan_range);
     }
 
     // TODO(zc)

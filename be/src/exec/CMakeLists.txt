@@ -54,7 +54,6 @@ set(EXEC_FILES
     olap_rewrite_node.cpp
     olap_scan_node.cpp
     olap_scanner.cpp
-    olap_meta_reader.cpp
     olap_common.cpp
     tablet_info.cpp
     tablet_sink.cpp
