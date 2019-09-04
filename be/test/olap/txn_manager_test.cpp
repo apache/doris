@@ -22,8 +22,9 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/txn_manager.h"
 #include "olap/new_status.h"
@@ -82,8 +83,10 @@ public:
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
-        _alpha_rowset.reset(new AlphaRowset(nullptr, rowset_meta_path, nullptr, rowset_meta));
-        _alpha_rowset_same_id.reset(new AlphaRowset(nullptr, rowset_meta_path, nullptr, rowset_meta));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            nullptr, rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            nullptr, rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -99,7 +102,8 @@ public:
         RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        _alpha_rowset_diff_id.reset(new AlphaRowset(nullptr, rowset_meta_path_2, nullptr, rowset_meta2));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            nullptr, rowset_meta_path_2, nullptr, rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
 
