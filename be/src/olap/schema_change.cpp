@@ -1181,7 +1181,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             request.new_tablet_id, request.new_schema_hash);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
-                     << ", new_tablet=" << request.new_tablet_id
+                     << " new_tablet=" << request.new_tablet_id
                      << ", new_schema_hash=" << request.new_schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }

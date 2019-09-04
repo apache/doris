@@ -554,7 +554,7 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
             if (time_elapsed > config::report_task_interval_seconds * 20) {
                 LOG(INFO) << "task elapsed " << time_elapsed 
-                          << " since it is inserted to queue, it is timeout";
+                          << " seconds since it is inserted to queue, it is timeout";
                 is_task_timeout = true;
             }
         }

@@ -1026,10 +1026,10 @@ void DataDir::perform_path_scan() {
 
 void DataDir::_process_garbage_path(const std::string& path) {
     if (check_dir_existed(path)) {
-        LOG(INFO) << "collect garbage dir path:" << path;
+        LOG(INFO) << "collect garbage dir path: " << path;
         OLAPStatus status = remove_all_dir(path);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
         }
     }
 }
