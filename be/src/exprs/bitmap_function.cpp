@@ -58,13 +58,31 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     BigIntVal result(bitmap.cardinality());
     return result;
 }
-
 // we assume the input src is a valid integer string
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
     std::unique_ptr<RoaringBitmap> bitmap {new RoaringBitmap()};
     if (!src.is_null) {
         std::string tmp_str = std::string(reinterpret_cast<char*>(src.ptr), src.len) ;
-        bitmap->update(std::stoi(tmp_str));
+        unsigned long uint32_value = 0;
+        try {
+            uint32_value = std::stoul(tmp_str);
+            // the std::stoul result type is unsigned long, not uint32_t. so we need check it
+            if(UNLIKELY(uint32_value > std::numeric_limits<unsigned int>::max())) {
+                throw std::out_of_range("");
+            }
+        } catch (std::invalid_argument& e) {
+            std::stringstream error_msg;
+            error_msg << "The to_bitmap function argument: " << tmp_str << " type isn't integer family";
+            ctx->set_error(error_msg.str().c_str());
+            return StringVal::null();
+        } catch (std::out_of_range& e) {
+            std::stringstream error_msg;
+            error_msg << "The to_bitmap function argument: " << tmp_str << " exceed unsigned integer max value "
+                      << std::numeric_limits<unsigned int>::max();
+            ctx->set_error(error_msg.str().c_str());
+            return StringVal::null();
+        }
+        bitmap->update(uint32_value);
     }
     std::string buf;
     buf.resize(bitmap->size());
