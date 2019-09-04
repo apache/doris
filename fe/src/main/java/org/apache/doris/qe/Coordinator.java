@@ -88,6 +88,7 @@ import org.apache.thrift.TException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -110,6 +111,9 @@ public class Coordinator {
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static String localIP = FrontendOptions.getLocalHostAddress();
+
+    // Random is used to shuffle instances of partitioned
+    private static Random instanceRandom = new Random();
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
@@ -857,7 +861,12 @@ public class Coordinator {
                             0, params);
                     params.instanceExecParams.add(instanceParam);
                 }
-                
+
+                // When group by cardinality is smaller than number of backend, only some backends always
+                // process while other has no data to process.
+                // So we shuffle instances to make different backends handle different queries.
+                Collections.shuffle(params.instanceExecParams, instanceRandom);
+
                 // TODO: switch to unpartitioned/coord execution if our input fragment
                 // is executed that way (could have been downgraded from distributed)
                 continue;
