@@ -20,7 +20,6 @@
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
@@ -28,7 +27,6 @@
 #include <queue>
 
 #include "exec/olap_common.h"
-#include "exec/olap_meta_reader.h"
 #include "exec/olap_scanner.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
@@ -136,9 +134,7 @@ protected:
     Status start_scan(RuntimeState* state);
     Status normalize_conjuncts();
     Status build_olap_filters();
-    Status select_scan_ranges();
     Status build_scan_key();
-    Status split_scan_range();
     Status start_scan_thread(RuntimeState* state);
 
     template<class T>
@@ -150,12 +146,7 @@ protected:
     template<class T>
     Status normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    bool select_scan_range(boost::shared_ptr<DorisScanRange> scan_range);
-    Status get_sub_scan_range(
-        boost::shared_ptr<DorisScanRange> scan_range,
-        std::vector<OlapScanRange>* sub_range);
     void transfer_thread(RuntimeState* state);
-    //void vectorized_scanner_thread(OlapScanner* scanner);
     void scanner_thread(OlapScanner* scanner);
 
     Status add_one_batch(RowBatchInterface* row_batch);
@@ -189,10 +180,7 @@ private:
 
     OlapScanKeys _scan_keys;
 
-    std::list<boost::shared_ptr<DorisScanRange> > _doris_scan_ranges;
-
-    std::vector<boost::shared_ptr<DorisScanRange> > _query_scan_ranges;
-    std::vector<OlapScanRange> _query_key_ranges;
+    std::vector<std::unique_ptr<TPaloScanRange> > _scan_ranges;
 
     std::vector<TCondition> _olap_filter;
 
