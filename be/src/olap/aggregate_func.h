@@ -203,6 +203,36 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT>
     }
 };
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> :
+        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+
+        Slice* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        const Slice* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        if (dst_null || src_slice->compare(*dst_slice) < 0) {
+            if (arena == nullptr || (!dst_null && dst_slice->size >= src_slice->size)) {
+                memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+                dst_slice->size = src_slice->size;
+            } else {
+                dst_slice->data = arena->Allocate(src_slice->size);
+                memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+                dst_slice->size = src_slice->size;
+            }
+        }
+    }
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> {
+};
+
 template <FieldType field_type>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type> :
         public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
@@ -242,6 +272,36 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT>
             memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
         }
     }
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> :
+        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+    static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
+        bool src_null = src.is_null();
+        // ignore null value
+        if (src_null) return;
+
+        bool dst_null = dst->is_null();
+
+        Slice* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        const Slice* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        if (dst_null || src_slice->compare(*dst_slice) > 0) {
+            if (arena == nullptr || (!dst_null && dst_slice->size >= src_slice->size)) {
+                memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+                dst_slice->size = src_slice->size;
+            } else {
+                dst_slice->data = arena->Allocate(src_slice->size);
+                memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+                dst_slice->size = src_slice->size;
+            }
+        }
+    }
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {
 };
 
 template <FieldType field_type>
