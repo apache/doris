@@ -30,8 +30,8 @@
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
 #include "olap/row.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "common/resource_tls.h"
@@ -70,7 +70,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            RowsetWriterSharedPtr rowset_writer,
+            RowsetWriter* rowset_writer,
             uint64_t* merged_rows);
 
 private:
@@ -564,7 +564,7 @@ RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(
         const vector<RowBlock*>& row_block_arr,
-        RowsetWriterSharedPtr rowset_writer,
+        RowsetWriter* rowset_writer,
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
@@ -664,7 +664,7 @@ bool RowBlockMerger::_pop_heap() {
 
 bool LinkedSchemaChange::process(
         RowsetReaderSharedPtr rowset_reader,
-        RowsetWriterSharedPtr new_rowset_writer,
+        RowsetWriter* new_rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
@@ -705,7 +705,7 @@ bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBloc
     return true;
 }
 
-bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriterSharedPtr rowset_writer,
+bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
@@ -795,7 +795,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
         add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(rowset_writer.get(), new_row_block)) {
+        if (!_write_row_block(rowset_writer, new_row_block)) {
             LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
@@ -863,7 +863,7 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
 
 bool SchemaChangeWithSorting::process(
             RowsetReaderSharedPtr rowset_reader,
-            RowsetWriterSharedPtr new_rowset_writer,
+            RowsetWriter* new_rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
@@ -939,6 +939,7 @@ bool SchemaChangeWithSorting::process(
                                            _temp_delta_versions.second),
                                    rowset_reader->version_hash(),
                                    new_tablet,
+                                   rowset_reader->rowset()->rowset_meta()->rowset_type(),
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -994,6 +995,7 @@ bool SchemaChangeWithSorting::process(
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
+                               rowset_reader->rowset()->rowset_meta()->rowset_type(),
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1065,28 +1067,18 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                                                 const Version& version,
                                                 VersionHash version_hash,
                                                 TabletSharedPtr new_tablet,
+                                                RowsetTypePB new_rowset_type,
                                                 RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     RowBlockMerger merger(new_tablet);
 
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    if (rowset_writer == nullptr) {
-        LOG(WARNING) << "new rowset builder failed";
-        return false;
-    }
-    RowsetId rowset_id;
-    OLAPStatus status = StorageEngine::instance()->next_rowset_id(&rowset_id);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "get next rowset id failed";
-        return false;
-    }
     RowsetWriterContext context;
-    context.rowset_id = rowset_id;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = new_tablet->tablet_uid();
     context.tablet_id = new_tablet->tablet_id();
     context.partition_id = new_tablet->partition_id();
     context.tablet_schema_hash = new_tablet->schema_hash();
-    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_type = new_rowset_type;
     context.rowset_path_prefix = new_tablet->tablet_path();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
@@ -1095,8 +1087,13 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.version_hash = version_hash;
     VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()
             << ", block_row_size=" << new_tablet->num_rows_per_row_block();
-    rowset_writer->init(context);
-    if (!merger.merge(row_block_arr, rowset_writer, &merged_rows)) {
+
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    if (RowsetFactory::create_rowset_writer(context, &rowset_writer) != OLAP_SUCCESS) {
+        return false;
+    }
+
+    if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
         LOG(WARNING) << "failed to merge row blocks.";
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         return false;
@@ -1107,34 +1104,30 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     return true;
 }
 
-bool SchemaChangeWithSorting::_external_sorting(
-        vector<RowsetSharedPtr>& src_rowsets,
-        RowsetWriterSharedPtr rowset_writer,
-        TabletSharedPtr new_tablet) {
-    Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
-
-    int64_t merged_rows = 0;
-    int64_t filtered_rows = 0;
+bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
+                                                RowsetWriter* rowset_writer,
+                                                TabletSharedPtr new_tablet) {
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : src_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         auto res = rowset->create_reader(&rs_reader);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create rowset reader.";
+            LOG(WARNING) << "failed to create rowset reader.";
             return false;
         }
         rs_readers.push_back(std::move(rs_reader));
     }
 
-    if (OLAP_SUCCESS != merger.merge(rs_readers, &merged_rows, &filtered_rows)) {
-        LOG(WARNING) << "fail to merge rowsets. tablet=" << new_tablet->full_name()
+    Merger::Statistics stats;
+    auto res = Merger::merge_rowsets(new_tablet, READER_ALTER_TABLE, rs_readers, rowset_writer, &stats);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to merge rowsets. tablet=" << new_tablet->full_name()
                      << ", version=" << rowset_writer->version().first
                      << "-" << rowset_writer->version().second;
         return false;
     }
-    add_merged_rows(merged_rows);
-    add_filtered_rows(filtered_rows);
-
+    add_merged_rows(stats.merged_rows);
+    add_filtered_rows(stats.filtered_rows);
     return true;
 }
 
@@ -1668,25 +1661,24 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     rowset_reader->init(&_reader_context);
 
-    RowsetId rowset_id;
-    RETURN_NOT_OK(StorageEngine::instance()->next_rowset_id(&rowset_id));
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = rowset_id;
+    writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
     writer_context.tablet_uid = new_tablet->tablet_uid();
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
-    writer_context.rowset_type = ALPHA_ROWSET;
+    writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
     writer_context.txn_id = (*base_rowset)->txn_id();
     writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
     writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    rowset_writer->init(writer_context);
 
-    if (!sc_procedure->process(rowset_reader, rowset_writer, new_tablet, base_tablet)) {
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+
+    if (!sc_procedure->process(rowset_reader, rowset_writer.get(), new_tablet, base_tablet)) {
         if ((*base_rowset)->is_pending()) {
             LOG(WARNING) << "failed to process the transaction when schema change. "
                          << "tablet=" << new_tablet->full_name() << "'"
@@ -1892,34 +1884,30 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        RowsetId rowset_id;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-        res = StorageEngine::instance()->next_rowset_id(&rowset_id);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "generate next id failed";
-            goto PROCESS_ALTER_EXIT;
-        }
 
         RowsetWriterContext writer_context;
-        writer_context.rowset_id = rowset_id;
+        writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
         writer_context.tablet_uid = new_tablet->tablet_uid();
         writer_context.tablet_id = new_tablet->tablet_id();
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
-        writer_context.rowset_type = ALPHA_ROWSET;
+        // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
+        writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
         writer_context.version_hash = rs_reader->version_hash();
-        RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-        OLAPStatus status = rowset_writer->init(writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        OLAPStatus status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
         if (status != OLAP_SUCCESS) {
             res = OLAP_ERR_ROWSET_BUILDER_INIT;
             goto PROCESS_ALTER_EXIT;
         }
 
-        if (!sc_procedure->process(rs_reader, rowset_writer, sc_params.new_tablet, sc_params.base_tablet)) {
+        if (!sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet, sc_params.base_tablet)) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;

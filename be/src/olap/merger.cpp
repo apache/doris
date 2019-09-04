@@ -21,107 +21,55 @@
 #include <vector>
 
 #include "olap/olap_define.h"
-#include "olap/rowset/segment_group.h"
 #include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
 
-using std::list;
-using std::string;
-using std::unique_ptr;
-using std::vector;
-
 namespace doris {
 
-Merger::Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type) :
-        _tablet(tablet),
-        _output_rs_writer(writer),
-        _reader_type(type),
-        _row_count(0) {}
-
-Merger::Merger(TabletSharedPtr tablet, ReaderType type, RowsetWriterSharedPtr writer,
-               const std::vector<RowsetReaderSharedPtr>& rs_readers) :
-        _tablet(tablet),
-        _output_rs_writer(writer),
-        _input_rs_readers(rs_readers),
-        _reader_type(type),
-        _row_count(0) {}
-
-OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
-                         int64_t* merged_rows, int64_t* filted_rows) {
-    _input_rs_readers = rs_readers;
-    OLAPStatus res = merge();
-    if (res == OLAP_SUCCESS) {
-        *merged_rows= _merged_rows;
-        *filted_rows = _filted_rows;
-    }
-    return res;
-}
-
-OLAPStatus Merger::merge() {
-    // Create and initiate reader for scanning and multi-merging specified
-    // OLAPDatas.
+OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
+                                 ReaderType reader_type,
+                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 RowsetWriter* dst_rowset_writer,
+                                 Merger::Statistics* stats_output) {
     Reader reader;
     ReaderParams reader_params;
-    reader_params.tablet = _tablet;
-    reader_params.reader_type = _reader_type;
-    reader_params.rs_readers = _input_rs_readers;
-    reader_params.version = _output_rs_writer->version();
+    reader_params.tablet = tablet;
+    reader_params.reader_type = reader_type;
+    reader_params.rs_readers = src_rowset_readers;
+    reader_params.version = dst_rowset_writer->version();
+    RETURN_NOT_OK(reader.init(reader_params));
 
-    if (OLAP_SUCCESS != reader.init(reader_params)) {
-        LOG(WARNING) << "fail to initiate reader. tablet=" << _tablet->full_name();
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    bool has_error = false;
     RowCursor row_cursor;
+    RETURN_NOT_OK_LOG(row_cursor.init(tablet->tablet_schema()),
+                 "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
+    row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
-    if (OLAP_SUCCESS != row_cursor.init(_tablet->tablet_schema())) {
-        LOG(WARNING) << "fail to init row cursor.";
-        has_error = true;
-    }
-
-    std::unique_ptr<Arena> arena(new Arena());
-    bool eof = false;
-    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     // The following procedure would last for long time, half of one day, etc.
-    while (!has_error) {
+    int64_t output_rows = 0;
+    while (true) {
+        Arena arena;
+        bool eof = false;
         // Read one row into row_cursor
-        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, arena.get(), &eof);
-        if (OLAP_SUCCESS == res && eof) {
-            VLOG(3) << "reader read to the end.";
-            break;
-        } else if (OLAP_SUCCESS != res) {
-            LOG(WARNING) << "reader read failed.";
-            has_error = true;
+        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, &arena, &eof),
+                          "failed to read next row when merging rowsets of tablet " + tablet->full_name());
+        if (eof) {
             break;
         }
-
-        if (OLAP_SUCCESS != _output_rs_writer->add_row(row_cursor)) {
-            LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
-            has_error = true;
-            break;
-        }
-
-        // the memory allocate by arena has been copied,
-        // so we should release these memory immediately
-        arena.reset(new Arena());
-
-        // Goto next row position in the row block being written
-        ++_row_count;
+        RETURN_NOT_OK_LOG(dst_rowset_writer->add_row(row_cursor),
+                          "failed to write row when merging rowsets of tablet " + tablet->full_name());
+        output_rows++;
     }
 
-    if (_output_rs_writer->flush() != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to finalize writer. "
-                     << "tablet=" << _tablet->full_name();
-        has_error = true;
+    if (stats_output != nullptr) {
+        stats_output->output_rows = output_rows;
+        stats_output->merged_rows = reader.merged_rows();
+        stats_output->filtered_rows = reader.filtered_rows();
     }
 
-    if (!has_error) {
-        _merged_rows = reader.merged_rows();
-        _filted_rows = reader.filtered_rows();
-    }
-
-    return has_error ? OLAP_ERR_OTHER_ERROR : OLAP_SUCCESS;
+    RETURN_NOT_OK_LOG(dst_rowset_writer->flush(),
+                 "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+    return OLAP_SUCCESS;
 }
+
 }  // namespace doris

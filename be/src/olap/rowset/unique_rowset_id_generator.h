@@ -28,10 +28,7 @@ public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);
     ~UniqueRowsetIdGenerator() {}
 
-    // generator a id according to data dir
-    // rowsetid is not globally unique, it is dir level
-    // it saves the batch end id into meta env
-    OLAPStatus next_id(RowsetId* rowset_id) override; 
+    RowsetId next_id() override;
 
     bool id_in_use(const RowsetId& rowset_id) override;
 

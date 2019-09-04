@@ -72,7 +72,7 @@ private:
     RowsetSharedPtr _cur_rowset;
     RowsetSharedPtr _new_rowset;
     TabletSharedPtr _new_tablet;
-    RowsetWriterSharedPtr _rowset_writer;
+    std::unique_ptr<RowsetWriter> _rowset_writer;
     MemTable* _mem_table;
     Schema* _schema;
     const TabletSchema* _tablet_schema;

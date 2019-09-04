@@ -27,7 +27,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
-#include "rowset/alpha_rowset_writer.h"
 #include "rowset/rowset_id_generator.h"
 
 namespace doris {
@@ -62,7 +61,7 @@ protected:
     OLAPStatus construct_input_rowset_readers();
 
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    OLAPStatus check_correctness(const Merger& merger);
+    OLAPStatus check_correctness(const Merger::Statistics& stats);
 
 protected:
     TabletSharedPtr _tablet;
@@ -73,7 +72,7 @@ protected:
     int64_t _input_row_num;
 
     RowsetSharedPtr _output_rowset;
-    RowsetWriterSharedPtr _output_rs_writer;
+    std::unique_ptr<RowsetWriter> _output_rs_writer;
 
     enum CompactionState {
         INITED = 0,
