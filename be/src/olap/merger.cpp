@@ -34,7 +34,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
                                  Merger::Statistics* stats_output) {
     Reader reader;
     ReaderParams reader_params;
-    reader_params.tablet = std::move(tablet);
+    reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
