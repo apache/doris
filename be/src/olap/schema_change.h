@@ -95,7 +95,7 @@ public:
     virtual ~SchemaChange() {}
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_builder,
+                         RowsetWriter* new_rowset_builder,
                          TabletSharedPtr tablet,
                          TabletSharedPtr base_tablet) = 0;
 
@@ -135,9 +135,9 @@ public:
     ~LinkedSchemaChange() {}
 
     bool process(RowsetReaderSharedPtr rowset_reader,
-                 RowsetWriterSharedPtr new_rowset_writer,
+                 RowsetWriter* new_rowset_writer,
                  TabletSharedPtr new_tablet,
-                 TabletSharedPtr base_tablet);
+                 TabletSharedPtr base_tablet) override;
 private:
     const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
@@ -153,9 +153,9 @@ public:
     virtual ~SchemaChangeDirectly();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_writer,
+                         RowsetWriter* new_rowset_writer,
                          TabletSharedPtr new_tablet,
-                         TabletSharedPtr base_tablet);
+                         TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -176,9 +176,9 @@ public:
     virtual ~SchemaChangeWithSorting();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_builder,
+                         RowsetWriter* new_rowset_builder,
                          TabletSharedPtr new_tablet,
-                         TabletSharedPtr base_tablet);
+                         TabletSharedPtr base_tablet) override;
 
 private:
     bool _internal_sorting(
@@ -186,11 +186,12 @@ private:
             const Version& temp_delta_versions,
             const VersionHash version_hash,
             TabletSharedPtr new_tablet,
+            RowsetTypePB new_rowset_type,
             RowsetSharedPtr* rowset);
 
     bool _external_sorting(
             std::vector<RowsetSharedPtr>& src_rowsets,
-            RowsetWriterSharedPtr rowset_writer,
+            RowsetWriter* rowset_writer,
             TabletSharedPtr new_tablet);
 
     const RowBlockChanger& _row_block_changer;

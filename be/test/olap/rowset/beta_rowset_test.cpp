@@ -22,8 +22,9 @@
 #include "olap/data_dir.h"
 #include "olap/row_block.h"
 #include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
@@ -139,8 +140,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(&tablet_schema, &writer_context);
 
-        RowsetWriterSharedPtr rowset_writer(new BetaRowsetWriter);
-        s = rowset_writer->init(writer_context);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
         ASSERT_EQ(OLAP_SUCCESS, s);
 
         RowCursor input_row;

@@ -24,40 +24,23 @@
 
 namespace doris {
 
-class SegmentGroup;
-class ColumnData;
-
 class Merger {
 public:
-    // parameter index is created by caller, and it is empty.
-    Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type);
-    Merger(TabletSharedPtr tablet, ReaderType type, 
-           RowsetWriterSharedPtr writer, const std::vector<RowsetReaderSharedPtr>& rs_readers);
+    struct Statistics {
+        // number of rows written to the destination rowset after merge
+        int64_t output_rows = 0;
+        int64_t merged_rows = 0;
+        int64_t filtered_rows = 0;
+    };
 
-    virtual ~Merger() {};
-
-    // @brief read from multiple OLAPData and SegmentGroup, then write into single OLAPData and SegmentGroup
-    // @return  OLAPStatus: OLAP_SUCCESS or FAIL
-    // @note it will take long time to finish.
-    OLAPStatus merge(const vector<RowsetReaderSharedPtr>& rs_readers,
-                     int64_t* merged_rows, int64_t* filted_rows);
-    OLAPStatus merge();
-
-    // 获取在做merge过程中累积的行数
-    inline int64_t row_count() const { return _row_count; }
-    inline int64_t merged_rows() const { return _merged_rows; }
-    inline int64_t filted_rows() const { return _filted_rows; }
-private:
-    TabletSharedPtr _tablet;
-    RowsetWriterSharedPtr _output_rs_writer;
-
-    std::vector<RowsetReaderSharedPtr> _input_rs_readers;
-    ReaderType _reader_type;
-    int64_t _row_count;
-    int64_t _merged_rows;
-    int64_t _filted_rows;
-
-    DISALLOW_COPY_AND_ASSIGN(Merger);
+    // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.
+    // return OLAP_SUCCESS and set statistics into `*stats_output`.
+    // return others on error
+    static OLAPStatus merge_rowsets(TabletSharedPtr tablet,
+                                    ReaderType reader_type,
+                                    const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                    RowsetWriter* dst_rowset_writer,
+                                    Statistics* stats_output);
 };
 
 }  // namespace doris

@@ -20,17 +20,29 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
+
+class RowsetWriter;
+class RowsetWriterContext;
 
 class RowsetFactory {
 
 public:
-    static OLAPStatus load_rowset(const TabletSchema& schema,
+    // return OLAP_SUCCESS and set inited rowset in `*rowset`.
+    // return others if failed to create or init rowset.
+    static OLAPStatus create_rowset(const TabletSchema* schema,
                                   const std::string& rowset_path,
                                   DataDir* data_dir,
                                   RowsetMetaSharedPtr rowset_meta,
                                   RowsetSharedPtr* rowset);
+
+    // create and init rowset writer.
+    // return OLAP_SUCCESS and set `*output` to inited rowset writer.
+    // return others if failed
+    static OLAPStatus create_rowset_writer(const RowsetWriterContext& context,
+                                           std::unique_ptr<RowsetWriter>* output);
 };
 
 } // namespace doris

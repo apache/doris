@@ -37,6 +37,7 @@ add_library(Rowset STATIC
     segment_reader.cpp
     segment_writer.cpp
     rowset.cpp
+    rowset_factory.cpp
     rowset_meta_manager.cpp
     alpha_rowset.cpp
     alpha_rowset_reader.cpp

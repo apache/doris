@@ -42,7 +42,6 @@
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset_factory.h"
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"

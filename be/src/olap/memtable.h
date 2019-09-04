@@ -37,8 +37,8 @@ public:
     ~MemTable();
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(RowsetWriterSharedPtr rowset_writer);
-    OLAPStatus close(RowsetWriterSharedPtr rowset_writer);
+    OLAPStatus flush(RowsetWriter* rowset_writer);
+    OLAPStatus close(RowsetWriter* rowset_writer);
 private:
     Schema* _schema;
     const TabletSchema* _tablet_schema;
