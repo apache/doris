@@ -53,8 +53,8 @@ public:
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges);
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges);
 
     ~OlapScanner();
 
@@ -82,12 +82,12 @@ public:
     void update_counter();
 private:
     Status _prepare(
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges,
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls);
     Status _init_params(
-        const std::vector<OlapScanRange>& key_ranges,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls);
     Status _init_return_columns();
