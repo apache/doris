@@ -49,6 +49,49 @@ const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.js
 
 class TxnManagerTest : public testing::Test {
 public:
+    void init_tablet_schema() {
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema_pb.set_num_short_key_columns(3);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(4);
+
+        ColumnPB* column_1 = tablet_schema_pb.add_column();
+        column_1->set_unique_id(1);
+        column_1->set_name("k1");
+        column_1->set_type("INT");
+        column_1->set_is_key(true);
+        column_1->set_length(4);
+        column_1->set_index_length(4);
+        column_1->set_is_nullable(true);
+        column_1->set_is_bf_column(false);
+
+        ColumnPB* column_2 = tablet_schema_pb.add_column();
+        column_2->set_unique_id(2);
+        column_2->set_name("k2");
+        column_2->set_type("INT");
+        column_2->set_length(4);
+        column_2->set_index_length(4);
+        column_2->set_is_nullable(true);
+        column_2->set_is_key(true);
+        column_2->set_is_nullable(true);
+        column_2->set_is_bf_column(false);
+
+        ColumnPB* column_3 = tablet_schema_pb.add_column();
+        column_3->set_unique_id(3);
+        column_3->set_name("v1");
+        column_3->set_type("VARCHAR");
+        column_3->set_length(10);
+        column_3->set_index_length(10);
+        column_3->set_is_key(true);
+        column_3->set_is_nullable(false);
+        column_3->set_is_bf_column(false);
+
+        _schema.reset(new TabletSchema);
+        _schema->init_from_pb(tablet_schema_pb);
+    }
+
     virtual void SetUp() {
         
         std::vector<StorePath> paths;
@@ -70,6 +113,9 @@ public:
         ASSERT_TRUE(boost::filesystem::exists("./meta"));
         load_id.set_hi(0);
         load_id.set_lo(0);
+
+        init_tablet_schema();
+
         // init rowset meta 1
         std::ifstream infile(rowset_meta_path);
         char buffer[1024];
@@ -84,9 +130,9 @@ public:
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            nullptr, rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset));
+            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset));
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            nullptr, rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset_same_id));
+            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -103,7 +149,7 @@ public:
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            nullptr, rowset_meta_path_2, nullptr, rowset_meta2, &_alpha_rowset_diff_id));
+            _schema.get(), rowset_meta_path_2, nullptr, rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
 
@@ -122,6 +168,7 @@ private:
     SchemaHash schema_hash = 333;
     TabletUid _tablet_uid;
     PUniqueId load_id;
+    std::unique_ptr<TabletSchema> _schema;
     RowsetSharedPtr _alpha_rowset;
     RowsetSharedPtr _alpha_rowset_same_id;
     RowsetSharedPtr _alpha_rowset_diff_id;
