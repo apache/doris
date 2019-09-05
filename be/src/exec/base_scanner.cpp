@@ -144,15 +144,16 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
         int dest_index = ctx_idx++;
         ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
-        std::string expr_error = ctx->get_error_msg();
-        if (!expr_error.empty()) {
-            _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), expr_error);
-            _counter->num_rows_filtered++;
-            // The ctx is reused, so must clear the error state and message.
-            ctx->clear_error_msg();
-            return false;
-        }
         if (value == nullptr) {
+            // Only when the expr return value is null, we will check the error message.
+            std::string expr_error = ctx->get_error_msg();
+            if (!expr_error.empty()) {
+                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), expr_error);
+                _counter->num_rows_filtered++;
+                // The ctx is reused, so must clear the error state and message.
+                ctx->clear_error_msg();
+                return false;
+            }
             SlotDescriptor* slot_descriptor = _src_slot_descs_order_by_dest[dest_index];
             if (_strict_mode && (slot_descriptor != nullptr)&& !_src_tuple->is_null(slot_descriptor->null_indicator_offset())) {
                 //Type of the slot is must be Varchar in _src_tuple.

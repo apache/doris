@@ -58,7 +58,7 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     BigIntVal result(bitmap.cardinality());
     return result;
 }
-// we assume the input src is a valid integer string
+
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
     std::unique_ptr<RoaringBitmap> bitmap {new RoaringBitmap()};
     if (!src.is_null) {
