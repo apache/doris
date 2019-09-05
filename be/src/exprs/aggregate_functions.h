@@ -125,14 +125,6 @@ dst);
             const doris_udf::DecimalV2Val& src,
             doris_udf::StringVal* dst);
 
-    // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
-    //        const doris_udf::DecimalVal& src,
-    //        doris_udf::StringVal* dst, bool remove);
-    // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
-    //        const doris_udf::DecimalVal& src,
-    //        doris_udf::StringVal* dst) {
-    //    return decimal_avg_add_or_remove(ctx, src, dst, false);
-    // }
     static doris_udf::DecimalVal decimal_avg_get_value(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
     static doris_udf::DecimalV2Val decimalv2_avg_get_value(doris_udf::FunctionContext* ctx,
@@ -191,22 +183,6 @@ dst);
             const doris_udf::StringVal& src);
 
     static doris_udf::StringVal pcsa_finalize(
-            doris_udf::FunctionContext*,
-            const doris_udf::StringVal& src);
-
-    // Hyperloglog distinct estimate algorithm.
-    // See these papers for more details.
-    // 1) Hyperloglog: The analysis of a near-optimal cardinality estimation
-    // algorithm (2007)
-    // 2) HyperLogLog in Practice (paper from google with some improvements)
-    static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
-    template <typename T>
-    static void hll_update(doris_udf::FunctionContext*, const T& src, doris_udf::StringVal* dst);
-    static void hll_merge(
-            doris_udf::FunctionContext*,
-            const doris_udf::StringVal& src,
-            doris_udf::StringVal* dst);
-    static doris_udf::StringVal hll_finalize(
             doris_udf::FunctionContext*,
             const doris_udf::StringVal& src);
 
@@ -335,8 +311,19 @@ dst);
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
         const doris_udf::BigIntVal&, const T&, T* dst);
 
-    //  HLL value type calculate
-    //  init sets buffer
+    // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
+    //            when doris 0.12 release
+    static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
+    template <typename T>
+    static void hll_update(doris_udf::FunctionContext*, const T& src, doris_udf::StringVal* dst);
+    static void hll_merge(
+            doris_udf::FunctionContext*,
+            const doris_udf::StringVal& src,
+            doris_udf::StringVal* dst);
+    static doris_udf::StringVal hll_finalize(
+            doris_udf::FunctionContext*,
+            const doris_udf::StringVal& src);
+
     static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::HllVal* slot);
     // fill all register accroading to hll set type
     static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::HllVal& src,
@@ -350,14 +337,6 @@ dst);
     static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
                                             const doris_udf::HllVal& src);
-
-    //for backward compatibility, we could remove the following four HLL methods after doris 0.11 version
-    static void hll_union_agg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* slot);
-    static void hll_union_agg_update(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
-                                     doris_udf::StringVal* dst);
-    static void hll_union_agg_merge(doris_udf::FunctionContext* ctx,const doris_udf::StringVal& src,
-                                    doris_udf::StringVal* dst);
-    static doris_udf::StringVal hll_union_agg_finalize(doris_udf::FunctionContext* ctx, const StringVal& src);
 
     // calculate result
     static int64_t hll_algorithm(uint8_t *pdata, int data_len);
