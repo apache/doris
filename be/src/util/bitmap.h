@@ -257,7 +257,7 @@ class RoaringBitmap {
 public:
     RoaringBitmap() : _type(EMPTY) {}
 
-    explicit RoaringBitmap(int32_t value): _int_value(value), _type(SINGLE){}
+    explicit RoaringBitmap(uint32_t value): _int_value(value), _type(SINGLE){}
 
     // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
     explicit RoaringBitmap(const char* src) {
@@ -273,7 +273,7 @@ public:
         }
     }
 
-    void update(const int32_t value) {
+    void update(const uint32_t value) {
         switch (_type) {
             case EMPTY:
                 _int_value = value;
@@ -337,7 +337,7 @@ public:
             case EMPTY:
                 return 1;
             case SINGLE:
-                return sizeof(int32_t) + 1;
+                return sizeof(uint32_t) + 1;
             case BITMAP:
                 _roaring.runOptimize();
                 return _roaring.getSizeInBytes() + 1;
@@ -379,7 +379,7 @@ private:
     };
 
     Roaring _roaring;
-    int32_t _int_value;
+    uint32_t _int_value;
     BitmapDataType _type;
 };
 

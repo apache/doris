@@ -514,4 +514,20 @@ Status ExprContext::get_error(int start_idx, int end_idx) const {
   }
   return Status::OK();
 }
+
+std::string ExprContext::get_error_msg() const {
+    for (auto fn_ctx: _fn_contexts) {
+        if (fn_ctx->has_error()) {
+            return std::string(fn_ctx->error_msg());
+        }
+    }
+    return "";
+}
+
+void ExprContext::clear_error_msg() {
+    for (auto fn_ctx: _fn_contexts) {
+        fn_ctx->clear_error_msg();
+    }
+}
+
 }
