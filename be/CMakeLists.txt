@@ -488,12 +488,6 @@ set(DORIS_LINK_LIBS
     ${WL_END_GROUP}
 )
 
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES
-        mysql
-        )
-endif()
-
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
@@ -538,6 +532,12 @@ if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
         lzo
     )
+endif()
+
+if (WITH_MYSQL)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        mysql
+        )
 endif()
 
 # Add all external dependencies. They should come after the palo libs.
