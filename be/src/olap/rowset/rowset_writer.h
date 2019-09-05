@@ -53,7 +53,8 @@ public:
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual OLAPStatus flush() = 0;
 
-    // get a rowset
+    // finish building and return pointer to the built rowset (guaranteed to be inited).
+    // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
 
     virtual Version version() = 0;

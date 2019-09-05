@@ -18,17 +18,21 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include <memory>
+#include <vector>
+
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/new_status.h"
 #include "olap/rowset/rowset_meta.h"
 
-#include <memory>
-
 namespace doris {
 
 class DataDir;
+class OlapTuple;
+class RowCursor;
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
+class RowsetFactory;
 class RowsetReader;
 class TabletSchema;
 
@@ -37,17 +41,7 @@ const RowsetTypePB DEFAULT_ROWSET_TYPE = ALPHA_ROWSET;
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    // TODO don't make this public, all clients should use RowsetFactory to obtain initialized RowsetSharedPtr
-    Rowset(const TabletSchema* schema,
-           std::string rowset_path,
-           DataDir* data_dir,
-           RowsetMetaSharedPtr rowset_meta);
-
     virtual ~Rowset() { }
-
-    // this api is for init related objects in memory
-    // TODO don't make this public, all clients should use RowsetFactory to obtain initialized RowsetSharedPtr
-    virtual OLAPStatus init() = 0;
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
@@ -55,6 +49,19 @@ public:
 
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
+
+    // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
+    // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
+    //
+    // e.g., if the function generates 2 sub-ranges, the result `ranges` should contain 4 tuple: t1, t2, t2, t3.
+    // Note that the end tuple of sub-range i is the same as the start tuple of sub-range i+1.
+    //
+    // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
+    // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
+    virtual OLAPStatus split_range(const RowCursor& start_key,
+                                   const RowCursor& end_key,
+                                   uint64_t request_block_row_count,
+                                   std::vector<OlapTuple>* ranges) = 0;
 
     RowsetMetaSharedPtr rowset_meta() const { return _rowset_meta; }
 
@@ -116,6 +123,17 @@ public:
     }
 
 protected:
+    friend class RowsetFactory;
+
+    // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
+    Rowset(const TabletSchema* schema,
+           std::string rowset_path,
+           DataDir* data_dir,
+           RowsetMetaSharedPtr rowset_meta);
+
+    // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
+    virtual OLAPStatus init() = 0;
+
     bool is_inited() const { return _is_inited; }
     void set_inited(bool inited) { _is_inited = inited; }
     bool is_loaded() const { return _is_loaded; }

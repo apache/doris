@@ -19,6 +19,7 @@
 
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/row.h"
 
@@ -213,14 +214,14 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         return nullptr;
     }
 
-    RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
-                                    _rowset_writer_context.rowset_path_prefix,
-                                    _rowset_writer_context.data_dir, _current_rowset_meta));
-    DCHECK(rowset != nullptr) << "new rowset failed when build new rowset";
-
-    OLAPStatus status = rowset->init();
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_rowset_writer_context.tablet_schema,
+                                               _rowset_writer_context.rowset_path_prefix,
+                                               _rowset_writer_context.data_dir,
+                                               _current_rowset_meta,
+                                               &rowset);
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "rowset init failed when build new rowset";
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
     }
     _rowset_build = true;
