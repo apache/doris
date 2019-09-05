@@ -53,7 +53,6 @@ public:
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
 
-    OLAPStatus init_once();
     OLAPStatus init();
     inline bool init_succeeded();
 
@@ -235,6 +234,7 @@ public:
     inline bool in_eco_mode() { return false; }
 
 private:
+    OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
 

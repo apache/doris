@@ -51,16 +51,7 @@ OLAPStatus BetaRowset::init() {
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::load(bool use_cache) {
-    // DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
-    // TODO remove the following if block when rowset is guaranteed to be initialized
-    if (!is_inited()) {
-        OLAPStatus res = init();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to init rowset before load"
-                         << " rowset id " << rowset_id();
-            return res;
-        }
-    }
+    DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
     if (is_loaded()) {
         return OLAP_SUCCESS;
     }
@@ -84,6 +75,15 @@ OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
         }
     }
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
+                                   const RowCursor& end_key,
+                                   uint64_t request_block_row_count,
+                                   std::vector<OlapTuple>* ranges) {
+    ranges->emplace_back(start_key.to_tuple());
+    ranges->emplace_back(end_key.to_tuple());
     return OLAP_SUCCESS;
 }
 

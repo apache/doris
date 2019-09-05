@@ -30,23 +30,22 @@ namespace doris {
 class BetaRowset;
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 class BetaRowsetReader;
+class RowsetFactory;
 
 class BetaRowset : public Rowset {
 public:
-    BetaRowset(const TabletSchema* schema,
-               std::string rowset_path,
-               DataDir* data_dir,
-               RowsetMetaSharedPtr rowset_meta);
-
     virtual ~BetaRowset() {}
 
     static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
-    OLAPStatus init() override;
-
     OLAPStatus load(bool use_cache = true) override;
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
+
+    OLAPStatus split_range(const RowCursor& start_key,
+                           const RowCursor& end_key,
+                           uint64_t request_block_row_count,
+                           std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
 
@@ -60,6 +59,16 @@ public:
     };
 
     bool check_path(const std::string& path) override;
+
+protected:
+    friend class RowsetFactory;
+
+    BetaRowset(const TabletSchema* schema,
+               std::string rowset_path,
+               DataDir* data_dir,
+               RowsetMetaSharedPtr rowset_meta);
+
+    OLAPStatus init() override;
 
 private:
     friend class BetaRowsetReader;
