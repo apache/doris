@@ -47,7 +47,6 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -639,15 +638,17 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         // convert visible pdelta file to rowsets and remove old files
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
-            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
-            alpha_rowset_meta->init_from_pb(visible_rowset);
-            AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
-            if (rowset.init() != OLAP_SUCCESS) {
+            RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+            rowset_meta->init_from_pb(visible_rowset);
+
+            RowsetSharedPtr rowset;
+            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, this, rowset_meta, &rowset);
+            if (s != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while init rowset. tablet_path=" << data_path_prefix;
                 return true;
             }
             std::vector<std::string> old_files;
-            if (rowset.remove_old_files(&old_files) != OLAP_SUCCESS) {
+            if (rowset->remove_old_files(&old_files) != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while remove_old_files. tablet_path=" << data_path_prefix;
                 return true;
             }
