@@ -170,6 +170,10 @@ public:
     /// The default parameters correspond to the entire expr 'root_'.
     Status get_error(int start_idx, int end_idx) const;
 
+    std::string get_error_msg() const;
+
+    // when you reused this expr context, you maybe need clear the error status and message.
+    void clear_error_msg();
 private:
     friend class Expr;
     friend class ScalarFnCall;
