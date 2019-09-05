@@ -28,10 +28,10 @@
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/types.h" // for TypeInfo
+#include "util/crc32c.h"
 #include "util/faststring.h" // for fastring
 #include "util/rle_encoding.h" // for RleEncoder
 #include "util/block_compression.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -257,7 +257,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = HashUtil::crc_hash(*output_data, 0);
+    uint32_t checksum = crc32c::Value(*output_data);
     encode_fixed32_le(checksum_buf, checksum);
     output_data->emplace_back(checksum_buf, sizeof(uint32_t));
 

@@ -20,7 +20,6 @@
 
 #include "common/logging.h"
 #include "common/compiler_util.h"
-#include "util/slice.h"
 
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains
@@ -47,6 +46,8 @@ public:
     // the current hash/seed value.
     // This should only be called if SSE is supported.
     // This is ~4x faster than Fnv/Boost Hash.
+    // NOTE: DO NOT use this method for checksum! This does not generate the standard CRC32 checksum!
+    //       For checksum, use CRC-32C algorithm from crc32c.h
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
@@ -270,14 +271,6 @@ public:
         return hash;
 #endif
 
-    }
-
-    // Compute crc32 for vector of Slice
-    static uint32_t crc_hash(const std::vector<Slice>& slices, uint32_t checksum) {
-        for (auto& slice : slices) {
-            checksum = HashUtil::crc_hash(slice.data, slice.size, checksum);
-        }
-        return checksum;
     }
 };
 

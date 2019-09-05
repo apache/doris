@@ -25,7 +25,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
-#include "util/hash_util.hpp"
+#include "util/crc32c.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -111,7 +111,7 @@ Status Segment::_parse_footer() {
     RETURN_IF_ERROR(_input_file->read_at(offset, footer_buf));
 
     uint32_t expect_checksum = decode_fixed32_le((uint8_t*)slice.data + 4);
-    uint32_t actual_checksum = HashUtil::crc_hash(footer_buf.data(), footer_buf.size(), 0);
+    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
             Substitute("Bad segment, segment footer checksum not match, actual=$0 vs expect=$1",
