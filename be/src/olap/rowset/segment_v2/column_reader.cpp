@@ -29,9 +29,9 @@
 #include "olap/column_block.h" // for ColumnBlockView
 #include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
+#include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -129,7 +129,7 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     size_t data_size = page_size - 4;
     if (_opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
-        uint32_t actual = HashUtil::crc_hash(page_slice.data, page_slice.size - 4, 0);
+        uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
             return Status::Corruption(
                 Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));

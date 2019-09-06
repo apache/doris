@@ -31,6 +31,7 @@ set(UTIL_FILES
   block_compression.cpp
   coding.cpp
   cpu_info.cpp
+  crc32c.cpp
   date_func.cpp
   dynamic_util.cpp
   debug_util.cpp

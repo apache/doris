@@ -136,6 +136,7 @@ ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
 ${DORIS_TEST_BINARY_DIR}/util/count_down_latch_test
+${DORIS_TEST_BINARY_DIR}/util/crc32c_test
 ${DORIS_TEST_BINARY_DIR}/util/lru_cache_util_test
 ${DORIS_TEST_BINARY_DIR}/util/filesystem_util_test
 ${DORIS_TEST_BINARY_DIR}/util/internal_queue_test
