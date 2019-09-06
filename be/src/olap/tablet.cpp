@@ -33,6 +33,7 @@
 #include "olap/storage_engine.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -869,18 +870,29 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
+// check rowset id in tablet meta and in rowset meta atomicly
+// for example, during publish version stage, it will first add rowset meta to tablet meta and then
+// remove it from rowset meta manager. If we check tablet meta first and then check rowset meta using 2 step unlocked
+// the sequence maybe: 1. check in tablet meta [return false]  2. add to tablet meta  3. remove from rowset meta manager
+// 4. check in rowset meta manager return false. so that the rowset maybe checked return false it means it is useless and 
+// will be treated as a garbage.
 bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     ReadLock rdlock(&_meta_lock);
+    if (StorageEngine::instance()->rowset_id_in_use(rowset_id)) {
+        return true;
+    }
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
-
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
+    }
+    if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
+        return true;
     }
     return false;
 }
