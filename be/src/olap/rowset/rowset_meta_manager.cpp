@@ -89,9 +89,6 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const R
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    if (status == OLAP_SUCCESS) {
-        StorageEngine::instance()->release_rowset_id(rowset_id);
-    }
     return status;
 }
 
