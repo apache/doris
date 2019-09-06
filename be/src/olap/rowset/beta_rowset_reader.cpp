@@ -114,6 +114,8 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
             return OLAP_ERR_ROWSET_READ_FAILED;
         }
     }
+    _output_block->set_pos(0);
+    _output_block->set_limit(_input_block->num_rows());
     _output_block->finalize(_input_block->num_rows());
     *block = _output_block.get();
     return OLAP_SUCCESS;
