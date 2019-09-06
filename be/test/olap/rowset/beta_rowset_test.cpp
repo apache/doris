@@ -189,6 +189,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
             ASSERT_TRUE(output_block != nullptr);
             ASSERT_GT(output_block->row_num(), 0);
+            ASSERT_EQ(0, output_block->pos());
+            ASSERT_EQ(output_block->row_num(), output_block->limit());
             ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
             // after sort merge segments, k1 will be 0, 1, 2, 10, 11, 12, 20, 21, 22, ..., 40950, 40951, 40952
             for (int i = 0; i < output_block->row_num(); ++i) {
@@ -227,6 +229,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
             ASSERT_TRUE(output_block != nullptr);
             ASSERT_GT(output_block->row_num(), 0);
+            ASSERT_EQ(0, output_block->pos());
+            ASSERT_EQ(output_block->row_num(), output_block->limit());
             ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
             // for unordered result, k3 will be 0, 1, 2, ..., 4096*3-1
             for (int i = 0; i < output_block->row_num(); ++i) {
