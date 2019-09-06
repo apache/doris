@@ -27,6 +27,7 @@ class RowCursor;
 class RowBlockV2;
 class Schema;
 class Conditions;
+class ColumnPredicate;
 
 class StorageReadOptions {
 public:
@@ -69,6 +70,11 @@ public:
 
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
+    // reader's column predicate, nullptr if not existed
+    // used to fiter rows in row block
+    // TODO(hkp): refactor the column predicate framework
+    // to unify Conditions and ColumnPredicate
+    const std::vector<ColumnPredicate*>* column_predicates = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one

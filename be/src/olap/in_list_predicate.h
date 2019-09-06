@@ -33,8 +33,8 @@ public: \
     CLASS(int column_id, std::set<type>&& values); \
     virtual ~CLASS() {} \
     virtual void evaluate(VectorizedRowBatch* batch) const override; \
+    void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const override; \
 private: \
-    int32_t _column_id; \
     std::set<type> _values; \
 }; \
 

@@ -204,7 +204,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     // And then copy the strings corresponding to the codewords to the destination buffer
     TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_INT);
     // the data in page is not null
-    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena());
+    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena(), *n);
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {

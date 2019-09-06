@@ -64,6 +64,7 @@ Status AutoIncrementIterator::init(const StorageReadOptions& opts) {
 
 Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     int row_idx = 0;
+    block->selection_vector()->set_all_true();
     while (row_idx < block->capacity() && _rows_returned < _num_rows) {
         RowBlockRow row = block->row(row_idx);
 
@@ -148,22 +149,24 @@ private:
     RowBlockV2 _block;
 
     bool _valid = false;
-    size_t _index_in_block = 0;
+    size_t _index_in_block = -1;
 };
 
 Status MergeIteratorContext::init(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(_load_next_block());
+    RETURN_IF_ERROR(advance());
     return Status::OK();
 }
 
 Status MergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
-    _index_in_block++;
     do {
+        _index_in_block++;
         for (; _index_in_block < _block.num_rows(); ++_index_in_block) {
-            // TODO(zc): we can skip rows that is fitered by conjunts here
-            // Now we return directly
+            if (!_block.is_row_selected(_index_in_block)) {
+                continue;
+            }
             return Status::OK();
         }
         // current batch has no data, load next batch
@@ -186,7 +189,7 @@ Status MergeIteratorContext::_load_next_block() {
             }
         }
     } while (_block.num_rows() == 0);
-    _index_in_block = 0;
+    _index_in_block = -1;
     _valid = true;
     return Status::OK();
 }
@@ -266,6 +269,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         }
     }
     block->set_num_rows(row_idx);
+    block->selection_vector()->set_all_true();
     if (row_idx > 0) {
         return Status::OK();
     } else {

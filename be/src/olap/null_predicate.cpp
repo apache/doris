@@ -23,7 +23,7 @@
 namespace doris {
 
 NullPredicate::NullPredicate(int32_t column_id, bool is_null)
-    : _column_id(column_id), _is_null(is_null) {}
+    : ColumnPredicate(column_id), _is_null(is_null) {}
 
 NullPredicate::~NullPredicate() {}
 
@@ -56,6 +56,22 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
         if (new_size < n) {
             batch->set_size(new_size);
             batch->set_selected_in_use(true);
+        }
+    }
+}
+
+void NullPredicate::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const {
+    if (!block->is_nullable() && _is_null) {
+        selector_vector->set_all_false();
+        return;
+    }
+    for (int i = 0; i < block->nrows(); ++i) {
+        if (!selector_vector->is_row_selected(i)) {
+            continue;
+        }
+
+        if (block->cell(i).is_null() != _is_null) {
+            selector_vector->clear_bit(i);
         }
     }
 }

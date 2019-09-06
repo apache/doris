@@ -25,7 +25,7 @@ namespace doris {
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS) \
 template<class type> \
 CLASS<type>::CLASS(int column_id, std::set<type>&& values) \
-    : _column_id(column_id), \
+    : ColumnPredicate(column_id), \
       _values(std::move(values)) {} \
 
 IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
@@ -84,6 +84,29 @@ void CLASS<type>::evaluate(VectorizedRowBatch* batch) const { \
 IN_LIST_PRED_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
+    template<class type> \
+    void CLASS<type>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const { \
+        for (int i = 0; i < block->nrows(); ++i) { \
+            if (!selector_vector->is_row_selected(i)) { \
+                    continue; \
+            } \
+            if (block->is_nullable()) { \
+                if (block->cell(i).is_null()) { \
+                    selector_vector->clear_bit(i); \
+                    continue; \
+                } \
+            } \
+            const type* col_vector = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
+            if ((_values.find(*col_vector) OP _values.end())) { \
+                selector_vector->clear_bit(i); \
+            } \
+        } \
+    } \
+
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, ==)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, !=)
+
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
     template CLASS<int8_t>::CLASS(int column_id, std::set<int8_t>&& values); \
     template CLASS<int16_t>::CLASS(int column_id, std::set<int16_t>&& values); \
@@ -112,6 +135,19 @@ IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
     template void CLASS<StringValue>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const; \
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS) \
+    template void CLASS<int8_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<int16_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<int32_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<int64_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<int128_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<float>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<double>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<StringValue>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
+    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
 
 IN_LIST_PRED_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)

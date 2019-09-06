@@ -30,7 +30,8 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
     : _schema(schema),
       _capacity(capacity),
       _column_datas(_schema.num_columns(), nullptr),
-      _column_null_bitmaps(_schema.num_columns(), nullptr) {
+      _column_null_bitmaps(_schema.num_columns(), nullptr),
+      _selection_vector(_capacity) {
     auto bitmap_size = BitmapSize(capacity);
     for (auto cid : _schema.column_ids()) {
         size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;

@@ -26,6 +26,7 @@
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/short_key_index.h"
+#include "olap/column_predicate.h"
 
 using strings::Substitute;
 
@@ -310,33 +311,48 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         block->set_num_rows(0);
         return Status::EndOfFile("no more data in segment");
     }
-    size_t rows_to_read = block->capacity();
-    while (rows_to_read > 0) {
-        if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
-            // current row range is read over, trying to read from next range
-            if (_cur_range_id >= _row_ranges.range_size() - 1) {
-                // there is no more row range
-                break;
-            }
+    // initialize selection vector to all true
+    block->selection_vector()->set_all_true();
+
+    // check whether need to seek
+    if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
+        while (true) {
             // step to next row range
             ++_cur_range_id;
-            _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
+            // current row range is read over, trying to read from next range
+            if (_cur_range_id >= _row_ranges.range_size() - 1) {
+                block->set_num_rows(0);
+                return Status::EndOfFile("no more data in segment");
+            }
             if (_row_ranges.get_range_count(_cur_range_id) == 0) {
                 // current row range is empty, just skip seek
                 continue;
             }
+            _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
             for (auto cid : block->schema()->column_ids()) {
                 RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_cur_rowid));
             }
+            break;
         }
-        size_t to_read_in_range = std::min(rows_to_read, size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
-        RETURN_IF_ERROR(_next_batch(block, &to_read_in_range));
-        _cur_rowid += to_read_in_range;
-        rows_to_read -= to_read_in_range;
     }
-    block->set_num_rows(block->capacity() - rows_to_read);
+    // next_batch just return the rows in current row range
+    // it is easier to realize lazy materialization in the future
+    size_t rows_to_read = std::min(block->capacity(), size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
+    RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
+    _cur_rowid += rows_to_read;
+    block->set_num_rows(rows_to_read);
+
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
+    }
+    // column predicate vectorization execution
+    // TODO(hkp): lazy materialization
+    // TODO(hkp): optimize column predicate to check column block once for one column
+    if (_opts.column_predicates != nullptr) {
+        for (auto column_predicate : *_opts.column_predicates) {
+            auto column_block = block->column_block(column_predicate->column_id());
+            column_predicate->evaluate(&column_block, block->selection_vector());
+        }
     }
     return Status::OK();
 }

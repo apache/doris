@@ -15,34 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_PREDICATE_H
-#define DORIS_BE_SRC_OLAP_COLUMN_PREDICATE_H
+#include <gtest/gtest.h>
 
-#include "olap/column_block.h"
 #include "olap/selection_vector.h"
 
 namespace doris {
 
-class VectorizedRowBatch;
+class SelectionVectorTest : public testing::Test {
 
-class ColumnPredicate {
-public:
-    ColumnPredicate(int32_t column_id) : _column_id(column_id) { }
-
-    virtual ~ColumnPredicate() {}
-
-    //evaluate predicate on VectorizedRowBatch
-    virtual void evaluate(VectorizedRowBatch* batch) const = 0;
-
-    // evaluate predicate on ColumnBlock
-    virtual void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const = 0;
-
-    int32_t column_id() { return _column_id; }
-
-protected:
-    int32_t _column_id;
 };
 
-} //namespace doris
+TEST_F(SelectionVectorTest, Normal) {
+    SelectionVector sel_vel(10);
+    ASSERT_EQ(10, sel_vel.nrows());
+    sel_vel.set_all_true();
+    ASSERT_EQ("   0: 11111111 11 \n", sel_vel.to_string());
+    sel_vel.set_all_false();
+    ASSERT_EQ("   0: 00000000 00 \n", sel_vel.to_string());
+    sel_vel.set_row_selected(7);
+    ASSERT_TRUE(sel_vel.is_row_selected(7));
+    ASSERT_TRUE(sel_vel.any_selected());
+    ASSERT_EQ("   0: 00000001 00 \n", sel_vel.to_string());
+    sel_vel.clear_bit(7);
+    ASSERT_EQ("   0: 00000000 00 \n", sel_vel.to_string());
+}
 
-#endif //DORIS_BE_SRC_OLAP_COLUMN_PREDICATE_H
+}
+
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
+

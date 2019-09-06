@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
 #define DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
 
-#include <stdint.h>
 #include "olap/column_predicate.h"
 
 namespace doris {
@@ -31,8 +30,10 @@ public:
     virtual ~NullPredicate();
 
     virtual void evaluate(VectorizedRowBatch* batch) const override;
+
+    void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const override;
+
 private:
-    int32_t _column_id;
     bool _is_null; //true for null, false for not null
 };
 

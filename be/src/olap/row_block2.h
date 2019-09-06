@@ -25,6 +25,7 @@
 #include "olap/column_block.h"
 #include "olap/schema.h"
 #include "olap/types.h"
+#include "olap/selection_vector.h"
 
 namespace doris {
 
@@ -67,12 +68,20 @@ public:
         const TypeInfo* type_info = _schema.column(cid)->type_info();
         uint8_t* data = _column_datas[cid];
         uint8_t* null_bitmap = _column_null_bitmaps[cid];
-        return ColumnBlock(type_info, data, null_bitmap, _arena.get());
+        return ColumnBlock(type_info, data, null_bitmap, _arena.get(), _capacity);
     }
 
     RowBlockRow row(size_t row_idx) const;
 
     const Schema* schema() const { return &_schema; }
+
+    SelectionVector* selection_vector() {
+        return &_selection_vector;
+    }
+
+    bool is_row_selected(size_t idx) const {
+        return _selection_vector.is_row_selected(idx);
+    }
 
 private:
     Schema _schema;
@@ -88,6 +97,11 @@ private:
     size_t _num_rows;
     // manages the memory for slice's data
     std::unique_ptr<Arena> _arena;
+
+    // The bitmap indicating which rows are valid in this block.
+    // Deleted rows or rows which have failed to pass predicates will be zeroed
+    // in the bitmap, and thus not returned to the end user.
+    SelectionVector _selection_vector;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

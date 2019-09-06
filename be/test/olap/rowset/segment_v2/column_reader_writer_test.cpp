@@ -114,7 +114,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             Arena arena;
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena, 1024);
 
             int idx = 0;
             while (true) {
@@ -140,7 +140,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             Arena arena;
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena, 1024);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);

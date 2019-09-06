@@ -74,7 +74,7 @@ public:
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
-        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena, size);
         ColumnBlockView block_view(&column_block);
 
         status = page_decoder.next_batch(&size, &block_view);
@@ -164,7 +164,7 @@ public:
             Arena arena;
             TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
             Slice* values = reinterpret_cast<Slice*>(arena.Allocate(sizeof(Slice)));
-            ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+            ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena, 1);
             ColumnBlockView block_view(&column_block);
 
             size_t num = 1;

@@ -33,8 +33,8 @@ class ColumnBlockCell;
 // It doesn't own any data, user should keep the life of input data.
 class ColumnBlock {
 public:
-    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap, Arena* arena)
-        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap), _arena(arena) { }
+    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap, Arena* arena, size_t nrows)
+        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap), _arena(arena), _nrows(nrows) { }
 
     const TypeInfo* type_info() const { return _type_info; }
     uint8_t* data() const { return _data; }
@@ -53,11 +53,15 @@ public:
     }
 
     ColumnBlockCell cell(size_t idx) const;
+
+    size_t nrows() { return _nrows; }
+
 private:
     const TypeInfo* _type_info;
     uint8_t* _data;
     uint8_t* _null_bitmap;
     Arena* _arena;
+    size_t _nrows;
 };
 
 struct ColumnBlockCell {

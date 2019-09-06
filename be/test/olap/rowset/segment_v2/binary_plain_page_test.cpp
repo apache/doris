@@ -65,7 +65,7 @@ public:
 
         Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
         uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, &arena, size);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
@@ -78,7 +78,7 @@ public:
         ASSERT_EQ ("Doris", value[2].to_string());
         
         Slice* values2 = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
-        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, &arena);
+        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, &arena, 1);
         ColumnBlockView column_block_view2(&block2);
 
         size_t fetch_num = 1;

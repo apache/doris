@@ -113,6 +113,8 @@ inline bool BitmapEquals(const uint8_t* bm1, const uint8_t* bm2, size_t bitmap_s
     return (bm1[num_full_bytes] & mask) == (bm2[num_full_bytes] & mask);
 }
 
+std::string BitmapToString(const uint8_t *bitmap, size_t num_bits);
+
 // Iterator which yields ranges of set and unset bits.
 // Example usage:
 //   bool value;
