@@ -89,18 +89,12 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const R
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    if (status == OLAP_SUCCESS) {
-        StorageEngine::instance()->release_rowset_id(rowset_id);
-    }
     return status;
 }
 
 OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, const string& meta_binary) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
-    if (status == OLAP_SUCCESS) {
-        StorageEngine::instance()->release_rowset_id(rowset_id);
-    }
     return status;
 }
 

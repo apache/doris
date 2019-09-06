@@ -962,18 +962,9 @@ void DataDir::perform_path_gc_by_rowsetid() {
             if (is_rowset_file) {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet != nullptr) {
-                    bool valid = tablet->check_rowset_id(rowset_id);
-                    if (!valid) {
-                        // if the rowset id is in using rowset set
-                        // and the rowsetid is not in unused_rowsets
-                        // and the rowsetid is not in committed rowsets
-                        // then delete the path.
-                        // TODO(ygl): check rowset id
-                        if (!StorageEngine::instance()->rowset_id_in_use(rowset_id)
-                                && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)
-                                && !RowsetMetaManager::check_rowset_meta(_meta, tablet->tablet_uid(), rowset_id)) {
-                            _process_garbage_path(path);
-                        }
+                    if (!tablet->check_rowset_id(rowset_id) 
+                        && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
+                        _process_garbage_path(path);
                     }
                 }
             }
