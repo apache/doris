@@ -84,7 +84,7 @@ public class RollupJobV2Test {
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_60);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_61);
         metaContext.setThreadLocalInfo();
         // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);

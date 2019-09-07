@@ -913,7 +913,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 authorizationInfo.readFields(in);
             }
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
             timezone = Text.readString(in);
         }
     }
