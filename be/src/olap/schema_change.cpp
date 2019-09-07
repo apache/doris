@@ -981,6 +981,7 @@ bool SchemaChangeWithSorting::process(
 
             row_block_arr.push_back(new_row_block);
         } else {
+            LOG(INFO) << "new block num rows is: " << new_row_block->row_block_info().row_num;
             _row_block_allocator->release(new_row_block);
             new_row_block = nullptr;
         }
@@ -1348,7 +1349,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", drop new_tablet=" << new_tablet->full_name();
         // do not drop the new tablet and its data. GC thread will 
-        // StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
     }
 
     return res;

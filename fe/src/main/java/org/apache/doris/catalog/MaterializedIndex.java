@@ -37,7 +37,9 @@ import java.util.Map.Entry;
 public class MaterializedIndex extends MetaObject implements Writable {
     public enum IndexState {
         NORMAL,
+        @Deprecated
         ROLLUP,
+        @Deprecated
         SCHEMA_CHANGE,
         SHADOW; // index in SHADOW state is visible to load process, but invisible to query
 

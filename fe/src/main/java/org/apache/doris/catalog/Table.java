@@ -273,9 +273,10 @@ public class Table extends MetaObject implements Writable {
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
-     * 3. if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
+     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
      *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
      *      TabletScheduler).
+     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */
     public boolean needSchedule() {
         if (type != TableType.OLAP) {
@@ -283,7 +284,7 @@ public class Table extends MetaObject implements Writable {
         }
 
         OlapTable olapTable = (OlapTable) this;
-        
+
         if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;

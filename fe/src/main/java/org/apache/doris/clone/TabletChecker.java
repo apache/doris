@@ -209,12 +209,9 @@ public class TabletChecker extends Daemon {
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
                         /*
-                         * Here we get all ALL indexes, including SHADOW indexes.
-                         * SHADOW index should be treated as a special NORMAL index.
-                         * It can be repaired, but CAN NOT be balanced, added or removed.
-                         * The above restrictions will be checked in tablet scheduler.
+                         * Tablet in SHADOW index can not be repaired of balanced
                          */
-                        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
                                 

@@ -304,7 +304,7 @@ public class RollupHandler extends AlterHandler {
 
         /*
          * create all rollup indexes. and set state.
-         * After setting, Tables' state will be RO
+         * After setting, Tables' state will be ROLLUP
          */
         for (Partition partition : olapTable.getPartitions()) {
             long partitionId = partition.getId();
