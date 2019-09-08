@@ -354,6 +354,26 @@ public class RollupJobV2 extends AlterJobV2 {
     @Override
     protected void runRunningJob() {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
+        // must check if db or table still exist first.
+        // or if table is dropped, the tasks will never be finished,
+        // and the job will be in RUNNING state forever.
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            cancelImpl("Databasee " + dbId + " does not exist");
+            return;
+        }
+
+        db.readLock();
+        try {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl == null) {
+                cancelImpl("Table " + tableId + " does not exist");
+                return;
+            }
+        } finally {
+            db.readUnlock();
+        }
+
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
             return;
@@ -363,12 +383,6 @@ public class RollupJobV2 extends AlterJobV2 {
          * all tasks are finished. check the integrity.
          * we just check whether all rollup replicas are healthy.
          */
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            cancelImpl("Databasee " + dbId + " does not exist");
-            return;
-        }
-
         db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
