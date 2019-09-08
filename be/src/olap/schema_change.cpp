@@ -1015,8 +1015,15 @@ bool SchemaChangeWithSorting::process(
         ++_temp_delta_versions.second;
     }
 
-    // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(src_rowsets, new_rowset_writer, new_tablet)) {
+    if (src_rowsets.empty()) {
+        res = new_rowset_writer->flush();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "create empty version for schema change failed."
+                         << " version=" << new_rowset_writer->version().first
+                         << "-" << new_rowset_writer->version().second;
+            return false;
+        }
+    } else if (!_external_sorting(src_rowsets, new_rowset_writer, new_tablet)) {
         LOG(WARNING) << "failed to sorting externally.";
         result = false;
         goto SORTING_PROCESS_ERR;
