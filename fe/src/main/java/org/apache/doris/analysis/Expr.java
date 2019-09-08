@@ -1084,6 +1084,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    public boolean isBound(List<SlotId> slotIds) {
+        final List<TupleId> exprTupleIds = Lists.newArrayList();
+        final List<SlotId> exprSlotIds = Lists.newArrayList();
+        getIds(exprTupleIds, exprSlotIds);
+        return !exprSlotIds.retainAll(slotIds);
+    }
+
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
