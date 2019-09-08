@@ -84,7 +84,7 @@ int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
     return 0;
 }
 
-// This function is only used to do index compaare, currently it is only used in
+// This function is only used to do index compare, currently it is only used in
 // OlapIndex to compare input key with short key item, and both of two only
 // contain key column ids in row's Schema.
 //
