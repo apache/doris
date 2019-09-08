@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.transaction.TransactionStatus;
+
 /*
  * Author: Chenmingyu
  * Date: Jan 16, 2019
@@ -26,11 +28,23 @@ public class LabelAlreadyUsedException extends DdlException {
 
     private static final long serialVersionUID = -6798925248765094813L;
 
+    // status of existing transaction
+    private TransactionStatus txnStatus;
+
     public LabelAlreadyUsedException(String label) {
         super("Label [" + label + "] has already been used.");
     }
 
+    public LabelAlreadyUsedException(String label, TransactionStatus txnStatus) {
+        super("Label [" + label + "] has already been used.");
+        this.txnStatus = txnStatus;
+    }
+
     public LabelAlreadyUsedException(String label, String subLabel) {
         super("Sub label [" + subLabel + "] has already been used.");
+    }
+
+    public TransactionStatus getTxnStatus() {
+        return txnStatus;
     }
 }

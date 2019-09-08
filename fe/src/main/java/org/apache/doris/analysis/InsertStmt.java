@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -81,6 +82,7 @@ public class InsertStmt extends DdlStmt {
     public static final String SHUFFLE_HINT = "SHUFFLE";
     public static final String NOSHUFFLE_HINT = "NOSHUFFLE";
     public static final String STREAMING = "STREAMING";
+    public static final String IMSERT_LABEL = "LABEL:";
 
     private final TableName tblName;
     private final Set<String> targetPartitions;
@@ -89,6 +91,7 @@ public class InsertStmt extends DdlStmt {
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
+    private String label = null;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -205,6 +208,14 @@ public class InsertStmt extends DdlStmt {
 
     public boolean isStreaming() {
         return isStreaming;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public boolean hasLabel() {
+        return label != null;
     }
 
     // Only valid when this statement is streaming
@@ -466,6 +477,9 @@ public class InsertStmt extends DdlStmt {
                 isRepartition = Boolean.FALSE;
             } else if (STREAMING.equalsIgnoreCase(hint)) {
                 isStreaming = true;
+            } else if (hint.toUpperCase().startsWith(IMSERT_LABEL)) {
+                label = hint.substring(IMSERT_LABEL.length());
+                FeNameFormat.checkLabel(hint);
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PLAN_HINT, hint);
             }

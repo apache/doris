@@ -66,8 +66,8 @@ public class TransProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId, state.equals("running"), MAX_SHOW_ENTRIES);
-        // order by transactionId, asc
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
+        // order by transactionId, desc
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(true, 0);
         Collections.sort(infos, comparator);
         for (List<Comparable> info : infos) {
             List<String> row = new ArrayList<String>(info.size());
