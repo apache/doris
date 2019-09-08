@@ -44,7 +44,7 @@ std::string StreamLoadContext::to_json() const {
     case TStatusCode::LABEL_ALREADY_EXISTS:
         writer.String("Label Already Exists");
         writer.Key("ExistingJobStatus");
-        writer.String(existing_job_status);
+        writer.String(existing_job_status.c_str());
         break;
     default:
         writer.String("Fail");

@@ -144,12 +144,12 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
             << ctx->brief();
+        if (result.__isset.job_status) {
+            ctx->existing_job_status = result.job_status;
+        }
         return status;
     }
     ctx->txn_id = result.txnId;
-    if (result.__isset.job_status) {
-        ctx->existing_job_status = result.job_status;
-    }
     ctx->need_rollback = true;
 
     return Status::OK();

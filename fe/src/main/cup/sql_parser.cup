@@ -378,7 +378,7 @@ nonterminal AccessPrivilege privilege_type;
 nonterminal DataDescription data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
-nonterminal String label;
+nonterminal String opt_with_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
