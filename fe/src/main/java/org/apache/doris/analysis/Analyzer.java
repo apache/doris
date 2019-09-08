@@ -712,12 +712,22 @@ public class Analyzer {
         globalState.semiJoinedTupleIds.put(tid, rhsRef);
     }
 
+    public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleId);
+    }
 
-    /**
-     * Register all conjuncts in a list of predicates as Where clause conjuncts.
-     */
-    public void registerConjuncts(List<Expr> l) throws AnalysisException {
-        registerConjuncts(l, null);
+    public void registerConjuncts(List<Expr> l, TupleId tupleId) throws AnalysisException {
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        tupleIds.add(tupleId);
+        registerConjuncts(l, tupleIds);
+    }
+
+    public void registerConjunct(Expr e, List<TupleId> tupleIds) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleIds);
     }
 
     // register all conjuncts and handle constant conjuncts with ids
