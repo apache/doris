@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/rowset/segment_group.h"
+#include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
@@ -237,9 +238,9 @@ private:
         }
 
         if (COMPARATOR_LESS == comparator_enum) {
-            return helper_cursor->cmp(key) < 0;
+            return compare_row_key(*helper_cursor, key) < 0;
         } else {
-            return helper_cursor->cmp(key) > 0;
+            return compare_row_key(*helper_cursor, key) > 0;
         }
     }
 

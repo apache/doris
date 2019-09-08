@@ -311,13 +311,13 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
         // row_cursor >= key
         // 此处比较2个block的行数，是存在一种极限情况：若未找到满足的block，
         // Index模块会返回倒数第二个block，此时key可能是最后一个block的最后一行
-        while (res == OLAP_SUCCESS && row_cursor->cmp(key) < 0) {
+        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor, key) < 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     } else {
         // 找last key。返回大于这个key的第一个。也就是
         // row_cursor > key
-        while (res == OLAP_SUCCESS && row_cursor->cmp(key) <= 0) {
+        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor,key) <= 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     }
