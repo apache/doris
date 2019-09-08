@@ -495,6 +495,7 @@ struct TLoadTxnBeginRequest {
 struct TLoadTxnBeginResult {
     1: required Status.TStatus status
     2: optional i64 txnId
+    3: optional string job_status // if label already used, set status of existing job
 }
 
 // StreamLoad request, used to load a streaming to engine

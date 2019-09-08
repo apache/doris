@@ -147,6 +147,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         return status;
     }
     ctx->txn_id = result.txnId;
+    if (result.__isset.job_status) {
+        ctx->existing_job_status = result.job_status;
+    }
     ctx->need_rollback = true;
 
     return Status::OK();

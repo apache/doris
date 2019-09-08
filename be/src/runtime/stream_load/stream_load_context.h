@@ -172,6 +172,9 @@ public:
     int64_t start_nanos = 0;
     int64_t load_cost_nanos = 0;
     std::string error_url = "";
+    // if label already be used, set existing job's status here
+    // should be RUNNING or FINISHED
+    std::string existing_job_status = "";
 
     KafkaLoadInfo* kafka_info = nullptr;
 

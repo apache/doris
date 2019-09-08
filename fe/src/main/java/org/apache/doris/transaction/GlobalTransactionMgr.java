@@ -1326,7 +1326,7 @@ public class GlobalTransactionMgr {
     public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
     }
-    
+
     // this two function used to read snapshot or write snapshot
     public void write(DataOutput out) throws IOException {
         int numTransactions = idToTransactionState.size();

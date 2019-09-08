@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -114,7 +113,7 @@ public class InsertStmt extends DdlStmt {
 
     List<Column> targetColumns = Lists.newArrayList();
 
-    public InsertStmt(InsertTarget target, List<String> cols, InsertSource source, List<String> hints) {
+    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         List<String> tmpPartitions = target.getPartitions();
         if (tmpPartitions != null) {
@@ -123,9 +122,10 @@ public class InsertStmt extends DdlStmt {
         } else {
             targetPartitions = null;
         }
+        this.label = label;
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
-        targetColumnNames = cols;
+        this.targetColumnNames = cols;
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -332,8 +332,6 @@ public class InsertStmt extends DdlStmt {
             }
 
             BrokerTable brokerTable = (BrokerTable) targetTable;
-            List<String> paths = brokerTable.getPaths();
-
             if (!brokerTable.isWritable()) {
                 throw new AnalysisException("table " + brokerTable.getName()
                                                     + "is not writable. path should be an dir");
@@ -477,9 +475,6 @@ public class InsertStmt extends DdlStmt {
                 isRepartition = Boolean.FALSE;
             } else if (STREAMING.equalsIgnoreCase(hint)) {
                 isStreaming = true;
-            } else if (hint.toUpperCase().startsWith(IMSERT_LABEL)) {
-                label = hint.substring(IMSERT_LABEL.length());
-                FeNameFormat.checkLabel(hint);
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PLAN_HINT, hint);
             }
