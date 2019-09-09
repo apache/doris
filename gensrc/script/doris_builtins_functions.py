@@ -583,10 +583,10 @@ visible_functions = [
         '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
 
     #hll function
-    [['hll_cardinality'], 'BIGINT', ['HLL'],
-        '_ZN5doris16HllHashFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_6HllValE'],
+    [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
+        '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
-        '_ZN5doris16HllHashFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+        '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
 
     #bitmap function
 

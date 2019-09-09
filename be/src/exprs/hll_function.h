@@ -15,25 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
+#define DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
 
 #include "udf/udf.h"
-#include "util/hash_util.hpp"
-#include "exprs/anyval_util.h"
 
 namespace doris {
 
-class Expr;
-class TupleRow;
-
-// todo(kks): for backward compatibility, we should remove this class
-//            when doris 0.12 release
-class HllHashFunctions {
+class HllFunctions {
 public:
     static void init();
     static StringVal hll_hash(FunctionContext* ctx, const StringVal& dest_base);
-    static BigIntVal hll_cardinality(FunctionContext* ctx, const HllVal& dest_base);
+    static void hll_init(FunctionContext*, StringVal* dst);
+
+    template <typename T>
+    static void hll_update(FunctionContext*, const T& src, StringVal* dst);
+
+    static void hll_merge(FunctionContext*,const StringVal& src, StringVal* dst);
+
+    static BigIntVal hll_finalize(FunctionContext*, const StringVal& src);
+
+    static StringVal hll_serialize(FunctionContext* ctx, const StringVal& src);
+
+    static BigIntVal hll_cardinality(FunctionContext* ctx, const StringVal& src);
 };
 }
 
