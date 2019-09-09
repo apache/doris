@@ -52,8 +52,8 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // And user can create a SegmentIterator through new_iterator function.
 //
 // NOTE: This segment is used to a specified TabletSchema, when TabletSchema
-// is changed, this segemnt can not be used any more. For eample, after a schema
-// change finished, client should disalbe all cahced Segment for old TabletSchema.
+// is changed, this segment can not be used any more. For example, after a schema
+// change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
     Segment(std::string fname, uint32_t segment_id,
