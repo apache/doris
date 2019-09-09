@@ -65,12 +65,6 @@ public:
         return RowCursorCell(nullable_cell_ptr(cid));
     }
 
-    // 两个RowCurosr做比较，返回-1，0，1
-    int cmp(const RowCursor& other) const;
-
-    // index_comp
-    int index_cmp(const RowCursor& other) const;
-
     // RowCursor attach到一段连续的buf
     inline void attach(char* buf) { _fixed_buf = buf; }
 
