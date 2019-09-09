@@ -847,13 +847,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         _shutdown_tablets.push_back(tablet);
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
-
-    if (tablet->max_version().first == -1 && tablet->alter_task() == nullptr) {
-        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
-                     << "tablet=" << tablet->full_name();
-        // tablet state is invalid, drop tablet
-        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
-    }
+    // not check tablet init version because when be restarts during alter task the new tablet may be empty
 
     OLAPStatus res = tablet->init();
     if (res != OLAP_SUCCESS) {
