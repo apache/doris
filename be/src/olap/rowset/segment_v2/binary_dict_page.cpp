@@ -162,7 +162,6 @@ Status BinaryDictPageDecoder::init() {
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        // use plain page decoder to decode data
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
     } else {
         LOG(WARNING) << "invalide encoding type:" << _encoding_type;
