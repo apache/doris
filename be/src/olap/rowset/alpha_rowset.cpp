@@ -235,6 +235,11 @@ OLAPStatus AlphaRowset::split_range(
         return OLAP_ERR_INIT_FAILED;
     }
 
+    std::vector<uint32_t> cids;
+    for (uint32_t cid = 0; cid < _schema->num_short_key_columns(); ++cid) {
+        cids.push_back(cid);
+    }
+
     if (largest_segment_group->get_row_block_entry(start_pos, &entry) != OLAP_SUCCESS) {
         LOG(WARNING) << "get block entry failed.";
         return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
@@ -261,7 +266,7 @@ OLAPStatus AlphaRowset::split_range(
         }
         cur_start_key.attach(entry.data);
 
-        if (cur_start_key.cmp(last_start_key) != 0) {
+        if (!equal_row(cids, cur_start_key, last_start_key)) {
             ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
             ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
             direct_copy_row(&last_start_key, cur_start_key);
