@@ -32,12 +32,13 @@ StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     const int HLL_SINGLE_VALUE_SIZE = 10;
     const int HLL_EMPTY_SIZE = 1;
     std::string buf;
-    std::unique_ptr<HyperLogLog> hll {new HyperLogLog()};
+    std::unique_ptr<HyperLogLog> hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
         hll.reset(new HyperLogLog(hash_value));
         buf.resize(HLL_SINGLE_VALUE_SIZE);
     } else {
+        hll.reset(new HyperLogLog());
         buf.resize(HLL_EMPTY_SIZE);
     }
     hll->serialize((char*)buf.c_str());
