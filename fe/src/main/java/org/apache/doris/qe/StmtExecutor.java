@@ -593,6 +593,12 @@ public class StmtExecutor {
 
         long createTime = System.currentTimeMillis();
         UUID uuid = UUID.randomUUID();
+        String label = insertStmt.getLabel();
+        if (label == null) {
+            // if label is not set, use the uuid as label
+            label = uuid.toString();
+        }
+
         Throwable throwable = null;
 
         long loadedRows = 0;
@@ -659,7 +665,7 @@ public class StmtExecutor {
                     5000);
         } catch (Throwable t) {
             // if any throwable being thrown during insert operation, first we should abort this txn
-            LOG.warn("handle insert stmt fail: {}", DebugUtil.printId(uuid), t);
+            LOG.warn("handle insert stmt fail: {}", label, t);
             try {
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
                         insertStmt.getTransactionId(),
@@ -670,8 +676,9 @@ public class StmtExecutor {
                 LOG.warn("errors when abort txn", abortTxnException);
             }
 
-            if (!Config.using_old_load_usage_pattern) {
-                // if not using old usage pattern, the exception will be thrown to user directly without a label
+            if (!Config.using_old_load_usage_pattern && !insertStmt.hasLabel()) {
+                // if not using old usage pattern, or user not specify label,
+                // the exception will be thrown to user directly without a label
                 StringBuilder sb = new StringBuilder(t.getMessage());
                 if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
                     sb.append(". url: " + coord.getTrackingUrl());
@@ -692,10 +699,11 @@ public class StmtExecutor {
         // 1. NOT a streaming insert(deprecated)
         // 2. using_old_load_usage_pattern is set to true, means a label will be returned for user to show load.
         // 3. has filtered rows. so a label should be returned for user to show
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0) {
+        // 4. user specify a label for insert stmt
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0 || insertStmt.hasLabel()) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
-                        uuid.toString(),
+                        label,
                         insertStmt.getDb(),
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
@@ -712,7 +720,7 @@ public class StmtExecutor {
 
             // set to OK, which means the insert load job is successfully submitted.
             // and user can check the job's status by label.
-            context.getState().setOk(loadedRows, filteredRows, "{'label':'" + uuid.toString() + "'}");
+            context.getState().setOk(loadedRows, filteredRows, "{'label':'" + label + "'}");
         } else {
             // just return OK without label, which means this job is successfully done without any error
             Preconditions.checkState(loadedRows > 0 && filteredRows == 0);

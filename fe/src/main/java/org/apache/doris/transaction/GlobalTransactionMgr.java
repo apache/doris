@@ -145,16 +145,16 @@ public class GlobalTransactionMgr {
             FeNameFormat.checkLabel(label);
             Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
             if (txnLabels != null && txnLabels.containsKey(label)) {
+                TransactionState existTxn = getTransactionState(txnLabels.get(label));
                 // check timestamp
                 if (requestId != null) {
-                    TransactionState existTxn = getTransactionState(txnLabels.get(label));
                     if (existTxn != null && existTxn.getTransactionStatus() == TransactionStatus.PREPARE
                             && existTxn.getRequsetId() != null && existTxn.getRequsetId().equals(requestId)) {
                         // this may be a retry request for same job, just return existing txn id.
                         return txnLabels.get(label);
                     }
                 }
-                throw new LabelAlreadyUsedException(label);
+                throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
             }
             if (runningTxnNums.get(dbId) != null
                     && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
@@ -1326,7 +1326,7 @@ public class GlobalTransactionMgr {
     public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
     }
-    
+
     // this two function used to read snapshot or write snapshot
     public void write(DataOutput out) throws IOException {
         int numTransactions = idToTransactionState.size();
