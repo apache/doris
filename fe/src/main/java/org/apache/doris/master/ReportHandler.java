@@ -135,23 +135,23 @@ public class ReportHandler extends Daemon {
         String reportType = "";
         if (request.isSetTasks()) {
             tasks = request.getTasks();
-            reportType += " task";
+            reportType += "task";
         }
         
         if (request.isSetDisks()) {
             disks = request.getDisks();
-            reportType += " disk";
+            reportType += "disk";
         }
         
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReport_version();
-            reportType += " tablet";
+            reportType += "tablet";
         } else if (request.isSetTablet_list()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTablet_list());
             reportVersion = request.getReport_version();
-            reportType += " tablet";
+            reportType += "tablet";
         }
         
         if (request.isSetForce_recovery()) {
