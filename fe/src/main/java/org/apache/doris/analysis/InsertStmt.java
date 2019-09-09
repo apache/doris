@@ -81,7 +81,6 @@ public class InsertStmt extends DdlStmt {
     public static final String SHUFFLE_HINT = "SHUFFLE";
     public static final String NOSHUFFLE_HINT = "NOSHUFFLE";
     public static final String STREAMING = "STREAMING";
-    public static final String IMSERT_LABEL = "LABEL:";
 
     private final TableName tblName;
     private final Set<String> targetPartitions;
