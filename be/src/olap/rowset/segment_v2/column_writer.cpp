@@ -129,8 +129,8 @@ Status ColumnWriter::append(const void* data, size_t num_rows) {
     return _append_data((const uint8_t**)&data, num_rows);
 }
 
-// append data to page builder. this funciton will make sure that
-// num_rows must be written before return. And ptr will be modifed
+// append data to page builder. this function will make sure that
+// num_rows must be written before return. And ptr will be modified
 // to next data should be written
 Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
@@ -247,7 +247,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
 
-    // Put compressor out of if block, because we should use compressor's
+    // Put compressor out of if block, because we will use compressor's
     // content until this function finished.
     PageCompressor compressor(_compress_codec);
     if (_compress_codec != nullptr) {

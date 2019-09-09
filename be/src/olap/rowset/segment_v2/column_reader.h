@@ -46,12 +46,10 @@ class ParsedPage;
 class ColumnIterator;
 
 struct ColumnReaderOptions {
-    // If verify checksum when read page
+    // whether verify checksum when read page
     bool verify_checksum = true;
 };
 
-// Used to read one column's data. And user should pass ColumnData meta
-// when he want to read this column's data.
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
@@ -91,10 +89,7 @@ private:
     void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
-    // input param
     ColumnReaderOptions _opts;
-    // we need colun data to parse column data.
-    // use shared_ptr here is to make things simple
     ColumnMetaPB _meta;
     uint64_t _num_rows;
     RandomAccessFile* _file = nullptr;
@@ -130,8 +125,7 @@ public:
     // from Arena
     virtual Status next_batch(size_t* n, ColumnBlock* dst) = 0;
 
-    // Get current oridinal
-    virtual rowid_t get_current_oridinal() const = 0;
+    virtual rowid_t get_current_ordinal() const = 0;
 
 #if 0
     // Call this function every time before next_batch.
@@ -170,8 +164,7 @@ public:
 
     Status next_batch(size_t* n, ColumnBlock* dst) override;
 
-    // Get current oridinal
-    rowid_t get_current_oridinal() const override { return _current_rowid; }
+    rowid_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
@@ -181,10 +174,10 @@ private:
 private:
     ColumnReader* _reader;
 
-    // We define an operation is one seek and follwing read.
-    // If new seek is issued, there will be a new operation
-    // current page
-    // When _page is null, it means that this reader can not be read
+    // 1. The _page represents current page.
+    // 2. We define an operation is one seek and following read,
+    //    If new seek is issued, the _page will be reset.
+    // 3. When _page is null, it means that this reader can not be read.
     std::unique_ptr<ParsedPage> _page;
 
     // page iterator used to get next page when current page is finished.

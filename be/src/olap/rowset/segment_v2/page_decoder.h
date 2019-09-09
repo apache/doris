@@ -24,7 +24,7 @@
 namespace doris {
 namespace segment_v2 {
 
-// PageDecoder is used to decode page page.
+// PageDecoder is used to decode page.
 class PageDecoder {
 public:
     PageDecoder() { }
