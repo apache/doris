@@ -378,6 +378,7 @@ nonterminal AccessPrivilege privilege_type;
 nonterminal DataDescription data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
+nonterminal String opt_with_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
@@ -2334,9 +2335,9 @@ use_stmt ::=
 
 // Insert statement
 insert_stmt ::=
-    KW_INSERT KW_INTO insert_target:target opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new InsertStmt(target, cols, source, hints);
+        RESULT = new InsertStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
@@ -2346,6 +2347,17 @@ insert_target ::=
     table_name:tbl opt_using_partition:partitions
     {:
         RESULT = new InsertTarget(tbl, partitions);
+    :}
+    ;
+
+opt_with_label ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_WITH KW_LABEL ident:label
+    {:
+        RESULT = label;
     :}
     ;
 

@@ -89,6 +89,7 @@ public class InsertStmt extends DdlStmt {
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
+    private String label = null;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -111,7 +112,7 @@ public class InsertStmt extends DdlStmt {
 
     List<Column> targetColumns = Lists.newArrayList();
 
-    public InsertStmt(InsertTarget target, List<String> cols, InsertSource source, List<String> hints) {
+    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         List<String> tmpPartitions = target.getPartitions();
         if (tmpPartitions != null) {
@@ -120,9 +121,10 @@ public class InsertStmt extends DdlStmt {
         } else {
             targetPartitions = null;
         }
+        this.label = label;
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
-        targetColumnNames = cols;
+        this.targetColumnNames = cols;
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -205,6 +207,14 @@ public class InsertStmt extends DdlStmt {
 
     public boolean isStreaming() {
         return isStreaming;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public boolean hasLabel() {
+        return label != null;
     }
 
     // Only valid when this statement is streaming
@@ -321,8 +331,6 @@ public class InsertStmt extends DdlStmt {
             }
 
             BrokerTable brokerTable = (BrokerTable) targetTable;
-            List<String> paths = brokerTable.getPaths();
-
             if (!brokerTable.isWritable()) {
                 throw new AnalysisException("table " + brokerTable.getName()
                                                     + "is not writable. path should be an dir");
