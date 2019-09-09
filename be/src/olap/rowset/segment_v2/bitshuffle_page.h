@@ -137,7 +137,6 @@ public:
 
 private:
     Slice _finish(int final_size_of_type) {
-        //_data.resize(BITSHUFFLE_PAGE_HEADER_SIZE + final_size_of_type * _count);
         _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
