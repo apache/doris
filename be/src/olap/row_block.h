@@ -78,13 +78,6 @@ public:
     // called when finished fill this row_block
     OLAPStatus finalize(uint32_t row_num);
 
-    // 根据key的值在RowBlock内部做二分查找，返回第一条对应的row_index，
-    // find_last为false，找到的lowerbound，反之对应的upperbound。
-    // _is_use_vectorized为true，则在经过向量化条件过滤的VectorizedRowBatch中查找，反之使用原始数据
-    OLAPStatus find_row(const RowCursor& key, 
-                        bool find_last, 
-                        uint32_t* row_index) const;
-
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
     const TabletSchema& tablet_schema() const { return *_schema; }
@@ -114,40 +107,6 @@ public:
     void set_block_status(uint8_t status) { _block_status = status; }
 
 private:
-    // 仿函数里，根据iterator的operator*返回的序号获取数据结构的值，
-    // 与待比较的值完成比较，less就是小于函数
-    class RowBlockComparator {
-    public:
-        RowBlockComparator(const RowBlock* container, 
-                           RowCursor* helper_cursor) :
-                _container(container),
-                _helper_cursor(helper_cursor) {}
-        ~RowBlockComparator() {}
-        
-        // less comparator
-        bool operator()(const iterator_offset_t& index, const RowCursor& key) const {
-            return _compare(index, key, COMPARATOR_LESS);
-        }
-        // larger comparator
-        bool operator()(const RowCursor& key, const iterator_offset_t& index) const {
-            return _compare(index, key, COMPARATOR_LARGER);
-        }
-
-    private:
-        bool _compare(const iterator_offset_t& index,
-                      const RowCursor& key,
-                      ComparatorEnum comparator_enum) const {
-            _container->get_row(index, _helper_cursor);
-            if (comparator_enum == COMPARATOR_LESS) {
-                return _helper_cursor->cmp(key) < 0;
-            } else {
-                return _helper_cursor->cmp(key) > 0;
-            }
-        }
-
-        const RowBlock* _container;
-        RowCursor* _helper_cursor;
-    };
 
     bool has_nullbyte() {
         return _null_supported;

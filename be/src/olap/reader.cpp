@@ -484,7 +484,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         }
 
         if (_keys_param.range.compare("gt") == 0) {
-            if (end_key != nullptr && start_key->cmp(*end_key) >= 0) {
+            if (end_key != nullptr && compare_row_key(*start_key, *end_key) >= 0) {
                 VLOG(3) << "return EOF when range=" << _keys_param.range
                         << ", start_key=" << start_key->to_string()
                         << ", end_key=" << end_key->to_string();
@@ -493,7 +493,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             }
             is_lower_key_included = true;
         } else if (_keys_param.range.compare("ge") == 0) {
-            if (end_key != nullptr && start_key->cmp(*end_key) > 0) {
+            if (end_key != nullptr && compare_row_key(*start_key, *end_key) > 0) {
                 VLOG(3) << "return EOF when range=" << _keys_param.range
                         << ", start_key=" << start_key->to_string()
                         << ", end_key=" << end_key->to_string();

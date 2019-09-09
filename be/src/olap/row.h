@@ -67,6 +67,41 @@ int compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
     return 0;
 }
 
+// Used to compare row with input scan key. Scan key only contains key columns,
+// row contains all key columns, which is superset of key columns.
+// So we should compare the common prefix columns of lhs and rhs.
+//
+// NOTE: if you are not sure if you can use it, please don't use this function.
+template<typename LhsRowType, typename RhsRowType>
+int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
+
+// This function is only used to do index compare, currently it is only used in
+// OlapIndex to compare input key with short key item, and both of two only
+// contain key column ids in row's Schema.
+//
+// NOTE: Client should assure that lhs and rhs only contain KEY column ids in its
+// Schema. Otherwise it may lead to an error.
+template<typename LhsRowType, typename RhsRowType>
+int index_compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->index_cmp(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
+
 // This function will initialize dst row with src row. For key columns, this function
 // will direct_copy source column to destination column, and for value columns, this
 // function will first initialize destination column and then update with source column

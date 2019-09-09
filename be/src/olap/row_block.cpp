@@ -69,43 +69,6 @@ OLAPStatus RowBlock::finalize(uint32_t row_num) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowBlock::find_row(const RowCursor& key,
-                              bool find_last,
-                              uint32_t* row_index) const {
-    if (row_index == NULL) {
-        OLAP_LOG_WARNING("input 'row_index' is NULL.");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    OLAPStatus res = OLAP_SUCCESS;
-    RowCursor helper_cursor;
-    if ((res = helper_cursor.init(*_schema)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Init helper cursor fail. [res=%d]", res);
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    BinarySearchIterator it_start(0u);
-    BinarySearchIterator it_end(_info.row_num);
-    BinarySearchIterator it_result(0u);
-
-    RowBlockComparator block_comparator(this, &helper_cursor);
-
-    try {
-        if (!find_last) {
-            it_result = lower_bound(it_start, it_end, key, block_comparator);
-            *row_index = *it_result;
-        } else {
-            it_result = upper_bound(it_start, it_end, key, block_comparator);
-            *row_index = *it_result;
-        }
-    } catch (exception& e) {
-        LOG(FATAL) << "exception happens. exception=" << e.what();
-        return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
-    }
-
-    return OLAP_SUCCESS;
-}
-
 void RowBlock::clear() {
     _info.row_num = _capacity;
     _info.checksum = 0;
