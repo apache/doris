@@ -65,10 +65,4 @@ add_library(Exprs
   agg_fn.cc
   new_agg_fn_evaluator.cc
   bitmap_function.cpp
-)
-#ADD_BE_TEST(json_function_test)
-#ADD_BE_TEST(binary_predicate_test)
-#ADD_BE_TEST(in_predicate_test)
-#ADD_BE_TEST(expr-test)
-#ADD_BE_TEST(hybird_set_test)
-#ADD_BE_TEST(in-predicate-test)
+  hll_function.cpp)

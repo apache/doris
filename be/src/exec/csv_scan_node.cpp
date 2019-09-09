@@ -672,14 +672,14 @@ void CsvScanNode::hll_hash(const char* src, int len, std::string* result) {
     std::string str(src, len);
     if (str != "\\N") {
         uint64_t hash = HashUtil::murmur_hash64A(src, len, HashUtil::MURMUR_SEED);
-        char buf[HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE];
+        char buf[10];
         // expliclit set
         buf[0] = HLL_DATA_EXPLICIT;
         buf[1] = 1;
         *((uint64_t*)(buf + 2)) = hash;
         *result = std::string(buf, sizeof(buf));
     } else {
-        char buf[HllHashFunctions::HLL_EMPTY_SET_SIZE];
+        char buf[1];
         // empty set
         buf[0] = HLL_DATA_EMPTY;
         *result = std::string(buf, sizeof(buf));
