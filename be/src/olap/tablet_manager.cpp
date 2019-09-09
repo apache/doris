@@ -848,6 +848,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
     // not check tablet init version because when be restarts during alter task the new tablet may be empty
+    if (tablet->max_version().first == -1 && tablet->tablet_state() == TABLET_RUNNING) {	
+        LOG(WARNING) << "tablet is in running state without delta is invalid."	
+                     << "tablet=" << tablet->full_name();	
+        // tablet state is invalid, drop tablet	
+        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;	
+    }
 
     OLAPStatus res = tablet->init();
     if (res != OLAP_SUCCESS) {
