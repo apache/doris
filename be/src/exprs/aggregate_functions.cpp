@@ -1147,14 +1147,11 @@ void AggregateFunctions::hll_update(FunctionContext* ctx, const T& src, StringVa
     }
 
     DCHECK(!dst->is_null);
-    DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
+    DCHECK_EQ(dst->len, HLL_REGISTERS_COUNT);
     uint64_t hash_value = AnyValUtil::hash64_murmur(src, HashUtil::MURMUR_SEED);
 
     if (hash_value != 0) {
-        // Use the lower bits to index into the number of streams and then
-        // find the first 1 bit after the index bits.
         int idx = hash_value % dst->len;
-        // uint8_t first_one_bit = __buiHLL_LENltin_ctzl(hash_value >> HLL_PRECISION) + 1;
         uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
         dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);
     }
@@ -1193,7 +1190,7 @@ void AggregateFunctions::hll_union_agg_update(FunctionContext* ctx,
         return;
     }
     DCHECK(!dst->is_null);
-    
+
     dst->agg_parse_and_cal(src);
     return ;
 }
@@ -1203,7 +1200,7 @@ void AggregateFunctions::hll_union_agg_merge(FunctionContext* ctx, const HllVal&
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, HLL_COLUMN_DEFAULT_LEN);
     DCHECK_EQ(src.len, HLL_COLUMN_DEFAULT_LEN);
-     
+
     dst->agg_merge(src);
 }
 
@@ -1212,25 +1209,6 @@ doris_udf::BigIntVal AggregateFunctions::hll_union_agg_finalize(doris_udf::Funct
     double estimate = hll_algorithm(src);
     BigIntVal result((int64_t)estimate);
     return result;
-}
-
-void AggregateFunctions::hll_union_agg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* slot) {
-    hll_union_agg_init(ctx, static_cast<HllVal*> (slot));
-}
-
-void AggregateFunctions::hll_union_agg_update(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
-                          doris_udf::StringVal* dst) {
-    hll_union_agg_update(ctx, static_cast<const HllVal&> (src), static_cast<HllVal*> (dst));
-}
-
-void AggregateFunctions::hll_union_agg_merge(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
-                         doris_udf::StringVal* dst) {
-    hll_union_agg_merge(ctx, static_cast<const HllVal&> (src), static_cast<HllVal*> (dst));
-}
-
-doris_udf::StringVal AggregateFunctions::hll_union_agg_finalize(doris_udf::FunctionContext* ctx, const StringVal& src) {
-    BigIntVal intVal = hll_union_agg_finalize(ctx, static_cast<const HllVal&> (src));
-    return AnyValUtil::from_string_temp(ctx, std::to_string(intVal.val));;
 }
 
 int64_t AggregateFunctions::hll_algorithm(uint8_t *pdata, int data_len) {

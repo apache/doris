@@ -770,6 +770,8 @@ struct LargeIntVal : public AnyVal {
     }
 };
 
+// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
+//            when doris 0.12 release
 struct HllVal : public StringVal {
     HllVal() : StringVal() { }
 
