@@ -33,9 +33,11 @@ Schema& Schema::operator=(const Schema& other) {
 }
 
 void Schema::copy_from(const Schema& other) {
-    _num_key_columns = other._num_key_columns;
     _col_ids = other._col_ids;
     _col_offsets = other._col_offsets;
+    _num_key_columns = other._num_key_columns;
+    _schema_size = other._schema_size;
+
     _cols.resize(other._cols.size(), nullptr);
     for (auto cid : _col_ids) {
         _cols[cid] =  other._cols[cid]->clone();
