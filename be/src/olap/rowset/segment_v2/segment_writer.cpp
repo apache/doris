@@ -60,6 +60,9 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         DCHECK(type_info != nullptr);
 
         ColumnWriterOptions opts;
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR) {
+            opts.encoding_type = DICT_ENCODING;
+        }
         opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
         // now we create zone map for key columns
         if (column.is_key()) {

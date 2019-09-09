@@ -48,23 +48,10 @@ public:
         ASSERT_EQ(slices.size(), page_builder.count());
         ASSERT_FALSE(page_builder.is_page_full());
 
-        // construct dict page
-        Slice dict_slice;
-        Status status = page_builder.get_dictionary_page(&dict_slice);
-        ASSERT_TRUE(status.ok());
-        PageDecoderOptions dict_decoder_options;
-        std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice, dict_decoder_options));
-        status = dict_page_decoder->init();
-        ASSERT_TRUE(status.ok());
-        // because every slice is unique
-        ASSERT_EQ(slices.size(), dict_page_decoder->count());
-
         // decode
         PageDecoderOptions decoder_options;
-        decoder_options.dict_decoder = dict_page_decoder;
         BinaryDictPageDecoder page_decoder(s, decoder_options);
-        status = page_decoder.init();
+        Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(slices.size(), page_decoder.count());
 
@@ -131,13 +118,7 @@ public:
         page_builder.reset();
         page_start_ids.push_back(count);
 
-        Slice dict_slice;
-        Status status = page_builder.get_dictionary_page(&dict_slice);
-        size_t data_size = total_size;
-        total_size += dict_slice.size;
-        ASSERT_TRUE(status.ok());
-        LOG(INFO) << "total size:" << total_size << ", data size:" << data_size
-                << ", dict size:" << dict_slice.size
+        LOG(INFO) << "total size:" << total_size
                 << " result page size:" << results.size();
         
         // validate
@@ -145,18 +126,11 @@ public:
         srand(time(nullptr));
         for (int i = 0; i < 100; ++i) {
             int slice_index = random() % results.size();
-            //int slice_index = 1;
-            PageDecoderOptions dict_decoder_options;
-            std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice, dict_decoder_options));
-            status = dict_page_decoder->init();
-            ASSERT_TRUE(status.ok());
 
             // decode
             PageDecoderOptions decoder_options;
-            decoder_options.dict_decoder = dict_page_decoder;
             BinaryDictPageDecoder page_decoder(results[slice_index], decoder_options);
-            status = page_decoder.init();
+            Status status = page_decoder.init();
             ASSERT_TRUE(status.ok());
 
             //check values

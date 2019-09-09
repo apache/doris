@@ -56,7 +56,7 @@ public:
         PageDecoderType page_decoder(s, decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
-        
+
         //test1
         
         size_t size = 3;
