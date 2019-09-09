@@ -353,6 +353,9 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
         return nullptr;
     }
 
+    // TODO(yiguolei)
+    // the following code is very difficult to understand because it mixed alter tablet v2 and alter tablet v1
+    // should remove alter tablet v1 code after v0.12
     OLAPStatus res = OLAP_SUCCESS;
     do {
         res = tablet->init();
@@ -360,7 +363,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
             LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
             break;
         }
-        if (!is_schema_change_tablet) {
+        if (!is_schema_change_tablet || (request.__isset.base_tablet_id && request.base_tablet_id > 0)) {
             // Create init version if this is not a restore mode replica and request.version is set
             // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
             // if (!in_restore_mode && request.__isset.version) {
@@ -370,9 +373,14 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
                 break;
             }
-        } else {
+        }
+        if (is_schema_change_tablet) {
             if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
                 LOG(INFO) << "this request is for alter tablet request v2, so that not add alter task to tablet";
+                // if this is a new alter tablet, has to set its state to not ready
+                // because schema change hanlder depends on it to check whether history data
+                // convert finished
+                tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
             } else {
                 // add alter task to new tablet if it is a new tablet during schema change
                 tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
@@ -392,16 +400,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 int64_t new_creation_time = ref_tablet->creation_time() + 1;
                 tablet->set_creation_time(new_creation_time);
             }
-        }
-        if (request.__isset.base_tablet_id) {
-            if (request.base_tablet_id < 1) {
-                LOG(FATAL) << "base tablet is set but it value=" << request.base_tablet_id;
-                
-            }
-            // if this is a new alter tablet, has to set its state to not ready
-            // because schema change hanlder depends on it to check whether history data
-            // convert finished
-            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
         }
         // Add tablet to StorageEngine will make it visiable to user
         res = _add_tablet_unlock(request.tablet_id, request.tablet_schema.schema_hash, tablet, true, false);
@@ -849,12 +847,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         _shutdown_tablets.push_back(tablet);
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
-
-    if (tablet->max_version().first == -1 && tablet->alter_task() == nullptr) {
-        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
-                     << "tablet=" << tablet->full_name();
-        // tablet state is invalid, drop tablet
-        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+    // not check tablet init version because when be restarts during alter task the new tablet may be empty
+    if (tablet->max_version().first == -1 && tablet->tablet_state() == TABLET_RUNNING) {	
+        LOG(WARNING) << "tablet is in running state without delta is invalid."	
+                     << "tablet=" << tablet->full_name();	
+        // tablet state is invalid, drop tablet	
+        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;	
     }
 
     OLAPStatus res = tablet->init();
