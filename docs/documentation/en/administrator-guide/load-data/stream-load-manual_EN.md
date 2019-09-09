@@ -125,6 +125,7 @@ Examples:
     "TxnId": 1003,
     "Label": "b6f3bc78-0d2c-45d9-9e4c-faa0a0149bee",
     "Status": "Success",
+    "ExistingJobStatus": "FINISHED", // optional
     "Message": "OK",
     "NumberTotalRows": 1000000,
     "NumberLoadedRows": 1000000,
@@ -151,6 +152,10 @@ The following main explanations are given for the Stream load import result para
 	"Label Already Exists"：Label 重复，需更换 Label。
 
 	"Fail": Import failed.
+	
++ ExistingJobStatus: The state of the load job corresponding to the existing Label.
+
+    This field is displayed only when the status is "Label Already Exists". The user can know the status of the load job corresponding to Label through this state. "RUNNING" means that the job is still executing, and "FINISHED" means that the job is successful.
 
 + Message: Import error messages.
 
