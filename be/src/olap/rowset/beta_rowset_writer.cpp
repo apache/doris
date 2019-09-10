@@ -172,7 +172,7 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
 }
 
 OLAPStatus BetaRowsetWriter::_flush_segment_writer() {
-    uint32_t segment_size;
+    uint64_t segment_size;
     auto s = _segment_writer->finalize(&segment_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();

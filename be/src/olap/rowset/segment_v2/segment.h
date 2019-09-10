@@ -75,7 +75,6 @@ private:
     uint32_t num_rows_per_block() const { return _sk_index_decoder->num_rows_per_block(); }
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
-    Status _check_magic(uint64_t offset);
     Status _parse_footer();
     Status _parse_index();
     Status _initial_column_readers();
@@ -102,7 +101,6 @@ private:
 
     SegmentFooterPB _footer;
     std::unique_ptr<RandomAccessFile> _input_file;
-    uint64_t _file_size = 0;
 
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
