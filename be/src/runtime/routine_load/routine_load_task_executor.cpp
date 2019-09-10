@@ -23,6 +23,7 @@
 #include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 #include <thread>
@@ -227,6 +228,41 @@ void RoutineLoadTaskExecutor::exec_task(
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
 
+    // commit kafka offset
+    switch (ctx->load_src_type) {
+        case TLoadSourceType::KAFKA: {
+            std::shared_ptr<DataConsumer> consumer;
+            Status st = _data_consumer_pool.get_consumer(ctx, &consumer);
+            if (!st.ok()) {
+                // Kafka Offset Commit is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st.get_error_msg();
+                break;
+            }
+
+            std::vector<RdKafka::TopicPartition*> topic_partitions;
+            for (auto& kv : ctx->kafka_info->cmt_offset) {
+                RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
+                        ctx->kafka_info->topic, kv.first, kv.second);
+                topic_partitions.push_back(tp1);
+            }
+            
+            st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->commit(topic_partitions);
+            if (!st.ok()) {
+                // Kafka Offset Commit is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st.get_error_msg();
+            }
+            _data_consumer_pool.return_consumer(consumer);
+
+            // delete TopicPartition finally
+            auto tp_deleter = [&topic_partitions] () {
+                std::for_each(topic_partitions.begin(), topic_partitions.end(),
+                    [](RdKafka::TopicPartition* tp1) { delete tp1; });
+            };
+            DeferOp delete_tp(std::bind<void>(tp_deleter));
+        }
+    }
     cb(ctx);
 }
 
