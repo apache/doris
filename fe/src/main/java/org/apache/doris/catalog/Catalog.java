@@ -1616,7 +1616,7 @@ public class Catalog {
         }
 
         // alter job v2
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
             size = dis.readInt();
             newChecksum ^= size;
             for (int i = 0; i < size; i++) {
