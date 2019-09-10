@@ -590,13 +590,15 @@ bool RowBlockMerger::merge(
         }
 
         while (!_heap.empty() && compare_row(row_cursor, *_heap.top().row_cursor) == 0) {
+            // TODO(zc): Currently we keep nullptr to indicate that this is a query path,
+            // we should fix this trick ASAP
             agg_update_row(&row_cursor, *(_heap.top().row_cursor), nullptr);
             ++tmp_merged_rows;
             if (!_pop_heap()) {
                 goto MERGE_ERR;
             }
         }
-        agg_finalize_row(&row_cursor, nullptr);
+        agg_finalize_row(&row_cursor, arena.get());
         rowset_writer->add_row(row_cursor);
 
         // the memory allocate by arena has been copied,
