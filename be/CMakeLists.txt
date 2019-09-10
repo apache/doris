@@ -290,7 +290,7 @@ execute_process(
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
-# You can check funcion here which depends on paltform. Don't forget add this
+# You can check funcion here which depends on platform. Don't forget add this
 # to be/src/common/env_config.h.in
 include(CheckFunctionExists)
 check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
