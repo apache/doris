@@ -27,7 +27,7 @@ import java.util.Objects;
 /*
  * A Tag consists of type and name.
  * Tag type and name are both case insensitive, and represented in lower case.
- * Tag is printed as "TYPE:name"
+ * Tag is printed as { "type": "name" }
  * 
  * Tag is immutable once it being created.
  */
@@ -45,15 +45,6 @@ public class Tag {
             "frontend", "backend", "broker", "remote_storage", "store", "computation", "default_cluster");
     private static final String TAG_NAME_REGEX = "^[a-z][a-z0-9_]{0,32}$";
 
-    // define some default tags
-    public static final Tag TYPE_FRONTEND = create(Type.TYPE, "frontend");
-    public static final Tag TYPE_BACKEND = create(Type.TYPE, "backend");
-    public static final Tag TYPE_BROKER = create(Type.TYPE, "broker");
-    public static final Tag TYPE_REMOTE_STORAGE = create(Type.TYPE, "remote_storage");
-    public static final Tag FUNCTION_STORE = create(Type.FUNCTION, "store");
-    public static final Tag FUNCTION_COMPUTATION = create(Type.FUNCTION, "computation");
-    public static final Tag LOCATION_DEFAULT = create(Type.LOCATION, "default_cluster");
-
     public final Type type;
     public final String tag;
 
@@ -62,21 +53,11 @@ public class Tag {
         this.tag = tag.toLowerCase();
     }
 
-    // create from format: "type:name"
-    public static Tag create(String tagFormat) throws AnalysisException {
-        String[] split = tagFormat.split(":");
-        if (split.length != 2) {
-            throw new AnalysisException("Invalid tag format: " + tagFormat);
-        }
-        return create(split[0], split[1]);
-    }
-
     public static Tag create(String typeName, String tagName) throws AnalysisException {
         try {
             Type tagType = Type.valueOf(typeName.toUpperCase());
             tagName = tagName.toLowerCase();
-            if (Strings.isNullOrEmpty(tagName) || !tagName.matches(TAG_NAME_REGEX)
-                    || RESERVED_TAG_NAMES.contains(tagName)) {
+            if (Strings.isNullOrEmpty(tagName) || !tagName.matches(TAG_NAME_REGEX)) {
                 throw new AnalysisException("Invalid tag name: " + tagName);
             }
 
@@ -107,6 +88,6 @@ public class Tag {
 
     @Override
     public String toString() {
-        return type.toString() + ":" + type;
+        return "{\"" + type.toString() + "\" : \"" + tag + "\"}";
     }
 }

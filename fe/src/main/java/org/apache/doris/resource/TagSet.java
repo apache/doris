@@ -20,17 +20,18 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
 
-import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * TagSet represents a set of tags.
- * TagSet is printed as "TYPE1:tag1,tag2#TYPE2:tag3,tag4..."
- * TagSet is immutable, each time a new tag is added or deleted, a new TagSet will be created.
- * So, this class is thread safe.
+ * TagSet is printed as { "type1" : "tag1,tag2", "type2" : "tag1" }
+ * So, this class is not thread safe.
  */
 public class TagSet {
 
@@ -46,18 +47,15 @@ public class TagSet {
         }
     }
 
-    // create TagSet from string format: "TYPE1:tag1,tag2#TYPE2:tag3,tag4..."
-    public static TagSet create(String tagsFormat) throws AnalysisException {
+    // create TagSet from tag map: { "type1" : "tag1,tag2", "type2" : "tag1" }
+    public static TagSet create(Map<String, String> tagsMap) throws AnalysisException {
         TagSet tagSet = new TagSet();
-        String[] split = tagsFormat.split("#");
-        for (String part : split) {
-            String[] tagPart = part.split(":");
-            if (tagPart.length != 2) {
-                throw new AnalysisException("Invalid tag format: " + part);
-            }
-            String[] tagNamePart = tagPart[1].split(",");
-            for (String tagName : tagNamePart) {
-                Tag tag = Tag.create(tagPart[0], tagName);
+        for (Map.Entry<String, String> entry : tagsMap.entrySet()) {
+            String typeStr = entry.getKey();
+            String tagsStr = entry.getValue();
+            String[] tagParts = tagsStr.split(",");
+            for (String tagPart : tagParts) {
+                Tag tag = Tag.create(typeStr, tagPart.trim());
                 tagSet.addTag(tag);
             }
         }
@@ -72,22 +70,12 @@ public class TagSet {
         return tagSet;
     }
 
-    public TagSet addTag(Tag tag) {
-        if (tags.contains(tag)) {
-            return this;
-        }
-        TagSet tagSet = new TagSet(this);
-        tagSet.tags.add(tag);
-        return tagSet;
+    public boolean addTag(Tag tag) {
+        return tags.add(tag);
     }
 
-    public TagSet deleteTag(Tag tag) {
-        if (!tags.contains(tag)) {
-            return this;
-        }
-        TagSet tagSet = new TagSet(this);
-        tagSet.tags.remove(tag);
-        return tagSet;
+    public boolean deleteTag(Tag tag) {
+        return tags.remove(tag);
     }
 
     // get a set of tags by tag type
@@ -115,13 +103,14 @@ public class TagSet {
 
     @Override
     public String toString() {
-        List<String> list = Lists.newArrayList();
+        Map<String, String> map = Maps.newHashMap();
+        Gson gson = new Gson();
         for (Tag.Type type : Tag.Type.values()) {
             TagSet tagSet = getTags(type);
             if (!tagSet.isEmpty()) {
-                list.add(type.toString() + ":" + Joiner.on(",").join(tagSet.getTags()));
+                map.put(type.toString(), Joiner.on(",").join(tagSet.getTags().stream().map(t -> t.tag).collect(Collectors.toList())));
             }
         }
-        return Joiner.on("#").join(list);
+        return gson.toJson(map);
     }
 }

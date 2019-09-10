@@ -41,10 +41,32 @@ public class TagManager {
         }
     }
 
+    public void addIndex(TagSet tagSet, Long resourceId) {
+        lock.writeLock().lock();
+        try {
+            for (Tag tag : tagSet.getTags()) {
+                addIndex(tag, resourceId);
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public boolean deleteIndex(Tag tag, Long resourceId) {
         lock.writeLock().lock();
         try {
             return tagIndex.remove(tag, resourceId);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteIndex(TagSet tagSet, Long resourceId) {
+        lock.writeLock().lock();
+        try {
+            for (Tag tag : tagSet.getTags()) {
+                deleteIndex(tag, resourceId);
+            }
         } finally {
             lock.writeLock().unlock();
         }
