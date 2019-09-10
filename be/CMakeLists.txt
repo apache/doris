@@ -287,6 +287,14 @@ execute_process(
   OUTPUT_VARIABLE LLVM_MODULE_LIBS
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+
+# Check if functions are supported in this platform. All flags will generated
+# in gensrc/build/common/env_config.h.
+# You can check funcion here which depends on platform. Don't forget add this
+# to be/src/common/env_config.h.in
+include(CheckFunctionExists)
+check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
+
 # compiler flags that are common across debug/release builds
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
@@ -460,7 +468,6 @@ include_directories(
     ${THIRDPARTY_DIR}/include/thrift/
     ${THIRDPARTY_DIR}/include/event/
 )
-
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
