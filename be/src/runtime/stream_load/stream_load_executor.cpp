@@ -280,7 +280,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             rl_attach.loadSourceType = TLoadSourceType::KAFKA;
 
             TKafkaRLTaskProgress kafka_progress;
-            kafka_progress.partitionCmtOffset = std::move(ctx->kafka_info->cmt_offset);
+            kafka_progress.partitionCmtOffset = ctx->kafka_info->cmt_offset;
 
             rl_attach.kafkaRLTaskProgress = std::move(kafka_progress);
             rl_attach.__isset.kafkaRLTaskProgress = true;

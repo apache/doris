@@ -304,6 +304,16 @@ Status KafkaDataConsumer::reset() {
     return Status::OK();
 }
 
+Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) {
+    RdKafka::ErrorCode err = _k_consumer->commitSync(offset);
+    if (err != RdKafka::ERR_NO_ERROR) {
+        std::stringstream ss;
+        ss << "failed to commit kafka offset : " << RdKafka::err2str(err);
+        return Status::InternalError(ss.str());                                   
+    }
+    return Status::OK();
+}
+
 // if the kafka brokers and topic are same,
 // we considered this consumer as matched, thus can be reused.
 bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
