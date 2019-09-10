@@ -262,6 +262,9 @@ void RoutineLoadTaskExecutor::exec_task(
             };
             DeferOp delete_tp(std::bind<void>(tp_deleter));
         }
+            break;
+        default:
+            return;
     }
     cb(ctx);
 }
