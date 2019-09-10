@@ -84,7 +84,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
         writer.append_row(row);
     }
 
-    uint32_t file_size = 0;
+    uint64_t file_size = 0;
     st = writer.finalize(&file_size);
     ASSERT_TRUE(st.ok());
     // reader
@@ -258,7 +258,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
         writer.append_row(row);
     }
 
-    uint32_t file_size = 0;
+    uint64_t file_size = 0;
     st = writer.finalize(&file_size);
     ASSERT_TRUE(st.ok());
 
