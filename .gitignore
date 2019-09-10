@@ -7,6 +7,7 @@ docs/build
 gensrc/build
 fe/target
 thirdparty/src
+thirdparty/installed
 *.so.tmp
 .DS_Store
 *.iml
