@@ -201,9 +201,9 @@ public class Coordinator {
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);
         } else {
-            this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());             
+            this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());
         }
         this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
                 context.getSessionVariable().getResourceGroup());
@@ -226,7 +226,7 @@ public class Coordinator {
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
-        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;
@@ -848,18 +848,39 @@ public class Coordinator {
             // be BE that fragment's scannode locates,  avoid less data.
             // chenhao added
             boolean hasUnionNode = containsUnionNode(fragment.getPlanRoot());
+
             if (!(leftMostNode instanceof ScanNode) && !hasUnionNode) {
                 // there is no leftmost scan; we assign the same hosts as those of our
                 // leftmost input fragment (so that a partitioned aggregation
                 // fragment runs on the hosts that provide the input data)
                 PlanFragmentId inputFragmentIdx =
-                    fragments.get(i).getChild(0).getFragmentId();
+                        fragments.get(i).getChild(0).getFragmentId();
                 // AddAll() soft copy()
-                for (FInstanceExecParam execParams 
-                        : fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 
-                            0, params);
-                    params.instanceExecParams.add(instanceParam);
+                int doris_exchange_instances= -1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    doris_exchange_instances = ConnectContext.get().getSessionVariable().getDorisExchangeInstances();
+                }
+                if (doris_exchange_instances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > doris_exchange_instances) {
+                    // random select some instance
+                    List<TNetworkAddress> hosts = Lists.newArrayList();
+                    Set<String> cache = new HashSet<String>();
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                        String hostPort = execParams.host.getHostname() + execParams.host.getPort();
+                        if (!cache.contains(hostPort)) {
+                            hosts.add(execParams.host);
+                            cache.add(hostPort);
+                        }
+                    }
+
+                    for (int index = 0; index < doris_exchange_instances; index++) {
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()),0, params);
+                        params.instanceExecParams.add(instanceParam);
+                    }
+                } else {
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host,0, params);
+                        params.instanceExecParams.add(instanceParam);
+                    }
                 }
 
                 // When group by cardinality is smaller than number of backend, only some backends always
@@ -1159,7 +1180,7 @@ public class Coordinator {
                 updateCommitInfos(params.getCommitInfos());
             }
             profileDoneSignal.markedCountDown(params.getFragment_instance_id(), -1L);
-        } 
+        }
 
         if (params.isSetLoaded_rows()) {
             Catalog.getCurrentCatalog().getLoadManager().updateJobLoadedRows(jobId, params.query_id, params.loaded_rows);
@@ -1310,7 +1331,7 @@ public class Coordinator {
         public List<PlanFragmentId> inputFragments = Lists.newArrayList();
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
-        
+
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
         }

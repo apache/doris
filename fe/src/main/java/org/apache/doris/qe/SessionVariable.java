@@ -73,6 +73,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // user can set instance num after exchange, no need to be equal to nums of before exchange
+    public static final String DORIS_SHUFFLE_PARTITIONS= "doris_exchange_instances";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -157,6 +159,9 @@ public class SessionVariable implements Serializable, Writable {
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE)
     private String timeZone = "CST";
+
+    @VariableMgr.VarAttr(name = DORIS_SHUFFLE_PARTITIONS)
+    private int dorisExchangeInstances = -1;
 
     // The current time zone
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
@@ -428,6 +433,10 @@ public class SessionVariable implements Serializable, Writable {
         return parallelExecInstanceNum;
     }
 
+    public int getDorisExchangeInstances() {
+        return dorisExchangeInstances;
+    }
+
     public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
         if (parallelExecInstanceNum < MIN_EXEC_INSTANCE_NUM) {
             this.parallelExecInstanceNum = MIN_EXEC_INSTANCE_NUM;
@@ -441,7 +450,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean getEnableInsertStrict() { return enableInsertStrict; }
     public void setEnableInsertStrict(boolean enableInsertStrict) { this.enableInsertStrict = enableInsertStrict; }
 
-    
+
    // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
@@ -456,13 +465,13 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);
-        
+
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMin_reservation(0);
         tResult.setMax_reservation(maxExecMemByte);
-        tResult.setInitial_reservation_total_claims(maxExecMemByte); 
+        tResult.setInitial_reservation_total_claims(maxExecMemByte);
         tResult.setBuffer_pool_limit(maxExecMemByte);
- 
+
         tResult.setQuery_timeout(queryTimeoutS);
         tResult.setIs_report_success(isReportSucc);
         tResult.setCodegen_level(codegenLevel);
@@ -502,8 +511,9 @@ public class SessionVariable implements Serializable, Writable {
         out.writeLong(maxExecMemByte);
         Text.writeString(out, collationServer);
         out.writeInt(batchSize);
-        out.writeBoolean(disableStreamPreaggregations); 
+        out.writeBoolean(disableStreamPreaggregations);
         out.writeInt(parallelExecInstanceNum);
+        out.writeInt(dorisExchangeInstances);
     }
 
     @Override
@@ -542,5 +552,9 @@ public class SessionVariable implements Serializable, Writable {
             disableStreamPreaggregations = in.readBoolean();
             parallelExecInstanceNum = in.readInt();
         }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.Version_61) {
+            dorisExchangeInstances = in.readInt();
+        }
+
     }
 }
