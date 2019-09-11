@@ -110,11 +110,11 @@ struct BatchGetRowsetMetaReq {
 }
 
 struct SaveTabletMetaResponse {
-    1: optional bool is_success
+    1: optional Status.TStatus status
 }
 
 struct BatchSaveTabletMetaResponse {
-    1: optional list<SaveTabletMetaResponse> reps
+    1: optional list<SaveTabletMetaResponse> resps
 }
 
 struct GetTabletMetaResponse {
@@ -125,7 +125,7 @@ struct GetTabletMetaResponse {
 }
 
 struct BatchGetTabletMetaResponse {
-    1: optional list<GetTabletMetaResponse> reps
+    1: optional list<GetTabletMetaResponse> resps
 }
 
 struct SaveRowsetMetaResponse {
@@ -133,7 +133,7 @@ struct SaveRowsetMetaResponse {
 }
 
 struct BatchSaveRowsetMetaResponse {
-    1: optional list<SaveRowsetMetaResponse> reps
+    1: optional list<SaveRowsetMetaResponse> resps
 }
 
 struct GetRowsetMetaResponse {
@@ -142,7 +142,7 @@ struct GetRowsetMetaResponse {
 }
 
 struct BatchGetRowsetMetaResponse {
-    1: optional list<GetRowsetMetaResponse> reps
+    1: optional list<GetRowsetMetaResponse> resps
 }
 
 // currently there are only batch interfaces
