@@ -406,6 +406,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
 
         dst_slice->size = sizeof(HyperLogLog);
+        // use 'placement new' to allocate HyperLogLog on arena, so that we can control the memory usage.
         char* mem = arena->Allocate(dst_slice->size);
         dst_slice->data = (char*) new (mem) HyperLogLog(src_slice->data);
     }
@@ -424,7 +425,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         } else {   // for stream load
             auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
             dst_hll->merge(*src_hll);
-
+            // NOT use 'delete src_hll' because the memory is managed by arena
             src_hll->~HyperLogLog();
         }
     }
@@ -435,7 +436,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         slice->data = arena->Allocate(HLL_COLUMN_DEFAULT_LEN);
         slice->size = hll->serialize(slice->data);
-
+        // NOT using 'delete hll' because the memory is managed by arena
         hll->~HyperLogLog();
     }
 };
