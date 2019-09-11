@@ -394,8 +394,8 @@ public abstract class AlterHandler extends Daemon {
                 throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
             }
             
-            LOG.info("before handle alter task replica: {}, task version: {}-{}",
-                    replica, task.getVersion(), task.getVersionHash());
+            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
+                    task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
             if (replica.getVersion() > task.getVersion()) {
                 // Case 2.2, do nothing
@@ -422,7 +422,7 @@ public abstract class AlterHandler extends Daemon {
                 Catalog.getInstance().getEditLog().logUpdateReplica(info);
             }
             
-            LOG.info("after handle alter task replica: {}", replica);
+            LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
             db.writeUnlock();
         }

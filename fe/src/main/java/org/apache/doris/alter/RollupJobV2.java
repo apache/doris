@@ -654,7 +654,8 @@ public class RollupJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
-        this.jobState = JobState.RUNNING;
+        // should still be in WAITING_TXN state, so that the alter tasks will be resend again
+        this.jobState = JobState.WAITING_TXN;
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay waiting txn rollup job: {}", jobId);

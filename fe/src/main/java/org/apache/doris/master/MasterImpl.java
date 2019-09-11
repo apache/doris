@@ -787,7 +787,7 @@ public class MasterImpl {
             }
             alterTask.setFinished(true);
         } catch (MetaNotFoundException e) {
-            LOG.warn("failed to handle finish alter task: {}", e.getMessage());
+            LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
     }
