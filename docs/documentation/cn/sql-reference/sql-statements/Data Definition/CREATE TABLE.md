@@ -32,7 +32,7 @@
                                 支持科学计数法
                             DOUBLE（12字节）
                                 支持科学计数法
-                            DECIMAL[(precision, scale)] (40字节)
+                            DECIMAL[(precision, scale)] (16字节)
                                 保证精度的小数类型。默认是 DECIMAL(10, 0)
                                 precision: 1 ~ 27
                                 scale: 0 ~ 9

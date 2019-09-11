@@ -36,7 +36,7 @@ CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
             Support scientific notation
         DOUBLE(12 Bytes)
             Support scientific notation
-        DECIMAL[(precision, scale)] (40 Bytes)
+        DECIMAL[(precision, scale)] (16 Bytes)
             Default is DECIMAL(10, 0)
             precision: 1 ~ 27
             scale: 0 ~ 9
