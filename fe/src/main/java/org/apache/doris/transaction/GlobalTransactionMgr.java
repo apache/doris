@@ -717,7 +717,7 @@ public class GlobalTransactionMgr {
                                                                   partitionCommitInfo.getVersion(), partitionCommitInfo.getVersionHash());
                                         LOG.warn("transaction state {} has error, the replica [{}] not appeared in error replica list "
                                                          + " and its version not equal to partition commit version or commit version - 1"
-                                                         + " if its not a upgrate stage, its a fatal error. ");
+                                                         + " if its not a upgrate stage, its a fatal error. ", transactionState, replica);
                                     }
                                 } else if (replica.getVersion() == partitionCommitInfo.getVersion()
                                         && replica.getVersionHash() == partitionCommitInfo.getVersionHash()) {
