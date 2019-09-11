@@ -103,6 +103,10 @@ public:
         return _offsets.size();
     }
 
+    uint64_t size() const override {
+        return _size_estimate;
+    }
+
     // this api will release the memory ownership of encoded data
     // Note:
     //     release() should be called after finish

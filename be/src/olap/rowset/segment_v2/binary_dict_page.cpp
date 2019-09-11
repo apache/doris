@@ -124,6 +124,10 @@ size_t BinaryDictPageBuilder::count() const {
     return _data_page_builder->count();
 }
 
+uint64_t BinaryDictPageBuilder::size() const {
+    return _buffer.size() + _data_page_builder->size();
+}
+
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
     DCHECK(_finished) << "get dictionary page when the builder is not finished";
     _dictionary.clear();
