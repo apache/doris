@@ -42,18 +42,14 @@ static IntCounter system_alloc_cost_ns;
 static IntCounter system_free_cost_ns;
 
 #if BE_TEST
-
-// Helper class used to initial ChunkAllocator's global instance
-struct ChunkAllocatorInitializer {
-    ChunkAllocatorInitializer() {
-        DorisMetrics::instance()->initialize("abc");
+ChunkAllocator* ChunkAllocator::instance() {
+    if (_s_instance == nullptr) {
+        DorisMetrics::instance()->initialize("common_ut");
         CpuInfo::init();
         ChunkAllocator::init_instance(4096);
     }
-};
-
-static ChunkAllocatorInitializer s_initializer;
-
+    return _s_instance;
+}
 #endif
 
 

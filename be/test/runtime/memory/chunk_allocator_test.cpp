@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "runtime/memory/chunk.h"
 #include "util/cpu_info.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -39,8 +40,8 @@ TEST(ChunkAllocatorTest, Normal) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    doris::DorisMetrics::instance()->initialize("chunk_allocator_ut");
     doris::CpuInfo::init();
-    doris::ChunkAllocator::_s_instance = nullptr;
     doris::ChunkAllocator::init_instance(1024 * 1024);
     return RUN_ALL_TESTS();
 }
