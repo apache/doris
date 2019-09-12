@@ -39,21 +39,23 @@ TEST_F(BloomFilterPageTest, normal) {
     std::string bytes;
     // first block
     Slice slice1("hello");
-    bf_page_builder.add((const uint8_t*)&slice1, 1);
+    bf_page_builder.add_not_nulls((const uint8_t*)&slice1, 1);
     Slice slice2("doris");
-    bf_page_builder.add((const uint8_t*)&slice2, 1);
+    bf_page_builder.add_not_nulls((const uint8_t*)&slice2, 1);
     // second block
     Slice slice3("hi");
-    bf_page_builder.add((const uint8_t*)&slice3, 1);
+    bf_page_builder.add_not_nulls((const uint8_t*)&slice3, 1);
     Slice slice4("world");
-    bf_page_builder.add((const uint8_t*)&slice4, 1);
+    bf_page_builder.add_not_nulls((const uint8_t*)&slice4, 1);
     // third block
     // nullptr
-    bf_page_builder.add(nullptr, 1);
+    bf_page_builder.add_nulls(1);
 
-    Slice bf_data = bf_page_builder.finish();
+    Slice bf_data;
+    Status st = bf_page_builder.finish(&bf_data);
+    ASSERT_TRUE(st.ok());
     BloomFilterPage bf_page(bf_data);
-    auto st = bf_page.load();
+    st = bf_page.load();
     ASSERT_TRUE(st.ok()) << "st:" << st.to_string();
     ASSERT_EQ(3, bf_page.block_num());
     ASSERT_EQ(2, bf_page.expected_num());

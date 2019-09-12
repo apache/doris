@@ -147,11 +147,22 @@ message ShortKeyFooterPB {
     optional uint32 segment_bytes = 7;
 }
 
+enum BloomFilterAlgorithm {
+    BLOCK_SPLIT_BLOOM_FILTER = 0;
+    NAIVE_BLOOM_FILTER = 1;
+}
+
+enum HashStrategy {
+    HASH_MURMUR3_X64_64 = 0;
+}
+
 message BloomFilterPageFooterPB {
     // hash function number
     optional uint32 hash_function_num = 1;
     // number of entry in one block
     optional uint32 expected_num = 2;
+    optional BloomFilterAlgorithm bf_algorithm = 3;
+    optional HashStrategy hash_strategy = 4;
 }
 
 message SegmentFooterPB {

@@ -46,11 +46,13 @@ public:
         _bf_builder.init(_block_size, fp_rate);
     }
 
-    Status add(const uint8_t* vals, size_t count);
+    void add_not_nulls(const uint8_t* vals, size_t count);
+
+    void add_nulls(size_t count);
 
     Status flush();
 
-    Slice finish();
+    Status finish(Slice* page);
 
 private:
     const TypeInfo* _type_info;

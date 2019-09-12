@@ -48,9 +48,9 @@ struct ColumnWriterOptions {
     bool need_zone_map = false;
 
     // for bloom filter index
-    bool is_bf_column = false;
+    bool need_bf_column = false;
     size_t bloom_filter_block_size = 1024;
-    double fpp = BLOOM_FILTER_DEFAULT_FPP;
+    double bloom_filter_fpp = BLOOM_FILTER_DEFAULT_FPP;
 };
 
 class EncodingInfo;

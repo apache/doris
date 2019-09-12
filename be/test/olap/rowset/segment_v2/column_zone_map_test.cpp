@@ -30,17 +30,17 @@ public:
         ColumnZoneMapBuilder builder(type_info);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
         for (auto value : values1) {
-            builder.add((const uint8_t*)&value, 1);
+            builder.add_not_nulls((const uint8_t*)&value, 1);
         }
         builder.flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
         for (auto value : values2) {
-            builder.add((const uint8_t*)&value, 1);
+            builder.add_not_nulls((const uint8_t*)&value, 1);
         }
-        builder.add(nullptr, 1);
+        builder.add_nulls(1);
         builder.flush();
         for (int i = 0; i < 6; ++i) {
-            builder.add(nullptr, 1);
+            builder.add_nulls(1);
         }
         builder.flush();
         Slice zone_map_page = builder.finish();
@@ -71,17 +71,17 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     ColumnZoneMapBuilder builder(type_info);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
-        builder.add((const uint8_t*)&value, 1);
+        builder.add_not_nulls((const uint8_t*)&value, 1);
     }
     builder.flush();
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
     for (auto value : values2) {
-        builder.add((const uint8_t*)&value, 1);
+        builder.add_not_nulls((const uint8_t*)&value, 1);
     }
-    builder.add(nullptr, 1);
+    builder.add_nulls(1);
     builder.flush();
     for (int i = 0; i < 6; ++i) {
-        builder.add(nullptr, 1);
+        builder.add_nulls(1);
     }
     builder.flush();
     Slice zone_map_page = builder.finish();

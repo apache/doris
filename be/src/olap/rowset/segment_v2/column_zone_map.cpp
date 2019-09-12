@@ -34,7 +34,7 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_in
     _reset_zone_map();
 }
 
-Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
+void ColumnZoneMapBuilder::add_not_nulls(const uint8_t *vals, size_t count) {
     if (vals != nullptr) {
         for (int i = 0; i < count; ++i) {
             if (_field->compare(_zone_map.min_value, (char *)vals) > 0) {
@@ -49,12 +49,12 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
             }
         }
     }
-    else {
-        if (!_zone_map.has_null) {
-            _zone_map.has_null = true;
-        }
+}
+
+void ColumnZoneMapBuilder::add_nulls(size_t count) {
+    if (!_zone_map.has_null) {
+        _zone_map.has_null = true;
     }
-    return Status::OK();
 }
 
 Status ColumnZoneMapBuilder::flush() {

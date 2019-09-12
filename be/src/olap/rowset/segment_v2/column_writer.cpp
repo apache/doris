@@ -118,9 +118,9 @@ Status ColumnWriter::init() {
         _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_type_info));
     }
 
-    if (_opts.is_bf_column) {
+    if (_opts.need_bf_column) {
         _bloom_filter_page_builder.reset(new BloomFilterPageBuilder(_type_info,
-                _opts.bloom_filter_block_size, _opts.fpp));
+                _opts.bloom_filter_block_size, _opts.bloom_filter_fpp));
     }
     return Status::OK();
 }
@@ -129,10 +129,10 @@ Status ColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
     if (_opts.need_zone_map) {
-        RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
+        _column_zone_map_builder->add_nulls(num_rows);
     }
-    if (_opts.is_bf_column) {
-        _bloom_filter_page_builder->add(nullptr, num_rows);
+    if (_opts.need_bf_column) {
+        _bloom_filter_page_builder->add_nulls(num_rows);
     }
     return Status::OK();
 }
@@ -150,10 +150,10 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(_page_builder->add(*ptr, &num_written));
         if (_opts.need_zone_map) {
-            RETURN_IF_ERROR(_column_zone_map_builder->add(*ptr, num_written));
+            _column_zone_map_builder->add_not_nulls(*ptr, num_written);
         }
-        if (_opts.is_bf_column) {
-            RETURN_IF_ERROR(_bloom_filter_page_builder->add(*ptr, num_written));
+        if (_opts.need_bf_column) {
+            _bloom_filter_page_builder->add_not_nulls(*ptr, num_written);
         }
 
         bool is_page_full = (num_written < remaining);
@@ -184,10 +184,10 @@ Status ColumnWriter::append_nullable(
             _null_bitmap_builder->add_run(true, this_run);
             _next_rowid += this_run;
             if (_opts.need_zone_map) {
-                RETURN_IF_ERROR(_column_zone_map_builder->add(nullptr, 1));
+                _column_zone_map_builder->add_nulls(this_run);
             }
-            if (_opts.is_bf_column) {
-                _bloom_filter_page_builder->add(nullptr, this_run);
+            if (_opts.need_bf_column) {
+                _bloom_filter_page_builder->add_nulls(this_run);
             }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
@@ -246,8 +246,9 @@ Status ColumnWriter::write_zone_map() {
 }
 
 Status ColumnWriter::write_bloom_filter() {
-    if (_opts.is_bf_column) {
-        Slice data = _bloom_filter_page_builder->finish();
+    if (_opts.need_bf_column) {
+        Slice data;
+        RETURN_IF_ERROR(_bloom_filter_page_builder->finish(&data));
         std::vector<Slice> slices{data};
         return _write_physical_page(&slices, &_bloom_filter_pp);
     }
@@ -263,7 +264,7 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     if (_opts.need_zone_map) {
         _zone_map_pp.to_proto(meta->mutable_zone_map_page());
     }
-    if (_opts.is_bf_column) {
+    if (_opts.need_bf_column) {
         _bloom_filter_pp.to_proto(meta->mutable_bloom_filter_page());
     }
 }

@@ -65,7 +65,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         if (column.is_key()) {
             opts.need_zone_map = true;
         }
-        opts.is_bf_column = column.is_bf_column();
+        opts.need_bf_column = column.is_bf_column();
         std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, type_info, is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
@@ -140,7 +140,7 @@ Status SegmentWriter::_write_zone_map() {
 }
 
 Status SegmentWriter::_write_bloom_filter() {
-    for (auto column_writer : _column_writers) {
+    for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_bloom_filter());
     }
     return Status::OK();

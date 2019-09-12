@@ -23,24 +23,30 @@
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilterPageBuilder::add(const uint8_t* vals, size_t count) {
+void BloomFilterPageBuilder::add_not_nulls(const uint8_t* vals, size_t count) {
     for (int i = 0; i < count; ++i) {
-        if (vals == nullptr) {
-            _bf_builder.add_bytes(nullptr, 1);
-        } else {
-            uint64_t hash = _type_info->hash_code64(vals, DEFAULT_SEED);
-            _bf_builder.add_hash(hash);
-        }
-        
-        if (vals != nullptr) {
-            vals += _type_info->size();
-        }
+        uint64_t hash = _type_info->hash_code64(vals, DEFAULT_SEED);
+        _bf_builder.add_hash(hash);
+        vals += _type_info->size();
+
         ++_num_inserted;
         if (_num_inserted >= _block_size) {
             flush();
         }
     }
-    return Status::OK();
+}
+
+void BloomFilterPageBuilder::add_nulls(size_t count) {
+    _bf_builder.add_bytes(nullptr, 0);
+    _num_inserted += count;
+    if (_num_inserted > _block_size) {
+        int flush_round = _num_inserted / _block_size;
+        for (int i = 0; i < flush_round; ++i) {
+            flush();
+        }
+        _num_inserted = _num_inserted % _block_size;
+    }
+    
 }
 
 Status BloomFilterPageBuilder::flush() {
@@ -53,31 +59,28 @@ Status BloomFilterPageBuilder::flush() {
     return Status::OK();
 }
 
-Slice BloomFilterPageBuilder::finish() {
+Status BloomFilterPageBuilder::finish(Slice* page) {
     // first flush last bloom filter block data
     if (_num_inserted > 0) {
-        auto st = flush();
-        if (!st.ok()) {
-            return Slice();
-        }
+        RETURN_IF_ERROR(flush());
     }
-    
+
     // write BloomFilterPageFooterPB to page
     BloomFilterPageFooterPB footer;
     footer.set_hash_function_num(_bf_builder.hash_function_num());
     footer.set_expected_num(_block_size);
+    footer.set_bf_algorithm(NAIVE_BLOOM_FILTER);
+    footer.set_hash_strategy(HASH_MURMUR3_X64_64);
     std::string value;
     bool ret = footer.SerializeToString(&value);
     if (!ret) {
-        return Slice();
+        return Status::Corruption("serialize bloom filter pb failed");
     }
     // add BloomFilterPageFooterPB as the last entry
     size_t num = 1;
-    auto st = _page_builder->add((const uint8_t*)&value, &num);
-    if (!st.ok()) {
-        return Slice();
-    }
-    return _page_builder->finish();
+    RETURN_IF_ERROR(_page_builder->add((const uint8_t*)&value, &num));
+    *page = _page_builder->finish();
+    return Status::OK();
 }
 
 Status BloomFilterPage::load() {
@@ -98,6 +101,7 @@ Status BloomFilterPage::load() {
     }
     uint32_t hash_function_num = footer.hash_function_num();
     _expected_num = footer.expected_num();
+    // TODO(hkp): realize block split bloom filter and create bloom filter according to footer.bf_algorithm
     for (int i = 0; i < count - 1; ++i) {
         Slice data = page_decoder.string_at_index(i);
         std::shared_ptr<BloomFilter> bloom_filter(new BloomFilter());

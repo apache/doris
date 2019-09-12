@@ -52,7 +52,9 @@ class ColumnZoneMapBuilder {
 public:
     ColumnZoneMapBuilder(const TypeInfo* type_info);
 
-    Status add(const uint8_t* vals, size_t count);
+    void add_not_nulls(const uint8_t* vals, size_t count);
+
+    void add_nulls(size_t count);
 
     Status flush();
 

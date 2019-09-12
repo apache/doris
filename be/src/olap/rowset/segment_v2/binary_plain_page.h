@@ -158,7 +158,7 @@ public:
         // Decode trailer
         _num_elems = decode_fixed32_le((const uint8_t *)&_data[_data.get_size() - sizeof(uint32_t)]);
         uint32_t tail_length = (_num_elems + 1) * sizeof(uint32_t);
-        if (_data.get_size() <= tail_length) {
+        if (_data.get_size() < tail_length) {
             return Status::Corruption(
                     strings::Substitute("invalid data size:$0, num_elems:$1", _data.get_size(), _num_elems));
         }
