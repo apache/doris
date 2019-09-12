@@ -63,6 +63,8 @@ public:
 
     size_t count() const override;
 
+    uint64_t size() const override;
+
     Status get_dictionary_page(Slice* dictionary_page) override;
 
     // this api will release the memory ownership of encoded data
