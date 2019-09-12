@@ -74,7 +74,7 @@ public class SessionVariable implements Serializable, Writable {
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
-    public static final String DORIS_SHUFFLE_PARTITIONS = "doris_exchange_instances";
+    public static final String EXCHANGE_INSTANCE_PARALLEL = "exchange_instance_parallel";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -160,8 +160,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TIME_ZONE)
     private String timeZone = "CST";
 
-    @VariableMgr.VarAttr(name = DORIS_SHUFFLE_PARTITIONS)
-    private int dorisExchangeInstances = -1;
+    @VariableMgr.VarAttr(name = EXCHANGE_INSTANCE_PARALLEL)
+    private int exchangeInstanceParallel = -1;
 
     // The current time zone
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
@@ -433,8 +433,8 @@ public class SessionVariable implements Serializable, Writable {
         return parallelExecInstanceNum;
     }
 
-    public int getDorisExchangeInstances() {
-        return dorisExchangeInstances;
+    public int getExchangeInstanceParallel() {
+        return exchangeInstanceParallel;
     }
 
     public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
@@ -513,7 +513,7 @@ public class SessionVariable implements Serializable, Writable {
         out.writeInt(batchSize);
         out.writeBoolean(disableStreamPreaggregations);
         out.writeInt(parallelExecInstanceNum);
-        out.writeInt(dorisExchangeInstances);
+        out.writeInt(exchangeInstanceParallel);
     }
 
     @Override
@@ -553,7 +553,7 @@ public class SessionVariable implements Serializable, Writable {
             parallelExecInstanceNum = in.readInt();
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-            dorisExchangeInstances = in.readInt();
+            exchangeInstanceParallel = in.readInt();
         }
 
     }

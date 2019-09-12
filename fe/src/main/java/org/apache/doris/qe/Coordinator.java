@@ -856,11 +856,11 @@ public class Coordinator {
                 PlanFragmentId inputFragmentIdx =
                         fragments.get(i).getChild(0).getFragmentId();
                 // AddAll() soft copy()
-                int doris_exchange_instances = -1;
+                int exchangeInstances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-                    doris_exchange_instances = ConnectContext.get().getSessionVariable().getDorisExchangeInstances();
+                    exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
-                if (doris_exchange_instances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > doris_exchange_instances) {
+                if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
                     // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
                     Set<TNetworkAddress> addresses = new HashSet<TNetworkAddress>();
@@ -872,7 +872,7 @@ public class Coordinator {
                     List<TNetworkAddress> hosts = new ArrayList<TNetworkAddress>();
                     hosts.addAll(addresses);
                     Collections.shuffle(hosts, instanceRandom);
-                    for (int index = 0; index < doris_exchange_instances; index++) {
+                    for (int index = 0; index < exchangeInstances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()), 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }
