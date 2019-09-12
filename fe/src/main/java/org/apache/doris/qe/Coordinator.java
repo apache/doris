@@ -871,7 +871,9 @@ public class Coordinator {
                             cache.add(hostPort);
                         }
                     }
-
+					
+					// when doris_exchange_instances > hosts size, single host may execute severval instances
+                	Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < doris_exchange_instances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()),0, params);
                         params.instanceExecParams.add(instanceParam);
