@@ -140,10 +140,13 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     }
     if (_reserved_bytes > size) {
         // try to allocate from other core's arena
+        ++core_id;
         for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
             if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
                 _reserved_bytes.fetch_sub(size);
                 other_core_alloc_count.increment(1);
+                // reset chunk's core_id to other
+                chunk->core_id = core_id % _arenas.size();
                 return true;
             }
         }

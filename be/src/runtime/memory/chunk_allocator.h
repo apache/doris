@@ -62,7 +62,7 @@ public:
     ChunkAllocator(size_t reserve_limit);
 
     // Allocate a Chunk with a power-of-two length "size".
-    // Rreturn true if success and allocated chunk is saved in "chunk".
+    // Return true if success and allocated chunk is saved in "chunk".
     // Otherwise return false.
     bool allocate(size_t size, Chunk* chunk);
 
