@@ -87,6 +87,8 @@ public:
     Status append(const void* data, size_t num_rows);
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
 
+    uint64_t estimate_buffer_size();
+
     // finish append data
     Status finish();
 

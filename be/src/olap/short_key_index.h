@@ -137,8 +137,12 @@ public:
         _footer.set_segment_id(segment_id);
         _footer.set_num_rows_per_block(num_rows_per_block);
     }
-    
+
     Status add_item(const Slice& key);
+
+    uint64_t size() {
+        return _key_buf.size() + _offset_buf.size() + _footer_buf.size();
+    }
 
     Status finalize(uint32_t segment_size, uint32_t num_rows, std::vector<Slice>* slices);
 

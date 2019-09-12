@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -990,7 +991,6 @@ public class RollupJob extends AlterJob {
         // transaction id
         jobInfo.add(transactionId);
 
-
         // job state
         jobInfo.add(state.name());
 
@@ -1006,6 +1006,7 @@ public class RollupJob extends AlterJob {
         } else {
             jobInfo.add("N/A");
         }
+        jobInfo.add(Config.alter_table_timeout_second);
 
         jobInfos.add(jobInfo);
     }

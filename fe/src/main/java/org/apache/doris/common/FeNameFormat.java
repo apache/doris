@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.system.SystemInfoService;
 
@@ -61,6 +62,9 @@ public class FeNameFormat {
 
     public static void checkColumnName(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(COMMON_NAME_REGEX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+        }
+        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
         }
     }

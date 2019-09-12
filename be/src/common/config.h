@@ -344,8 +344,9 @@ namespace config {
     
     CONF_Bool(enable_prefetch, "true");
 
-    // cpu count
-    CONF_Int32(flags_num_cores, "32");
+    // Number of cores Doris will used, this will effect only when it's greater than 0.
+    // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
+    CONF_Int32(num_cores, "0");
 
     CONF_Bool(thread_creation_fault_injection, "false");
 

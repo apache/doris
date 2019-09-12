@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -33,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -57,8 +57,17 @@ public class Table extends MetaObject implements Writable {
     protected long id;
     protected String name;
     protected TableType type;
-    protected List<Column> baseSchema;
-    // tree map for case-insensitive lookup
+    /*
+     *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
+     *  eg. for OlapTable, when doing schema change, there will be some shadow columns which are not visible
+     *      to query but visible to load process.
+     *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
+     *  sub classes.
+     *  
+     *  NOTICE: the order of this fullSchema is meaningless to OlapTable
+     */
+    protected List<Column> fullSchema;
+    // tree map for case-insensitive lookup.
     protected Map<String, Column> nameToColumn;
 
     // DO NOT persist this variable.
@@ -66,19 +75,21 @@ public class Table extends MetaObject implements Writable {
 
     public Table(TableType type) {
         this.type = type;
-        this.baseSchema = new LinkedList<Column>();
+        this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
     }
 
-    public Table(long id, String tableName, TableType type, List<Column> baseSchema) {
+    public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        this.baseSchema = baseSchema;
-
+        // must copy the list, it should not be the same object as in indexIdToSchmea
+        if (fullSchema != null) {
+            this.fullSchema = Lists.newArrayList(fullSchema);
+        }
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        if (baseSchema != null) {
-            for (Column col : baseSchema) {
+        if (this.fullSchema != null) {
+            for (Column col : this.fullSchema) {
                 nameToColumn.put(col.getName(), col);
             }
         } else {
@@ -107,24 +118,19 @@ public class Table extends MetaObject implements Writable {
         return type;
     }
 
-    public int getKeysNum() {
-        int keysNum = 0;
-        for (Column column : baseSchema) {
-            if (column.isKey()) {
-                keysNum += 1;
-            }
-        }
-        return keysNum;
+    public List<Column> getFullSchema() {
+        return fullSchema;
     }
 
+    // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return baseSchema;
+        return fullSchema;
     }
 
-    public void setNewBaseSchema(List<Column> newSchema) {
-        this.baseSchema = newSchema;
+    public void setNewFullSchema(List<Column> newSchema) {
+        this.fullSchema = newSchema;
         this.nameToColumn.clear();
-        for (Column col : baseSchema) {
+        for (Column col : fullSchema) {
             nameToColumn.put(col.getName(), col);
         }
     }
@@ -182,9 +188,9 @@ public class Table extends MetaObject implements Writable {
         Text.writeString(out, name);
 
         // base schema
-        int columnCount = baseSchema.size();
+        int columnCount = fullSchema.size();
         out.writeInt(columnCount);
-        for (Column column : baseSchema) {
+        for (Column column : fullSchema) {
             column.write(out);
         }
     }
@@ -205,7 +211,7 @@ public class Table extends MetaObject implements Writable {
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
-            this.baseSchema.add(column);
+            this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
     }
@@ -267,9 +273,10 @@ public class Table extends MetaObject implements Writable {
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
-     * 3. if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
+     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
      *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
      *      TabletScheduler).
+     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */
     public boolean needSchedule() {
         if (type != TableType.OLAP) {
@@ -277,7 +284,7 @@ public class Table extends MetaObject implements Writable {
         }
 
         OlapTable olapTable = (OlapTable) this;
-        
+
         if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;

@@ -68,14 +68,14 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
     return OLAP_SUCCESS;
 }
 
-TabletMeta::TabletMeta() {}
+TabletMeta::TabletMeta() : _tablet_uid(0, 0) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                        int64_t tablet_id, int32_t schema_hash,
                        uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id, 
-                       TabletUid tablet_uid) {
+                       TabletUid tablet_uid) : _tablet_uid(0, 0) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);

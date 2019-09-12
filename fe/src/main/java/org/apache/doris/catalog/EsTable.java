@@ -121,7 +121,7 @@ public class EsTable extends Table {
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }

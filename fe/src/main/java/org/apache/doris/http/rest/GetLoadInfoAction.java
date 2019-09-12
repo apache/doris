@@ -32,13 +32,13 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Get load information of one load job
 public class GetLoadInfoAction extends RestBaseAction {
-    public GetLoadInfoAction(ActionController controller) {
+    public GetLoadInfoAction(ActionController controller, boolean isStreamLoad) {
         super(controller);
     }
 
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
-        GetLoadInfoAction action = new GetLoadInfoAction(controller);
+        GetLoadInfoAction action = new GetLoadInfoAction(controller, false);
         controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/_load_info", action);
     }
 
@@ -61,6 +61,7 @@ public class GetLoadInfoAction extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
+
         try {
             catalog.getLoadInstance().getJobInfo(info);
             if (info.tblNames.isEmpty()) {
@@ -73,13 +74,11 @@ public class GetLoadInfoAction extends RestBaseAction {
         } catch (DdlException | MetaNotFoundException e) {
             catalog.getLoadManager().getLoadJobInfo(info);
         }
-
         sendResult(request, response, new Result(info));
     }
 
     private static class Result extends RestBaseResult {
         private Load.JobInfo jobInfo;
-
         public Result(Load.JobInfo info) {
             jobInfo = info;
         }

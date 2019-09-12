@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -92,12 +93,12 @@ public class RowCountAction extends RestBaseAction {
             for (Partition partition : olapTable.getPartitions()) {
                 long version = partition.getVisibleVersion();
                 long versionHash = partition.getVisibleVersionHash();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     long indexRowCount = 0L;
                     for (Tablet tablet : index.getTablets()) {
                         long tabletRowCount = 0L;
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.checkVersionCatchUp(version, versionHash)
+                            if (replica.checkVersionCatchUp(version, versionHash, false)
                                     && replica.getRowCount() > tabletRowCount) {
                                 tabletRowCount = replica.getRowCount();
                             }

@@ -347,6 +347,12 @@ public class TabletInvertedIndex {
             // it will be handled in needRecovery()
             return false;
         }
+
+        if (replicaInFe.getState() == ReplicaState.ALTER) {
+            // ignore the replica is ALTER state. its version will be taken care by load process and alter table process
+            return false;
+        }
+
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
         

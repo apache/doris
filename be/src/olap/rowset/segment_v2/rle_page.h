@@ -116,6 +116,10 @@ public:
         return _count;
     }
 
+    uint64_t size() const override {
+        return _rle_encoder->len();
+    }
+
     // this api will release the memory ownership of encoded data
     // Note:
     //     release() should be called after finish

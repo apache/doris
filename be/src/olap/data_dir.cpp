@@ -1026,10 +1026,10 @@ void DataDir::perform_path_scan() {
 
 void DataDir::_process_garbage_path(const std::string& path) {
     if (check_dir_existed(path)) {
-        LOG(INFO) << "collect garbage dir path:" << path;
+        LOG(INFO) << "collect garbage dir path: " << path;
         OLAPStatus status = remove_all_dir(path);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
         }
     }
 }
@@ -1068,7 +1068,7 @@ Status DataDir::update_capacity() {
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
-    double used_pct = (_available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
+    double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
     int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
     
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0

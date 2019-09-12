@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
@@ -76,6 +77,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.KuduPartition.KuduRange;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -171,7 +173,6 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
@@ -1356,7 +1357,7 @@ public class Catalog {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
@@ -1566,17 +1567,19 @@ public class Catalog {
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
         ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
+        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
         }
-
 
         // alter jobs
         int size = dis.readInt();
@@ -1609,6 +1612,16 @@ public class Catalog {
                     // delete history jobs
                     finishedOrCancelledAlterJobs.add(job);
                 }
+            }
+        }
+
+        // alter job v2
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
+            size = dis.readInt();
+            newChecksum ^= size;
+            for (int i = 0; i < size; i++) {
+                AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
+                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
             }
         }
 
@@ -1918,12 +1931,15 @@ public class Catalog {
     public long saveAlterJob(DataOutputStream dos, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
         ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
+        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1949,6 +1965,14 @@ public class Catalog {
             checksum ^= tableId;
             dos.writeLong(tableId);
             alterJob.write(dos);
+        }
+
+        // alter job v2
+        size = alterJobsV2.size();
+        checksum ^= size;
+        dos.writeInt(size);
+        for (AlterJobV2 alterJobV2 : alterJobsV2.values()) {
+            alterJobV2.write(dos);
         }
 
         return checksum;
@@ -3006,7 +3030,7 @@ public class Catalog {
             if (!isCheckpointThread()) {
                 // add to inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
@@ -3265,6 +3289,7 @@ public class Catalog {
 
                 // estimate timeout
                 long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+                timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
                 try {
                     ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
@@ -3272,19 +3297,22 @@ public class Catalog {
                     ok = false;
                 }
 
-                if (!ok) {
-                    errMsg = "Failed to create partition[" + partitionName + "]. Timeout";
+                if (!ok || !countDownLatch.getStatus().ok()) {
+                    errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
                     // clear tasks
-                    List<AgentTask> tasks = batchTask.getAllTasks();
-                    for (AgentTask task : tasks) {
-                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
-                    }
+                    AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                    // only show at most 10 results
-                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
-                    String idStr = Joiner.on(", ").join(subList);
-                    LOG.warn("{}. unfinished marks: {}", errMsg, idStr);
+                    if (!countDownLatch.getStatus().ok()) {
+                        errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                    } else {
+                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                        // only show at most 3 results
+                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                        if (!subList.isEmpty()) {
+                            errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
+                        }
+                    }
+                    LOG.warn(errMsg);
                     throw new DdlException(errMsg);
                 }
             } else {
@@ -3983,7 +4011,7 @@ public class Catalog {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
@@ -4179,18 +4207,6 @@ public class Catalog {
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public void handleJobsWhenDeleteReplica(long tableId, long partitionId, long indexId, long tabletId, long replicaId,
-                                            long backendId) {
-        // rollup
-        getRollupHandler().removeReplicaRelatedTask(tableId, partitionId, indexId, tabletId, backendId);
-
-        // schema change
-        getSchemaChangeHandler().removeReplicaRelatedTask(tableId, tabletId, replicaId, backendId);
-
-        // task
-        AgentTaskQueue.removeReplicaRelatedTasks(backendId, tabletId);
     }
 
     private void unprotectAddReplica(ReplicaPersistInfo info) {
@@ -5644,7 +5660,7 @@ public class Catalog {
                         for (Partition partition : olapTable.getPartitions()) {
                             final short replicationNum = olapTable.getPartitionInfo()
                                     .getReplicationNum(partition.getId());
-                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                                 if (materializedIndex.getState() != IndexState.NORMAL) {
                                     continue;
                                 }
@@ -5919,7 +5935,7 @@ public class Catalog {
                 }
             }
             
-            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true);
+            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
 
         } finally {
             db.readUnlock();
@@ -6032,7 +6048,7 @@ public class Catalog {
         for (Partition newPartition : newPartitions) {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
-            for (MaterializedIndex index : oldPartition.getMaterializedIndices()) {
+            for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
                 index.getTablets().stream().forEach(t -> {
                     oldTabletIds.add(t.getId());
                 });
@@ -6059,7 +6075,7 @@ public class Catalog {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),

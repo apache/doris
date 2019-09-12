@@ -22,14 +22,24 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.thrift.TTabletInfo;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,15 +49,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class AlterHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
 
     // tableId -> AlterJob
+    @Deprecated
     protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<Long, AlterJob>();
-    
+    @Deprecated
     protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<AlterJob>();
+    
+    // queue of alter job v2
+    protected ConcurrentMap<Long, AlterJobV2> alterJobsV2 = Maps.newConcurrentMap();
     
     /*
      * lock to perform atomic operations.
@@ -70,19 +85,43 @@ public abstract class AlterHandler extends Daemon {
         super(name, 10000);
     }
 
+    protected void addAlterJobV2(AlterJobV2 alterJob) {
+        this.alterJobsV2.put(alterJob.getJobId(), alterJob);
+        LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
+    }
+
+    public AlterJobV2 getUnfinishedAlterJobV2(long tblId) {
+        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            if (alterJob.getTableId() == tblId
+                    && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
+                    && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
+                return alterJob;
+            }
+        }
+        return null;
+    }
+
+    public Map<Long, AlterJobV2> getAlterJobsV2() {
+        return this.alterJobsV2;
+    }
+
+    @Deprecated
     protected void addAlterJob(AlterJob alterJob) {
         this.alterJobs.put(alterJob.getTableId(), alterJob);
         LOG.info("add {} job[{}]", alterJob.getType(), alterJob.getTableId());
     }
 
+    @Deprecated
     public AlterJob getAlterJob(long tableId) {
         return this.alterJobs.get(tableId);
     }
     
+    @Deprecated
     public boolean hasUnfinishedAlterJob(long tableId) {
         return this.alterJobs.containsKey(tableId);
     }
 
+    @Deprecated
     public int getAlterJobNum(JobState state, long dbId) {
         int jobNum = 0;
         if (state == JobState.PENDING || state == JobState.RUNNING || state == JobState.FINISHING) {
@@ -121,24 +160,33 @@ public abstract class AlterHandler extends Daemon {
         return jobNum;
     }
 
+    public Long getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState state, long dbId) {
+        return alterJobsV2.values().stream().filter(e -> e.getJobState() == state && e.getDbId() == dbId).count();
+    }
+
+    @Deprecated
     public Map<Long, AlterJob> unprotectedGetAlterJobs() {
         return this.alterJobs;
     }
 
+    @Deprecated
     public ConcurrentLinkedQueue<AlterJob> unprotectedGetFinishedOrCancelledAlterJobs() {
         return this.finishedOrCancelledAlterJobs;
     }
     
+    @Deprecated
     public void addFinishedOrCancelledAlterJob(AlterJob alterJob) {
         alterJob.clear();
         LOG.info("add {} job[{}] to finished or cancel list", alterJob.getType(), alterJob.getTableId());
         this.finishedOrCancelledAlterJobs.add(alterJob);
     }
 
+    @Deprecated
     protected AlterJob removeAlterJob(long tableId) {
         return this.alterJobs.remove(tableId);
     }
 
+    @Deprecated
     public void removeDbAlterJob(long dbId) {
         Iterator<Map.Entry<Long, AlterJob>> iterator = alterJobs.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -154,6 +202,7 @@ public abstract class AlterHandler extends Daemon {
      * handle task report
      * reportVersion is used in schema change job.
      */
+    @Deprecated
     public void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
             throws MetaNotFoundException {
         long tableId = task.getTableId();
@@ -282,13 +331,14 @@ public abstract class AlterHandler extends Daemon {
      * entry function. handle alter ops 
      */
     public abstract void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
-            throws DdlException;
+            throws UserException;
 
     /*
      * cancel alter ops
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
 
+    @Deprecated
     public Integer getAlterJobNumByState(JobState state) {
         int jobNum = 0;
         for (AlterJob alterJob : alterJobs.values()) {
@@ -297,5 +347,96 @@ public abstract class AlterHandler extends Daemon {
             }
         }
         return jobNum;
+    }
+
+    /*
+     * Handle the finish report of alter task.
+     * If task is success, which means the history data before specified version has been transformed successfully.
+     * So here we should modify the replica's version.
+     * We assume that the specified version is X.
+     * Case 1:
+     *      After alter table process starts, there is no new load job being submitted. So the new replica
+     *      should be with version (1-0). So we just modify the replica's version to partition's visible version, which is X.
+     * Case 2:
+     *      After alter table process starts, there are some load job being processed.
+     * Case 2.1:
+     *      Only one new load job, and it failed on this replica. so the replica's last failed version should be X + 1
+     *      and version is still 1. We should modify the replica's version to (last failed version - 1)
+     * Case 2.2 
+     *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
+     *      So the replica's version should be larger than X. So we don't need to modify the replica version
+     *      because its already looks like normal.
+     */
+    public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
+        if (db == null) {
+            throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
+        }
+
+        db.writeLock();
+        try {
+            OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
+            if (tbl == null) {
+                throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                throw new MetaNotFoundException("index " + task.getIndexId() + " does not exist");
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            Preconditions.checkNotNull(tablet, task.getTabletId());
+            Replica replica = tablet.getReplicaById(task.getNewReplicaId());
+            if (replica == null) {
+                throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
+            }
+            
+            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
+                    task.getSignature(), replica, task.getVersion(), task.getVersionHash());
+            boolean versionChanged = false;
+            if (replica.getVersion() > task.getVersion()) {
+                // Case 2.2, do nothing
+            } else {
+                if (replica.getLastFailedVersion() > task.getVersion()) {
+                    // Case 2.1
+                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                    versionChanged = true;
+                } else {
+                    // Case 1
+                    Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
+                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                    versionChanged = true;
+                }
+            }
+            
+            if (versionChanged) {
+                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
+                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                        replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
+                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+            }
+            
+            LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    // replay the alter job v2
+    public void replayAlterJobV2(AlterJobV2 alterJob) {
+        AlterJobV2 existingJob = alterJobsV2.get(alterJob.getJobId());
+        if (existingJob == null) {
+            // This is the first time to replay the alter job, so just using the replayed alterJob to call replay();
+            alterJob.replay(alterJob);
+            alterJobsV2.put(alterJob.getJobId(), alterJob);
+        } else {
+            existingJob.replay(alterJob);
+        }
     }
 }

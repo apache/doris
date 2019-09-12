@@ -282,7 +282,8 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return nullptr;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -294,7 +295,8 @@ size_t Tablet::get_rowset_size_by_version(const Version& version) {
             << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return -1;
     }
     RowsetSharedPtr rowset = iter->second;

@@ -57,13 +57,14 @@ public class LoadLoadingTask extends LoadTask {
     private final long execMemLimit;
     private final boolean strictMode;
     private final long txnId;
+    private final String timezone;
 
     private LoadingTaskPlanner planner;
 
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback) {
+                           long txnId, LoadTaskCallback callback, String timezone) {
         super(callback);
         this.db = db;
         this.table = table;
@@ -75,11 +76,12 @@ public class LoadLoadingTask extends LoadTask {
         this.txnId = txnId;
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
         this.retryTime = 2; // 2 times is enough
+        this.timezone = timezone;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -98,7 +100,7 @@ public class LoadLoadingTask extends LoadTask {
     private void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
-                                                     planner.getFragments(), planner.getScanNodes(), db.getClusterName());
+                planner.getFragments(), planner.getScanNodes(), db.getClusterName(), planner.getTimezone());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
         curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
