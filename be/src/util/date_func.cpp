@@ -74,5 +74,21 @@ std::string time_str_from_double(double time) {
     return time_ss.str();
 }
 
+// 1568272114 -> 2019-09-12 15:08:34
+std::string time_str_from_int(int time) {
+	std::stringstream time_ss;
+	if (time < 0) {
+		time_ss << "-";
+		time = -time;
+	}
+	int hour = time / 60 / 60;
+	int minute = time / 60 % 60;
+	int second = time % 60;
+
+	time_ss << std::setw(2) << std::setfill('0') << hour 
+		<< ":" << std::setw(2) << std::setfill('0') << minute 
+		<< ":" << std::setw(2) << std::setfill('0') << second;
+	return time_ss.str();
+}
 }
 
