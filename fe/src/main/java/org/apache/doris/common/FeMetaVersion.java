@@ -131,5 +131,5 @@ public final class FeMetaVersion {
     // refactor date literal
     public static final int VERSION_60 = 60;
     // add param: doris_shuffle_partitions
-    public static final int Version_61 = 61;
+    public static final int VERSION_61 = 61;
 }
