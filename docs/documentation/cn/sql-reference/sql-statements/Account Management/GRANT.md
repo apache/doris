@@ -44,7 +44,7 @@ user_identity：
 
     2. 授予指定库表的权限给用户
 
-        GRANT SELECT_PRIV,ALTER_PRIVS,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
+        GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
         
     3. 授予指定库表的权限给角色
 
