@@ -55,6 +55,10 @@ public:
         _num_pages++;
     }
 
+    uint64_t size() {
+        return _buffer.size();
+    }
+
     Slice finish() {
         // encoded number of pages
         encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
