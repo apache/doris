@@ -134,4 +134,6 @@ public final class FeMetaVersion {
     public static final int VERSION_61 = 61;
     // add param: doris_shuffle_partitions
     public static final int VERSION_62 = 62;
+    // for table comment
+    public static final int VERSION_63 = 63;
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -47,8 +49,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
 
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
@@ -185,6 +185,10 @@ public class CreateTableStmt extends DdlStmt {
 
     public void setTableName(String newTableName) {
         tableName = new TableName(tableName.getDb(), newTableName);
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -413,6 +417,10 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
             sb.append(new PrintableMap<String, String>(extProperties, " = ", true, true, true));
             sb.append(")");
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
         }
 
         return sb.toString();

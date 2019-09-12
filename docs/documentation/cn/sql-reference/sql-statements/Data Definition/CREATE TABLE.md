@@ -8,8 +8,9 @@
         [key_desc]
         [partition_desc]
         [distribution_desc]
-        [PROPERTIES ("key"="value", ...)];
-        [BROKER PROPERTIES ("key"="value", ...)];
+        [PROPERTIES ("key"="value", ...)]
+        [BROKER PROPERTIES ("key"="value", ...)]
+        [COMMENT "table comment"];
         
     1. column_definition
         语法：
@@ -192,7 +193,8 @@
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
         DISTRIBUTED BY HASH(k1) BUCKETS 32
-        PROPERTIES ("storage_type"="column");
+        PROPERTIES ("storage_type"="column")
+        COMMENT "my first doris table";
         
     2. 创建一个 olap 表，使用 Hash 分桶，使用列存，相同key的记录进行覆盖，
        设置初始存储介质和冷却时间

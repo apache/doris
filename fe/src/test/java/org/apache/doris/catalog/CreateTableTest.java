@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -38,6 +33,9 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -48,6 +46,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class CreateTableTest {
 
@@ -136,7 +139,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         catalog.createTable(stmt);
@@ -155,7 +158,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
 
         stmt.analyze(analyzer);
 
@@ -191,7 +194,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -229,7 +232,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -262,7 +265,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -299,7 +302,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -332,7 +335,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);

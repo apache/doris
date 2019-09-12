@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -36,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class CreateViewStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateViewStmt.class);
@@ -43,6 +45,7 @@ public class CreateViewStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final TableName tableName;
     private final List<ColWithComment> cols;
+    private final String comment;
     private final QueryStmt viewDefStmt;
 
     // Set during analyze
@@ -52,10 +55,12 @@ public class CreateViewStmt extends DdlStmt {
     private String inlineViewDef;
     private QueryStmt cloneStmt;
 
-    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
+    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
+            String comment, QueryStmt queryStmt) {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.cols = cols;
+        this.comment = Strings.nullToEmpty(comment);
         this.viewDefStmt = queryStmt;
         finalCols = Lists.newArrayList();
     }
@@ -78,6 +83,10 @@ public class CreateViewStmt extends DdlStmt {
 
     public String getInlineViewDef() {
         return inlineViewDef;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     /**
@@ -123,7 +132,8 @@ public class CreateViewStmt extends DdlStmt {
         }
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
-        cloneStmt.substituteSelectList(tmpAnalyzer, columnNames);
+        List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
+        cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
         inlineViewDef = cloneStmt.toSql();
 
         // StringBuilder sb = new StringBuilder();

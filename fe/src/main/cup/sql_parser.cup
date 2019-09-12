@@ -893,9 +893,9 @@ create_stmt ::=
         RESULT = new CreateUserStmt(ifNotExists, user, userRole);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
-        opt_col_with_comment_list:columns KW_AS query_stmt:view_def
+        opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
     :}
     /* cluster */
     | KW_CREATE KW_CLUSTER ident:name opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password

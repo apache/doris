@@ -18,12 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -72,6 +74,8 @@ public class Table extends MetaObject implements Writable {
 
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
+    // table(view)'s comment
+    protected String comment = "";
 
     public Table(TableType type) {
         this.type = type;
@@ -193,6 +197,8 @@ public class Table extends MetaObject implements Writable {
         for (Column column : fullSchema) {
             column.write(out);
         }
+
+        Text.writeString(out, comment);
     }
 
     @Override
@@ -214,6 +220,12 @@ public class Table extends MetaObject implements Writable {
             this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
+            comment = Text.readString(in);
+        } else {
+            comment = "";
+        }
     }
 
     public boolean equals(Table table) {
@@ -232,7 +244,7 @@ public class Table extends MetaObject implements Writable {
 
     public String getEngine() {
         if (this instanceof OlapTable) {
-            return "Palo";
+            return "Doris";
         } else if (this instanceof MysqlTable) {
             return "MySQL";
         } else if (this instanceof SchemaTable) {
@@ -250,10 +262,14 @@ public class Table extends MetaObject implements Writable {
     }
 
     public String getComment() {
-        if (this instanceof View) {
-            return "VIEW";
+        if (!Strings.isNullOrEmpty(comment)) {
+            return comment;
         }
-        return "";
+        return type.name();
+    }
+
+    public void setComment(String comment) {
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {

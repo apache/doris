@@ -3,14 +3,15 @@
 
 ### Syntax
 
-CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
-(column_definition1[, column_definition2, ...])
-[ENGINE = [olap|mysql|broker]]
-[key_desc]
-[partition_desc]
-[distribution_desc]
-[PROPERTIES ("key"="value", ...)];
-[BROKER PROPERTIES ("key"="value", ...)];
+    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
+    (column_definition1[, column_definition2, ...])
+    [ENGINE = [olap|mysql|broker]]
+    [key_desc]
+    [partition_desc]
+    [distribution_desc]
+    [PROPERTIES ("key"="value", ...)]
+    [BROKER PROPERTIES ("key"="value", ...)]
+    [COMMENT "table comment"];
         
 1. column_definition
 
@@ -223,7 +224,8 @@ CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
         DISTRIBUTED BY HASH(k1) BUCKETS 32
-        PROPERTIES ("storage_type"="column");
+        PROPERTIES ("storage_type"="column")
+        COMMENT "my first doris table";
         ```
         
     2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
