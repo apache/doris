@@ -85,7 +85,7 @@ private:
     void _flush_memtable();
 
 private:
-    // id of this load channel, just for 
+    // id of this load channel
     TabletsChannelKey _key;
 
     // make execute sequece

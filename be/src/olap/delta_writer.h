@@ -75,8 +75,8 @@ public:
     RowsetWriter* rowset_writer() { return _rowset_writer.get(); }
 
     void update_flush_time(int64_t flush_ns) {
-        _flush_cost_ns += flush_ns;
-        _flush_time++;
+        _flush_time_ns += flush_ns;
+        _flush_count++;
     }
 
 private:
@@ -95,8 +95,8 @@ private:
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
     std::atomic<OLAPStatus> _flush_status;
-    int64_t _flush_cost_ns;
-    int64_t _flush_time;
+    int64_t _flush_time_ns;
+    int64_t _flush_count;
 
     // queue for saving immable mem tables
     BlockingQueue<std::shared_ptr<MemTable>>* _flush_queue;

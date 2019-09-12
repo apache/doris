@@ -250,8 +250,8 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     _delta_written_success = true;
 
     LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
-        << ", flush cost(ms): " << _flush_cost_ns / 1000 / 1000
-        << ", flush times: " << _flush_time;
+        << ", flush time(ms): " << _flush_time_ns / 1000 / 1000
+        << ", flush count: " << _flush_count;
     return OLAP_SUCCESS;
 }
 
