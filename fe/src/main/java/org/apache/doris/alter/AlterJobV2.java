@@ -31,11 +31,6 @@ import java.io.IOException;
 import java.util.List;
 
 /*
- * Author: Chenmingyu
- * Date: Jul 8, 2019
- */
-
-/*
  * Version 2 of AlterJob, for replacing the old version of AlterJob.
  * This base class of RollupJob and SchemaChangeJob
  */

@@ -871,12 +871,13 @@ public class Load {
      * This function should be used for broker load v2 and stream load.
      * And it must be called in same db lock when planing.
      */
-    public static void initColumns(Table tbl, boolean specifyFileFieldNames, List<ImportColumnDesc> columnExprs,
+    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction,
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
+        boolean specifyFileFieldNames = columnExprs.stream().anyMatch(p -> p.isColumn());
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema();
             for (Column column : columns) {
@@ -910,39 +911,41 @@ public class Load {
         // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
         // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
         for (Column column : tbl.getFullSchema()) {
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
-                if (columnExprMap.containsKey(originCol)) {
-                    Expr mappingExpr = columnExprMap.get(originCol);
-                    if (mappingExpr != null) {
-                        /*
-                         * eg:
-                         * (A, C) SET (B = func(xx)) 
-                         * ->
-                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
-                         */
-                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
-                        columnExprs.add(importColumnDesc);
-                    } else {
-                        /*
-                         * eg:
-                         * (A, B, C)
-                         * ->
-                         * (A, B, C) SET (__doris_shadow_B = B)
-                         */
-                        ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                                new SlotRef(null, originCol));
-                        columnExprs.add(importColumnDesc);
-                    }
+            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                continue;
+            }
+
+            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+            if (columnExprMap.containsKey(originCol)) {
+                Expr mappingExpr = columnExprMap.get(originCol);
+                if (mappingExpr != null) {
+                    /*
+                     * eg:
+                     * (A, C) SET (B = func(xx)) 
+                     * ->
+                     * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                     */
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                    columnExprs.add(importColumnDesc);
                 } else {
                     /*
-                     * There is a case that if user does not specify the related origin column, eg:
-                     * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
-                     * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
-                     * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                     * eg:
+                     * (A, B, C)
+                     * ->
+                     * (A, B, C) SET (__doris_shadow_B = B)
                      */
-                    // do nothing
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
+                            new SlotRef(null, originCol));
+                    columnExprs.add(importColumnDesc);
                 }
+            } else {
+                /*
+                 * There is a case that if user does not specify the related origin column, eg:
+                 * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                 * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                 * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                 */
+                // do nothing
             }
         }
 

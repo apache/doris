@@ -228,10 +228,9 @@ public class BrokerScanNode extends ScanNode {
         context.slotDescByName = Maps.newHashMap();
         context.exprMap = Maps.newHashMap();
 
-        boolean specifyFileFieldNames = context.fileGroup.getColumnExprList().stream().anyMatch(p -> p.isColumn());
-        Load.initColumns(targetTable, specifyFileFieldNames, context.fileGroup.getColumnExprList(),
-                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer, context.tupleDescriptor,
-                context.slotDescByName, context.params);
+        Load.initColumns(targetTable, context.fileGroup.getColumnExprList(),
+                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
+                context.tupleDescriptor, context.slotDescByName, context.params);
     }
 
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
