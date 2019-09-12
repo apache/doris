@@ -63,10 +63,12 @@ public class ShowTabletStmt extends ShowStmt {
             this.dbName = null;
             this.tableName = null;
             this.isShowSingleTablet = true;
+            this.indexName = null;
         } else {
             this.dbName = dbTableName.getDb();
             this.tableName = dbTableName.getTbl();
             this.isShowSingleTablet = false;
+            this.indexName = Strings.emptyToNull(indexName);
         }
         this.tabletId = tabletId;
         this.partitionNames = partitionNames;
@@ -251,7 +253,7 @@ public class ShowTabletStmt extends ShowStmt {
         if (isShowSingleTablet) {
             sb.append(tabletId);
         } else {
-            sb.append(" from ").append("`").append(dbName).append("`.`").append(tableName).append("`");
+            sb.append(" FROM ").append("`").append(dbName).append("`.`").append(tableName).append("`");
         }
         if (limitElement != null) {
             if (limitElement.hasOffset() && limitElement.hasLimit()) {

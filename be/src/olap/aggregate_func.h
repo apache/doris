@@ -406,7 +406,9 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
 
         dst_slice->size = sizeof(HyperLogLog);
-        dst_slice->data = (char*)new HyperLogLog(src_slice->data);;
+        // use 'placement new' to allocate HyperLogLog on arena, so that we can control the memory usage.
+        char* mem = arena->Allocate(dst_slice->size);
+        dst_slice->data = (char*) new (mem) HyperLogLog(src_slice->data);
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
@@ -423,8 +425,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         } else {   // for stream load
             auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
             dst_hll->merge(*src_hll);
-
-            delete src_hll;
+            // NOT use 'delete src_hll' because the memory is managed by arena
+            src_hll->~HyperLogLog();
         }
     }
 
@@ -434,8 +436,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         slice->data = arena->Allocate(HLL_COLUMN_DEFAULT_LEN);
         slice->size = hll->serialize(slice->data);
-
-        delete hll;
+        // NOT using 'delete hll' because the memory is managed by arena
+        hll->~HyperLogLog();
     }
 };
 // when data load, after bitmap_init fucntion, bitmap_union column won't be null

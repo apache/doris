@@ -93,19 +93,24 @@ template Status SegmentWriter::append_row(const RowCursor& row);
 template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 uint64_t SegmentWriter::estimate_segment_size() {
-    return 0;
+    uint64_t size = 8; //magic size
+    for (auto& column_writer : _column_writers) {
+        size += column_writer->estimate_buffer_size();
+    }
+    size += _index_builder->size();
+    return size;
 }
 
-Status SegmentWriter::finalize(uint32_t* segment_file_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size) {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
-    RETURN_IF_ERROR(_write_raw_data({k_segment_magic}));
     RETURN_IF_ERROR(_write_data());
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_short_key_index());
     RETURN_IF_ERROR(_write_footer());
+    *segment_file_size = _output_file->size();
     return Status::OK();
 }
 
@@ -153,25 +158,23 @@ Status SegmentWriter::_write_footer() {
         _column_writers[i]->write_meta(_footer.mutable_columns(i));
     }
 
-    // write footer
+    // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
     }
 
-    std::string footer_info_buf;
-    // put footer's size
-    put_fixed32_le(&footer_info_buf, footer_buf.size());
-    // compute footer's checksum
+    std::string fixed_buf;
+    // footer's size
+    put_fixed32_le(&fixed_buf, footer_buf.size());
+    // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
-    put_fixed32_le(&footer_info_buf, checksum);
+    put_fixed32_le(&fixed_buf, checksum);
+    // magic number. we don't write magic number in the header because that requires an extra seek when reading
+    fixed_buf.append(k_segment_magic, k_segment_magic_length);
 
-    // I think we don't need to put a tail magic.
-
-    std::vector<Slice> slices{footer_buf, footer_info_buf};
-    // write offset and length
-    RETURN_IF_ERROR(_write_raw_data(slices));
-    return Status::OK();
+    std::vector<Slice> slices{footer_buf, fixed_buf};
+    return _write_raw_data(slices);
 }
 
 Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {

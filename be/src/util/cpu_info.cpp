@@ -35,6 +35,7 @@
 #include <sys/sysinfo.h>
 
 #include "common/config.h"
+#include "common/env_config.h"
 #include "gflags/gflags.h"
 #include "gutil/strings/substitute.h"
 #include "util/pretty_printer.h"
@@ -156,13 +157,13 @@ void CpuInfo::init() {
   } else {
     num_cores_ = 1;
   }
-  if (config::flags_num_cores > 0) num_cores_ = config::flags_num_cores;
+  if (config::num_cores > 0) num_cores_ = config::num_cores;
   max_num_cores_ = get_nprocs_conf();
 
   // Print a warning if something is wrong with sched_getcpu().
 #ifdef HAVE_SCHED_GETCPU
   if (sched_getcpu() == -1) {
-    LOG(WARNING) << "Kernel does not support getcpu(). Performance may be impacted.";
+    LOG(WARNING) << "Kernel does not support sched_getcpu(). Performance may be impacted.";
   }
 #else
   LOG(WARNING) << "Built on a system without sched_getcpu() support. Performance may"
@@ -284,15 +285,21 @@ void CpuInfo::enable_feature(long flag, bool enable) {
 }
 
 int CpuInfo::get_current_core() {
-  // sched_getcpu() is not supported on some old kernels/glibcs (like the versions that
-  // shipped with CentOS 5). In that case just pretend we're always running on CPU 0
-  // so that we can build and run with degraded perf.
+    // sched_getcpu() is not supported on some old kernels/glibcs (like the versions that
+    // shipped with CentOS 5). In that case just pretend we're always running on CPU 0
+    // so that we can build and run with degraded perf.
 #ifdef HAVE_SCHED_GETCPU
-  int cpu = sched_getcpu();
-  // The syscall may not be supported even if the function exists.
-  return cpu == -1 ? 0 : cpu;
+    int cpu = sched_getcpu();
+    if (cpu < 0) return 0;
+    if (cpu >= max_num_cores_) {
+        LOG_FIRST_N(WARNING, 5) << "sched_getcpu() return value " << cpu
+            << ", which is greater than get_nprocs_conf() retrun value " << max_num_cores_
+            << ", now is " << get_nprocs_conf();
+        cpu %= max_num_cores_;
+    }
+    return cpu;
 #else
-  return 0;
+    return 0;
 #endif
 }
 

@@ -178,8 +178,7 @@ public class Tablet extends MetaObject implements Writable {
             }
             
             ReplicaState state = replica.getState();
-            if (infoService.checkBackendAlive(replica.getBackendId())
-                    && (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE)) {
+            if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
                 beIds.add(replica.getBackendId());
             }
         }
@@ -197,7 +196,7 @@ public class Tablet extends MetaObject implements Writable {
 
             ReplicaState state = replica.getState();
             if (infoService.checkBackendAlive(replica.getBackendId())
-                    && (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE)) {
+                    && (state == ReplicaState.NORMAL || state == ReplicaState.ALTER)) {
                 map.put(replica.getBackendId(), replica.getPathHash());
             }
         }
@@ -213,9 +212,9 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             ReplicaState state = replica.getState();
-            if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
+            if (state.canQuery()) {
                 // replica.getSchemaHash() == -1 is for compatibility
-                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash)
+                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
                     allQuerableReplica.add(replica);
                     if (localBeId != -1 && replica.getBackendId() == localBeId) {

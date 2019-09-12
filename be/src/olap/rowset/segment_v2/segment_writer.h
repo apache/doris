@@ -63,7 +63,7 @@ public:
 
     uint32_t num_rows_written() { return _row_count; }
 
-    Status finalize(uint32_t* segment_file_size);
+    Status finalize(uint64_t* segment_file_size);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);

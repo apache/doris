@@ -18,13 +18,13 @@ Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步�
 语法：
 
 ```
-INSERT INTO table_name [partition_info] [col_list] [query_stmt] [VALUES];
+INSERT INTO table_name [WITH LABEL label] [partition_info] [col_list] [query_stmt] [VALUES];
 ```
 
 示例：
 
 ```
-INSERT INTO tbl2 SELECT * FROM tbl3;
+INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
 INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 ```
 
@@ -50,6 +50,14 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
     
     *注意：VALUES 方式仅适用于导入几条数据作为导入 DEMO 的情况，完全不适用于任何测试和生产环境。Doris 系统本身也不适合单条数据导入的场景。建议使用 INSERT INTO SELECT 的方式进行批量导入。*
     
+* WITH LABEL
+
+    INSERT 操作作为一个导入任务，也可以指定一个 label。如果不指定，则系统会自动指定一个 UUID 作为 label。
+    
+    该功能需要 0.11+ 版本。
+    
+    *注意：建议指定 Label 而不是由系统自动分配。如果由系统自动分配，但在 Insert Into 语句执行过程中，因网络错误导致连接断开等，则无法得知 Insert Into 是否成功。而如果指定 Label，则可以再次通过 Label 查看任务结果。*
+    
 ### 导入结果
 
 Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令的返回行为。
@@ -66,11 +74,22 @@ Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令�
 Query OK, 100 row affected, 0 warning (0.22 sec)
 ```
 
-导入可能部分成功，则还会附加一个 Label 字段。示例如下：
+如果用户指定了 Label，则会也会返回 Label
+```
+Query OK, 100 row affected, 0 warning (0.22 sec)
+{'label':'user_specified_label'}
+```
+
+导入可能部分成功，则会附加 Label 字段。示例如下：
 
 ```
 Query OK, 100 row affected, 1 warning (0.23 sec)
 {'label':'7d66c457-658b-4a3e-bdcf-8beee872ef2c'}
+```
+
+```
+Query OK, 100 row affected, 1 warning (0.23 sec)
+{'label':'user_specified_label'}
 ```
 
 其中 affected 表示导入的行数。warning 表示失败的行数。用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
@@ -152,7 +171,7 @@ bj_store_sales schema:
     由于用户是希望将一张表中的数据做 ETL 并导入到目标表中，所以应该使用 Insert into query\_stmt 方式导入。
 
     ```
-    INSERT INTO bj_store_sales SELECT id, total, user_id, sale_timestamp FROM store_sales where region = "bj";
+    INSERT INTO bj_store_sales WITH LABEL `label` SELECT id, total, user_id, sale_timestamp FROM store_sales where region = "bj";
     ```
 
 ## 常见问题

@@ -82,7 +82,7 @@ public class PullLoadTaskPlanner {
         // Generate tuple descriptor
         List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
-        for (Column col : table.getBaseSchema()) {
+        for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);

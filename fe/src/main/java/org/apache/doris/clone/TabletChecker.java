@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
@@ -207,7 +208,10 @@ public class TabletChecker extends Daemon {
                         }
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
-                        for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                        /*
+                         * Tablet in SHADOW index can not be repaired of balanced
+                         */
+                        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
                                 

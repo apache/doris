@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -251,7 +252,7 @@ public class BackupJobInfo implements Writable {
                 partitionInfo.versionHash = partition.getVisibleVersionHash();
                 tableInfo.partitions.put(partitionInfo.name, partitionInfo);
                 // indexes
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     BackupIndexInfo idxInfo = new BackupIndexInfo();
                     idxInfo.id = index.getId();
                     idxInfo.name = olapTbl.getIndexNameById(index.getId());

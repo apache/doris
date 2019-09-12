@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
@@ -175,7 +176,7 @@ public class LoadEtlTaskTest {
                 .getIdToPartitionLoadInfo().get(paritionId).getVersion());
         int tabletNum = 0;
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
-        for (MaterializedIndex olapTable : partition.getMaterializedIndices()) {
+        for (MaterializedIndex olapTable : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapTable.getTablets()) {
                 ++tabletNum;
                 Assert.assertTrue(tabletLoadInfos.containsKey(tablet.getId()));

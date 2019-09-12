@@ -552,7 +552,7 @@ public class SessionVariable implements Serializable, Writable {
             disableStreamPreaggregations = in.readBoolean();
             parallelExecInstanceNum = in.readInt();
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
             dorisExchangeInstances = in.readInt();
         }
 

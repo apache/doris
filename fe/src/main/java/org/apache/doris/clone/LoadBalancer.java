@@ -82,6 +82,9 @@ public class LoadBalancer {
      * 
      * Here we only select tablets from high load node, do not set its src or dest, all this will be set
      * when this tablet is being scheduled in tablet scheduler.
+     * 
+     * NOTICE that we may select any available tablets here, ignore their state.
+     * The state will be checked when being scheduled in tablet scheduler.
      */
     private List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium) {

@@ -169,9 +169,15 @@ public class LoadJobTest {
 
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
-                                          @Mocked LongCounterMetric longCounterMetric) {
-        metricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
+            @Mocked LongCounterMetric longCounterMetric) {
+        
+        MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
+        
+        // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
+        Catalog catalog = Catalog.getCurrentCatalog();
+        GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
+        Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));

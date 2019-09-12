@@ -20,6 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -254,7 +255,7 @@ public class LoadCheckerTest {
         // set tablet load infos
         int replicaNum = 0;
         Map<Long, TabletLoadInfo> tabletLoadInfos = new HashMap<Long, TabletLoadInfo>();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 replicaNum += tablet.getReplicas().size();
                 TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("/label/path", 1L);
@@ -285,7 +286,7 @@ public class LoadCheckerTest {
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
 
         // update replica to new version
-        for (MaterializedIndex olapIndex : partition.getMaterializedIndices()) {
+        for (MaterializedIndex olapIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
                     replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);
@@ -327,7 +328,7 @@ public class LoadCheckerTest {
         job.setIdToTableLoadInfo(idToTableLoadInfo);
         // set tablet load infos
         Map<Long, TabletLoadInfo> tabletLoadInfos = new HashMap<Long, TabletLoadInfo>();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
                     replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);

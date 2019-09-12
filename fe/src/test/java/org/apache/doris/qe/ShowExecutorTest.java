@@ -95,7 +95,6 @@ public class ShowExecutorTest {
 
         // mock partition
         Partition partition = EasyMock.createMock(Partition.class);
-        EasyMock.expect(partition.getRollupIndices()).andReturn(Lists.newArrayList(index1, index2)).anyTimes();
         EasyMock.expect(partition.getBaseIndex()).andReturn(index1).anyTimes();
         EasyMock.replay(partition);
 

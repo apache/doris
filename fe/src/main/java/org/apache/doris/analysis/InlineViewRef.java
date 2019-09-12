@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.View;
@@ -28,6 +25,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -264,12 +266,7 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            if (selectItemExpr instanceof SlotRef && ((SlotRef)selectItemExpr).getDesc().getColumn() != null) {
-                SlotRef slotRef = (SlotRef) selectItemExpr;
-                columnList.add(new Column(slotRef.getDesc().getColumn()));
-            } else {
-                columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType()));
-            }
+            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType()));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 

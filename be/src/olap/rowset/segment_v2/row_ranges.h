@@ -51,7 +51,7 @@ public:
         return false;
     }
 
-    // Returns true if the two ranges are overlapped or false.
+    // Returns true if the two ranges are intersected or false.
     // The intersection of the two ranges is returned through range.
     static bool range_intersection(const RowRange& left, const RowRange& right, RowRange* range) {
         if (left._from <= right._from) {

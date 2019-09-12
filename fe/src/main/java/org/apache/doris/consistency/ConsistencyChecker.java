@@ -20,6 +20,7 @@ package org.apache.doris.consistency;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaObject;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -304,7 +305,7 @@ public class ConsistencyChecker extends Daemon {
                             // sort materializedIndices
                             Queue<MetaObject> indexQueue =
                                     new PriorityQueue<MetaObject>(1, COMPARATOR);
-                            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                                 indexQueue.add(index);
                             }
 
