@@ -21,15 +21,20 @@ import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -53,25 +58,22 @@ import java.util.Map;
 public class BrokerFileGroup implements Writable {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
-    // input
-    private DataDescription dataDescription;
-
     private long tableId;
     private String valueSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
-    private List<String> columnsFromPath;
     private boolean isNegative;
     private List<Long> partitionIds;
-    // this is a compatible param which only happens before the function of broker has been supported.
-    private List<String> fileFieldNames;
     private List<String> filePaths;
 
-    // this is a compatible param which only happens before the function of broker has been supported.
-    private Map<String, Expr> exprColumnMap;
+    private List<String> fileFieldNames;
+    private List<String> columnsFromPath;
+    // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
     // this param will be recreated by data desc when the log replay
     private List<ImportColumnDesc> columnExprList;
+    // this is only for hadoop function check
+    private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
 
     // Used for recovery from edit log
     private BrokerFileGroup() {
@@ -88,23 +90,23 @@ public class BrokerFileGroup implements Writable {
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
-        this.dataDescription = dataDescription;
+        this.fileFieldNames = dataDescription.getFileFieldNames();
         this.columnsFromPath = dataDescription.getColumnsFromPath();
-        this.exprColumnMap = null;
         this.columnExprList = dataDescription.getParsedColumnExprList();
+        this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
     }
 
     // NOTE: DBLock will be held
     // This will parse the input DataDescription to list for BrokerFileInfo
-    public void parse(Database db) throws DdlException {
+    public void parse(Database db, DataDescription dataDescription) throws DdlException {
         // tableId
         Table table = db.getTable(dataDescription.getTableName());
         if (table == null) {
-            throw new DdlException("Unknown table(" + dataDescription.getTableName()
-                    + ") in database(" + db.getFullName() + ")");
+            throw new DdlException("Unknown table " + dataDescription.getTableName()
+                    + " in database " + db.getFullName());
         }
         if (!(table instanceof OlapTable)) {
-            throw new DdlException("Table(" + table.getName() + ") is not OlapTable");
+            throw new DdlException("Table " + table.getName() + " is not OlapTable");
         }
         OlapTable olapTable = (OlapTable) table;
         tableId = table.getId();
@@ -118,10 +120,26 @@ public class BrokerFileGroup implements Writable {
             for (String pName : dataDescription.getPartitionNames()) {
                 Partition partition = olapTable.getPartition(pName);
                 if (partition == null) {
-                    throw new DdlException("Unknown partition(" + pName + ") in table("
-                            + table.getName() + ")");
+                    throw new DdlException("Unknown partition" + pName + " in table" + table.getName());
                 }
                 partitionIds.add(partition.getId());
+            }
+        }
+
+        if (olapTable.getState() == OlapTableState.RESTORE) {
+            throw new DdlException("Table [" + table.getName() + "] is under restore");
+        }
+
+        if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
+            throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
+        }
+
+        // check negative for sum aggregate type
+        if (dataDescription.isNegative()) {
+            for (Column column : table.getBaseSchema()) {
+                if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
+                    throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                }
             }
         }
 
@@ -138,7 +156,7 @@ public class BrokerFileGroup implements Writable {
         fileFormat = dataDescription.getFileFormat();
         if (fileFormat != null) {
             if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv")) {
-                throw new DdlException("File Format Type("+fileFormat+") Is Invalid. Only support 'csv' or 'parquet'");
+                throw new DdlException("File Format Type "+fileFormat+" is invalid. Only support 'csv' or 'parquet'");
             }
         }
         isNegative = dataDescription.isNegative();
@@ -163,10 +181,6 @@ public class BrokerFileGroup implements Writable {
         return fileFormat;
     }
 
-    public List<String> getColumnsFromPath() {
-        return columnsFromPath;
-    }
-
     public boolean isNegative() {
         return isNegative;
     }
@@ -179,8 +193,16 @@ public class BrokerFileGroup implements Writable {
         return filePaths;
     }
 
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
+    }
+
     public List<ImportColumnDesc> getColumnExprList() {
         return columnExprList;
+    }
+
+    public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
+        return columnToHadoopFunction;
     }
 
     @Override
@@ -273,16 +295,8 @@ public class BrokerFileGroup implements Writable {
             Text.writeString(out, path);
         }
         // expr column map will be null after broker load supports function
-        if (exprColumnMap == null) {
-            out.writeInt(0);
-        } else {
-            int size = exprColumnMap.size();
-            out.writeInt(size);
-            for (Map.Entry<String, Expr> entry : exprColumnMap.entrySet()) {
-                Text.writeString(out, entry.getKey());
-                Expr.writeTo(entry.getValue(), out);
-            }
-        }
+        out.writeInt(0);
+
         // fileFormat
         if (fileFormat == null) {
             out.writeBoolean(false);
@@ -327,14 +341,12 @@ public class BrokerFileGroup implements Writable {
             }
         }
         // expr column map
+        Map<String, Expr> exprColumnMap = Maps.newHashMap();
         {
             int size = in.readInt();
-            if (size > 0) {
-                exprColumnMap = Maps.newHashMap();
-                for (int i = 0; i < size; ++i) {
-                    final String name = Text.readString(in);
-                    exprColumnMap.put(name, Expr.readIn(in));
-                }
+            for (int i = 0; i < size; ++i) {
+                final String name = Text.readString(in);
+                exprColumnMap.put(name, Expr.readIn(in));
             }
         }
         // file format

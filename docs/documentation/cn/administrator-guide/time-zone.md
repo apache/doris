@@ -37,7 +37,15 @@ Doris 内部存在多个时区相关参数
 
 包括NOW()或CURTIME()等时间函数显示的值，也包括show load, show backends中的时间值。
 
-但不会影响create table 中时间类型分区列的less than值，也不会影响存储为date/datetime类型的值的显示。
+但不会影响 create table 中时间类型分区列的 less than 值，也不会影响存储为 date/datetime 类型的值的显示。
+
+受时区影响的函数：
+
+* `FROM_UNIXTIME`：给定一个 UTC 时间戳，返回指定时区的日期时间：如 `FROM_UNIXTIME(0)`， 返回 CST 时区：`1970-01-01 08:00:00`。
+* `UNIX_TIMESTAMP`：给定一个指定时区日期时间，返回 UTC 时间戳：如 CST 时区 `UNIX_TIMESTAMP('1970-01-01 08:00:00')`，返回 `0`。
+* `CURTIME`：返回指定时区时间。
+* `NOW`：返指定地时区日期时间。
+* `CONVERT_TZ`：将一个日期时间从一个指定时区转换到另一个指定时区。
 
 ## 使用限制
 
@@ -50,4 +58,8 @@ Doris 内部存在多个时区相关参数
 * 不支持缩写时区格式，如"MET"、"CTT"。因为缩写时区在不同场景下存在歧义，不建议使用。
 
 * 为了兼容Doris，支持CST缩写时区，内部会将CST转移为"Asia/Shanghai"的中国标准时区
+
+## 时区格式列表
+
+[List of tz database time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 

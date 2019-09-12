@@ -130,19 +130,9 @@ OLAPStatus DeltaWriter::init() {
     writer_context.load_id = _req.load_id;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
-    const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
-    const TabletSchema& schema = _tablet->tablet_schema();
-    for (size_t col_id = 0; col_id < schema.num_columns(); ++col_id) {
-        const TabletColumn& column = schema.column(col_id);
-        for (size_t i = 0; i < slots.size(); ++i) {
-            if (slots[i]->col_name() == column.name()) {
-                _col_ids.push_back(i);
-            }
-        }
-    }
     _tablet_schema = &(_tablet->tablet_schema());
     _schema = new Schema(*_tablet_schema);
-    _mem_table = new MemTable(_schema, _tablet_schema, &_col_ids,
+    _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
                               _req.tuple_desc, _tablet->keys_type());
     _is_init = true;
     return OLAP_SUCCESS;
@@ -161,7 +151,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_mem_table->flush(_rowset_writer.get()));
 
         SAFE_DELETE(_mem_table);
-        _mem_table = new MemTable(_schema, _tablet_schema, &_col_ids,
+        _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type());
     }
     return OLAP_SUCCESS;

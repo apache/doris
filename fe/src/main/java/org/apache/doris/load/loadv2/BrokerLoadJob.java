@@ -76,7 +76,6 @@ public class BrokerLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
     // input params
-    private List<DataDescription> dataDescriptions = Lists.newArrayList();
     private BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
@@ -93,12 +92,10 @@ public class BrokerLoadJob extends LoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions,
-                         String originStmt)
+    private BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, String originStmt)
             throws MetaNotFoundException {
         super(dbId, label);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
-        this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.originStmt = originStmt;
         this.jobType = EtlJobType.BROKER;
@@ -112,27 +109,30 @@ public class BrokerLoadJob extends LoadJob {
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
-        // check data source info
-        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions(), EtlJobType.BROKER);
 
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                            stmt.getBrokerDesc(), stmt.getDataDescriptions(),
-                                                            originStmt);
+                    stmt.getBrokerDesc(), originStmt);
             brokerLoadJob.setJobProperties(stmt.getProperties());
-            brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
+            brokerLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
     }
 
-    private void setDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
-        for (DataDescription dataDescription : dataDescriptions) {
-            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-            fileGroup.parse(db);
-            dataSourceInfo.addFileGroup(fileGroup);
+    private void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+        // check data source info
+        db.readLock();
+        try {
+            for (DataDescription dataDescription : dataDescriptions) {
+                BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+                fileGroup.parse(db, dataDescription);
+                dataSourceInfo.addFileGroup(fileGroup);
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
@@ -277,7 +277,7 @@ public class BrokerLoadJob extends LoadJob {
             if (db == null) {
                 throw new DdlException("Database[" + dbId + "] does not exist");
             }
-            setDataSourceInfo(db, stmt.getDataDescriptions());
+            checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("origin_stmt", originStmt)
@@ -339,6 +339,7 @@ public class BrokerLoadJob extends LoadJob {
         // divide job into broker loading task by table
         db.readLock();
         try {
+            List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
             for (Map.Entry<Long, List<BrokerFileGroup>> entry :
                     dataSourceInfo.getIdToFileGroups().entrySet()) {
                 long tableId = entry.getKey();
@@ -355,16 +356,27 @@ public class BrokerLoadJob extends LoadJob {
 
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
-                                                           entry.getValue(), getDeadlineMs(), execMemLimit,
-                                                           strictMode, transactionId, this);
+                        entry.getValue(), getDeadlineMs(), execMemLimit,
+                        strictMode, transactionId, this, timezone);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(tableId),
-                          attachment.getFileNumByTable(tableId));
-                // Add tasks into list and pool
+                task.init(loadId, attachment.getFileStatusByTable(tableId), attachment.getFileNumByTable(tableId));
                 idToTasks.put(task.getSignature(), task);
+                // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
+                // use newLoadingTasks to save new created loading tasks and submit them later.
+                newLoadingTasks.add(task);
                 loadStatistic.numLoadedRowsMap.put(loadId, new AtomicLong(0));
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+
+                // save all related tables and rollups in transaction state
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + transactionId);
+                }
+                txnState.addTableIndexes(table);
+            }
+            // submit all tasks together
+            for (LoadTask loadTask : newLoadingTasks) {
+                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
             }
         } finally {
             db.readUnlock();
@@ -492,7 +504,6 @@ public class BrokerLoadJob extends LoadJob {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         brokerDesc.write(out);
-        dataSourceInfo.write(out);
         Text.writeString(out, originStmt);
     }
 
@@ -500,9 +511,9 @@ public class BrokerLoadJob extends LoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
-        // The data source info also need to be replayed
-        // because the load properties of old broker load has been saved in here.
-        dataSourceInfo.readFields(in);
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_61) {
+            dataSourceInfo.readFields(in);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
             originStmt = Text.readString(in);

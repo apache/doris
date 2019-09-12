@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
@@ -264,7 +265,7 @@ public abstract class LoadEtlTask extends MasterTask {
                     }
                     
                     // yiguolei: how to deal with filesize == -1?
-                    for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = materializedIndex.getId();
                         int tabletIndex = 0;
                         for (Tablet tablet : materializedIndex.getTablets()) {
