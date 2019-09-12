@@ -83,6 +83,7 @@ set(RUNTIME_FILES
   #  export_task_mgr.cpp
   export_sink.cpp
   tablet_writer_mgr.cpp
+  tablets_channel.cpp
   bufferpool/buffer_allocator.cc
   bufferpool/buffer_pool.cc
   bufferpool/reservation_tracker.cc

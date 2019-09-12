@@ -26,10 +26,11 @@
 
 namespace doris {
 
-MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
+MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
-    : _schema(schema),
+    : _tablet_id(tablet_id),
+      _schema(schema),
       _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
       _slot_descs(slot_descs),
@@ -59,6 +60,7 @@ size_t MemTable::memory_usage() {
 
 void MemTable::insert(Tuple* tuple) {
     ContiguousRow row(_schema, _tuple_buf);
+    
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
         const SlotDescriptor* slot = (*_slot_descs)[i];

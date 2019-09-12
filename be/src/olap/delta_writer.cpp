@@ -26,24 +26,32 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req);
+OLAPStatus DeltaWriter::open(
+        WriteRequest* req,
+        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue,
+        DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, flush_queue);
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req)
+DeltaWriter::DeltaWriter(
+        WriteRequest* req,
+        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
-      _rowset_writer(nullptr), _mem_table(nullptr),
-      _schema(nullptr), _tablet_schema(nullptr),
-      _delta_written_success(false) {}
+      _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
+      _delta_written_success(false), _flush_status(OLAP_SUCCESS),
+      _flush_queue(flush_queue) {
+
+    _mem_table.reset();
+}
 
 DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
         _garbage_collection();
     }
 
-    SAFE_DELETE(_mem_table);
+    _mem_table.reset();
     SAFE_DELETE(_schema);
     if (_rowset_writer != nullptr) {
         _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
@@ -132,8 +140,8 @@ OLAPStatus DeltaWriter::init() {
 
     _tablet_schema = &(_tablet->tablet_schema());
     _schema = new Schema(*_tablet_schema);
-    _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
-                              _req.tuple_desc, _tablet->keys_type());
+    _mem_table = std::make_shared<MemTable>(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots, _req.tuple_desc, _tablet->keys_type());
+
     _is_init = true;
     return OLAP_SUCCESS;
 }
@@ -147,26 +155,48 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     }
 
     _mem_table->insert(tuple);
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_mem_table->flush(_rowset_writer.get()));
 
-        SAFE_DELETE(_mem_table);
-        _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type());
+    // if memtable is full, add it to the flush queue,
+    // and create a new memtable for incoming data
+    if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        if (_flush_status.load() != OLAP_SUCCESS) {
+            // last flush already failed, return error
+            return _flush_status.load();
+        }
+
+        if (!_flush_queue->blocking_put(_mem_table)) {
+            // queue has been shutdown
+            return OLAP_ERR_WRITER_FLUSH_QUEUE_SHUTDOWN;
+        }
+        // create a new memtable for new incoming data
+        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots, _req.tuple_desc, _tablet->keys_type()));
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::flush() {
     if (!_is_init) {
         auto st = init();
         if (st != OLAP_SUCCESS) {
             return st;
         }
     }
-    RETURN_NOT_OK(_mem_table->close(_rowset_writer.get()));
 
-    OLAPStatus res = OLAP_SUCCESS;
+    // if last flush already failed, just return error
+    RETURN_NOT_OK(_flush_status.load());
+    // put last memtable to flush queue
+    _flush_queue->blocking_put(_mem_table);
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+    // return error if flush failed
+    OLAPStatus res = _flush_status.load();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to flush memtable for tablet: " << _tablet->tablet_id();
+        return res;
+    }
+
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
@@ -218,6 +248,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
 #endif
 
     _delta_written_success = true;
+
+    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
+        << ", flush cost(ms): " << _flush_cost_ns / 1000 / 1000
+        << ", flush times: " << _flush_time;
     return OLAP_SUCCESS;
 }
 

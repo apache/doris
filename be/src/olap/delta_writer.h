@@ -25,6 +25,7 @@
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
+#include "util/blocking_queue.hpp"
 
 namespace doris {
 
@@ -53,16 +54,30 @@ struct WriteRequest {
 
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+    static OLAPStatus open(
+        WriteRequest* req, 
+        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue,
+        DeltaWriter** writer);
     OLAPStatus init();
-    DeltaWriter(WriteRequest* req);
+    DeltaWriter(WriteRequest* req, BlockingQueue<std::shared_ptr<MemTable>>* flush_queue);
     ~DeltaWriter();
     OLAPStatus write(Tuple* tuple);
+    // flush the last memtable to flush queue, must call it before close
+    OLAPStatus flush();
     OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     OLAPStatus cancel();
 
     int64_t partition_id() const { return _req.partition_id; }
+
+    void set_flush_status(OLAPStatus st) { _flush_status.store(st); }
+    OLAPStatus get_flush_status() { return _flush_status.load(); }
+    RowsetWriter* rowset_writer() { return _rowset_writer.get(); }
+
+    void update_flush_time(int64_t flush_ns) {
+        _flush_cost_ns += flush_ns;
+        _flush_time++;
+    }
 
 private:
     void _garbage_collection();
@@ -75,10 +90,16 @@ private:
     RowsetSharedPtr _new_rowset;
     TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
-    MemTable* _mem_table;
+    std::shared_ptr<MemTable> _mem_table;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
+    std::atomic<OLAPStatus> _flush_status;
+    int64_t _flush_cost_ns;
+    int64_t _flush_time;
+
+    // queue for saving immable mem tables
+    BlockingQueue<std::shared_ptr<MemTable>>* _flush_queue;
 };
 
 }  // namespace doris

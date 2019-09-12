@@ -31,15 +31,17 @@ class RowCursor;
 
 class MemTable {
 public:
-    MemTable(Schema* schema, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type);
     ~MemTable();
+    int64_t tablet_id() { return _tablet_id; }
     size_t memory_usage();
     void insert(Tuple* tuple);
     OLAPStatus flush(RowsetWriter* rowset_writer);
     OLAPStatus close(RowsetWriter* rowset_writer);
 private:
+    int64_t _tablet_id; 
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;

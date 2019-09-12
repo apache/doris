@@ -465,6 +465,10 @@ namespace config {
     CONF_Int32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
     CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
+    // the size of queue for saving immutable memtables.
+    // set this size larger may reduce the time of waiting memtable flush,
+    // but will increase memory usage of loading.
+    // CONF_Int32(memtable_queue_size, "1");
 } // namespace config
 
 } // namespace doris
