@@ -45,6 +45,7 @@ namespace doris {
 #if ENABLE_COUNTERS
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
+#define ADD_TS(profile, name) (profile)->add_counter(name, TUnit::DATE_S)
 #define ADD_CHILD_TIMER(profile, name, parent) \
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
@@ -53,6 +54,7 @@ namespace doris {
       ScopedRawTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
 #define COUNTER_SET(c, v) (c)->set(v)
+#define SET_CUR_TIME(c) (c)->set_cur_time()
 #define ADD_THREAD_COUNTERS(profile, prefix) (profile)->add_thread_counters(prefix)
 #define SCOPED_THREAD_COUNTER_MEASUREMENT(c) \
     /*ThreadCounterMeasurement                                        \
@@ -64,6 +66,7 @@ namespace doris {
 #define SCOPED_RAW_TIMER(c)
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
+#define SET_CUR_TIME(c)
 #define ADD_THREADCOUNTERS(profile, prefix) NULL
 #define SCOPED_THREAD_COUNTER_MEASUREMENT(c)
 #endif
@@ -107,6 +110,10 @@ public:
         }
 
         virtual void set(int value) { _value.store(value); }
+
+		virtual void set_cur_time() {
+			_value.store(time(NULL));
+		}
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));

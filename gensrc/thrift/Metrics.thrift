@@ -32,7 +32,8 @@ enum TUnit {
   // No units at all, may not be a numerical quantity
   NONE,
   TIME_MS,
-  TIME_S
+  TIME_S,
+  DATE_S
 }
 
 // The kind of value that a metric represents.

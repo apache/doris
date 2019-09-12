@@ -262,6 +262,7 @@ private:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
 
     RuntimeProfile::Counter* _index_load_timer = nullptr;
+	RuntimeProfile::Counter* _read_files_counter= nullptr;
 };
 
 } // namespace doris

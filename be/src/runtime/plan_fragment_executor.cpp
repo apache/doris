@@ -303,6 +303,8 @@ Status PlanFragmentExecutor::open_internal() {
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
 
+	SET_CUR_TIME(ADD_TS(profile(), "ExecStartTime"));
+
     // If there is a sink, do all the work of driving it here, so that
     // when this returns the query has actually finished
     RowBatch* batch = NULL;
@@ -353,6 +355,8 @@ Status PlanFragmentExecutor::open_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(NULL);
     _done = true;
+
+	SET_CUR_TIME(ADD_TS(profile(), "ExecEndTime"));
 
     release_thread_token();
 

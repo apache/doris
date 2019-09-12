@@ -145,7 +145,10 @@ public:
             ss << std::setprecision(PRECISION) << output << " ";
             break;
         }
-
+		case TUnit::DATE_S: {
+			ss << time_str_from_int((uint64_t)value);
+			break;
+		}
         default:
             DCHECK(false) << "Unsupported TUnit: " << value;
             break;
