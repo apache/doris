@@ -80,7 +80,7 @@ public class LoadingTaskPlanner {
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode) {
+                              boolean strictMode, String timezone) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -88,6 +88,7 @@ public class LoadingTaskPlanner {
         this.brokerDesc = brokerDesc;
         this.fileGroups = brokerFileGroups;
         this.strictMode = strictMode;
+        this.analyzer.setTimezone(timezone);
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
@@ -95,7 +96,8 @@ public class LoadingTaskPlanner {
         // Generate tuple descriptor
         List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
-        for (Column col : table.getBaseSchema()) {
+        // use full schema to fill the descriptor table
+        for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
@@ -151,6 +153,10 @@ public class LoadingTaskPlanner {
 
     public List<ScanNode> getScanNodes() {
         return scanNodes;
+    }
+
+    public String getTimezone() {
+        return analyzer.getTimezone();
     }
 
     private String convertBrokerDescPartitionInfo() throws LoadException, MetaNotFoundException {

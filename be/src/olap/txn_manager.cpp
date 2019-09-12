@@ -201,7 +201,8 @@ OLAPStatus TxnManager::commit_txn(
                 << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string()
-                << ", rowsetid: " << rowset_ptr->rowset_id();
+                << ", rowsetid: " << rowset_ptr->rowset_id()
+                << ", version: " << rowset_ptr->version().first;
     }
     return OLAP_SUCCESS;
 }

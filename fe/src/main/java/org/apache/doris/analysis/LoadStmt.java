@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 
@@ -60,6 +61,7 @@ public class LoadStmt extends DdlStmt {
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -92,6 +94,7 @@ public class LoadStmt extends DdlStmt {
             .add(CLUSTER_PROPERTY)
             .add(STRICT_MODE)
             .add(VERSION)
+            .add(TIMEZONE)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -195,15 +198,20 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        // time zone
+        final String timezone = properties.get(TIMEZONE);
+        if (timezone != null) {
+            TimeUtils.checkTimeZoneValid(timezone);
+        }
     }
 
-    private void analyzeVersion() {
+    private void analyzeVersion() throws AnalysisException {
         if (properties == null) {
             return;
         }
         final String versionProperty = properties.get(VERSION);
         if (versionProperty != null) {
-            version = Load.VERSION;
+            throw new AnalysisException("Do not support VERSION property");
         }
     }
 

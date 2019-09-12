@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -233,7 +234,7 @@ public class ColocateTableBalancer extends Daemon {
                 }
 
                 for (Partition partition : tbl.getPartitions()) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         long tabletId = index.getTabletIdsInOrder().get(tabletOrderIdx);
                         Tablet tablet = index.getTablet(tabletId);
                         Replica replica = tablet.getReplicaByBackendId(unavailableBeId);
@@ -344,7 +345,9 @@ public class ColocateTableBalancer extends Daemon {
                         short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                         long visibleVersion = partition.getVisibleVersion();
                         long visibleVersionHash = partition.getVisibleVersionHash();
-                        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        // Here we only get VISIBLE indexes. All other indexes are not queryable.
+                        // So it does not matter if tablets of other indexes are not matched.
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             int idx = 0;

@@ -83,7 +83,6 @@ public class LoadJob implements Writable {
     long timestamp;
     private int timeoutSecond;
     private double maxFilterRatio;
-    private boolean deleteFlag;
     private JobState state;
 
     private BrokerDesc brokerDesc;
@@ -148,7 +147,6 @@ public class LoadJob implements Writable {
         this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = DEFAULT_TIMEOUT_S;
-        this.deleteFlag = true;
         this.state = JobState.LOADING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -200,7 +198,6 @@ public class LoadJob implements Writable {
         this.timestamp = -1;
         this.timeoutSecond = timeoutSecond;
         this.maxFilterRatio = maxFilterRatio;
-        this.deleteFlag = false;
         this.state = JobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -283,14 +280,6 @@ public class LoadJob implements Writable {
 
     public double getMaxFilterRatio() {
         return maxFilterRatio;
-    }
-    
-    public void setDeleteFlag(boolean deleteFlag) {
-        this.deleteFlag = deleteFlag;
-    }
-
-    public boolean getDeleteFlag() {
-        return deleteFlag;
     }
 
     public JobState getState() {
@@ -647,7 +636,7 @@ public class LoadJob implements Writable {
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
-                + ", maxFilterRatio=" + maxFilterRatio + ", deleteFlag=" + deleteFlag + ", state=" + state
+                + ", maxFilterRatio=" + maxFilterRatio + ", state=" + state
                 + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
@@ -706,7 +695,7 @@ public class LoadJob implements Writable {
         out.writeLong(timestamp);
         out.writeInt(timeoutSecond);
         out.writeDouble(maxFilterRatio);
-        out.writeBoolean(deleteFlag);
+        out.writeBoolean(true); // delete flag, does not use anymore
         Text.writeString(out, state.name());
         out.writeInt(progress);
         out.writeLong(createTimeMs);
@@ -853,7 +842,7 @@ public class LoadJob implements Writable {
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
         
-        deleteFlag = false;
+        boolean deleteFlag = false;
         if (version >= FeMetaVersion.VERSION_30) {
             deleteFlag = in.readBoolean();
         }

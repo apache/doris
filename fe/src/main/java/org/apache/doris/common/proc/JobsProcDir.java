@@ -94,22 +94,22 @@ public class JobsProcDir implements ProcDirInterface {
         // load
         Load load = Catalog.getInstance().getLoadInstance();
         LoadManager loadManager = Catalog.getCurrentCatalog().getLoadManager();
-        Integer pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
+        Long pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId);
-        Integer runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL, dbId)
+        Long runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL, dbId)
                 + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.LOADING, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING, dbId);
-        Integer finishedNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.QUORUM_FINISHED, dbId)
+        Long finishedNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.QUORUM_FINISHED, dbId)
                 + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.FINISHED, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED, dbId);
-        Integer cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED, dbId)
+        Long cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED, dbId);
-        Integer totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
+        Long totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(LOAD, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));
 
         // delete
-        pendingNum = 0;
+        pendingNum = 0L;
         runningNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.LOADING);
         finishedNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.FINISHED);
         cancelledNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.CANCELLED);
@@ -119,51 +119,25 @@ public class JobsProcDir implements ProcDirInterface {
 
         // rollup
         RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-        pendingNum = rollupHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.PENDING, dbId);
-        runningNum = rollupHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.RUNNING, dbId)
-                + rollupHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.FINISHING, dbId);
-        finishedNum = rollupHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.FINISHED, dbId);
-        cancelledNum = rollupHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.CANCELLED, dbId);
+        pendingNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
+        runningNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
+                + rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
+        finishedNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
+        cancelledNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(ROLLUP, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));
 
         // schema change
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
-        pendingNum = schemaChangeHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.PENDING, dbId);
-        runningNum = schemaChangeHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.RUNNING, dbId)
-                + schemaChangeHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.FINISHING, dbId);
-        finishedNum = schemaChangeHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.FINISHED, dbId);
-        cancelledNum = schemaChangeHandler.getAlterJobNum(org.apache.doris.alter.AlterJob.JobState.CANCELLED, dbId);
+        pendingNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
+        runningNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
+                + schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
+        finishedNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
+        cancelledNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(SCHEMA_CHANGE, pendingNum.toString(), runningNum.toString(),
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
-
-        /*
-        // backup
-        BackupHandler backupHandler = Catalog.getInstance().getBackupHandler();
-        pendingNum = backupHandler.getBackupJobNum(BackupJobState.PENDING, dbId);
-        runningNum = backupHandler.getBackupJobNum(BackupJobState.SNAPSHOT, dbId)
-                + backupHandler.getBackupJobNum(BackupJobState.UPLOAD, dbId)
-                + backupHandler.getBackupJobNum(BackupJobState.UPLOADING, dbId)
-                + backupHandler.getBackupJobNum(BackupJobState.FINISHING, dbId);
-        finishedNum = backupHandler.getBackupJobNum(BackupJobState.FINISHED, dbId);
-        cancelledNum = backupHandler.getBackupJobNum(BackupJobState.CANCELLED, dbId);
-        totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
-        result.addRow(Lists.newArrayList(BACKUP, pendingNum.toString(), runningNum.toString(),
-                                         finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
-        
-        // restore
-        pendingNum = backupHandler.getRestoreJobNum(RestoreJobState.PENDING, dbId);
-        runningNum = backupHandler.getRestoreJobNum(RestoreJobState.RESTORE_META, dbId)
-                + backupHandler.getRestoreJobNum(RestoreJobState.DOWNLOAD, dbId)
-                + backupHandler.getRestoreJobNum(RestoreJobState.DOWNLOADING, dbId);
-        finishedNum = backupHandler.getRestoreJobNum(RestoreJobState.FINISHED, dbId);
-        cancelledNum = backupHandler.getRestoreJobNum(RestoreJobState.CANCELLED, dbId);
-        totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
-        result.addRow(Lists.newArrayList(RESTORE, pendingNum.toString(), runningNum.toString(),
-                                         finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
-         */
 
         // export
         ExportMgr exportMgr = Catalog.getInstance().getExportMgr();

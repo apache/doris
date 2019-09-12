@@ -33,18 +33,13 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request,
         _process_name(process_name) { }
 
 OLAPStatus EngineAlterTabletTask::execute() {
-    LOG(INFO) << "begin to create new alter tablet. base_tablet_id=" << _alter_tablet_req.base_tablet_id
-              << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
-              << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
-              << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
-
     DorisMetrics::create_rollup_requests_total.increment(1);
 
     SchemaChangeHandler handler;
     OLAPStatus res = handler.process_alter_tablet_v2(_alter_tablet_req);
 
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to do rollup. res=" << res
+        LOG(WARNING) << "failed to do alter task. res=" << res
                      << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
                      << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
                      << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id

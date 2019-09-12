@@ -196,7 +196,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
     // stream load planer will be initialized during job schedule
-    StreamLoadPlanner planner;
+    protected StreamLoadPlanner planner;
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
@@ -574,7 +574,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), streamLoadTask);
     }
 
-    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+    public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -582,7 +582,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         db.readLock();
         try {
-            return planner.plan(loadId);
+            TExecPlanFragmentParams planParams = planner.plan(loadId);
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(txnId);
+            if (txnState == null) {
+                throw new MetaNotFoundException("txn does not exist: " + txnId);
+            }
+            txnState.addTableIndexes(planner.getDestTable());
+
+            return planParams;
         } finally {
             db.readUnlock();
         }

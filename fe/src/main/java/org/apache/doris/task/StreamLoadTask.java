@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,7 +52,7 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
 
     // optional
-    private List<ImportColumnDesc> columnExprDesc;
+    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
     private String partitions;
@@ -83,8 +84,8 @@ public class StreamLoadTask {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDesc() {
-        return columnExprDesc;
+    public List<ImportColumnDesc> getColumnExprDescs() {
+        return columnExprDescs;
     }
 
     public Expr getWhereExpr() {
@@ -162,13 +163,18 @@ public class StreamLoadTask {
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        columnExprDesc = routineLoadJob.getColumnDescs();
+        // copy the columnExprDescs, cause it may be changed when planning.
+        // so we keep the columnExprDescs in routine load job as origin.
+        if (routineLoadJob.getColumnDescs() != null) {
+            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
         strictMode = routineLoadJob.isStrictMode();
     }
 
+    // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
         String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
@@ -193,7 +199,7 @@ public class StreamLoadTask {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDesc = columnsStmt.getColumns();
+            columnExprDescs = columnsStmt.getColumns();
         }
     }
 

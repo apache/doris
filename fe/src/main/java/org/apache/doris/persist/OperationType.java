@@ -54,6 +54,7 @@ public class OperationType {
     public static final short OP_CLEAR_ROLLUP_INFO = 28;
     public static final short OP_FINISH_CONSISTENCY_CHECK = 29;
     public static final short OP_RENAME_ROLLUP = 120;
+    public static final short OP_ALTER_JOB_V2 = 121;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load

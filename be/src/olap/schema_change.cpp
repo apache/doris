@@ -981,6 +981,7 @@ bool SchemaChangeWithSorting::process(
 
             row_block_arr.push_back(new_row_block);
         } else {
+            LOG(INFO) << "new block num rows is: " << new_row_block->row_block_info().row_num;
             _row_block_allocator->release(new_row_block);
             new_row_block = nullptr;
         }
@@ -1181,7 +1182,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             request.new_tablet_id, request.new_schema_hash);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
-                     << ", new_tablet=" << request.new_tablet_id
+                     << " new_tablet=" << request.new_tablet_id
                      << ", new_schema_hash=" << request.new_schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
@@ -1335,15 +1336,19 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         if (res != OLAP_SUCCESS) {
             break;
         }
-        res = _validate_alter_result(new_tablet, request);
     } while(0);
+
+    if (res == OLAP_SUCCESS) {
+        // _validate_alter_result should be outside the above while loop.
+        // to avoid requiring the header lock twice.
+        res = _validate_alter_result(new_tablet, request);
+    }
 
     // if failed convert history data, then just remove the new tablet
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", drop new_tablet=" << new_tablet->full_name();
         // do not drop the new tablet and its data. GC thread will 
-        // StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
     }
 
     return res;
@@ -2134,7 +2139,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
     new_tablet->max_continuous_version_from_begining(&max_continuous_version, &max_continuous_version_hash);
-    LOG(INFO) << "find max continuous version "
+    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second
               << ", version_hash=" << max_continuous_version_hash;

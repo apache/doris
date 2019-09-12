@@ -335,6 +335,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.fetchResource();
     }
 
+    @Deprecated
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
         LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
@@ -790,7 +791,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
         if (db == null) {
@@ -812,7 +813,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            return planner.plan(streamLoadTask.getId());
+            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(request.getTxnId());
+            if (txnState == null) {
+                throw new UserException("txn does not exist: " + request.getTxnId());
+            }
+            txnState.addTableIndexes((OlapTable) table);
+            
+            return plan;
         } finally {
             db.readUnlock();
         }

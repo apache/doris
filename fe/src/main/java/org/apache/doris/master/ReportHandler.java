@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -134,23 +135,23 @@ public class ReportHandler extends Daemon {
         String reportType = "";
         if (request.isSetTasks()) {
             tasks = request.getTasks();
-            reportType += " task";
+            reportType += "task";
         }
         
         if (request.isSetDisks()) {
             disks = request.getDisks();
-            reportType += " disk";
+            reportType += "disk";
         }
         
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReport_version();
-            reportType += " tablet";
+            reportType += "tablet";
         } else if (request.isSetTablet_list()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTablet_list());
             reportVersion = request.getReport_version();
-            reportType += " tablet";
+            reportType += "tablet";
         }
         
         if (request.isSetForce_recovery()) {
@@ -521,6 +522,11 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
+                    if (index.getState() == IndexState.SHADOW) {
+                        // This index is under schema change or rollup, tablet may not be created on BE.
+                        // ignore it.
+                        continue;
+                    }
 
                     Tablet tablet = index.getTablet(tabletId);
                     if (tablet == null) {
@@ -591,9 +597,8 @@ public class ReportHandler extends Daemon {
                         tablet.deleteReplicaByBackendId(backendId);
                         ++deleteCounter;
                         
-                        // handle related task
-                        Catalog.getInstance().handleJobsWhenDeleteReplica(tableId, partitionId, indexId, tabletId,
-                                                                          replica.getId(), backendId);
+                        // remove replica related tasks
+                        AgentTaskQueue.removeReplicaRelatedTasks(backendId, tabletId);
 
                         // write edit log
                         ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(dbId, tableId, partitionId,
