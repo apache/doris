@@ -303,7 +303,7 @@ Status PlanFragmentExecutor::open_internal() {
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
 
-	SET_CUR_TIME(ADD_TS(profile(), "ExecStartTime"));
+    SET_CUR_TIME(ADD_TS(profile(), "ExecStartTime"));
 
     // If there is a sink, do all the work of driving it here, so that
     // when this returns the query has actually finished
@@ -356,7 +356,7 @@ Status PlanFragmentExecutor::open_internal() {
     _sink.reset(NULL);
     _done = true;
 
-	SET_CUR_TIME(ADD_TS(profile(), "ExecEndTime"));
+    SET_CUR_TIME(ADD_TS(profile(), "ExecEndTime"));
 
     release_thread_token();
 

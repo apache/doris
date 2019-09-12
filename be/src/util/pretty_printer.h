@@ -146,10 +146,22 @@ public:
             ss << std::setprecision(PRECISION) << output << " ";
             break;
         }
-	case TUnit::DATE_S: {
-	    ss << time_str_from_int((uint64_t)value);
-	    break;
-	}
+        case TUnit::DATE_S: {
+            std::stringstream time_ss;
+			uint64_t time = (uint64_t)value;
+            if (time < 0) {
+                time_ss << "-";
+                time = -1 * time;
+            }
+            int hour = time / 60 / 60;
+            int minute = time / 60 % 60;
+            int second = time % 60;
+
+            ss << std::setw(2) << std::setfill('0') << hour 
+               << ":" << std::setw(2) << std::setfill('0') << minute 
+               << ":" << std::setw(2) << std::setfill('0') << second;
+            break;
+        }
         default:
             DCHECK(false) << "Unsupported TUnit: " << value;
             break;

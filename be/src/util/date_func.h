@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_DATE_FUNC_H
-#define DORIS_BE_SRC_UTIL_DATE_FUNC_H
-
 #include <stdint.h>
 #include <time.h>
 #include <string>
@@ -29,8 +26,5 @@ namespace doris {
 uint64_t timestamp_from_datetime(const std::string& datetime_str);
 uint24_t timestamp_from_date(const std::string& date_str);
 std::string time_str_from_double(double time);
-std::string time_str_from_int(int time);
 
 }  // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_DATE_FUNC_H

@@ -109,7 +109,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 #endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
-	_read_files_counter = ADD_COUNTER(_runtime_profile, "ReadFilesCount", TUnit::UNIT);
+    _read_files_counter = ADD_COUNTER(_runtime_profile, "ReadFilesCount", TUnit::UNIT);
     _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
     _read_compressed_counter =
         ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
