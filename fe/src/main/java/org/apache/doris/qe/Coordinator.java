@@ -856,7 +856,7 @@ public class Coordinator {
                 PlanFragmentId inputFragmentIdx =
                         fragments.get(i).getChild(0).getFragmentId();
                 // AddAll() soft copy()
-                int doris_exchange_instances= -1;
+                int doris_exchange_instances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     doris_exchange_instances = ConnectContext.get().getSessionVariable().getDorisExchangeInstances();
                 }
