@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma
+#ifndef DORIS_BE_SRC_UTIL_DATE_FUNC_H
+#define DORIS_BE_SRC_UTIL_DATE_FUNC_H
 
 #include <stdint.h>
 #include <time.h>
@@ -32,3 +33,4 @@ std::string time_str_from_int(int time);
 
 }  // namespace doris
 
+#endif // DORIS_BE_SRC_UTIL_DATE_FUNC_H
