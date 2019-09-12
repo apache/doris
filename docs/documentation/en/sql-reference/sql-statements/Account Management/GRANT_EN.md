@@ -44,7 +44,7 @@ GRANT SELECT_PRIV ON *.* TO 'jack'@'%';
 
 2. Grant permissions to specified library tables to users
 
-GRANT SELECT_PRIV,ALTER_PRIVS,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
+GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
 
 3. Grant permissions to specified library tables to roles
 
