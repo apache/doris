@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -42,7 +42,7 @@ public class CreateViewStmt extends DdlStmt {
 
     private final boolean ifNotExists;
     private final TableName tableName;
-    private final List<String> columnNames;
+    private final List<ColWithComment> cols;
     private final QueryStmt viewDefStmt;
 
     // Set during analyze
@@ -52,10 +52,10 @@ public class CreateViewStmt extends DdlStmt {
     private String inlineViewDef;
     private QueryStmt cloneStmt;
 
-    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<String> columnNames, QueryStmt queryStmt) {
+    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
-        this.columnNames = columnNames;
+        this.cols = cols;
         this.viewDefStmt = queryStmt;
         finalCols = Lists.newArrayList();
     }
@@ -86,16 +86,16 @@ public class CreateViewStmt extends DdlStmt {
      * and throws an exception if they do.
      */
     private void createColumnAndViewDefs(Analyzer analyzer) throws AnalysisException, UserException {
-        if (columnNames != null) {
-            if (columnNames.size() != viewDefStmt.getColLabels().size()) {
+        if (cols != null) {
+            if (cols.size() != viewDefStmt.getColLabels().size()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             // TODO(zc): type
-            for (int i = 0; i < columnNames.size(); ++i) {
+            for (int i = 0; i < cols.size(); ++i) {
                 PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        columnNames.get(i),
-                        ScalarType.createType(type)));
+                Column col = new Column(cols.get(i).getColName(), ScalarType.createType(type));
+                col.setComment(cols.get(i).getComment());
+                finalCols.add(col);
             }
         } else {
             // TODO(zc): type
@@ -117,7 +117,7 @@ public class CreateViewStmt extends DdlStmt {
         // format view def string
         originalViewDef = viewDefStmt.toSql();
 
-        if (columnNames == null) {
+        if (cols == null) {
             inlineViewDef = originalViewDef;
             return;
         }
@@ -146,7 +146,7 @@ public class CreateViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (columnNames != null) {
+        if (cols != null) {
             cloneStmt = viewDefStmt.clone();
         }
         tableName.analyze(analyzer);

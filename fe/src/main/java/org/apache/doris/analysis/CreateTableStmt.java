@@ -65,6 +65,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private String engineName;
+    private String comment;
 
     private static Set<String> engineNames;
 
@@ -98,7 +99,8 @@ public class CreateTableStmt extends DdlStmt {
                            PartitionDesc partitionDesc,
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
-                           Map<String, String> extProperties) {
+                           Map<String, String> extProperties,
+                           String comment) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -118,6 +120,7 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
+        this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
     }
