@@ -391,6 +391,7 @@ DateTimeVal TimestampFunctions::timestamp(
     return val;
 }
 
+// FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
         FunctionContext* context, const IntVal& unix_time) {
     if (unix_time.is_null) {
@@ -405,6 +406,7 @@ StringVal TimestampFunctions::from_unix(
     return AnyValUtil::from_string_temp(context, buf);
 }
 
+// FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
             FunctionContext* context, const IntVal& unix_time, const StringVal& fmt) {
     if (unix_time.is_null || fmt.is_null) {
@@ -422,10 +424,12 @@ StringVal TimestampFunctions::from_unix(
     return AnyValUtil::from_string_temp(context, buf);
 }
 
+// UNIX_TIMESTAMP()
 IntVal TimestampFunctions::to_unix(FunctionContext* context) {
     return IntVal(context->impl()->state()->timestamp_ms() / 1000);
 }
 
+// UNIX_TIMESTAMP()
 IntVal TimestampFunctions::to_unix(
             FunctionContext* context, const StringVal& string_val, const StringVal& fmt) {
     if (string_val.is_null || fmt.is_null) {

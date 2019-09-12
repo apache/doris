@@ -202,7 +202,7 @@ public class BrokerTable extends Table {
     public TTableDescriptor toThrift() {
         TBrokerTable tBrokerTable = new TBrokerTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setBrokerTable(tBrokerTable);
         return tTableDescriptor;
     }

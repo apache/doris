@@ -478,7 +478,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             
-            if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash)) {
+            if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)) {
                 continue;
             }
             

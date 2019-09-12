@@ -145,7 +145,6 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
             insertStmt.prepareExpressions();

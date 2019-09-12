@@ -352,7 +352,8 @@ public class ExportJob implements Writable {
             ScanNode scanNode = nodes.get(i);
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
-                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
+                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName,
+                    TimeUtils.DEFAULT_TIME_ZONE);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }

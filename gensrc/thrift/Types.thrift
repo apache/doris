@@ -162,7 +162,8 @@ enum TTaskType {
     RECOVER_TABLET,
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
-    ALTER_TASK
+    // this type of task will replace both ROLLUP and SCHEMA_CHANGE
+    ALTER
 }
 
 enum TStmtType {
