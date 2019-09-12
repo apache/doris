@@ -862,6 +862,7 @@ public class Coordinator {
                 }
                 if (doris_exchange_instances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > doris_exchange_instances) {
                     // random select some instance
+                    // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
                     List<TNetworkAddress> hosts = Lists.newArrayList();
                     Set<String> cache = new HashSet<String>();
                     for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
@@ -872,7 +873,6 @@ public class Coordinator {
                         }
                     }
 					
-					// when doris_exchange_instances > hosts size, single host may execute severval instances
                 	Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < doris_exchange_instances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()),0, params);
