@@ -869,7 +869,7 @@ public class Coordinator {
                             cache.add(execParams.host);
                         }
                     }
-					TNetworkAddress[] hosts = (TNetworkAddress[])cache.toArray();
+                    TNetworkAddress[] hosts = (TNetworkAddress[])cache.toArray();
                     for (int index = 0; index < doris_exchange_instances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts[index % hosts.length], 0, params);
                         params.instanceExecParams.add(instanceParam);
