@@ -133,5 +133,5 @@ public final class FeMetaVersion {
     // for alter job v2
     public static final int VERSION_61 = 61;
     // add param: doris_shuffle_partitions
-    public static final int VERSION_61 = 62;
+    public static final int VERSION_62 = 62;
 }
