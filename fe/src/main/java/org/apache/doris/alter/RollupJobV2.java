@@ -34,6 +34,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -42,6 +43,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -144,11 +146,17 @@ public class RollupJobV2 extends AlterJobV2 {
     protected void runPendingJob() {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
+        Status st = runPendingJobImpl();
+        if (!st.ok()) {
+            cancelImpl(st.getErrorMsg());
+        }
+    }
+
+    private Status runPendingJobImpl() {
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancelImpl("Database " + dbId + " does not exist");
-            return;
+            return new Status(TStatusCode.CANCELLED, "Database " + dbId + " does not exist");
         }
 
         // 1. create rollup replicas
@@ -165,8 +173,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancelImpl("Table " + tableId + " does not exist");
-                return;
+                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
 
@@ -233,8 +240,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
                 LOG.warn("failed to create rollup replicas for job: {}, {}", jobId, errMsg);
-                cancelImpl("Create rollup replicas failed. Error: " + errMsg);
-                return;
+                return new Status(TStatusCode.CANCELLED, "Create rollup replicas failed. Error: " + errMsg);
             }
         }
 
@@ -244,8 +250,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancelImpl("Table " + tableId + " does not exist");
-                return;
+                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             addRollupIndexToCatalog(tbl);
@@ -259,6 +264,7 @@ public class RollupJobV2 extends AlterJobV2 {
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("transfer rollup job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
+        return Status.OK;
     }
 
     private void addRollupIndexToCatalog(OlapTable tbl) {
@@ -290,19 +296,24 @@ public class RollupJobV2 extends AlterJobV2 {
             return;
         }
 
+        Status st = runWaitingTxnJobImpl();
+        if (!st.ok()) {
+            cancelImpl(st.getErrorMsg());
+        }
+    }
+
+    private Status runWaitingTxnJobImpl() {
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancelImpl("Databasee " + dbId + " does not exist");
-            return;
+            return new Status(TStatusCode.CANCELLED, "Databasee " + dbId + " does not exist");
         }
         
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancelImpl("Table " + tableId + " does not exist");
-                return;
+                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -342,6 +353,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
+        return Status.OK;
     }
 
     /*
@@ -354,21 +366,26 @@ public class RollupJobV2 extends AlterJobV2 {
     @Override
     protected void runRunningJob() {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
+        Status st = runRunningJobImpl();
+        if (!st.ok()) {
+            cancelImpl(st.getErrorMsg());
+        }
+    }
+
+    private Status runRunningJobImpl() {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            cancelImpl("Databasee " + dbId + " does not exist");
-            return;
+            return new Status(TStatusCode.CANCELLED, "Databasee " + dbId + " does not exist");
         }
 
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancelImpl("Table " + tableId + " does not exist");
-                return;
+                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
             }
         } finally {
             db.readUnlock();
@@ -376,7 +393,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
-            return;
+            return Status.OK;
         }
 
         /*
@@ -387,8 +404,7 @@ public class RollupJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                cancelImpl("Table " + tableId + " does not exist");
-                return;
+                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -416,8 +432,8 @@ public class RollupJobV2 extends AlterJobV2 {
                     if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                         LOG.warn("rollup tablet {} has few healthy replicas: {}, rollup job: {}",
                                 rollupTablet.getId(), replicas, jobId);
-                        cancelImpl("rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
-                        return;
+                        return new Status(TStatusCode.CANCELLED,
+                                "rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
                     }
                 } // end for tablets
             } // end for partitions
@@ -432,6 +448,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("rollup job finished: {}", jobId);
+        return Status.OK;
     }
 
     private void onFinished(OlapTable tbl) {
