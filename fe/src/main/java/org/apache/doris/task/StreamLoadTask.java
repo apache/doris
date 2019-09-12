@@ -88,13 +88,6 @@ public class StreamLoadTask {
         return columnExprDescs;
     }
 
-    public void addColumnExprDesc(ImportColumnDesc columnExprDesc) {
-        if (columnExprDescs == null) {
-            columnExprDescs = Lists.newArrayList();
-        }
-        this.columnExprDescs.add(columnExprDesc);
-    }
-
     public Expr getWhereExpr() {
         return whereExpr;
     }

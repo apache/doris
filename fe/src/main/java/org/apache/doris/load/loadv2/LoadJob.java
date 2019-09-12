@@ -305,6 +305,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             if (properties.containsKey(LoadStmt.TIMEZONE)) {
                 timezone = properties.get(LoadStmt.TIMEZONE);
+            } else if (ConnectContext.get() != null) {
+                // get timezone for session variable
+                timezone = ConnectContext.get().getSessionVariable().getTimeZone();
             }
         }
     }

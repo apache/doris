@@ -414,6 +414,11 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    /*
+     * Add related table indexes to the transaction.
+     * If function should always be called before adding this transaction state to transaction manager,
+     * No other thread will access this state. So no need to lock
+     */
     public void addTableIndexes(OlapTable table) {
         Set<Long> indexIds = loadedTblIndexes.get(table.getId());
         if (indexIds == null) {

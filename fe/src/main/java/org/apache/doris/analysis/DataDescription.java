@@ -104,7 +104,7 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newHashMap();
+    private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
