@@ -55,6 +55,10 @@ public:
         _offset = 0;
         _rle_encoder.Clear();
     }
+
+    uint64_t size() {
+        return _bitmap_buf.size();
+    }
     // slice returned by finish should be deleted by caller
     void release() {
         size_t capacity = _bitmap_buf.capacity();
@@ -176,6 +180,27 @@ Status ColumnWriter::append_nullable(
         }
     }
     return Status::OK();
+}
+
+uint64_t ColumnWriter::estimate_buffer_size() {
+    uint64_t size = 0;
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        size += page->data.get_size();
+        if (_is_nullable) {
+            size += page->null_bitmap.get_size();
+        }
+        page = page->next;
+    }
+    size += _page_builder->size();
+    if (_is_nullable) {
+        size += _null_bitmap_builder->size();
+    }
+    size += _ordinal_index_builder->size();
+    if (_opts.need_zone_map) {
+        size += _column_zone_map_builder->size();
+    }
+    return size;
 }
 
 Status ColumnWriter::finish() {

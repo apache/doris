@@ -70,6 +70,9 @@ public:
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
 
+    // Return the total bytes of pageBuilder that have been added to the page.
+    virtual uint64_t size() const = 0;
+
     // This api is for release the resource owned by builder
     // It means it will transfer the ownership of some resource to other.
     // This api is always called after finish
