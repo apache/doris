@@ -17,6 +17,7 @@
 
 package org.apache.doris.cluster;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.io.Text;
@@ -58,6 +59,7 @@ public class Cluster implements Writable {
 
     private Set<Long> dbIds = ConcurrentHashMap.newKeySet();
     private Set<String> dbNames = ConcurrentHashMap.newKeySet();
+    private ConcurrentHashMap<String, Long> dbNameToIDs = new ConcurrentHashMap<>();
 
     // lock to perform atomic operations
     private ReentrantLock lock = new ReentrantLock(true);
@@ -128,6 +130,7 @@ public class Cluster implements Writable {
         try {
             dbNames.add(name);
             dbIds.add(id);
+            dbNameToIDs.put(name, id);
         } finally {
             unlock();
         }
@@ -205,17 +208,23 @@ public class Cluster implements Writable {
         }
 
         out.writeInt(dbCount);
+        // don't persist InfoSchemaDb meta
         for (String name : dbNames) {
             if (!name.equals(ClusterNamespace.getFullName(this.name, InfoSchemaDb.DATABASE_NAME))) {
                 Text.writeString(out, name);
+            } else {
+                dbIds.remove(dbNameToIDs.get(name));
             }
         }
 
+        String errMsg = String.format("%d vs %d, fatal error, Write cluster meta failed!",
+                dbNames.size(), dbIds.size() + 1);
+        // ensure we have removed InfoSchemaDb id
+        Preconditions.checkState(dbNames.size() == dbIds.size() + 1, errMsg);
+
         out.writeInt(dbCount);
         for (long id : dbIds) {
-            if (id >= Catalog.NEXT_ID_INIT_VALUE) {
-                out.writeLong(id);
-            }
+            out.writeLong(id);
         }
 
         out.writeInt(linkDbNames.size());
