@@ -18,7 +18,6 @@
 package org.apache.doris.cluster;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
