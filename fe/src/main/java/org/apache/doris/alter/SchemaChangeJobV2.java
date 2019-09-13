@@ -34,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -43,7 +42,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -154,19 +152,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
-    protected void runPendingJob() {
+    protected void runPendingJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
-        Status st = runPendingJobImpl();
-        if (!st.ok()) {
-            cancelImpl(st.getErrorMsg());
-        }
-    }
-
-    private Status runPendingJobImpl() {
         LOG.info("begin to send create replica tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            return new Status(TStatusCode.CANCELLED, "Databasee " + dbId + " does not exist");
+            throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
         // 1. create replicas
@@ -183,7 +174,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
+                throw new AlterCancelException("Table " + tableId + " does not exist");
             } 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -254,7 +245,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
                 LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);
-                return new Status(TStatusCode.CANCELLED, "Create replicas failed. Error: " + errMsg);
+                throw new AlterCancelException("Create replicas failed. Error: " + errMsg);
             }
         }
 
@@ -264,7 +255,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
+                throw new AlterCancelException("Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             addShadowIndexToCatalog(tbl);
@@ -278,7 +269,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("transfer schema change job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
-        return Status.OK;
     }
 
     private void addShadowIndexToCatalog(OlapTable tbl) {
@@ -312,7 +302,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * 3. Change job state to RUNNING.
      */
     @Override
-    protected void runWaitingTxnJob() {
+    protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
 
         if (!isPreviousLoadFinished()) {
@@ -320,24 +310,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
-        Status st = runWaitingTxnJobImpl();
-        if (!st.ok()) {
-            cancelImpl(st.getErrorMsg());
-        }
-    }
-
-    private Status runWaitingTxnJobImpl() {
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            return new Status(TStatusCode.CANCELLED, "Databasee " + dbId + " does not exist");
+            throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
         
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
+                throw new AlterCancelException("Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
@@ -385,7 +368,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
-        return Status.OK;
     }
 
     /*
@@ -396,28 +378,22 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * 4. Set job'state as FINISHED.
      */
     @Override
-    protected void runRunningJob() {
+    protected void runRunningJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
-        Status st = runRunningJobImpl();
-        if (!st.ok()) {
-            cancelImpl(st.getErrorMsg());
-        }
-    }
 
-    private Status runRunningJobImpl() {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
-            return new Status(TStatusCode.CANCELLED, "Database " + dbId + " does not exist");
+            throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
+                throw new AlterCancelException("Table " + tableId + " does not exist");
             }
         } finally {
             db.readUnlock();
@@ -425,7 +401,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
-            return Status.OK;
+            return;
         }
 
         /*
@@ -436,7 +412,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                return new Status(TStatusCode.CANCELLED, "Table " + tableId + " does not exist");
+                throw new AlterCancelException("Table " + tableId + " does not exist");
             }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
@@ -465,7 +441,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}",
                                     shadowTablet.getId(), replicas, jobId);
-                            return new Status(TStatusCode.CANCELLED,
+                            throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                         }
                     } // end for tablets
@@ -483,7 +459,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("schema change job finished: {}", jobId);
-        return Status.OK;
     }
 
     private void onFinished(OlapTable tbl) {
