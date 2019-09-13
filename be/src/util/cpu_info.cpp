@@ -75,7 +75,7 @@ int64_t CpuInfo::hardware_flags_ = 0;
 int64_t CpuInfo::original_hardware_flags_;
 int64_t CpuInfo::cycles_per_ms_;
 int CpuInfo::num_cores_ = 1;
-int CpuInfo::max_num_cores_;
+int CpuInfo::max_num_cores_ = 1;
 string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
 unique_ptr<int[]> CpuInfo::core_to_numa_node_;
@@ -111,6 +111,7 @@ int64_t ParseCPUFlags(const string& values) {
 }
 
 void CpuInfo::init() {
+    if (initialized_) return;
   string line;
   string name;
   string value;

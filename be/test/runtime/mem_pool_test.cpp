@@ -55,27 +55,27 @@ TEST(MemPoolTest, Basic) {
     // size of the next allocated chunk (64K)
     p.allocate(65 * 1024);
     EXPECT_EQ((12 + 8 + 65) * 1024 - 7, p.total_allocated_bytes());
-    EXPECT_EQ((16 + 32 + 65) * 1024, p.total_reserved_bytes());
+    EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // Clear() resets allocated data, but doesn't remove any chunks
     p.clear();
     EXPECT_EQ(0, p.total_allocated_bytes());
-    EXPECT_EQ((16 + 32 + 65) * 1024, p.total_reserved_bytes());
+    EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // next allocation reuses existing chunks
     p.allocate(1024);
     EXPECT_EQ(1024, p.total_allocated_bytes());
-    EXPECT_EQ((16 + 32 + 65) * 1024, p.total_reserved_bytes());
+    EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // ... unless it doesn't fit into any available chunk
     p.allocate(120 * 1024);
     EXPECT_EQ((1 + 120) * 1024, p.total_allocated_bytes());
-    EXPECT_EQ((130 + 16 + 32 + 65) * 1024, p.total_reserved_bytes());
+    EXPECT_EQ((16 + 32 + 128) * 1024, p.total_reserved_bytes());
 
     // ... Try another chunk that fits into an existing chunk
     p.allocate(33 * 1024);
     EXPECT_EQ((1 + 120 + 33) * 1024, p.total_allocated_bytes());
-    EXPECT_EQ((130 + 65 + 16 + 32) * 1024, p.total_reserved_bytes());
+    EXPECT_EQ((16 + 32 + 128 + 256) * 1024, p.total_reserved_bytes());
 
     // we're releasing 3 chunks, which get added to p2
     p2.acquire_data(&p, false);
@@ -84,13 +84,13 @@ TEST(MemPoolTest, Basic) {
 
     p3.acquire_data(&p2, true);  // we're keeping the 65k chunk
     EXPECT_EQ(33 * 1024, p2.total_allocated_bytes());
-    EXPECT_EQ(65 * 1024, p2.total_reserved_bytes());
+    EXPECT_EQ(256 * 1024, p2.total_reserved_bytes());
 
     {
         MemPool p4(&tracker);
         p4.exchange_data(&p2);
         EXPECT_EQ(33 * 1024, p4.total_allocated_bytes());
-        EXPECT_EQ(65 * 1024, p4.total_reserved_bytes());
+        EXPECT_EQ(256 * 1024, p4.total_reserved_bytes());
     }
 }
 

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/memory/chunk_allocator.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/bit_util.h"
@@ -37,18 +38,17 @@ const char* MemPool::LLVM_CLASS_NAME = "class.doris::MemPool";
 const int MemPool::DEFAULT_ALIGNMENT;
 uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POISON;
 
-MemPool::ChunkInfo::ChunkInfo(int64_t size, uint8_t* buf)
-        : data(buf),
-        size(size),
+MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_)
+        : chunk(chunk_),
         allocated_bytes(0) {
-    DorisMetrics::memory_pool_bytes_total.increment(size);
+    DorisMetrics::memory_pool_bytes_total.increment(chunk.size);
 }
 
 MemPool::~MemPool() {
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {
-        total_bytes_released += chunk.size;
-        free(chunk.data);
+        total_bytes_released += chunk.chunk.size;
+        ChunkAllocator::instance()->free(chunk.chunk);
     }
     mem_tracker_->release(total_bytes_released);
     DorisMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
@@ -58,7 +58,7 @@ void MemPool::clear() {
     current_chunk_idx_ = -1;
     for (auto& chunk: chunks_) {
         chunk.allocated_bytes = 0;
-        ASAN_POISON_MEMORY_REGION(chunk.data, chunk.size);
+        ASAN_POISON_MEMORY_REGION(chunk.chunk.data, chunk.chunk.size);
     }
     total_allocated_bytes_ = 0;
     DCHECK(check_integrity(false));
@@ -67,8 +67,8 @@ void MemPool::clear() {
 void MemPool::free_all() {
     int64_t total_bytes_released = 0;
     for (auto& chunk: chunks_) {
-        total_bytes_released += chunk.size;
-        free(chunk.data);
+        total_bytes_released += chunk.chunk.size;
+        ChunkAllocator::instance()->free(chunk.chunk);
     }
     chunks_.clear();
     next_chunk_size_ = INITIAL_CHUNK_SIZE;
@@ -96,7 +96,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     for (int idx = current_chunk_idx_ + 1; idx < chunks_.size(); ++idx) {
         // All chunks after 'current_chunk_idx_' should be free.
         DCHECK_EQ(chunks_[idx].allocated_bytes, 0);
-        if (chunks_[idx].size >= min_size) {
+        if (chunks_[idx].chunk.size >= min_size) {
             // This chunk is big enough. Move it before the other free chunks.
             if (idx != first_free_idx) std::swap(chunks_[idx], chunks_[first_free_idx]);
             current_chunk_idx_ = first_free_idx;
@@ -118,26 +118,25 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
         chunk_size = max<size_t>(min_size, next_chunk_size_);
     }
 
+    chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
     if (check_limits) {
         if (!mem_tracker_->try_consume(chunk_size)) return false;
     } else {
         mem_tracker_->consume(chunk_size);
     }
 
-    // Allocate a new chunk. Return early if malloc fails.
-    uint8_t* buf = reinterpret_cast<uint8_t*>(malloc(chunk_size));
-    if (UNLIKELY(buf == nullptr)) {
+    // Allocate a new chunk. Return early if allocate fails.
+    Chunk chunk;
+    if (!ChunkAllocator::instance()->allocate(chunk_size, &chunk)) {
         mem_tracker_->release(chunk_size);
         return false;
     }
-
-    ASAN_POISON_MEMORY_REGION(buf, chunk_size);
-
+    ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
     // Put it before the first free chunk. If no free chunks, it goes at the end.
     if (first_free_idx == static_cast<int>(chunks_.size())) {
-        chunks_.emplace_back(chunk_size, buf);
+        chunks_.emplace_back(chunk);
     } else {
-        chunks_.insert(chunks_.begin() + first_free_idx, ChunkInfo(chunk_size, buf));
+        chunks_.insert(chunks_.begin() + first_free_idx, ChunkInfo(chunk));
     }
     current_chunk_idx_ = first_free_idx;
     total_reserved_bytes_ += chunk_size;
@@ -169,7 +168,7 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
     auto end_chunk = src->chunks_.begin() + num_acquired_chunks;
     int64_t total_transfered_bytes = 0;
     for (auto i = src->chunks_.begin(); i != end_chunk; ++i) {
-        total_transfered_bytes += i->size;
+        total_transfered_bytes += i->chunk.size;
     }
     src->total_reserved_bytes_ -= total_transfered_bytes;
     total_reserved_bytes_ += total_transfered_bytes;
@@ -224,10 +223,10 @@ string MemPool::debug_string() {
     char str[16];
     out << "MemPool(#chunks=" << chunks_.size() << " [";
     for (int i = 0; i < chunks_.size(); ++i) {
-        sprintf(str, "0x%lx=", reinterpret_cast<size_t>(chunks_[i].data));
+        sprintf(str, "0x%lx=", reinterpret_cast<size_t>(chunks_[i].chunk.data));
         out << (i > 0 ? " " : "")
             << str
-            << chunks_[i].size
+            << chunks_[i].chunk.size
             << "/" << chunks_[i].allocated_bytes;
     }
     out << "] current_chunk=" << current_chunk_idx_
@@ -246,7 +245,7 @@ bool MemPool::check_integrity(bool check_current_chunk_empty) {
     // check that current_chunk_idx_ points to the last chunk with allocated data
     int64_t total_allocated = 0;
     for (int i = 0; i < chunks_.size(); ++i) {
-        DCHECK_GT(chunks_[i].size, 0);
+        DCHECK_GT(chunks_[i].chunk.size, 0);
         if (i < current_chunk_idx_) {
             DCHECK_GT(chunks_[i].allocated_bytes, 0);
         } else if (i == current_chunk_idx_) {
