@@ -160,7 +160,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TIME_ZONE)
     private String timeZone = "CST";
 
-    @VariableMgr.VarAttr(name = EXCHANGE_INSTANCE_PARALLEL)
+    @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     private int exchangeInstanceParallel = -1;
 
     // The current time zone
