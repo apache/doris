@@ -364,7 +364,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     uint32_t segment_size = writer.estimate_segment_size();
     LOG(INFO) << "estimate segment size is:" << segment_size;
 
-    uint32_t file_size = 0;
+    uint64_t file_size = 0;
     st = writer.finalize(&file_size);
 
     ASSERT_TRUE(st.ok());
