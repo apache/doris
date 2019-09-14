@@ -74,7 +74,7 @@ public class SessionVariable implements Serializable, Writable {
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
-    public static final String EXCHANGE_INSTANCE_PARALLEL = "exchange_instance_parallel";
+    public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
