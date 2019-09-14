@@ -869,7 +869,7 @@ public class Coordinator {
                             addresses.add(execParams.host);
                         }
                     }
-                    List<TNetworkAddress> hosts = new ArrayList<TNetworkAddress>();
+                    List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
                     hosts.addAll(addresses);
                     Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < exchangeInstances; index++) {
