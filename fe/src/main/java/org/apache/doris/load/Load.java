@@ -923,7 +923,7 @@ public class Load {
                      * eg:
                      * (A, C) SET (B = func(xx)) 
                      * ->
-                     * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                     * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
                     columnExprs.add(importColumnDesc);

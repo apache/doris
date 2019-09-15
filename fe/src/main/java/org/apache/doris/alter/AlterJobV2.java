@@ -131,7 +131,8 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        switch (jobState) {
+        try {
+            switch (jobState) {
             case PENDING:
                 runPendingJob();
                 break;
@@ -143,6 +144,9 @@ public abstract class AlterJobV2 implements Writable {
                 break;
             default:
                 break;
+            }
+        } catch (AlterCancelException e) {
+            cancelImpl(e.getMessage());
         }
     }
 
@@ -152,11 +156,11 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    protected abstract void runPendingJob();
+    protected abstract void runPendingJob() throws AlterCancelException;
 
-    protected abstract void runWaitingTxnJob();
+    protected abstract void runWaitingTxnJob() throws AlterCancelException;
 
-    protected abstract void runRunningJob();
+    protected abstract void runRunningJob() throws AlterCancelException;
 
     protected abstract boolean cancelImpl(String errMsg);
 
