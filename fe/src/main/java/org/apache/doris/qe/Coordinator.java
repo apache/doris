@@ -870,7 +870,6 @@ public class Coordinator {
                         }
                     }
                     List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
-                    hosts.addAll(hostSet);
                     Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < exchangeInstances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()), 0, params);
