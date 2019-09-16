@@ -41,7 +41,8 @@
             [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
-    
+            [WHERE predicate]    
+
         说明：
             file_path: 
 
@@ -80,6 +81,9 @@
             例2: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式。
             那么可以指定 columns(tmp_time) set (year = year(tmp_time), month=month(tmp_time), day=day(tmp_time)) 完成导入。
 
+            WHERE:
+          
+            对做完 transform 的数据进行过滤，符合 where 条件的数据才能被导入。WHERE 语句中只可引用表中列名。
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
@@ -321,6 +325,14 @@
         (k1, k2, k3)
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+     9. 对待导入数据进行过滤，k1 值大于 k2 值的列才能被导入
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        where k1 > k2
+        )
      
 ## keyword
     BROKER,LOAD
