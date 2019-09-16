@@ -865,9 +865,7 @@ public class Coordinator {
                     // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
                     Set<TNetworkAddress> hostSet = Sets.newHashSet();
                     for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
-                        if (!hostSet.contains(execParams.host)) {
-                            hostSet.add(execParams.host);
-                        }
+                        hostSet.add(execParams.host);
                     }
                     List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
                     Collections.shuffle(hosts, instanceRandom);
