@@ -48,7 +48,7 @@ api：
 命令：
 
 ```
-./lib/meta_tool --root_path=/path/to/root_path --operation=get_header --tablet_id=xxx --schema_hash=xxx
+./lib/meta_tool --root_path=/path/to/root_path --operation=get_meta --tablet_id=xxx --schema_hash=xxx
 ```
 
 > root_path: 在 be.conf 中配置的对应的 root_path 路径。
@@ -62,7 +62,7 @@ api：
 命令：
 
 ```
-./lib/meta_tool --operation=load_header --root_path=/path/to/root_path --json_header_path=path
+./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_header_path=path
 ```
 
 ### 删除 header
@@ -72,7 +72,7 @@ api：
 命令:
 
 ```
-./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx
+./lib/meta_tool --operation=delete_meta --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx
 ```
 
 ### 展示 pb 格式的 TabletMeta
@@ -82,7 +82,7 @@ api：
 命令：
 
 ```
-./lib/meta_tool --operation=show_header --root_path=/path/to/root_path --pb_header_path=path
+./lib/meta_tool --operation=show_meta --root_path=/path/to/root_path --pb_header_path=path
 ```
 
 
