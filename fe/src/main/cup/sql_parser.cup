@@ -2712,10 +2712,6 @@ set_expr_or_default ::=
     {:
         RESULT = new StringLiteral("ALL");
     :}
-    | ident:name
-    {:
-        RESULT = new StringLiteral(name);
-    :}
     | expr:expr
     {:
         RESULT = expr;
