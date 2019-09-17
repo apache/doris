@@ -7,11 +7,11 @@
     (column_definition1[, column_definition2, ...])
     [ENGINE = [olap|mysql|broker]]
     [key_desc]
+    [COMMENT "table comment"]
     [partition_desc]
     [distribution_desc]
     [PROPERTIES ("key"="value", ...)]
-    [BROKER PROPERTIES ("key"="value", ...)]
-    [COMMENT "table comment"];
+    [BROKER PROPERTIES ("key"="value", ...)];
         
 1. column_definition
 
