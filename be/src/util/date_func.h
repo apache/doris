@@ -30,3 +30,4 @@ uint24_t timestamp_from_date(const std::string& date_str);
 std::string time_str_from_double(double time);
 
 }  // namespace doris
+
