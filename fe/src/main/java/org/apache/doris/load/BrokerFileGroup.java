@@ -74,6 +74,8 @@ public class BrokerFileGroup implements Writable {
     private List<ImportColumnDesc> columnExprList;
     // this is only for hadoop function check
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
+    // filter the data which has been conformed
+    private Expr whereExpr;
 
     // Used for recovery from edit log
     private BrokerFileGroup() {
@@ -94,6 +96,7 @@ public class BrokerFileGroup implements Writable {
         this.columnsFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+        this.whereExpr = dataDescription.getWhereExpr();
     }
 
     // NOTE: DBLock will be held
@@ -187,6 +190,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    public Expr getWhereExpr() {
+        return whereExpr;
     }
 
     public List<String> getFilePaths() {
