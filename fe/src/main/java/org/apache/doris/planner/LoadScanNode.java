@@ -39,34 +39,37 @@ public abstract class LoadScanNode extends ScanNode {
     }
 
     protected void initWhereExpr(Expr whereExpr, Analyzer analyzer) throws UserException {
-        if (whereExpr != null) {
-            Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (SlotDescriptor slotDescriptor : desc.getSlots()) {
-                dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
-            }
-
-            // substitute SlotRef in filter expression
-            // where expr must be rewrite first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-            whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
-            List<SlotRef> slots = Lists.newArrayList();
-            whereExpr.collect(SlotRef.class, slots);
-
-            ExprSubstitutionMap smap = new ExprSubstitutionMap();
-            for (SlotRef slot : slots) {
-                SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
-                if (slotDesc == null) {
-                    throw new UserException("unknown column reference in where statement, reference="
-                                                    + slot.getColumnName());
-                }
-                smap.getLhs().add(slot);
-                smap.getRhs().add(new SlotRef(slotDesc));
-            }
-            whereExpr = whereExpr.clone(smap);
-            whereExpr.analyze(analyzer);
-            if (whereExpr.getType() != Type.BOOLEAN) {
-                throw new UserException("where statement is not a valid statement return bool");
-            }
-            addConjuncts(whereExpr.getConjuncts());
+        if (whereExpr == null) {
+            return;
         }
+        
+        Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
+        }
+
+        // substitute SlotRef in filter expression
+        // where expr must be rewrite first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        List<SlotRef> slots = Lists.newArrayList();
+        whereExpr.collect(SlotRef.class, slots);
+
+        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+        for (SlotRef slot : slots) {
+            SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
+            if (slotDesc == null) {
+                throw new UserException("unknown column reference in where statement, reference="
+                                                + slot.getColumnName());
+            }
+            smap.getLhs().add(slot);
+            smap.getRhs().add(new SlotRef(slotDesc));
+        }
+        whereExpr = whereExpr.clone(smap);
+        whereExpr.analyze(analyzer);
+        if (whereExpr.getType() != Type.BOOLEAN) {
+            throw new UserException("where statement is not a valid statement return bool");
+        }
+        addConjuncts(whereExpr.getConjuncts());
     }
+
 }
