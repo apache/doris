@@ -240,7 +240,8 @@ namespace config {
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
-    CONF_Int64(cumulative_compaction_num_singleton_deltas, "5");
+    CONF_Int64(min_cumulative_compaction_num_singleton_deltas, "5");
+    CONF_Int64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_Int32(cumulative_compaction_num_threads, "1");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
