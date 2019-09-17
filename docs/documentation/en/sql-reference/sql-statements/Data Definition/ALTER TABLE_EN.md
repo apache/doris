@@ -225,6 +225,10 @@ PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
 12. Modify the Colocate property of the table
 ALTER TABLE example_db.my_table set ("colocate_with"="t1");
 
+13. Change the Distribution type from Random to Hash
+
+ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+
 [Rename]
 1. Modify the table named Table 1 to table2
 ALTER TABLE table1 RENAME table2;

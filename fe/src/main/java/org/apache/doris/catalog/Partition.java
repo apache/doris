@@ -438,4 +438,13 @@ public class Partition extends MetaObject implements Writable {
 
         return buffer.toString();
     }
+
+    public boolean convertRandomDistributionToHashDistribution(List<Column> baseSchema) {
+        boolean hasChanged = false;
+        if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
+            distributionInfo = ((RandomDistributionInfo) distributionInfo).toHashDistributionInfo(baseSchema);
+            hasChanged = true;
+        }
+        return hasChanged;
+    }
 }
