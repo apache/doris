@@ -223,9 +223,9 @@
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
+        COMMENT "my first doris table"
         DISTRIBUTED BY HASH(k1) BUCKETS 32
-        PROPERTIES ("storage_type"="column")
-        COMMENT "my first doris table";
+        PROPERTIES ("storage_type"="column");
         ```
         
     2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
