@@ -74,7 +74,7 @@ import java.util.Map;
 import java.util.Random;
 
 // Broker scan node
-public class BrokerScanNode extends ScanNode {
+public class BrokerScanNode extends LoadScanNode {
     private static final Logger LOG = LogManager.getLogger(BrokerScanNode.class);
     private static final TBrokerFileStatusComparator T_BROKER_FILE_STATUS_COMPARATOR
             = new TBrokerFileStatusComparator();
@@ -158,18 +158,16 @@ public class BrokerScanNode extends ScanNode {
         getFileStatusAndCalcInstance();
 
         paramCreateContexts = Lists.newArrayList();
-        int i = 0;
         for (BrokerFileGroup fileGroup : fileGroups) {
             ParamCreateContext context = new ParamCreateContext();
             context.fileGroup = fileGroup;
             context.timezone = analyzer.getTimezone();
             try {
-                initParams(context, fileStatusesList.get(i));
+                initParams(context);
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
             paramCreateContexts.add(context);
-            ++i;
         }
     }
 
@@ -201,8 +199,8 @@ public class BrokerScanNode extends ScanNode {
     }
 
     // Called from init, construct source tuple information
-    private void initParams(ParamCreateContext context, List<TBrokerFileStatus> fileStatus)
-            throws AnalysisException, UserException {
+    private void initParams(ParamCreateContext context)
+            throws UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         context.params = params;
 
@@ -212,6 +210,7 @@ public class BrokerScanNode extends ScanNode {
         params.setStrict_mode(strictMode);
         params.setProperties(brokerDesc.getProperties());
         initColumns(context);
+        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
     }
 
     /**

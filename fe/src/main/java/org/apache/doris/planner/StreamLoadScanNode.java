@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
@@ -61,7 +60,7 @@ import java.util.Map;
 /**
  * used to scan from stream
  */
-public class StreamLoadScanNode extends ScanNode {
+public class StreamLoadScanNode extends LoadScanNode {
     private static final Logger LOG = LogManager.getLogger(StreamLoadScanNode.class);
 
     private TUniqueId loadId;
@@ -123,37 +122,7 @@ public class StreamLoadScanNode extends ScanNode {
                 exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
-        if (streamLoadTask.getWhereExpr() != null) {
-            Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (SlotDescriptor slotDescriptor : desc.getSlots()) {
-                dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
-            }
-
-            // substitute SlotRef in filter expression
-            Expr whereExpr = streamLoadTask.getWhereExpr();
-            // where expr must be rewrite first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-            whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
-
-            List<SlotRef> slots = Lists.newArrayList();
-            whereExpr.collect(SlotRef.class, slots);
-
-            ExprSubstitutionMap smap = new ExprSubstitutionMap();
-            for (SlotRef slot : slots) {
-                SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
-                if (slotDesc == null) {
-                    throw new UserException("unknown column reference in where statement, reference="
-                            + slot.getColumnName());
-                }
-                smap.getLhs().add(slot);
-                smap.getRhs().add(new SlotRef(slotDesc));
-            }
-            whereExpr= whereExpr.clone(smap);
-            whereExpr.analyze(analyzer);
-            if (whereExpr.getType() != Type.BOOLEAN) {
-                throw new UserException("where statement is not a valid statement return bool");
-            }
-            addConjuncts(whereExpr.getConjuncts());
-        }
+        initWhereExpr(streamLoadTask.getWhereExpr(), analyzer);
 
         computeStats(analyzer);
         createDefaultSmap(analyzer);
