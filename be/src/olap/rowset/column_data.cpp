@@ -122,6 +122,8 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
             _eof = true;
             return OLAP_ERR_DATA_EOF;
         }
+
+        _stats->read_files_count++;
         SAFE_DELETE(_segment_reader);
         std::string file_name;
         file_name = segment_group()->construct_data_file_path(block_pos.segment);

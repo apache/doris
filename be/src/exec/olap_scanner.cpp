@@ -462,6 +462,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_timer, _reader->stats().block_load_ns);
     COUNTER_UPDATE(_parent->_block_load_counter, _reader->stats().blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, _reader->stats().block_fetch_ns);
+    COUNTER_UPDATE(_parent->_read_files_counter, _reader->stats().read_files_count);
     COUNTER_UPDATE(_parent->_block_seek_timer, _reader->stats().block_seek_ns);
     COUNTER_UPDATE(_parent->_block_convert_timer, _reader->stats().block_convert_ns);
 

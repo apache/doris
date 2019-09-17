@@ -238,6 +238,7 @@ struct OlapReaderStatistics {
     int64_t rows_del_filtered = 0;
 
     int64_t index_load_ns = 0;
+    int64_t read_files_count = 0;
 };
 
 typedef uint32_t ColumnId;
