@@ -1,0 +1,42 @@
+diff --git a/be/src/olap/storage_engine.cpp b/be/src/olap/storage_engine.cpp
+index 6d7bd20a..fcf12aa8 100644
+--- a/be/src/olap/storage_engine.cpp
++++ b/be/src/olap/storage_engine.cpp
+@@ -231,7 +231,6 @@ void StorageEngine::_update_storage_medium_type_count() {
+     }
+ }
+ 
+-
+ OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
+     OLAPStatus res = OLAP_SUCCESS;
+ 
+@@ -265,16 +264,6 @@ void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
+     _update_storage_medium_type_count();
+ }
+ 
+-void StorageEngine::get_all_available_root_path(std::vector<std::string>* available_paths) {
+-    available_paths->clear();
+-    std::lock_guard<std::mutex> l(_store_lock);
+-    for (auto& it : _store_map) {
+-        if (it.second->is_used()) {
+-            available_paths->push_back(it.first);
+-        }
+-    }
+-}
+-
+ template<bool include_unused>
+ std::vector<DataDir*> StorageEngine::get_stores() {
+     std::vector<DataDir*> stores;
+diff --git a/be/src/olap/storage_engine.h b/be/src/olap/storage_engine.h
+index 59e3555c..e4e46a7b 100644
+--- a/be/src/olap/storage_engine.h
++++ b/be/src/olap/storage_engine.h
+@@ -122,8 +122,6 @@ public:
+     // @brief 获取所有root_path信息
+     OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos);
+ 
+-    void get_all_available_root_path(std::vector<std::string>* available_paths);
+-
+     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
+     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
+     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
