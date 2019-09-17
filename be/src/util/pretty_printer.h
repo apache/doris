@@ -147,7 +147,7 @@ public:
         }
         case TUnit::DATE_US: {
             std::stringstream time_ss;
-			uint64_t time = (uint64_t)value;
+            uint64_t time = (uint64_t)value;
             if (time < 0) {
                 time_ss << "-";
                 time = -1 * time;
