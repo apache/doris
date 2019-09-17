@@ -145,20 +145,21 @@ public:
             ss << std::setprecision(PRECISION) << output << " ";
             break;
         }
-        case TUnit::DATE_S: {
+        case TUnit::DATE_US: {
             std::stringstream time_ss;
 			uint64_t time = (uint64_t)value;
             if (time < 0) {
                 time_ss << "-";
                 time = -1 * time;
             }
-            int hour = time / 60 / 60;
-            int minute = time / 60 % 60;
-            int second = time % 60;
+            int hour = time / 1000000 / 60 / 60;
+            int minute = time / 1000000 / 60 % 60;
+            int second = time /1000000 % 60;
 
             ss << std::setw(2) << std::setfill('0') << hour 
                << ":" << std::setw(2) << std::setfill('0') << minute 
-               << ":" << std::setw(2) << std::setfill('0') << second;
+               << ":" << std::setw(2) << std::setfill('0') << second
+               << "." << (time % 1000000) / 1000;
             break;
         }
         default:

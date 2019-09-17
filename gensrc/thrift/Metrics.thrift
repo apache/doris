@@ -33,7 +33,7 @@ enum TUnit {
   NONE,
   TIME_MS,
   TIME_S,
-  DATE_S
+  DATE_US
 }
 
 // The kind of value that a metric represents.

@@ -273,10 +273,9 @@ public class RuntimeProfile {
                 }
                 break;
             }
-            case DATE_S: {
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                builder.append(sdf.format(new Date(value * 1000)));
-                break;
+            case DATE_US: {
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS");
+                builder.append(sdf.format(new Date(value / 1000))); break;
             }
             case BYTES: {
                 Pair<Double, String> pair = DebugUtil.getByteUint(tmpValue);

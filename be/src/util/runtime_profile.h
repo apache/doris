@@ -30,6 +30,7 @@
 #include "common/object_pool.h"
 #include "util/stopwatch.hpp"
 #include "gen_cpp/RuntimeProfile_types.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -45,7 +46,7 @@ namespace doris {
 #if ENABLE_COUNTERS
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
-#define ADD_TS(profile, name) (profile)->add_counter(name, TUnit::DATE_S)
+#define ADD_TS(profile, name) (profile)->add_counter(name, TUnit::DATE_US)
 #define ADD_CHILD_TIMER(profile, name, parent) \
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
@@ -112,7 +113,7 @@ public:
         virtual void set(int value) { _value.store(value); }
 
 		virtual void set_cur_time() {
-			_value.store(time(NULL));
+			_value.store(GetCurrentTimeMicros());
 		}
 
         virtual void set(double value) {
