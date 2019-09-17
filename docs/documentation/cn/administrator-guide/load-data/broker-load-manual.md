@@ -78,6 +78,7 @@ WITH BROKER broker_name broker_properties
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
     [SET (k1=f1(xx), k2=f2(xx))]
+    [WHERE predicate]
 
 * broker_properties: 
 
@@ -101,6 +102,7 @@ LOAD LABEL db1.label1
     INTO TABLE tbl2
     COLUMNS TERMINATED BY ","
     (col1, col2)
+    where col1 > 1
 )
 WITH BROKER 'broker'
 (
@@ -145,6 +147,10 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 + set column mapping
 
     在 ```data_desc``` 中的 SET 语句负责设置列函数变换，这里的列函数变换支持所有查询的等值表达式变换。如果原始数据的列和表中的列不一一对应，就需要用到这个属性。
+
++ where predicate
+
+    在 ```data_desc``` 中的 WHERE 语句中负责过滤已经完成 transform 的数据，被 filter 的数据不会进入容忍率的统计中。如果多个 data_desc 中声明了同一张表的多个条件的话，则会 merge 同一张表的多个条件，merge 策略是 AND 。
 
 #### 导入作业参数
 
@@ -246,7 +252,7 @@ mysql> show load order by createtime desc limit 1\G
          State: FINISHED
       Progress: ETL:N/A; LOAD:100%
           Type: BROKER
-       EtlInfo: dpp.abnorm.ALL=15; dpp.norm.ALL=28133376
+       EtlInfo: unselected.rows=4; dpp.abnorm.ALL=15; dpp.norm.ALL=28133376
       TaskInfo: cluster:N/A; timeout(s):10800; max_filter_ratio:5.0E-5
       ErrorMsg: N/A
     CreateTime: 2019-07-27 11:46:42
@@ -255,7 +261,7 @@ mysql> show load order by createtime desc limit 1\G
  LoadStartTime: 2019-07-27 11:46:44
 LoadFinishTime: 2019-07-27 11:50:16
            URL: http://192.168.1.1:8040/api/_load_error_log?file=__shard_4/error_log_insert_stmt_4bb00753932c491a-a6da6e2725415317_4bb00753932c491a_a6da6e2725415317
-    LoadedRows: 82393000
+    JobDetails: {"ScannedRows":28133395,"TaskNumber":1,"FileNumber":1,"FileSize":200000}
 ```
 
 下面主要介绍了查看导入命令返回结果集中参数意义：
@@ -292,7 +298,9 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 + EtlInfo
 
-    主要显示了导入的数据量指标 ```dpp.norm.ALL 和 dpp.abnorm.ALL```。用户可以根据这两个指标验证当前导入任务的错误率是否超过 max\_filter\_ratio。
+    主要显示了导入的数据量指标 ```unselected.rows``` , ```dpp.norm.ALL 和 dpp.abnorm.ALL```。用户可以根据第一个数值判断 where 条件过滤了多少行，后两个指标验证当前导入任务的错误率是否超过 max\_filter\_ratio。
+
+    三个指标之和就是原始数据量的总行数。
     
 + TaskInfo
 
@@ -332,11 +340,11 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 + JobDetails
 
-    显示一些作业的详细运行状态。包括导入文件的个数、总大小（字节）、子任务个数、已处理的行数等。
+    显示一些作业的详细运行状态。包括导入文件的个数、总大小（字节）、子任务个数、已处理的原始行数等。
 
-    ```{"LoadedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
+    ```{"ScannedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
 
-    其中已处理的行数，每 5 秒更新一次。该行数仅用于展示当前的进度，不代表最终实际的处理行数。实际处理行数以 EtlInfo 中显示的为准。
+    其中已处理的原始行数，每 5 秒更新一次。该行数仅用于展示当前的进度，不代表最终实际的处理行数。实际处理行数以 EtlInfo 中显示的为准。
 
 ### 取消导入
 

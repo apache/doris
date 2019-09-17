@@ -298,9 +298,9 @@ public class FunctionSet {
     private static final Map<Type, String> HLL_UNION_AGG_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.VARCHAR,
-                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
+                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
                 .put(Type.HLL,
-                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
+                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
                 .build();
  
     private static final Map<Type, String> OFFSET_FN_INIT_SYMBOL =
@@ -843,12 +843,12 @@ public class FunctionSet {
             // NDV
             // ndv return string
             addBuiltin(AggregateFunction.createBuiltin("ndv",
-                    Lists.newArrayList(t), Type.VARCHAR, Type.VARCHAR,
-                    prefix + "8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                    prefix + HLL_UPDATE_SYMBOL.get(t),
-                    prefix + "9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                    null,
-                    prefix + "12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             // BITMAP_UNION_INT
@@ -864,23 +864,23 @@ public class FunctionSet {
             // HLL_UNION_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_union_agg",
                     Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                    prefix + "18hll_union_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
-                    prefix + HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
-                    prefix + "19hll_union_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                     HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
-                    null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, true, true));
 
             // HLL_RAW_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_raw_agg",
                     Lists.newArrayList(t), Type.HLL, Type.HLL,
-                    prefix + "16hll_raw_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
-                    prefix + "18hll_raw_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
-                    prefix + "17hll_raw_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
-                    null,
-                    prefix + "20hll_raw_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {

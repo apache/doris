@@ -399,64 +399,45 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
     static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
-        // TODO(zc): refactor HLL implementation
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
-        auto* dest_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-        char* mem = arena->Allocate(sizeof(HllContext));
-        auto* context = new (mem) HllContext;
-        HllSetHelper::init_context(context);
-        HllSetHelper::fill_set(src, context);
-        context->has_value = true;
-        char* variable_ptr = arena->Allocate(sizeof(HllContext*) + HLL_COLUMN_DEFAULT_LEN);
-        *(size_t*)(variable_ptr) = (size_t)(context);
-        variable_ptr += sizeof(HllContext*);
-        dest_slice->data = variable_ptr;
-        dest_slice->size = HLL_COLUMN_DEFAULT_LEN;
+
+        auto* src_slice = reinterpret_cast<const Slice*>(src);
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+
+        dst_slice->size = sizeof(HyperLogLog);
+        // use 'placement new' to allocate HyperLogLog on arena, so that we can control the memory usage.
+        char* mem = arena->Allocate(dst_slice->size);
+        dst_slice->data = (char*) new (mem) HyperLogLog(src_slice->data);
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
         DCHECK_EQ(src.is_null(), false);
-        auto l_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-        auto context = *reinterpret_cast<HllContext**>(l_slice->data - sizeof(HllContext*));
-        HllSetHelper::fill_set((const char*)src.cell_ptr(), context);
+
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst_slice->data);
+
+        // fixme(kks): trick here, need improve
+        if (arena == nullptr) { // for query
+            HyperLogLog src_hll = HyperLogLog(src_slice->data);
+            dst_hll->merge(src_hll);
+        } else {   // for stream load
+            auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
+            dst_hll->merge(*src_hll);
+            // NOT use 'delete src_hll' because the memory is managed by arena
+            src_hll->~HyperLogLog();
+        }
     }
 
     static void finalize(RowCursorCell* src, Arena* arena) {
-        auto slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
-        auto context = *reinterpret_cast<HllContext**>(slice->data - sizeof(HllContext*));
-        std::map<int, uint8_t> index_to_value;
-        if (context->has_sparse_or_full ||
-                context->hash64_set->size() > HLL_EXPLICLIT_INT64_NUM) {
-            HllSetHelper::set_max_register(context->registers, HLL_REGISTERS_COUNT,
-                                           *(context->hash64_set));
-            for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
-                if (context->registers[i] != 0) {
-                    index_to_value[i] = context->registers[i];
-                }
-            }
-        }
-        int sparse_set_len = index_to_value.size() *
-            (sizeof(HllSetResolver::SparseIndexType)
-             + sizeof(HllSetResolver::SparseValueType))
-            + sizeof(HllSetResolver::SparseLengthValueType);
-        int result_len = 0;
+        auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        auto *hll = reinterpret_cast<HyperLogLog*>(slice->data);
 
-        if (sparse_set_len >= HLL_COLUMN_DEFAULT_LEN) {
-            // full set
-            HllSetHelper::set_full(slice->data, context->registers,
-                                   HLL_REGISTERS_COUNT, result_len);
-        } else if (index_to_value.size() > 0) {
-            // sparse set
-            HllSetHelper::set_sparse(slice->data, index_to_value, result_len);
-        } else if (context->hash64_set->size() > 0) {
-            // expliclit set
-            HllSetHelper::set_explicit(slice->data, *(context->hash64_set), result_len);
-        }
-
-        slice->size = result_len & 0xffff;
-
-        delete context->hash64_set;
+        slice->data = arena->Allocate(HLL_COLUMN_DEFAULT_LEN);
+        slice->size = hll->serialize(slice->data);
+        // NOT using 'delete hll' because the memory is managed by arena
+        hll->~HyperLogLog();
     }
 };
 // when data load, after bitmap_init fucntion, bitmap_union column won't be null

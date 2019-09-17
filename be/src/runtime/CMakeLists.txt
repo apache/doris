@@ -103,6 +103,8 @@ set(RUNTIME_FILES
   result_queue_mgr.cpp
   memory_scratch_sink.cpp
   external_scan_context_mgr.cpp
+  memory/system_allocator.cpp
+  memory/chunk_allocator.cpp
 )
 
 if (WITH_MYSQL)

@@ -164,6 +164,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     "TxnId": 1003,
     "Label": "b6f3bc78-0d2c-45d9-9e4c-faa0a0149bee",
     "Status": "Success",
+    "ExistingJobStatus": "FINISHED", // optional
     "Message": "OK",
     "NumberTotalRows": 1000000,
     "NumberLoadedRows": 1000000,
@@ -190,6 +191,10 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     "Label Already Exists"：Label 重复，需更换 Label。
     
     "Fail"：导入失败。
+    
++ ExistingJobStatus：已存在的 Label 对应的导入作业的状态。
+
+    这个字段只有在当 Status 为 "Label Already Exists" 是才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
 
 + Message：导入错误信息。
 

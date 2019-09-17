@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJob;
+import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeHandler;
@@ -40,6 +41,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.ClearTransactionTask;
@@ -132,7 +134,8 @@ public class MasterImpl {
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION) {
+                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
+                        && taskType != TTaskType.CREATE) {
                     return result;
                 }
             }
@@ -199,6 +202,9 @@ public class MasterImpl {
                 case RECOVER_TABLET:
                     finishRecoverTablet(task);
                     break;
+                case ALTER:
+                    finishAlterTask(task);
+                    break;
                 default:
                     break;
             }
@@ -228,24 +234,29 @@ public class MasterImpl {
         // if we get here, this task will be removed from AgentTaskQueue for certain.
         // because in this function, the only problem that cause failure is meta missing.
         // and if meta is missing, we no longer need to resend this task
+        try {
+            CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                createReplicaTask.countDownToZero(task.getBackendId() + ": " + request.getTask_status().getError_msgs().toString());
+            } else {
+                long tabletId = createReplicaTask.getTabletId();
 
-        CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
-        long tabletId = createReplicaTask.getTabletId();
-        
-        if (request.isSetFinish_tablet_infos()) {
-            Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
-                    createReplicaTask.getBackendId());
-            replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+                if (request.isSetFinish_tablet_infos()) {
+                        Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
+                                        createReplicaTask.getBackendId());
+                        replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+                }
+                
+                // this should be called before 'countDownLatch()'
+                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(), task.getDbId());
+                
+                createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
+                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                        tabletId, task.getBackendId(), request.getReport_version());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
         }
-
-        // this should be called before 'countDownLatch()'
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(),
-                task.getDbId());
-
-        createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-        LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                tabletId, task.getBackendId(), request.getReport_version());
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
     }
     
     private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
@@ -766,4 +777,18 @@ public class MasterImpl {
         return Catalog.getInstance().getAuth().toResourceThrift();
     }
 
+    private void finishAlterTask(AgentTask task) {
+        AlterReplicaTask alterTask = (AlterReplicaTask) task;
+        try {
+            if (alterTask.getJobType() == JobType.ROLLUP) {
+                Catalog.getCurrentCatalog().getRollupHandler().handleFinishAlterTask(alterTask);
+            } else if (alterTask.getJobType() == JobType.SCHEMA_CHANGE) {
+                Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
+            }
+            alterTask.setFinished(true);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
+        }
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+    }
 }

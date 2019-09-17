@@ -282,7 +282,8 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return nullptr;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -294,7 +295,8 @@ size_t Tablet::get_rowset_size_by_version(const Version& version) {
             << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return -1;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -954,8 +956,7 @@ TabletInfo Tablet::get_tablet_info() {
 void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
-        if (it.first.first >= _cumulative_point
-            && it.first.first == it.first.second) {
+        if (it.first.first >= _cumulative_point) {
             candidate_rowsets->push_back(it.second);
         }
     }

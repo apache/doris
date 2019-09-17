@@ -98,7 +98,7 @@ public class BrokerLoadJobTest {
     }
 
     @Test
-    public void testFromLoadStmt(@Injectable LoadStmt loadStmt,
+    public void testFromLoadStmt2(@Injectable LoadStmt loadStmt,
                                  @Injectable DataDescription dataDescription,
                                  @Injectable LabelName labelName,
                                  @Injectable Database database,
@@ -139,8 +139,8 @@ public class BrokerLoadJobTest {
         new MockUp<Load>() {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
-                                             boolean deleteFlag, EtlJobType jobType) {
+                    Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
+
             }
         };
 
@@ -150,7 +150,6 @@ public class BrokerLoadJobTest {
             Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
             Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));
             Assert.assertEquals(EtlJobType.BROKER, Deencapsulation.getField(brokerLoadJob, "jobType"));
-            Assert.assertEquals(dataDescriptionList, Deencapsulation.getField(brokerLoadJob, "dataDescriptions"));
         } catch (DdlException e) {
             Assert.fail(e.getMessage());
         }

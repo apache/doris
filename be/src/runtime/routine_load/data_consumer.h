@@ -133,6 +133,8 @@ public:
     // reassign partition topics
     virtual Status reset() override;
     virtual bool match(StreamLoadContext* ctx) override;
+    // commit kafka offset
+    Status commit(std::vector<RdKafka::TopicPartition*>& offset);
 
     Status assign_topic_partitions(
             const std::map<int32_t, int64_t>& begin_partition_offset,

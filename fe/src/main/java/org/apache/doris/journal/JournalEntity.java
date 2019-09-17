@@ -18,6 +18,7 @@
 package org.apache.doris.journal;
 
 import org.apache.doris.alter.AlterJob;
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -408,6 +409,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_SMALL_FILE:
             case OperationType.OP_DROP_SMALL_FILE: {
                 data = SmallFile.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ALTER_JOB_V2: {
+                data = AlterJobV2.read(in);
                 needRead = false;
                 break;
             }

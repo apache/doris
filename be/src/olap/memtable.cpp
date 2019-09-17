@@ -27,12 +27,12 @@
 namespace doris {
 
 MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
-                   std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
+                   const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
     : _schema(schema),
       _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
-      _col_ids(col_ids),
+      _slot_descs(slot_descs),
       _keys_type(keys_type),
       _row_comparator(_schema) {
     _schema_size = _schema->schema_size();
@@ -58,26 +58,14 @@ size_t MemTable::memory_usage() {
 }
 
 void MemTable::insert(Tuple* tuple) {
-    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
     ContiguousRow row(_schema, _tuple_buf);
-    for (size_t i = 0; i < _col_ids->size(); ++i) {
+    for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
-        const SlotDescriptor* slot = slots[(*_col_ids)[i]];
+        const SlotDescriptor* slot = (*_slot_descs)[i];
 
-        // todo(kks): currently, HLL implementation don't have a merge method
-        // we should refactor HLL implementation and remove this special case handle
-        if (slot->type() == TYPE_HLL && _skip_list->Contains(_tuple_buf)) {
-            cell.set_not_null();
-            const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-            auto* dest = (Slice*)(cell.cell_ptr());
-            dest->size = src->len;
-            dest->data = _arena.Allocate(dest->size);
-            memcpy(dest->data, src->ptr, dest->size);
-        } else {
-            bool is_null = tuple->is_null(slot->null_indicator_offset());
-            void* value = tuple->get_slot(slot->tuple_offset());
-            _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena());
-        }
+        bool is_null = tuple->is_null(slot->null_indicator_offset());
+        void* value = tuple->get_slot(slot->tuple_offset());
+        _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena());
     }
 
     bool overwritten = false;

@@ -17,23 +17,23 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.RollupJob;
+import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
-public class RollupJobProcDir implements ProcDirInterface {
+// Show unfinished rollup tasks of rollup job v2
+public class RollupJobProcDir implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId").add("RollupIndexId").add("IndexState")
+            .add("BackendId").add("BaseTabletId").add("RollupTabletId")
             .build();
 
-    private RollupJob rollupJob;
+    private RollupJobV2 rollupJob;
 
-    public RollupJobProcDir(RollupJob rollupJob) {
+    public RollupJobProcDir(RollupJobV2 rollupJob) {
         this.rollupJob = rollupJob;
     }
 
@@ -44,32 +44,8 @@ public class RollupJobProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> rollupJobInfos = rollupJob.getInfos();
-        for (List<Comparable> infoStr : rollupJobInfos) {
-            List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
-            for (Comparable element : infoStr) {
-                oneInfo.add(element.toString());
-            }
-            result.addRow(oneInfo);
-        }
+        List<List<String>> unfinishedRollupTasks = rollupJob.getUnfinishedTasks(2000);
+        result.setRows(unfinishedRollupTasks);
         return result;
     }
-
-    @Override
-    public boolean register(String name, ProcNodeInterface node) {
-        return false;
-    }
-
-    @Override
-    public ProcNodeInterface lookup(String partitionIdStr) throws AnalysisException {
-        long partitionId;
-        try {
-            partitionId = Long.valueOf(partitionIdStr);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid table id format: " + partitionIdStr);
-        }
-
-        return new RollupTabletsProcNode(rollupJob, partitionId);
-    }
-
 }

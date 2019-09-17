@@ -340,25 +340,25 @@ TEST_F(TestRowCursor, EqualAndCompare) {
 
     // right row only has k2 in int type
     std::vector<uint32_t> col_ids;
-    col_ids.push_back(1);
+    col_ids.push_back(0);
 
     RowCursor right_eq;
     res = right_eq.init(tablet_schema, col_ids);
-    int32_t r_int_eq = 10;
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    ASSERT_EQ(left.cmp(right_eq), 0);
+    Slice r_char_eq = ("well");
+    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
+    ASSERT_EQ(compare_row_key(left, right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema, col_ids);
-    int32_t r_int_lt = 11;
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_LT(left.cmp(right_lt), 0);
+    Slice r_char_lt = ("welm");
+    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
+    ASSERT_LT(compare_row_key(left, right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema, col_ids);
-    int32_t r_int_gt = 9;
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_GT(left.cmp(right_gt), 0);
+    Slice r_char_gt = ("welk");
+    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
+    ASSERT_GT(compare_row_key(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, IndexCmp) {
@@ -366,10 +366,10 @@ TEST_F(TestRowCursor, IndexCmp) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
-    OLAPStatus res = left.init(tablet_schema);
+    OLAPStatus res = left.init(tablet_schema, 2);
     ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(left.get_fixed_len(), 78);
-    ASSERT_EQ(left.get_variable_len(), 20);
+    ASSERT_EQ(left.get_fixed_len(), 22);
+    ASSERT_EQ(left.get_variable_len(), 4);
 
     Slice l_char("well");
     int32_t l_int = 10;
@@ -377,29 +377,29 @@ TEST_F(TestRowCursor, IndexCmp) {
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
 
     RowCursor right_eq;
-    res = right_eq.init(tablet_schema);
+    res = right_eq.init(tablet_schema, 2);
     Slice r_char_eq("well");
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
 
-    ASSERT_EQ(left.index_cmp(right_eq), 0);
+    ASSERT_EQ(index_compare_row(left, right_eq), 0);
 
     RowCursor right_lt;
-    res = right_lt.init(tablet_schema);
+    res = right_lt.init(tablet_schema, 2);
     Slice r_char_lt("well");
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_LT(left.index_cmp(right_lt), 0);
+    ASSERT_LT(index_compare_row(left, right_lt), 0);
 
     RowCursor right_gt;
-    res = right_gt.init(tablet_schema);
+    res = right_gt.init(tablet_schema, 2);
     Slice r_char_gt("good");
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_GT(left.index_cmp(right_gt), 0);
+    ASSERT_GT(index_compare_row(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, FullKeyCmp) {

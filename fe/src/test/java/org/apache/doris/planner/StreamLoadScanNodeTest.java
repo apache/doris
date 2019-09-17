@@ -153,6 +153,11 @@ public class StreamLoadScanNodeTest {
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
         new Expectations() {{
             dstTable.getBaseSchema(); result = columns;
+            dstTable.getFullSchema(); result = columns;
+            dstTable.getColumn("k1"); result = columns.get(0);
+            dstTable.getColumn("k2"); result = columns.get(1);
+            dstTable.getColumn("v1"); result = columns.get(2);
+            dstTable.getColumn("v2"); result = columns.get(3);
         }};
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);

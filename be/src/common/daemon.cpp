@@ -31,6 +31,7 @@
 #include "util/doris_metrics.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/chunk_allocator.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/user_function_cache.h"
 #include "exprs/operators.h"
@@ -52,6 +53,7 @@
 #include "exprs/hll_hash_function.h"
 #include "exprs/timezone_db.h"
 #include "exprs/bitmap_function.h"
+#include "exprs/hll_function.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
@@ -272,6 +274,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     GeoFunctions::init();
     TimezoneDatabase::init();
     BitmapFunctions::init();
+    HllFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
@@ -284,6 +287,8 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     LOG(INFO) << MemInfo::debug_string();
     init_doris_metrics(paths);
     init_signals();
+
+    ChunkAllocator::init_instance(config::chunk_reserved_bytes_limit);
 }
 
 }

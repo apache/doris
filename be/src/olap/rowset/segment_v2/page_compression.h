@@ -38,7 +38,7 @@ namespace segment_v2 {
 // The type of compression codec for Data is stored elsewhere and should
 // be passed into the constructor.
 // Usage example:
-//     // page_size refers to page read from storage
+//     // page_slice refers to page read from storage
 //     PageDecompressor decompressor(page_slice, codec);
 //     // points to decompressed Data of the page (without footer)
 //     Slice uncompressed_slice;
@@ -46,21 +46,21 @@ namespace segment_v2 {
 //     // use uncompressed_slice
 //     // we have a new buffer for decompressed page
 //     if (uncompressed_slice.data != page_slice.data) {
-//         delete[] uncompressed_bytes.data;
+//         delete[] page_slice.data;
 //     }
 class PageDecompressor {
 public:
-    PageDecompressor(const Slice& data, const BlockCompressionCodec* codec)
-        : _data(data), _codec(codec) {
+    PageDecompressor(const Slice& compressed_data, const BlockCompressionCodec* codec)
+        : _data(compressed_data), _codec(codec) {
     }
     
-    // This client will set uncompress content to input param.
-    // In normal case(content.data != input_data.data) client should
-    // call delete[] content.data to free heap memory. However
-    // when the data is not compressed, this function will return input data
-    // directly. In this case content.data == input_data.data,
+    // This client will set uncompress content to uncompressed_data.
+    // In normal case(compressed_data.data != uncompressed_data.data) client should
+    // call delete[] compressed_data.data to free heap memory. However
+    // when the data is not compressed, this function will return compressed_data
+    // directly. In this case compressed_data.data == uncompressed_data.data,
     // client should not free content.
-    Status decompress_to(Slice* content);
+    Status decompress_to(Slice* uncompressed_data);
 private:
     Slice _data;
     const BlockCompressionCodec* _codec;

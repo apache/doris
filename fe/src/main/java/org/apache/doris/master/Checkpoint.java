@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.MetricRepo;
@@ -249,7 +250,7 @@ public class Checkpoint extends Daemon {
                     OlapTable olapTable = (OlapTable) table;
                     for (Partition partition : olapTable.getPartitions()) {
                         totalPartitionNum++;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                             totalIndexNum++;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 totalTabletNum++;

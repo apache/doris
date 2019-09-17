@@ -28,7 +28,7 @@ namespace segment_v2 {
 // A page's data may be in cache, or may not in cache. We use this
 // class to unify these two cases.
 // If client use this struct to wrap data not in cache, this class
-// will free data's memory when it is destoryed.
+// will free data's memory when it is destroyed.
 class PageHandle {
 public:
     PageHandle() : _is_data_owner(false) { }

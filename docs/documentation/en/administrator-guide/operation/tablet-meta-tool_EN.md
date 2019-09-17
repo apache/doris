@@ -48,7 +48,7 @@ Get Tablet Meta on a disk based on the meta\ tool tool.
 Order:
 
 ```
-./lib/meta_tool --root_path=/path/to/root_path --operation=get_header --tablet_id=xxx --schema_hash=xxx
+./lib/meta_tool --root_path=/path/to/root_path --operation=get_meta --tablet_id=xxx --schema_hash=xxx
 ```
 
 > root_path: The corresponding root_path path path configured in be.conf.
@@ -62,7 +62,7 @@ The function of loading header is provided to realize manual migration of tablet
 Order:
 
 ```
-./lib/meta_tool --operation=load_header --root_path=/path/to/root_path --json_header_path=path
+./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_header_path=path
 ```
 
 ### Delete header
@@ -72,7 +72,7 @@ In order to realize the function of deleting a tablet from a disk of a be.
 Order:
 
 ```
-./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx`
+./lib/meta_tool --operation=delete_meta --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx`
 ```
 
 ### TabletMeta in Pb format
@@ -82,5 +82,5 @@ This command is to view the old file-based management PB format Tablet Meta, and
 Order:
 
 ```
-./lib/meta_tool --operation=show_header --root_path=/path/to/root_path --pb_header_path=path
+./lib/meta_tool --operation=show_meta --root_path=/path/to/root_path --pb_header_path=path
 ```

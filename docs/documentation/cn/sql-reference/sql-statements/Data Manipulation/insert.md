@@ -4,15 +4,18 @@
 
 ```
 INSERT INTO table_name
+    [ WITH LABEL label]
     [ PARTITION (, ...) ]
     [ (column [, ...]) ]
-    [ \[ hint [, ...] \] ]
+    [ [ hint [, ...] ] ]
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
 ```
 
 ### Parameters
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
+>
+> label: 为 Insert 任务指定一个 label
 >
 > partition_names: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
 >
@@ -50,27 +53,27 @@ INSERT INTO test (c1) VALUES (1);
 2. 向`test`表中一次性导入多行数据
 
 ```
-INSERT INTO test VALUES (1, 2), (3, 2 + 2)
-INSERT INTO test (c1, c2) VALUES (1, 2), (3, 2 * 2)
-INSERT INTO test (c1) VALUES (1), (3)
-INSERT INTO test (c1, c2) VALUES (1, DEFAULT), (3, DEFAULT)
+INSERT INTO test VALUES (1, 2), (3, 2 + 2);
+INSERT INTO test (c1, c2) VALUES (1, 2), (3, 2 * 2);
+INSERT INTO test (c1) VALUES (1), (3);
+INSERT INTO test (c1, c2) VALUES (1, DEFAULT), (3, DEFAULT);
 ```
 
 其中第一条、第二条语句效果一样，向`test`表中一次性导入两条数据
 第三条、第四条语句效果已知，使用`c2`列的默认值向`test`表中导入两条数据
 
-3. 向`test`表中同步的导入一个查询语句的返回结果
+3. 向 `test` 表中导入一个查询语句结果
 
 ```
-INSERT INTO test [streaming] SELECT * FROM test2
-INSERT INTO test (c1, c2) [streaming] SELECT * from test2
+INSERT INTO test SELECT * FROM test2;
+INSERT INTO test (c1, c2) SELECT * from test2;
 ```
 
-4. 向`test`表中异步的导入一个查询语句结果
+4. 向 `test` 表中导入一个查询语句结果，并指定 label
 
 ```
-INSERT INTO test SELECT * FROM test2
-INSERT INTO test (c1, c2) SELECT * from test2
+INSERT INTO test WITH LABEL `label1` SELECT * FROM test2;
+INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ```
 
 异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的**执行效率是一样**的。

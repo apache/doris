@@ -180,7 +180,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
         }
         RowCursor* current_row = merge_ctx->row_cursor.get();
         merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-        if (min_row == nullptr || min_row->cmp(*current_row) >  0) {
+        if (min_row == nullptr || compare_row(*min_row, *current_row) >  0) {
             min_row = current_row;
             min_index = ordinal;
         }

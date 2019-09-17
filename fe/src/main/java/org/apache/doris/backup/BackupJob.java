@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -386,7 +387,7 @@ public class BackupJob extends AbstractJob {
                 for (Partition partition : partitions) {
                     long visibleVersion = partition.getVisibleVersion();
                     long visibleVersionHash = partition.getVisibleVersionHash();
-                    List<MaterializedIndex> indexes = partition.getMaterializedIndices();
+                    List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
                     for (MaterializedIndex index : indexes) {
                         int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
                         List<Tablet> tablets = index.getTablets();
@@ -419,7 +420,8 @@ public class BackupJob extends AbstractJob {
             for (TableRef tableRef : tableRefs) {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true);
+                // only copy visible indexes
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;
