@@ -68,6 +68,7 @@ namespace doris {
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
 #define SET_CUR_TIME(c)
+#define ADD_TS(profile, name)
 #define ADD_THREADCOUNTERS(profile, prefix) NULL
 #define SCOPED_THREAD_COUNTER_MEASUREMENT(c)
 #endif

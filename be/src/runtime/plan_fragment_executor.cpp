@@ -263,6 +263,7 @@ void PlanFragmentExecutor::print_volume_ids(
 
 Status PlanFragmentExecutor::open() {
     LOG(INFO) << "Open(): fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
+    SET_CUR_TIME(ADD_TS(profile(), "ExecStartTime"));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -302,8 +303,6 @@ Status PlanFragmentExecutor::open_internal() {
         return Status::OK();
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
-
-    SET_CUR_TIME(ADD_TS(profile(), "ExecStartTime"));
 
     // If there is a sink, do all the work of driving it here, so that
     // when this returns the query has actually finished
