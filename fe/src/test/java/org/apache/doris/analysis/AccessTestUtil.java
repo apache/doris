@@ -88,7 +88,7 @@ public class AccessTestUtil {
             Partition partition = new Partition(20000L, "testTbl", baseIndex, distributionInfo);
             List<Column> baseSchema = new LinkedList<Column>();
             OlapTable table = new OlapTable(30000, "testTbl", baseSchema,
-                    KeysType.AGG_KEYS, new SinglePartitionInfo(), distributionInfo, "");
+                    KeysType.AGG_KEYS, new SinglePartitionInfo(), distributionInfo);
             table.setIndexSchemaInfo(baseIndex.getId(), "testTbl", baseSchema, 0, 1, (short) 1);
             table.addPartition(partition);
             table.setBaseIndexId(baseIndex.getId());
