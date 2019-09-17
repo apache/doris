@@ -221,7 +221,7 @@ public class Table extends MetaObject implements Writable {
             this.nameToColumn.put(column.getName(), column);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_63) {
             comment = Text.readString(in);
         } else {
             comment = "";
