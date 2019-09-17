@@ -56,12 +56,13 @@ struct TabletsChannelKeyHasher {
 
 class DeltaWriter;
 class MemTable;
+class MemTableFlushExecutor;
 class OlapTableSchemaParam;
 
 // channel that process all data for this load
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, size_t tablet_num);
+    TabletsChannel(const TabletsChannelKey& key, MemTableFlushExecutor* flush_executor);
 
     ~TabletsChannel();
 
@@ -80,13 +81,11 @@ public:
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& params);
-    // the work function of flush thread.
-    // it will continuously get memtable from flush queue, and flush them to disk
-    void _flush_memtable();
 
 private:
     // id of this load channel
     TabletsChannelKey _key;
+    MemTableFlushExecutor* _flush_executor;
 
     // make execute sequece
     std::mutex _lock;
@@ -116,12 +115,6 @@ private:
 
     //use to erase timeout TabletsChannel in _tablets_channels
     time_t _last_updated_time;
-
-    ThreadPool _flush_pool;
-    // the size of flush queue equals to the number of tablets.
-    // so that each tablet has at least one rotational memtable.
-    // and the over all mem usage is at most 2 times of total memtable's size
-    BlockingQueue<std::shared_ptr<MemTable>> _flush_queue;
 };
 
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);

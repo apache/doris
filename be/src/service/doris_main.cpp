@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "codegen/llvm_codegen.h"
 #include "runtime/exec_env.h"
+#include "runtime/memtable_flush_executor.h"
 #include "util/logging.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -166,6 +167,7 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
+    exec_env->memtable_flush_executor()->init();
 
     doris::FrontendHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;

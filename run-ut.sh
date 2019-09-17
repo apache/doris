@@ -211,6 +211,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/mem_pool_test
+${DORIS_TEST_BINARY_DIR}/runtime/memtable_flush_executor_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/chunk_allocator_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/system_allocator_test
 # Running expr Unittest

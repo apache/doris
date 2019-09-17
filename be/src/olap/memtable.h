@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
+#include <future>
 #include <memory>
 
 #include "olap/schema.h"
@@ -40,6 +41,10 @@ public:
     void insert(Tuple* tuple);
     OLAPStatus flush(RowsetWriter* rowset_writer);
     OLAPStatus close(RowsetWriter* rowset_writer);
+
+    std::future<OLAPStatus> get_flush_future() { return _flush_promise.get_future(); }
+    void set_flush_status(OLAPStatus st) { _flush_promise.set_value(st); }
+
 private:
     int64_t _tablet_id; 
     Schema* _schema;
@@ -62,6 +67,9 @@ private:
     char* _tuple_buf;
     size_t _schema_size;
     Table* _skip_list;
+
+    // the promise it to save result status of flush
+    std::promise<OLAPStatus> _flush_promise;
 }; // class MemTable
 
 } // namespace doris

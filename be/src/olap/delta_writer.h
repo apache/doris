@@ -31,6 +31,7 @@ namespace doris {
 
 class SegmentGroup;
 class MemTable;
+class MemTableFlushExecutor;
 class Schema;
 
 enum WriteType {
@@ -56,21 +57,27 @@ class DeltaWriter {
 public:
     static OLAPStatus open(
         WriteRequest* req, 
-        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue,
+        MemTableFlushExecutor* _flush_executor,
         DeltaWriter** writer);
+
     OLAPStatus init();
-    DeltaWriter(WriteRequest* req, BlockingQueue<std::shared_ptr<MemTable>>* flush_queue);
+
+    DeltaWriter(WriteRequest* req, MemTableFlushExecutor* _flush_executor);
+
     ~DeltaWriter();
+
     OLAPStatus write(Tuple* tuple);
     // flush the last memtable to flush queue, must call it before close
     OLAPStatus flush();
+
+    
+
     OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     OLAPStatus cancel();
 
     int64_t partition_id() const { return _req.partition_id; }
 
-    void set_flush_status(OLAPStatus st) { _flush_status.store(st); }
     OLAPStatus get_flush_status() { return _flush_status.load(); }
     RowsetWriter* rowset_writer() { return _rowset_writer.get(); }
 
@@ -80,6 +87,9 @@ public:
     }
 
 private:
+    // push a full memtable to flush executor
+    OLAPStatus _flush_memtable_async();
+
     void _garbage_collection();
 
 private:
@@ -94,12 +104,27 @@ private:
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
+
+    // the flush status of previous memtable.
+    // the default is OLAP_SUCCESS, and once it changes to some ERROR code,
+    // it will never change back to OLAP_SUCCESS.
+    // this status will be checked each time the next memtable is going to be flushed,
+    // so that if the previous flush is already failed, no need to flush next memtable.
     std::atomic<OLAPStatus> _flush_status;
+    // the future of the very last memtable flush execution.
+    // because the flush of this delta writer's memtables are executed serially,
+    // if the last memtable is flushed, all previous memtables should already be flushed.
+    // so we only need to wait and block on the last memtable's flush future.
+    std::future<OLAPStatus> _flush_future;
+    // total flush time and flush count of memtables
     int64_t _flush_time_ns;
     int64_t _flush_count;
 
-    // queue for saving immable mem tables
-    BlockingQueue<std::shared_ptr<MemTable>>* _flush_queue;
+    MemTableFlushExecutor* _flush_executor;
+    // the idx of flush queues vector in MemTableFlushExecutor.
+    // this idx is got from MemTableFlushExecutor,
+    // and memtables of this delta writer will be pushed to this certain flush queue only.
+    int32_t _flush_queue_idx;
 };
 
 }  // namespace doris

@@ -465,6 +465,8 @@ namespace config {
     CONF_Int32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
     CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
+    // number of thread for flushing memtable per store
+    CONF_Int32(flush_thread_num_per_store, "2");
 } // namespace config
 
 } // namespace doris

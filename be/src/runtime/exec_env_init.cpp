@@ -30,6 +30,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/memtable_flush_executor.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/tablet_writer_mgr.h"
@@ -105,6 +106,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
+    _memtable_flush_executor = new MemTableFlushExecutor(this);
 
     _backend_client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
@@ -236,6 +238,7 @@ void ExecEnv::_destory() {
     delete _stream_load_executor;
     delete _routine_load_task_executor;
     delete _external_scan_context_mgr;
+    delete _memtable_flush_executor;
     _metrics = nullptr;
 }
 

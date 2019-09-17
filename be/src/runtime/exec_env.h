@@ -37,6 +37,7 @@ class FragmentMgr;
 class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
+class MemTableFlushExecutor;
 class MetricRegistry;
 class StorageEngine;
 class PoolMemTrackerRegistry;
@@ -126,6 +127,7 @@ public:
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
+    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -176,6 +178,7 @@ private:
     StreamLoadExecutor* _stream_load_executor = nullptr;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
+    MemTableFlushExecutor* _memtable_flush_executor = nullptr;
 };
 
 }

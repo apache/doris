@@ -23,25 +23,26 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "runtime/memtable_flush_executor.h"
 
 namespace doris {
 
 OLAPStatus DeltaWriter::open(
         WriteRequest* req,
-        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue,
+        MemTableFlushExecutor* flush_executor,
         DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, flush_queue);
+    *writer = new DeltaWriter(req, flush_executor);
     return OLAP_SUCCESS;
 }
 
 DeltaWriter::DeltaWriter(
         WriteRequest* req,
-        BlockingQueue<std::shared_ptr<MemTable>>* flush_queue)
+        MemTableFlushExecutor* flush_executor)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
       _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
       _delta_written_success(false), _flush_status(OLAP_SUCCESS),
-      _flush_queue(flush_queue) {
+      _flush_executor(flush_executor) {
 
     _mem_table.reset();
 }
@@ -56,6 +57,7 @@ DeltaWriter::~DeltaWriter() {
     if (_rowset_writer != nullptr) {
         _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
     }
+    LOG(INFO) << "deconstruct delta writer";
 }
 
 void DeltaWriter::_garbage_collection() {
@@ -142,6 +144,8 @@ OLAPStatus DeltaWriter::init() {
     _schema = new Schema(*_tablet_schema);
     _mem_table = std::make_shared<MemTable>(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots, _req.tuple_desc, _tablet->keys_type());
 
+    _flush_queue_idx = _flush_executor->get_queue_idx(_tablet->data_dir()->path_hash());
+
     _is_init = true;
     return OLAP_SUCCESS;
 }
@@ -156,21 +160,25 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 
     _mem_table->insert(tuple);
 
-    // if memtable is full, add it to the flush queue,
+    // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        if (_flush_status.load() != OLAP_SUCCESS) {
-            // last flush already failed, return error
-            return _flush_status.load();
-        }
-
-        if (!_flush_queue->blocking_put(_mem_table)) {
-            // queue has been shutdown
-            return OLAP_ERR_WRITER_FLUSH_QUEUE_SHUTDOWN;
-        }
+        RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots, _req.tuple_desc, _tablet->keys_type()));
     }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DeltaWriter::_flush_memtable_async() {
+    // last flush already failed, return error
+    RETURN_NOT_OK(_flush_status.load());
+
+    MemTableFlushContext ctx;
+    ctx.memtable = _mem_table;
+    ctx.delta_writer = this;
+    ctx.flush_status = &_flush_status;
+    _flush_future = _flush_executor->push_memtable(_flush_queue_idx, ctx);
     return OLAP_SUCCESS;
 }
 
@@ -182,20 +190,17 @@ OLAPStatus DeltaWriter::flush() {
         }
     }
 
-    // if last flush already failed, just return error
-    RETURN_NOT_OK(_flush_status.load());
-    // put last memtable to flush queue
-    _flush_queue->blocking_put(_mem_table);
+    RETURN_NOT_OK(_flush_memtable_async());
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-    // return error if flush failed
-    OLAPStatus res = _flush_status.load();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to flush memtable for tablet: " << _tablet->tablet_id();
-        return res;
-    }
+    // return error if previous flush failed
+    RETURN_NOT_OK(_flush_status.load());
+
+    // wait for the last memtable flushed
+    // flush() is called before close(), so _flush_future is set at least once.
+    RETURN_NOT_OK(_flush_future.get());
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -203,7 +208,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    res = StorageEngine::instance()->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
+    OLAPStatus res = StorageEngine::instance()->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
         _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash, _tablet->tablet_uid(), 
         _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {

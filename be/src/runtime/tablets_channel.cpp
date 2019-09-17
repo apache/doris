@@ -25,10 +25,8 @@
 
 namespace doris {
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key, size_t tablet_num):
-    _key(key), _closed_senders(64),
-    _flush_pool(1, 1),
-    _flush_queue(tablet_num) {
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTableFlushExecutor* flush_executor):
+    _key(key), _flush_executor(flush_executor), _closed_senders(64) {
 }
 
 TabletsChannel::~TabletsChannel() {
@@ -59,45 +57,9 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(_open_all_writers(params));
 
-    _flush_pool.offer(boost::bind<void>(&TabletsChannel::_flush_memtable, this));
-    
     _opened = true;
     _last_updated_time = time(nullptr);
     return Status::OK();
-}
-
-void TabletsChannel::_flush_memtable() {
-    while(true) {
-        std::shared_ptr<MemTable> mem;
-        if (!_flush_queue.blocking_get(&mem)) {
-            // queue is empty and shutdown, end of thread
-            return;
-        }
-        // find rowset writer for this memtable
-        int64_t tablet_id = mem->tablet_id();
-        auto it = _tablet_writers.find(tablet_id);
-        if (it == std::end(_tablet_writers)) {
-            // this should not happen, just discard this memtable.
-            LOG(WARNING) << "unknown tablet when try flushing memtable, tablet=" << tablet_id;
-            continue;
-        }
-
-        // if last flush of this tablet already failed, just skip
-        if (it->second->get_flush_status() != OLAP_SUCCESS) {
-            continue;
-        }
-
-        // flush the memtable
-        MonotonicStopWatch timer;
-        timer.start();
-        OLAPStatus st = mem->flush(it->second->rowset_writer());
-        if (st != OLAP_SUCCESS) {
-            it->second->set_flush_status(st);
-        } else {
-            it->second->update_flush_time(timer.elapsed_time());
-        }
-        mem.reset();
-    }
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
@@ -182,12 +144,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
             }
         }
 
-        // 2. shutdown the flush queue and wait for all writers to be finished
-        _flush_queue.shutdown();
-        _flush_pool.shutdown();
-        _flush_pool.join();
-
-        // 3. close delta writers and build the tablet vector
+        // 2. wait and close delta writers and build the tablet vector
         for (auto writer : need_wait_writers) { 
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
@@ -225,7 +182,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, &_flush_queue, &writer);
+        auto st = DeltaWriter::open(&request, _flush_executor, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

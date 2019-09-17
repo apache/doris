@@ -27,6 +27,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
 #include "runtime/mem_tracker.h"
+// #include "runtime/memtable_flush_executor.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "runtime/descriptor_helper.h"
@@ -42,7 +43,7 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req) : _req(*req) {
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTableFlushExecutor* flush_executor) : _req(*req) {
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -52,11 +53,11 @@ OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, MemTableFlushExecutor* flush_executor, DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
-    *writer = new DeltaWriter(req);
+    *writer = new DeltaWriter(req, flush_executor);
     return open_status;
 }
 
@@ -67,6 +68,10 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         _k_tablet_recorder[_req.tablet_id]++;
     }
     return add_status;
+}
+
+OLAPStatus DeltaWriter::flush() {
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
@@ -479,7 +484,9 @@ TEST_F(TabletWriterMgrTest, close_failed) {
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
         auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        // even if delta close failed, the return status is still ok, but tablet_vec is empty
+        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(tablet_vec.empty());
     }
 }
 

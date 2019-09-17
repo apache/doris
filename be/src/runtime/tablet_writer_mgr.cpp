@@ -24,6 +24,7 @@
 #include "common/object_pool.h"
 #include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -53,7 +54,7 @@ Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
             channel = *val;
         } else {
             // create a new 
-            channel.reset(new TabletsChannel(key, params.tablets().size()));
+            channel.reset(new TabletsChannel(key, _exec_env->memtable_flush_executor()));
             _tablets_channels.insert(key, channel);
         }
     }
