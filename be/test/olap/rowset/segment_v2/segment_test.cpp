@@ -516,8 +516,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     std::string fname = dname + "/string_case";
 
-    SegmentWriter writer2(fname, 0, tablet_schema.get(), opts);
-    auto st = writer2.init(10);
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
     ASSERT_TRUE(st.ok());
 
     RowCursor row;
@@ -536,12 +536,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             Slice* slice = new Slice(*new string(&std::to_string(i * 10 + j)[0]));
             std::memcpy(cell.mutable_cell_ptr(), slice, sizeof(Slice));
         }
-        Status status = writer2.append_row(row);
+        Status status = writer.append_row(row);
         ASSERT_TRUE(status.ok());
     }
 
-    uint32_t file_size = 0;
-    st = writer2.finalize(&file_size);
+    uint64_t file_size = 0;
+    st = writer.finalize(&file_size);
     ASSERT_TRUE(st.ok());
 
     {
