@@ -1056,8 +1056,10 @@ data_desc ::=
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
+    where_clause:whereExpr
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, columnsFromPath, isNeg, colMappingList);
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
+        columnsFromPath, isNeg, colMappingList, whereExpr);
     :}
     ;
 
@@ -2712,10 +2714,6 @@ set_expr_or_default ::=
     {:
         RESULT = new StringLiteral("ALL");
     :}
-    | ident:name
-    {:
-        RESULT = new StringLiteral(name);
-    :}
     | expr:expr
     {:
         RESULT = expr;
@@ -3146,10 +3144,10 @@ expr_list ::=
   ;
 
 where_clause ::=
-  KW_WHERE expr:e
-  {: RESULT = e; :}
-  | /* empty */
+   /* empty */
   {: RESULT = null; :}
+  | KW_WHERE expr:e
+  {: RESULT = e; :}
   ;
 
 where_clause_without_null ::=

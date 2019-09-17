@@ -78,6 +78,7 @@ WITH BROKER broker_name broker_properties
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
     [SET (k1=f1(xx), k2=f2(xx))]
+    [WHERE predicate]
 
 * broker_properties: 
 
@@ -101,6 +102,7 @@ LOAD LABEL db1.label1
     INTO TABLE tbl2
     COLUMNS TERMINATED BY ","
     (col1, col2)
+    where col1 > 1
 )
 WITH BROKER 'broker'
 (
@@ -141,6 +143,10 @@ The following is a detailed explanation of some parameters of the data descripti
 + partition
 
 	In `data_desc`, you can specify the partition information of the table to be imported, but it will not be imported if the data to be imported does not belong to the specified partition. At the same time, data that does not specify a Partition is considered error data.
+
++ where predicate
+
+        The where statement in ```data_desc``` is responsible for filtering the data that has been transformed. The unselected rows which is filtered by where predicate will not be calculated in ```max_filter_ratio``` . If there are more then one where predicate of the same table , the multi where predicate will be merged from different ```data_desc``` and the policy is AND. 
 
 #### Import job parameters
 
@@ -247,6 +253,7 @@ mysql> show load order by createtime desc limit 1\G
  LoadStartTime: 2019-07-27 11:46:44
 LoadFinishTime: 2019-07-27 11:50:16
            URL: http://192.168.1.1:8040/api/_load_error_log?file=__shard_4/error_log_insert_stmt_4bb00753932c491a-a6da6e2725415317_4bb00753932c491a_a6da6e2725415317
+    JobDetails: {"ScannedRows":28133395,"TaskNumber":1,"FileNumber":1,"FileSize":200000}
 ```
 
 The following is mainly about the significance of viewing the parameters in the return result set of the import command:
@@ -282,7 +289,7 @@ The following is mainly about the significance of viewing the parameters in the 
 	Types of import tasks. The type value of Broker load is only BROKER.
 + Etlinfo
 
-	It mainly shows the imported data quantity indicators `dpp.norm.ALL` and `dpp.abnorm.ALL`. Users can verify that the error rate of the current import task exceeds max\_filter\_ratio based on these two indicators.
+	It mainly shows the imported data quantity indicators `unselected.rows`, `dpp.norm.ALL` and `dpp.abnorm.ALL`. The first value shows the rows which has been filtered by where predicate. Users can verify that the error rate of the current import task exceeds max\_filter\_ratio based on these two indicators.
 
 + TaskInfo
 

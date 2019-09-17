@@ -97,6 +97,11 @@ public class SetVar {
             return;
         }
 
+        // For the case like "set character_set_client = utf8", we change SlotRef to StringLiteral.
+        if (value instanceof SlotRef) {
+            value = new StringLiteral(((SlotRef) value).getColumnName());
+        }
+
         value.analyze(analyzer);
         if (!value.isConstant()) {
             throw new AnalysisException("Set statement does't support non-constant expr.");

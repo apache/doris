@@ -239,12 +239,12 @@ public class BrokerLoadJob extends LoadJob {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
                 if (loadTask instanceof LoadLoadingTask) {
-                    loadStatistic.numLoadedRowsMap.remove(((LoadLoadingTask) loadTask).getLoadId());
+                    loadStatistic.numScannedRowsMap.remove(((LoadLoadingTask) loadTask).getLoadId());
                 }
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 if (loadTask instanceof LoadLoadingTask) {
-                    loadStatistic.numLoadedRowsMap.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
+                    loadStatistic.numScannedRowsMap.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
                 }
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
                 return;
@@ -365,7 +365,7 @@ public class BrokerLoadJob extends LoadJob {
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
                 newLoadingTasks.add(task);
-                loadStatistic.numLoadedRowsMap.put(loadId, new AtomicLong(0));
+                loadStatistic.numScannedRowsMap.put(loadId, new AtomicLong(0));
 
                 // save all related tables and rollups in transaction state
                 TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
@@ -463,6 +463,8 @@ public class BrokerLoadJob extends LoadJob {
                                      increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL,
                                      increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
+        loadingStatus.replaceCounter(UNSELECTED_ROWS,
+                                     increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }

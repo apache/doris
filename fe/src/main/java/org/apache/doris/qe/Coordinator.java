@@ -31,6 +31,7 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -538,6 +539,11 @@ public class Coordinator {
             if (value != null) {
                 numRowsAbnormal = Long.valueOf(value);
             }
+            long numRowsUnselected = 0L;
+            value = this.loadCounters.get(LoadJob.UNSELECTED_ROWS);
+            if (value != null) {
+                numRowsUnselected = Long.valueOf(value);
+            }
 
             // new load counters
             value = newLoadCounters.get(LoadEtlTask.DPP_NORMAL_ALL);
@@ -548,9 +554,14 @@ public class Coordinator {
             if (value != null) {
                 numRowsAbnormal += Long.valueOf(value);
             }
+            value = newLoadCounters.get(LoadJob.UNSELECTED_ROWS);
+            if (value != null) {
+                numRowsUnselected += Long.valueOf(value);
+            }
 
             this.loadCounters.put(LoadEtlTask.DPP_NORMAL_ALL, "" + numRowsNormal);
             this.loadCounters.put(LoadEtlTask.DPP_ABNORMAL_ALL, "" + numRowsAbnormal);
+            this.loadCounters.put(LoadJob.UNSELECTED_ROWS, "" + numRowsUnselected);
         } finally {
             lock.unlock();
         }
@@ -856,31 +867,26 @@ public class Coordinator {
                 PlanFragmentId inputFragmentIdx =
                         fragments.get(i).getChild(0).getFragmentId();
                 // AddAll() soft copy()
-                int doris_exchange_instances= -1;
+                int exchangeInstances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-                    doris_exchange_instances = ConnectContext.get().getSessionVariable().getDorisExchangeInstances();
+                    exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
-                if (doris_exchange_instances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > doris_exchange_instances) {
+                if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
-                    List<TNetworkAddress> hosts = Lists.newArrayList();
-                    Set<String> cache = new HashSet<String>();
+                    // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
+                    Set<TNetworkAddress> hostSet = Sets.newHashSet();
                     for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
-                        String hostPort = execParams.host.getHostname() + execParams.host.getPort();
-                        if (!cache.contains(hostPort)) {
-                            hosts.add(execParams.host);
-                            cache.add(hostPort);
-                        }
+                        hostSet.add(execParams.host);
                     }
-					
-					// when doris_exchange_instances > hosts size, single host may execute severval instances
-                	Collections.shuffle(hosts, instanceRandom);
-                    for (int index = 0; index < doris_exchange_instances; index++) {
-                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()),0, params);
+                    List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
+                    Collections.shuffle(hosts, instanceRandom);
+                    for (int index = 0; index < exchangeInstances; index++) {
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()), 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }
                 } else {
                     for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
-                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host,0, params);
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }
                 }
@@ -1185,7 +1191,7 @@ public class Coordinator {
         }
 
         if (params.isSetLoaded_rows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobLoadedRows(jobId, params.query_id, params.loaded_rows);
+            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(jobId, params.query_id, params.loaded_rows);
         }
 
         return;
