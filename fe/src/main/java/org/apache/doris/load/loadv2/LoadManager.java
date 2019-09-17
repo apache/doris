@@ -560,10 +560,10 @@ public class LoadManager implements Writable{
         return false;
     }
 
-    public void updateJobLoadedRows(Long jobId, TUniqueId loadId, long loadedRows) {
+    public void updateJobScannedRows(Long jobId, TUniqueId loadId, long scannedRows) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateLoadedRows(loadId, loadedRows);
+            job.updateScannedRows(loadId, scannedRows);
         }
     }
 

@@ -91,6 +91,7 @@ public class DataDescription {
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
+    private final Expr whereExpr;
 
     // Used for mini load
     private TNetworkAddress beAddr;
@@ -116,7 +117,7 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList);
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList, null);
     }
 
     public DataDescription(String tableName,
@@ -127,7 +128,8 @@ public class DataDescription {
                            String fileFormat,
                            List<String> columnsFromPath,
                            boolean isNegative,
-                           List<Expr> columnMappingList) {
+                           List<Expr> columnMappingList,
+                           Expr whereExpr) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -137,6 +139,7 @@ public class DataDescription {
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.whereExpr = whereExpr;
     }
 
     public String getTableName() {
@@ -145,6 +148,10 @@ public class DataDescription {
 
     public List<String> getPartitionNames() {
         return partitionNames;
+    }
+
+    public Expr getWhereExpr(){
+        return whereExpr;
     }
 
     public List<String> getFilePaths() {

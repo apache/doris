@@ -288,11 +288,14 @@ void FragmentExecState::coordinator_callback(
             // TODO(zc)
             static std::string s_dpp_normal_all = "dpp.norm.ALL";
             static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+            static std::string s_unselected_rows = "unselected.rows";
     
             params.load_counters.emplace(
                 s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
             params.load_counters.emplace(
                 s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
+            params.load_counters.emplace(
+                s_unselected_rows, std::to_string(runtime_state->num_rows_load_unselected()));
         }
         if (!runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
