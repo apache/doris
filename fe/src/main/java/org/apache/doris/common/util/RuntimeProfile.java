@@ -38,6 +38,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -269,6 +271,11 @@ public class RuntimeProfile {
                 } else {
                     builder.append(tmpValue).append("ns");
                 }
+                break;
+            }
+            case DATE_S: {
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                builder.append(sdf.format(new Date(value * 1000)));
                 break;
             }
             case BYTES: {

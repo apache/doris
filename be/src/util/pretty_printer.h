@@ -26,7 +26,6 @@
 #include "gen_cpp/RuntimeProfile_types.h"
 #include "util/cpu_info.h"
 #include "util/template_util.h"
-// #include "util/date_func.h"
 
 /// Truncate a double to offset decimal places.
 #define DOUBLE_TRUNCATE(val, offset) floor(val * pow(10, offset)) / pow(10, offset)

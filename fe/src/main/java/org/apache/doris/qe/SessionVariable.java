@@ -74,11 +74,7 @@ public class SessionVariable implements Serializable, Writable {
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
-<<<<<<< HEAD
-    public static final String DORIS_SHUFFLE_PARTITIONS = "doris_exchange_instances";
-=======
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
->>>>>>> master
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -164,13 +160,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TIME_ZONE)
     private String timeZone = "CST";
 
-<<<<<<< HEAD
-    @VariableMgr.VarAttr(name = DORIS_SHUFFLE_PARTITIONS)
-    private int dorisExchangeInstances = -1;
-=======
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     private int exchangeInstanceParallel = -1;
->>>>>>> master
 
     // The current time zone
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
@@ -522,11 +513,7 @@ public class SessionVariable implements Serializable, Writable {
         out.writeInt(batchSize);
         out.writeBoolean(disableStreamPreaggregations);
         out.writeInt(parallelExecInstanceNum);
-<<<<<<< HEAD
-        out.writeInt(dorisExchangeInstances);
-=======
         out.writeInt(exchangeInstanceParallel);
->>>>>>> master
     }
 
     @Override
@@ -566,11 +553,7 @@ public class SessionVariable implements Serializable, Writable {
             parallelExecInstanceNum = in.readInt();
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-<<<<<<< HEAD
-            dorisExchangeInstances = in.readInt();
-=======
             exchangeInstanceParallel = in.readInt();
->>>>>>> master
         }
 
     }
