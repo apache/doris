@@ -112,9 +112,9 @@ public:
 
         virtual void set(int value) { _value.store(value); }
 
-		virtual void set_cur_time() {
-			_value.store(GetCurrentTimeMicros());
-		}
+        virtual void set_cur_time() {
+            _value.store(GetCurrentTimeMicros());
+        }
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
