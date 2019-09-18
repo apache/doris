@@ -417,6 +417,11 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
+            case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
+                data = TableInfo.read(in);
+                needRead = false;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);

@@ -232,7 +232,12 @@
         PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
 
     12. 修改表的Colocate 属性
-        ALTER TABLE example_db.my_table set ("colocate_with"="t1");
+
+        ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
+
+    13. 将表的分桶方式由 Random Distribution 改为 Hash Distribution
+
+        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
         
     [rename]
     1. 将名为 table1 的表修改为 table2
