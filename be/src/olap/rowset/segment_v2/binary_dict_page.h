@@ -116,6 +116,10 @@ public:
         return _data_page_decoder->current_index();
     }
 
+    bool is_dict_encoding();
+
+    void set_dict_decoder(std::shared_ptr<BinaryPlainPageDecoder> dict_decoder);
+
 private:
     Slice _data;
     PageDecoderOptions _options;

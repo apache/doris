@@ -32,6 +32,7 @@
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
+#include "binary_dict_page.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -164,6 +165,24 @@ void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges
     std::vector<uint32_t> page_indexes;
     _get_filtered_pages(cond_column, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
+}
+
+Status ColumnReader::get_dict_page_decoder(BinaryDictPageDecoder* binaryDictPageDecoder) {
+    if (_column_dict_page_decoder == nullptr) {
+        PagePointer pp = _meta.dict_page();
+        PageHandle ph;
+        RETURN_IF_ERROR(read_page(pp, &ph));
+
+        Slice dict_data = ph.data();
+
+        std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
+                new BinaryPlainPageDecoder(dict_data));
+        RETURN_IF_ERROR(dict_page_decoder->init());
+
+        _column_dict_page_decoder = dict_page_decoder;
+    }
+    binaryDictPageDecoder->set_dict_decoder(_column_dict_page_decoder);
+    return Status::OK();
 }
 
 void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
@@ -410,6 +429,13 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     PageDecoderOptions options;
     RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
+
+    if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
+        BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
+        if (binary_dict_page_decoder->is_dict_encoding()) {
+            RETURN_IF_ERROR(_reader->get_dict_page_decoder(binary_dict_page_decoder));
+        }
+    }
 
     page->offset_in_page = 0;
 

@@ -213,6 +213,14 @@ Status ColumnWriter::write_data() {
         RETURN_IF_ERROR(_write_data_page(page));
         page = page->next;
     }
+    // write column dict
+    if (_encoding_info->encoding() == DICT_ENCODING) {
+        Slice dict_page;
+        _page_builder->get_dictionary_page(&dict_page);
+        std::vector<Slice> origin_data;
+        origin_data.push_back(dict_page);
+        RETURN_IF_ERROR(_write_physical_page(&origin_data, &_dict_page_pp));
+    }
     return Status::OK();
 }
 
@@ -239,6 +247,9 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
     if (_opts.need_zone_map) {
         _zone_map_pp.to_proto(meta->mutable_zone_map_page());
+    }
+    if (_encoding_info->encoding() == DICT_ENCODING) {
+        _dict_page_pp.to_proto(meta->mutable_dict_page());
     }
 }
 

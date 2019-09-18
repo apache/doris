@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
+#include "binary_dict_page.h"
 
 namespace doris {
 
@@ -79,6 +80,8 @@ public:
     bool has_zone_map() { return _meta.has_zone_map_page(); }
     void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
 
+    Status get_dict_page_decoder(BinaryDictPageDecoder* opts);
+
 private:
     Status _init_ordinal_index();
 
@@ -103,6 +106,9 @@ private:
 
     // column zone map info
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
+
+    // keep dict page
+    std::shared_ptr<BinaryPlainPageDecoder> _column_dict_page_decoder;
 };
 
 // Base iterator to read one column data
