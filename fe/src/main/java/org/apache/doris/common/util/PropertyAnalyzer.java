@@ -70,6 +70,8 @@ public class PropertyAnalyzer {
     
     public static final String PROPERTIES_TIMEOUT = "timeout";
 
+    public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         DataProperty dataProperty = oldDataProperty;

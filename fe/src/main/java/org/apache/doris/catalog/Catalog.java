@@ -6134,5 +6134,33 @@ public class Catalog {
             replica.setBad(backendTabletsInfo.isBad());
         }
     }
+
+    // Convert table's distribution type from random to hash.
+    // random distribution is no longer supported.
+    public void convertDistributionType(Database db, OlapTable tbl) throws DdlException {
+        db.writeLock();
+        try {
+            if (!tbl.convertRandomDistributionToHashDistribution()) {
+                throw new DdlException("Table " + tbl.getName() + " is not random distributed");
+            }
+            TableInfo tableInfo = TableInfo.createForModifyDistribution(db.getId(), tbl.getId());
+            editLog.logModifyDitrubutionType(tableInfo);
+            LOG.info("finished to modify distribution type of table: " + tbl.getName());
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void replayConvertDistributionType(TableInfo tableInfo) {
+        Database db = getDb(tableInfo.getDbId());
+        db.writeLock();
+        try {
+            OlapTable tbl = (OlapTable) db.getTable(tableInfo.getTableId());
+            tbl.convertRandomDistributionToHashDistribution();
+            LOG.info("replay modify distribution type of table: " + tbl.getName());
+        } finally {
+            db.writeUnlock();
+        }
+    }
 }
 

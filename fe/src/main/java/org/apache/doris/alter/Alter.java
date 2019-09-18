@@ -123,8 +123,7 @@ public class Alter {
                     || alterClause instanceof AddColumnsClause
                     || alterClause instanceof DropColumnClause
                     || alterClause instanceof ModifyColumnClause
-                    || alterClause instanceof ReorderColumnsClause
-                    || alterClause instanceof ModifyTablePropertiesClause)
+                    || alterClause instanceof ReorderColumnsClause)
                     && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
             } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup

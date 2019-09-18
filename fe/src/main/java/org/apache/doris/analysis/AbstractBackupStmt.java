@@ -70,8 +70,7 @@ public class AbstractBackupStmt extends DdlStmt {
         // the restore table may be newly created, so we can not judge its privs.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
                 labelName.getDbName(), PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                    ConnectContext.get().getQualifiedUser(), labelName.getDbName());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
 
         checkAndNormalizeBackupObjs();
