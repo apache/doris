@@ -17,13 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TBrokerTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
+
+import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.kudu.client.shaded.com.google.common.base.Strings;
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -56,7 +58,8 @@ public class BrokerTable extends Table {
         super(TableType.BROKER);
     }
 
-    public BrokerTable(long id, String name, List<Column> schema, Map<String, String> properties) throws DdlException {
+    public BrokerTable(long id, String name, List<Column> schema, Map<String, String> properties)
+            throws DdlException {
         super(id, name, TableType.BROKER, schema);
         validate(properties);
     }
