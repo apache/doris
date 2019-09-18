@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -48,8 +50,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
-
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
@@ -65,6 +65,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private String engineName;
+    private String comment;
 
     private static Set<String> engineNames;
 
@@ -98,7 +99,8 @@ public class CreateTableStmt extends DdlStmt {
                            PartitionDesc partitionDesc,
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
-                           Map<String, String> extProperties) {
+                           Map<String, String> extProperties,
+                           String comment) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -118,6 +120,7 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
+        this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
     }
@@ -182,6 +185,10 @@ public class CreateTableStmt extends DdlStmt {
 
     public void setTableName(String newTableName) {
         tableName = new TableName(tableName.getDb(), newTableName);
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -410,6 +417,10 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
             sb.append(new PrintableMap<String, String>(extProperties, " = ", true, true, true));
             sb.append(")");
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
         }
 
         return sb.toString();

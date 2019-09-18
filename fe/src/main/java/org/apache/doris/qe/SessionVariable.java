@@ -555,6 +555,5 @@ public class SessionVariable implements Serializable, Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
             exchangeInstanceParallel = in.readInt();
         }
-
     }
 }

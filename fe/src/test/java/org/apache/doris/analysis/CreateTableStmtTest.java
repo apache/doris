@@ -17,10 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -97,7 +96,7 @@ public class CreateTableStmtTest {
     public void testNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -108,7 +107,7 @@ public class CreateTableStmtTest {
     public void testDefaultDbNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -125,7 +124,7 @@ public class CreateTableStmtTest {
         EasyMock.replay(analyzer);
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
+                new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
     
@@ -135,7 +134,7 @@ public class CreateTableStmtTest {
         List<ColumnDef> emptyCols = Lists.newArrayList();
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
                 new KeysDesc(), null,
-                new RandomDistributionDesc(10), null, null);
+                new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
     
@@ -144,7 +143,7 @@ public class CreateTableStmtTest {
         // make defalut db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
-                new RandomDistributionDesc(10), null, null);
+                new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
 }

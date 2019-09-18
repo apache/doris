@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import java.util.List;
-
 import org.apache.doris.thrift.TTableDescriptor;
+
+import java.util.List;
 
 /**
  * A fake catalog representation of an inline view. It's like a table. It has name

@@ -3374,7 +3374,9 @@ public class Catalog {
 
         // create table
         long tableId = Catalog.getInstance().getNextId();
-        OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo, distributionInfo);
+        OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
+                distributionInfo);
+        olapTable.setComment(stmt.getComment());
 
         // set base index id
         long baseIndexId = getNextId();
@@ -3591,7 +3593,7 @@ public class Catalog {
 
         long tableId = Catalog.getInstance().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
-
+        mysqlTable.setComment(stmt.getComment());
         Table returnTable = null;
         if (isRestore) {
             returnTable = mysqlTable;
@@ -3628,6 +3630,7 @@ public class Catalog {
 
         long tableId = Catalog.getInstance().getNextId();
         EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
+        esTable.setComment(stmt.getComment());
 
         if (!db.createTableWithLock(esTable, false, stmt.isSetIfNotExists())) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
@@ -3728,6 +3731,7 @@ public class Catalog {
 
         long tableId = Catalog.getInstance().getNextId();
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, stmt.getProperties());
+        brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
 
         Table returnTable = null;
@@ -3848,7 +3852,7 @@ public class Catalog {
                 sb.append(colocateTable).append("\"");
             }
 
-            sb.append("\n);");
+            sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
             // properties
@@ -3859,39 +3863,7 @@ public class Catalog {
             sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
-            sb.append(");");
-        } else if (table.getType() == TableType.KUDU) {
-            KuduTable kuduTable = (KuduTable) table;
-            org.apache.kudu.client.KuduTable kTable = kuduTable.getKuduTable();
-            if (kTable == null) {
-                // real kudu table is not found
-                return;
-            }
-
-            // keys
-            sb.append("\n").append(KeysType.PRIMARY_KEYS.toSql()).append("(");
-            List<String> keysColumnNames = Lists.newArrayList();
-            for (Column column : kuduTable.getBaseSchema()) {
-                if (column.isKey()) {
-                    keysColumnNames.add("`" + column.getName() + "`");
-                }
-            }
-            sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
-
-            // partition
-            KuduPartition rangePartition = kuduTable.getRangePartition();
-            if (rangePartition != null) {
-                sb.append("\n").append(rangePartition);
-            }
-
-            // distribution
-            KuduPartition hashPartition = kuduTable.getHashPartition();
-            sb.append("\n").append(hashPartition);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_KUDU_MASTER_ADDRS).append("\" = \"");
-            sb.append(kuduTable.getMasterAddrs()).append("\")");
+            sb.append(")");
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
             // properties
@@ -3907,8 +3879,6 @@ public class Catalog {
                         hidePassword).toString());
                 sb.append("\n)");
             }
-
-            sb.append(";");
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             EsTable esTable = (EsTable) table;
 
@@ -3936,8 +3906,13 @@ public class Catalog {
             sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
             sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
             sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\"\n");
-            sb.append(");");
+            sb.append(")");
         }
+
+        if (!Strings.isNullOrEmpty(table.getComment())) {
+            sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+        }
+        sb.append(";");
 
         createTableStmt.add(sb.toString());
 
@@ -5145,6 +5120,7 @@ public class Catalog {
 
         long tableId = Catalog.getInstance().getNextId();
         View newView = new View(tableId, tableName, columns);
+        newView.setComment(stmt.getComment());
         newView.setInlineViewDef(stmt.getInlineViewDef());
         newView.setOriginalViewDef(stmt.getInlineViewDef());
         try {

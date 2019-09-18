@@ -204,7 +204,7 @@ public class ColocateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName1, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
         catalog.createTable(stmt);
     }
@@ -253,7 +253,7 @@ public class ColocateTableTest {
         properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null, "");
         secondStmt.analyze(analyzer);
         catalog.createTable(secondStmt);
 
@@ -308,7 +308,7 @@ public class ColocateTableTest {
         int secondBucketNum = 2;
         CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(secondBucketNum, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(secondBucketNum, Lists.newArrayList("key1")), properties, null, "");
         secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -327,7 +327,7 @@ public class ColocateTableTest {
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "2");
         CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1")), properties, null, "");
         secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -344,7 +344,7 @@ public class ColocateTableTest {
         properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1", "key2")), properties, null);
+                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1", "key2")), properties, null, "");
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -362,7 +362,7 @@ public class ColocateTableTest {
         properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key2")), properties, null);
+                new HashDistributionDesc(bucketNum, Lists.newArrayList("key2")), properties, null, "");
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
