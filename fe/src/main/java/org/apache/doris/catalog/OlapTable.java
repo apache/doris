@@ -145,7 +145,7 @@ public class OlapTable extends Table {
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
-                     KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+            KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;

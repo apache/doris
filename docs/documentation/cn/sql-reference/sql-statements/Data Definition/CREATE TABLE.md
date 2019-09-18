@@ -6,10 +6,11 @@
         (column_definition1[, column_definition2, ...])
         [ENGINE = [olap|mysql|broker]]
         [key_desc]
+        [COMMENT "table comment"];
         [partition_desc]
         [distribution_desc]
-        [PROPERTIES ("key"="value", ...)];
-        [BROKER PROPERTIES ("key"="value", ...)];
+        [PROPERTIES ("key"="value", ...)]
+        [BROKER PROPERTIES ("key"="value", ...)]
         
     1. column_definition
         语法：
@@ -191,6 +192,7 @@
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
+        COMMENT "my first doris table"
         DISTRIBUTED BY HASH(k1) BUCKETS 32
         PROPERTIES ("storage_type"="column");
         
