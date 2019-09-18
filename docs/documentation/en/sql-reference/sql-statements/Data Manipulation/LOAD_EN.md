@@ -255,30 +255,6 @@ v2 = hll, u hash (k2)
 )
 );
 
-LOAD LABEL example db.label8
-(
-DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-INTO TABLE `my_table`
-PARTITION (p1, P2)
-COLUMNS TERMINATED BY ","
-(k1, k2, tmp u k3, tmp u k4, v1, v2)
-SET (
-v1 = hll, u hash (tmp
-v2 = hll, u hash (tmp
-)
-)
-WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
-8. Importing data into Parquet file specifies FORMAT as parquet, which is judged by file suffix by default.
-LOAD LABEL example db.label9
-(
-DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-INTO TABLE `my_table`
-FORMAT AS "parquet"
-(k1, k2, k3)
-)
-WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
 ## keyword
 LOAD
 

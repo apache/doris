@@ -695,6 +695,11 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
+                    TableInfo tableInfo = (TableInfo)journal.getData();
+                    catalog.replayConvertDistributionType(tableInfo);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1187,5 +1192,9 @@ public class EditLog {
 
     public void logAlterJob(AlterJobV2 alterJob) {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+    }
+
+    public void logModifyDitrubutionType(TableInfo tableInfo) {
+        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
     }
 }

@@ -262,46 +262,6 @@
         )
         );
 
-        LOAD LABEL example_db.label8
-        (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-        INTO TABLE `my_table`
-        PARTITION (p1, p2)
-        COLUMNS TERMINATED BY ","
-        (k1, k2, tmp_k3, tmp_k4, v1, v2)
-        SET (
-          v1 = hll_hash(tmp_k3),
-          v2 = hll_hash(tmp_k4)
-        )
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
-    8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
-        LOAD LABEL example_db.label9
-        (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-        INTO TABLE `my_table`
-        FORMAT AS "parquet"
-        (k1, k2, k3)
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password"); 
-        
-    9. 提取文件路径中的压缩字段
-        如果需要，则会根据表中定义的字段类型解析文件路径中的压缩字段（partitioned fields），类似Spark中Partition Discovery的功能
-        LOAD LABEL example_db.label10
-        (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
-        INTO TABLE `my_table`
-        FORMAT AS "csv"
-        (k1, k2, k3)
-        COLUMNS FROM PATH AS (city, utc_date)
-        SET (uniq_id = md5sum(k1, city))
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
-
-        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing目录下包括如下文件：[hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
-        则提取文件路径的中的city和utc_date字段
-
 ## keyword
     LOAD
     
