@@ -39,11 +39,6 @@ import mockit.Mocked;
 import mockit.NonStrictExpectations;
 import mockit.internal.startup.Startup;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 24, 2019
- */
-
 public class SetPasswordTest {
 
     private PaloAuth auth;
