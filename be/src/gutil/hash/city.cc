@@ -1,6 +1,6 @@
 // Copyright 2010 Google Inc. All Rights Reserved.
-//
 // Authors: gpike@google.com (Geoff Pike), jyrki@google.com (Jyrki Alakuijala)
+//
 // This file provides CityHash64() and related functions.
 //
 // The externally visible functions follow the naming conventions of
