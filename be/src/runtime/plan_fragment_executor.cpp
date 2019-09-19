@@ -290,6 +290,7 @@ Status PlanFragmentExecutor::open() {
     }
 
     update_status(status);
+    SET_CUR_TIME(ADD_TS(profile(), "ExecEndTime"));
     return status;
 }
 
@@ -354,8 +355,6 @@ Status PlanFragmentExecutor::open_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(NULL);
     _done = true;
-
-    SET_CUR_TIME(ADD_TS(profile(), "ExecEndTime"));
 
     release_thread_token();
 

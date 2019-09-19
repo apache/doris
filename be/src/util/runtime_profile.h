@@ -114,7 +114,7 @@ public:
         virtual void set(int value) { _value.store(value); }
 
         virtual void set_cur_time() {
-            _value.store(GetCurrentTimeMicros());
+            _value.store(GetCurrentTimeMicros() / 1000);
         }
 
         virtual void set(double value) {
