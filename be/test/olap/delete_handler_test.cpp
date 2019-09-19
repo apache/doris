@@ -53,7 +53,7 @@ void set_up() {
     create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
-    config::min_file_descriptor_number = 65536;
+    config::min_file_descriptor_number = 60000;
 
     doris::EngineOptions options;
     options.store_paths = paths;
