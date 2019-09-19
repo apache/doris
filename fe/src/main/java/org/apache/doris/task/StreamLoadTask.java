@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -59,6 +60,7 @@ public class StreamLoadTask {
     private String path;
     private boolean negative;
     private boolean strictMode = true;
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
@@ -112,6 +114,10 @@ public class StreamLoadTask {
         return strictMode;
     }
 
+    public String getTimezone() {
+        return timezone;
+    }
+
     public int getTimeout() {
         return timeout;
     }
@@ -152,6 +158,10 @@ public class StreamLoadTask {
         if (request.isSetStrictMode()) {
             strictMode = request.isStrictMode();
         }
+        if (request.isSetTimezone()) {
+            timezone = request.getTimezone();
+            TimeUtils.checkTimeZoneValid(timezone);
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -172,6 +182,7 @@ public class StreamLoadTask {
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
         strictMode = routineLoadJob.isStrictMode();
+        timezone = routineLoadJob.getTimezone();
     }
 
     // used for stream load
