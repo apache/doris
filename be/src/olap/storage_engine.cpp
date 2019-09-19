@@ -187,9 +187,9 @@ OLAPStatus StorageEngine::open() {
 
     res = _check_file_descriptor_number();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "file descriptor number is not between "
-                     << "min_file_descriptor_number:" << config::min_file_descriptor_number
-                     << " and max_file_descriptor_number:" << config::max_file_descriptor_number;
+        LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
+                   << ". Please use (ulimit -n) to set a value equal or greater than "
+                   << config::min_file_descriptor_number;
         return OLAP_ERR_INIT_FAILED;
     }
 
@@ -370,8 +370,7 @@ OLAPStatus StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return OLAP_SUCCESS;
     }
-    if (l.rlim_cur < config::min_file_descriptor_number
-        || l.rlim_cur > config::max_file_descriptor_number) {
+    if (l.rlim_cur < config::min_file_descriptor_number) {
         return OLAP_ERR_TOO_FEW_FILE_DESCRITPROR;
     }
     return OLAP_SUCCESS;
