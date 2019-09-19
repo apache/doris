@@ -221,10 +221,9 @@ namespace config {
     CONF_Bool(row_nums_check, "true")
     //file descriptors cache, by default, cache 32768 descriptors
     CONF_Int32(file_descriptor_cache_capacity, "32768");
-    // minimum/maximum file descriptor number
+    // minimum file descriptor number
     // modify them upon necessity
-    CONF_Int32(min_file_descriptor_number, "65536");
-    CONF_Int32(max_file_descriptor_number, "131072");
+    CONF_Int32(min_file_descriptor_number, "60000");
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
 
