@@ -147,6 +147,8 @@ public class StreamLoadPlanner {
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
+        queryGlobals.setTimestamp_ms(new Date().getTime());
+        queryGlobals.setTime_zone(streamLoadTask.getTimezone());
         params.setQuery_globals(queryGlobals);
 
         // set load error hub if exist
