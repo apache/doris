@@ -82,6 +82,8 @@ void ColumnZoneMapBuilder::_reset_zone_map() {
     Slice *min_slice = (Slice *)_zone_map.min_value;
     min_slice->data = _max_string_value;
     min_slice->size = OLAP_STRING_MAX_LENGTH;
+    Slice *max_slice = (Slice *)_zone_map.max_value;
+    max_slice->size = 0;
     _field->set_to_max(_zone_map.min_value);
     _field->set_to_min(_zone_map.max_value);
     _zone_map.has_null = false;

@@ -4,7 +4,6 @@
 
 #include "util/arena.h"
 #include <assert.h>
-#include "string.h"
 
 namespace doris {
 
@@ -60,7 +59,6 @@ char* Arena::AllocateAligned(size_t bytes) {
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
     char* result = new char[block_bytes];
-    memset(result, 0, block_bytes);
     blocks_.push_back(result);
     memory_usage_.store(MemoryUsage() + block_bytes + sizeof(char*),
             std::memory_order_relaxed);
