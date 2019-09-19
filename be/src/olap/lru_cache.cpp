@@ -123,7 +123,6 @@ bool HandleTable::_resize() {
 
     LRUHandle** new_list = new(std::nothrow) LRUHandle*[new_length];
 
-    // assert(new_list);
     if (NULL == new_list) {
         LOG(FATAL) << "failed to malloc new hash list. new_length=" << new_length;
         return false;
@@ -147,7 +146,6 @@ bool HandleTable::_resize() {
         }
     }
 
-    //assert(_elems == count);
     if (_elems != count) {
         delete [] new_list;
         LOG(FATAL) << "_elems not match new count. elems=" << _elems
@@ -336,8 +334,8 @@ int LRUCache::prune() {
         MutexLock l(&_mutex);
         while (_lru.next != &_lru) {
             LRUHandle* old = _lru.next;
-            assert(old->InCache());
-            assert(old->refs == 1);  // LRU list contains elements which may be evicted
+            DCHECK(old->in_cache);
+            DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
             _lru_remove(old);
             _table.remove(old->key(), old->hash);
             old->in_cache = false;
