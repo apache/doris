@@ -55,139 +55,20 @@ void ColumnValueRange<__int128>::convert_to_fixed_value() {
     return;
 }
 
-Status OlapScanKeys::get_key_range(std::vector<OlapScanRange>* key_range) {
+Status OlapScanKeys::get_key_range(
+        std::vector<std::unique_ptr<OlapScanRange>>* key_range) {
     key_range->clear();
 
     for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-        OlapScanRange range;
-        range.begin_scan_range = _begin_scan_keys[i];
-        range.end_scan_range = _end_scan_keys[i];
-        range.begin_include = _begin_include;
-        range.end_include = _end_include;
-        key_range->push_back(range);
+        std::unique_ptr<OlapScanRange> range(new OlapScanRange());
+        range->begin_scan_range = _begin_scan_keys[i];
+        range->end_scan_range = _end_scan_keys[i];
+        range->begin_include = _begin_include;
+        range->end_include = _end_include;
+        key_range->emplace_back(std::move(range));
     }
 
     return Status::OK();
-}
-
-Status DorisScanRange::init() {
-    if (!_scan_range.__isset.partition_column_ranges) {
-        return Status::OK();
-    }
-
-    const std::vector<TKeyRange>& partition_column_ranges
-        = _scan_range.partition_column_ranges;
-
-    // TODO(hujie01): Only support first column's partition range
-    for (int i = 0; i < partition_column_ranges.size() && i < 1; ++i) {
-        switch (thrift_to_type(partition_column_ranges[i].column_type)) {
-        case TYPE_TINYINT: {
-            ColumnValueRange<int32_t> range(partition_column_ranges[i].column_name,
-                                            thrift_to_type(partition_column_ranges[i].column_type),
-                                            std::numeric_limits<int8_t>::min(),
-                                            std::numeric_limits<int8_t>::max());
-            int32_t begin_key = static_cast<int32_t>(partition_column_ranges[i].begin_key);
-            int32_t end_key = static_cast<int32_t>(partition_column_ranges[i].end_key);
-            range.add_range(FILTER_LARGER_OR_EQUAL, begin_key);
-            range.add_range(FILTER_LESS_OR_EQUAL, end_key);
-
-            if (!range.is_empty_value_range()) {
-                _partition_column_range[partition_column_ranges[i].column_name] = range;
-            }
-
-            break;
-        }
-
-        case TYPE_SMALLINT: {
-            ColumnValueRange<int16_t> range(partition_column_ranges[i].column_name,
-                                            thrift_to_type(partition_column_ranges[i].column_type),
-                                            std::numeric_limits<int16_t>::min(),
-                                            std::numeric_limits<int16_t>::max());
-            int32_t begin_key = static_cast<int32_t>(partition_column_ranges[i].begin_key);
-            int32_t end_key = static_cast<int32_t>(partition_column_ranges[i].end_key);
-            range.add_range(FILTER_LARGER_OR_EQUAL, begin_key);
-            range.add_range(FILTER_LESS_OR_EQUAL, end_key);
-
-            if (!range.is_empty_value_range()) {
-                _partition_column_range[partition_column_ranges[i].column_name] = range;
-            }
-
-            break;
-        }
-
-        case TYPE_INT: {
-            ColumnValueRange<int32_t> range(partition_column_ranges[i].column_name,
-                                            thrift_to_type(partition_column_ranges[i].column_type),
-                                            std::numeric_limits<int32_t>::min(),
-                                            std::numeric_limits<int32_t>::max());
-            int32_t begin_key = static_cast<int32_t>(partition_column_ranges[i].begin_key);
-            int32_t end_key = static_cast<int32_t>(partition_column_ranges[i].end_key);
-            range.add_range(FILTER_LARGER_OR_EQUAL, begin_key);
-            range.add_range(FILTER_LESS_OR_EQUAL, end_key);
-
-            if (!range.is_empty_value_range()) {
-                _partition_column_range[partition_column_ranges[i].column_name] = range;
-            }
-
-            break;
-        }
-
-        case TYPE_BIGINT: {
-            ColumnValueRange<int64_t> range(partition_column_ranges[i].column_name,
-                                            thrift_to_type(partition_column_ranges[i].column_type),
-                                            std::numeric_limits<int64_t>::min(),
-                                            std::numeric_limits<int64_t>::max());
-            int64_t begin_key = static_cast<int64_t>(partition_column_ranges[i].begin_key);
-            int64_t end_key = static_cast<int64_t>(partition_column_ranges[i].end_key);
-            range.add_range(FILTER_LARGER_OR_EQUAL, begin_key);
-            range.add_range(FILTER_LESS_OR_EQUAL, end_key);
-
-            if (!range.is_empty_value_range()) {
-                _partition_column_range[partition_column_ranges[i].column_name] = range;
-            }
-
-            break;
-        }
-
-        case TYPE_VARCHAR:
-        case TYPE_CHAR:
-        case TYPE_DECIMAL:
-        case TYPE_DECIMALV2:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            break;
-
-        default:
-            DCHECK(false) << "Unsupport Range Type!";
-        }
-
-        // Note: Only use first partition column to select ScanRange
-        //       since only first partition column is ordered
-        break;
-    }
-
-    return Status::OK();
-}
-
-int DorisScanRange::has_intersection(const std::string column_name,
-                                   ColumnValueRangeType& value_range) {
-    IsEmptyValueRangeVisitor empty_visitor;
-
-    if (boost::apply_visitor(empty_visitor, value_range)) {
-        return 0;
-    }
-
-    if (_partition_column_range.find(column_name) == _partition_column_range.end()) {
-        return -1;
-    }
-
-    HasIntersectionVisitor visitor;
-
-    if (boost::apply_visitor(visitor, _partition_column_range[column_name], value_range)) {
-        return 1;
-    } else {
-        return 0;
-    }
 }
 
 }  // namespace doris

@@ -29,9 +29,9 @@
 #include "olap/column_block.h" // for ColumnBlockView
 #include "olap/page_cache.h"
 #include "util/coding.h" // for get_varint32
+#include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -114,7 +114,7 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
         *handle = PageHandle(std::move(cache_handle));
         return Status::OK();
     }
-    // Now we read this from file. we 
+    // Now we read this from file.
     size_t page_size = pp.size;
     if (page_size < sizeof(uint32_t)) {
         return Status::Corruption(Substitute("Bad page, page size is too small, size=$0", page_size));
@@ -129,7 +129,7 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     size_t data_size = page_size - 4;
     if (_opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
-        uint32_t actual = HashUtil::crc_hash(page_slice.data, page_slice.size - 4, 0);
+        uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
             return Status::Corruption(
                 Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
@@ -173,7 +173,7 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
     for (int32_t i = 0; i < page_size; ++i) {
-        // min value and max value are valid if exisst_none_null is true
+        // min value and max value are valid if has_not_null is true
         if (zone_maps[i].has_not_null()) {
             min_value->from_string(zone_maps[i].min());
             max_value->from_string(zone_maps[i].max());
@@ -264,10 +264,8 @@ Status FileColumnIterator::seek_to_first() {
 }
 
 Status FileColumnIterator::seek_to_ordinal(rowid_t rid) {
-    if (_page != nullptr && _page->contains(rid)) {
-        // current page contains this row, we just
-    } else {
-        // we need to seek to
+    // if current page contains this row, we don't need to seek
+    if (_page == nullptr || !_page->contains(rid)) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
         _page.reset(new ParsedPage());
         RETURN_IF_ERROR(_read_page(_page_iter, _page.get()));

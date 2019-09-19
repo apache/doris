@@ -22,8 +22,9 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/txn_manager.h"
 #include "olap/new_status.h"
@@ -41,12 +42,67 @@ using std::string;
 
 namespace doris {
 
+static StorageEngine* k_engine = nullptr;
+
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.json";
 
 class TxnManagerTest : public testing::Test {
 public:
+    void init_tablet_schema() {
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema_pb.set_num_short_key_columns(3);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(4);
+
+        ColumnPB* column_1 = tablet_schema_pb.add_column();
+        column_1->set_unique_id(1);
+        column_1->set_name("k1");
+        column_1->set_type("INT");
+        column_1->set_is_key(true);
+        column_1->set_length(4);
+        column_1->set_index_length(4);
+        column_1->set_is_nullable(true);
+        column_1->set_is_bf_column(false);
+
+        ColumnPB* column_2 = tablet_schema_pb.add_column();
+        column_2->set_unique_id(2);
+        column_2->set_name("k2");
+        column_2->set_type("INT");
+        column_2->set_length(4);
+        column_2->set_index_length(4);
+        column_2->set_is_nullable(true);
+        column_2->set_is_key(true);
+        column_2->set_is_nullable(true);
+        column_2->set_is_bf_column(false);
+
+        ColumnPB* column_3 = tablet_schema_pb.add_column();
+        column_3->set_unique_id(3);
+        column_3->set_name("v1");
+        column_3->set_type("VARCHAR");
+        column_3->set_length(10);
+        column_3->set_index_length(10);
+        column_3->set_is_key(true);
+        column_3->set_is_nullable(false);
+        column_3->set_is_bf_column(false);
+
+        _schema.reset(new TabletSchema);
+        _schema->init_from_pb(tablet_schema_pb);
+    }
+
     virtual void SetUp() {
+        
+        std::vector<StorePath> paths;
+        paths.emplace_back("_engine_data_path", -1);
+        EngineOptions options;
+        options.store_paths = paths;
+        options.backend_uid = doris::UniqueId();
+        if (k_engine == nullptr) {
+            k_engine = new StorageEngine(options);
+        }
+
         std::string meta_path = "./meta";
         boost::filesystem::remove_all("./meta");
         ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
@@ -57,6 +113,9 @@ public:
         ASSERT_TRUE(boost::filesystem::exists("./meta"));
         load_id.set_hi(0);
         load_id.set_lo(0);
+
+        init_tablet_schema();
+
         // init rowset meta 1
         std::ifstream infile(rowset_meta_path);
         char buffer[1024];
@@ -65,13 +124,15 @@ public:
             _json_rowset_meta = _json_rowset_meta + buffer + "\n";
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
-
-        uint64_t rowset_id = 10000;
+        RowsetId rowset_id;
+        rowset_id.init(10000);
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
-        _alpha_rowset.reset(new AlphaRowset(nullptr, rowset_meta_path, nullptr, rowset_meta));
-        _alpha_rowset_same_id.reset(new AlphaRowset(nullptr, rowset_meta_path, nullptr, rowset_meta));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -82,12 +143,13 @@ public:
             _json_rowset_meta = _json_rowset_meta + buffer2 + "\n";
             std::cout << _json_rowset_meta << std::endl;
         }
-        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1); 
-        rowset_id = 10001;
+        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        rowset_id.init(10001);
         RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        _alpha_rowset_diff_id.reset(new AlphaRowset(nullptr, rowset_meta_path_2, nullptr, rowset_meta2));
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
+            _schema.get(), rowset_meta_path_2, nullptr, rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
 
@@ -106,6 +168,7 @@ private:
     SchemaHash schema_hash = 333;
     TabletUid _tablet_uid;
     PUniqueId load_id;
+    std::unique_ptr<TabletSchema> _schema;
     RowsetSharedPtr _alpha_rowset;
     RowsetSharedPtr _alpha_rowset_same_id;
     RowsetSharedPtr _alpha_rowset_diff_id;

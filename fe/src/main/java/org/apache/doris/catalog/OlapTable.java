@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJob.JobState;
-import org.apache.doris.alter.RollupJob;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
@@ -30,6 +28,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -146,7 +145,7 @@ public class OlapTable extends Table {
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
-                     KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+            KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
@@ -214,6 +213,9 @@ public class OlapTable extends Table {
         return indexNameToId.containsKey(indexName);
     }
 
+    /*
+     * Set index schema info for specified index.
+     */
     public void setIndexSchemaInfo(Long indexId, String indexName, List<Column> schema, int schemaVersion,
                                    int schemaHash, short shortKeyColumnCount) {
         if (indexName == null) {
@@ -226,19 +228,40 @@ public class OlapTable extends Table {
         indexIdToSchemaHash.put(indexId, schemaHash);
         indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
     }
+
     public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
         Preconditions.checkState(newStorageType == TStorageType.COLUMN);
         indexIdToStorageType.put(indexId, newStorageType);
     }
 
-    public void deleteIndexInfo(String indexName) {
-        long indexId = this.indexNameToId.remove(indexName);
+    // rebuild the full schema of table
+    // the order of columns in fullSchema is meaningless
+    public void rebuildFullSchema() {
+        fullSchema.clear();
+        nameToColumn.clear();
+        for (List<Column> columns : indexIdToSchema.values()) {
+            for (Column column : columns) {
+                if (!nameToColumn.containsKey(column.getName())) {
+                    fullSchema.add(column);
+                    nameToColumn.put(column.getName(), column);
+                }
+            }
+        }
+        LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
+    }
 
+    public boolean deleteIndexInfo(String indexName) {
+        if (!indexNameToId.containsKey(indexName)) {
+            return false;
+        }
+
+        long indexId = this.indexNameToId.remove(indexName);
         indexIdToSchema.remove(indexId);
         indexIdToSchemaVersion.remove(indexId);
         indexIdToSchemaHash.remove(indexId);
         indexIdToShortKeyColumnCount.remove(indexId);
         indexIdToStorageType.remove(indexId);
+        return true;
     }
 
     public Map<String, Long> getIndexNameToId() {
@@ -256,6 +279,19 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    // this is only for schema change.
+    public void renameIndexForSchemaChange(String name, String newName) {
+        long idxId = indexNameToId.remove(name);
+        indexNameToId.put(newName, idxId);
+    }
+
+    public void renameColumnNamePrefix(long idxId) {
+        List<Column> columns = indexIdToSchema.get(idxId);
+        for (Column column : columns) {
+            column.setName(Column.removeNamePrefix(column.getName()));
+        }
     }
 
     public Status resetIdsForRestore(Catalog catalog, Database db, int restoreReplicationNum) {
@@ -562,17 +598,13 @@ public class OlapTable extends Table {
     // it is used for stream load
     // the caller should get db lock when call this method
     public boolean shouldLoadToNewRollup() {
-        RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(id);
-        if (rollupJob != null && rollupJob.getState() == JobState.FINISHING) {
-            return false;
-        }
-        return true;
+        return false;
     }
 
     public TTableDescriptor toThrift() {
         TOlapTable tOlapTable = new TOlapTable(getName());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.OLAP_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setOlapTable(tOlapTable);
         return tTableDescriptor;
     }
@@ -920,7 +952,7 @@ public class OlapTable extends Table {
         return true;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied)) {
             LOG.warn("failed to copy olap table: " + getName());
@@ -932,7 +964,7 @@ public class OlapTable extends Table {
             for (Partition partition : copied.getPartitions()) {
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                     idx.setState(IndexState.NORMAL);
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -1003,7 +1035,7 @@ public class OlapTable extends Table {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
             short replicationNum = partitionInfo.getReplicationNum(partition.getId());
-            for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : mIndex.getTablets()) {
                     if (tabletScheduler.containsTablet(tablet.getId())) {
                         return false;
@@ -1053,11 +1085,11 @@ public class OlapTable extends Table {
         for (Partition partition : getPartitions()) {
             long version = partition.getVisibleVersion();
             long versionHash = partition.getVisibleVersionHash();
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     long tabletRowCount = 0L;
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash)
+                        if (replica.checkVersionCatchUp(version, versionHash, false)
                                 && replica.getRowCount() > tabletRowCount) {
                             tabletRowCount = replica.getRowCount();
                         }
@@ -1067,5 +1099,36 @@ public class OlapTable extends Table {
             }
         }
         return totalCount;
+    }
+
+    @Override
+    public List<Column> getBaseSchema() {
+        return indexIdToSchema.get(baseIndexId);
+    }
+
+    public int getKeysNum() {
+        int keysNum = 0;
+        for (Column column : getBaseSchema()) {
+            if (column.isKey()) {
+                keysNum += 1;
+            }
+        }
+        return keysNum;
+    }
+
+    public boolean convertRandomDistributionToHashDistribution() {
+        boolean hasChanged = false;
+        List<Column> baseSchema = indexIdToSchema.get(baseIndexId);
+        if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+            defaultDistributionInfo = ((RandomDistributionInfo) defaultDistributionInfo).toHashDistributionInfo(baseSchema);
+            hasChanged = true;
+        }
+        
+        for (Partition partition : idToPartition.values()) {
+            if (partition.convertRandomDistributionToHashDistribution(baseSchema)) {
+                hasChanged = true;
+            }
+        }
+        return hasChanged;
     }
 }

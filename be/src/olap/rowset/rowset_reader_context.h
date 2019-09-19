@@ -34,8 +34,10 @@ struct RowsetReaderContext {
     const TabletSchema* tablet_schema = nullptr;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
-    // projection columns
+    // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
+    // set of columns used to prune rows that doesn't satisfy key ranges and `conditions`.
+    // currently it contains all columns from `return_columns`, `conditions`, `lower_bound_keys`, and `upper_bound_keys`
     const std::vector<uint32_t>* seek_columns = nullptr;
     // columns to load bloom filter index
     // including columns in "=" or "in" conditions

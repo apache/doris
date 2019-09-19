@@ -144,6 +144,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
             << ctx->brief();
+        if (result.__isset.job_status) {
+            ctx->existing_job_status = result.job_status;
+        }
         return status;
     }
     ctx->txn_id = result.txnId;
@@ -277,7 +280,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             rl_attach.loadSourceType = TLoadSourceType::KAFKA;
 
             TKafkaRLTaskProgress kafka_progress;
-            kafka_progress.partitionCmtOffset = std::move(ctx->kafka_info->cmt_offset);
+            kafka_progress.partitionCmtOffset = ctx->kafka_info->cmt_offset;
 
             rl_attach.kafkaRLTaskProgress = std::move(kafka_progress);
             rl_attach.__isset.kafkaRLTaskProgress = true;

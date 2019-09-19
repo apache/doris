@@ -18,55 +18,54 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include <memory>
+#include <vector>
+
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/new_status.h"
 #include "olap/rowset/rowset_meta.h"
 
-#include <memory>
-
 namespace doris {
 
 class DataDir;
+class OlapTuple;
+class RowCursor;
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
+class RowsetFactory;
 class RowsetReader;
 class TabletSchema;
 
+// TODO(gaodayue) change to BETA_ROWSET when we're going to release segment v2
+const RowsetTypePB DEFAULT_ROWSET_TYPE = ALPHA_ROWSET;
+
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    Rowset(const TabletSchema* schema,
-           std::string rowset_path,
-           DataDir* data_dir,
-           RowsetMetaSharedPtr rowset_meta);
-
     virtual ~Rowset() { }
 
-    // this api is for init related objects in memory
-    virtual OLAPStatus init() = 0;
+    // Open all segment files in this rowset and load necessary metadata.
+    // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
+    virtual OLAPStatus load(bool use_cache = true) = 0;
 
-    bool is_inited() const {
-        return _is_inited;
-    }
+    // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
+    virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
-    void set_inited(bool inited) {
-        _is_inited = inited;
-    }
+    // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
+    // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
+    //
+    // e.g., if the function generates 2 sub-ranges, the result `ranges` should contain 4 tuple: t1, t2, t2, t3.
+    // Note that the end tuple of sub-range i is the same as the start tuple of sub-range i+1.
+    //
+    // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
+    // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
+    virtual OLAPStatus split_range(const RowCursor& start_key,
+                                   const RowCursor& end_key,
+                                   uint64_t request_block_row_count,
+                                   std::vector<OlapTuple>* ranges) = 0;
 
-    bool is_loaded() const {
-        return _is_loaded;
-    }
+    RowsetMetaSharedPtr rowset_meta() const { return _rowset_meta; }
 
-    void set_loaded(bool loaded) {
-        _is_loaded= loaded;
-    }
-
-    RowsetMetaSharedPtr rowset_meta() const {
-        return _rowset_meta;
-    }
-
-    bool is_pending() const {
-        return _is_pending;
-    }
+    bool is_pending() const { return _is_pending; }
 
     // publish rowset to make it visible to read
     void make_visible(Version version, VersionHash version_hash);
@@ -91,12 +90,6 @@ public:
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
 
-    // this api is for lazy loading data
-    // always means that there are some io
-    virtual OLAPStatus load(bool use_cache = true) = 0;
-
-    virtual std::shared_ptr<RowsetReader> create_reader() = 0;
-
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
     virtual OLAPStatus remove() = 0;
@@ -114,7 +107,7 @@ public:
 
     // return an unique identifier string for this rowset
     std::string unique_id() const {
-        return _rowset_path + "/" + std::to_string(rowset_id());
+        return _rowset_path + "/" + rowset_id().to_string();
     }
 
     bool need_delete_file() const {
@@ -130,6 +123,22 @@ public:
     }
 
 protected:
+    friend class RowsetFactory;
+
+    // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
+    Rowset(const TabletSchema* schema,
+           std::string rowset_path,
+           DataDir* data_dir,
+           RowsetMetaSharedPtr rowset_meta);
+
+    // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
+    virtual OLAPStatus init() = 0;
+
+    bool is_inited() const { return _is_inited; }
+    void set_inited(bool inited) { _is_inited = inited; }
+    bool is_loaded() const { return _is_loaded; }
+    void set_loaded(bool loaded) { _is_loaded= loaded; }
+
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
 

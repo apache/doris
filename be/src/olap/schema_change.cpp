@@ -30,8 +30,8 @@
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
 #include "olap/row.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "common/resource_tls.h"
@@ -70,7 +70,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            RowsetWriterSharedPtr rowset_writer,
+            RowsetWriter* rowset_writer,
             uint64_t* merged_rows);
 
 private:
@@ -564,7 +564,7 @@ RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(
         const vector<RowBlock*>& row_block_arr,
-        RowsetWriterSharedPtr rowset_writer,
+        RowsetWriter* rowset_writer,
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
@@ -590,13 +590,15 @@ bool RowBlockMerger::merge(
         }
 
         while (!_heap.empty() && compare_row(row_cursor, *_heap.top().row_cursor) == 0) {
+            // TODO(zc): Currently we keep nullptr to indicate that this is a query path,
+            // we should fix this trick ASAP
             agg_update_row(&row_cursor, *(_heap.top().row_cursor), nullptr);
             ++tmp_merged_rows;
             if (!_pop_heap()) {
                 goto MERGE_ERR;
             }
         }
-        agg_finalize_row(&row_cursor, nullptr);
+        agg_finalize_row(&row_cursor, arena.get());
         rowset_writer->add_row(row_cursor);
 
         // the memory allocate by arena has been copied,
@@ -664,7 +666,7 @@ bool RowBlockMerger::_pop_heap() {
 
 bool LinkedSchemaChange::process(
         RowsetReaderSharedPtr rowset_reader,
-        RowsetWriterSharedPtr new_rowset_writer,
+        RowsetWriter* new_rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
@@ -705,7 +707,7 @@ bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBloc
     return true;
 }
 
-bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriterSharedPtr rowset_writer,
+bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
@@ -795,7 +797,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
         add_filtered_rows(filtered_rows);
 
-        if (!_write_row_block(rowset_writer.get(), new_row_block)) {
+        if (!_write_row_block(rowset_writer, new_row_block)) {
             LOG(WARNING) << "failed to write row block.";
             result = false;
             goto DIRECTLY_PROCESS_ERR;
@@ -863,7 +865,7 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
 
 bool SchemaChangeWithSorting::process(
             RowsetReaderSharedPtr rowset_reader,
-            RowsetWriterSharedPtr new_rowset_writer,
+            RowsetWriter* new_rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
@@ -939,6 +941,7 @@ bool SchemaChangeWithSorting::process(
                                            _temp_delta_versions.second),
                                    rowset_reader->version_hash(),
                                    new_tablet,
+                                   rowset_reader->rowset()->rowset_meta()->rowset_type(),
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -978,6 +981,7 @@ bool SchemaChangeWithSorting::process(
 
             row_block_arr.push_back(new_row_block);
         } else {
+            LOG(INFO) << "new block num rows is: " << new_row_block->row_block_info().row_num;
             _row_block_allocator->release(new_row_block);
             new_row_block = nullptr;
         }
@@ -994,6 +998,7 @@ bool SchemaChangeWithSorting::process(
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
+                               rowset_reader->rowset()->rowset_meta()->rowset_type(),
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1013,8 +1018,15 @@ bool SchemaChangeWithSorting::process(
         ++_temp_delta_versions.second;
     }
 
-    // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(src_rowsets, new_rowset_writer, new_tablet)) {
+    if (src_rowsets.empty()) {
+        res = new_rowset_writer->flush();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "create empty version for schema change failed."
+                         << " version=" << new_rowset_writer->version().first
+                         << "-" << new_rowset_writer->version().second;
+            return false;
+        }
+    } else if (!_external_sorting(src_rowsets, new_rowset_writer, new_tablet)) {
         LOG(WARNING) << "failed to sorting externally.";
         result = false;
         goto SORTING_PROCESS_ERR;
@@ -1049,7 +1061,7 @@ SORTING_PROCESS_ERR:
     // remove the intermediate rowsets generated by internal sorting
     for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
             it != src_rowsets.end(); ++it) {
-        (*it)->remove();
+        StorageEngine::instance()->add_unused_rowset(*it);
     }
 
     for (vector<RowBlock*>::iterator it = row_block_arr.begin();
@@ -1065,28 +1077,18 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                                                 const Version& version,
                                                 VersionHash version_hash,
                                                 TabletSharedPtr new_tablet,
+                                                RowsetTypePB new_rowset_type,
                                                 RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     RowBlockMerger merger(new_tablet);
 
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    if (rowset_writer == nullptr) {
-        LOG(WARNING) << "new rowset builder failed";
-        return false;
-    }
-    RowsetId rowset_id = 0;
-    OLAPStatus status = new_tablet->next_rowset_id(&rowset_id);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "get next rowset id failed";
-        return false;
-    }
     RowsetWriterContext context;
-    context.rowset_id = rowset_id;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = new_tablet->tablet_uid();
     context.tablet_id = new_tablet->tablet_id();
     context.partition_id = new_tablet->partition_id();
     context.tablet_schema_hash = new_tablet->schema_hash();
-    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_type = new_rowset_type;
     context.rowset_path_prefix = new_tablet->tablet_path();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
@@ -1095,46 +1097,47 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.version_hash = version_hash;
     VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()
             << ", block_row_size=" << new_tablet->num_rows_per_row_block();
-    rowset_writer->init(context);
-    if (!merger.merge(row_block_arr, rowset_writer, &merged_rows)) {
-        LOG(WARNING) << "failed to merge row blocks.";
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    if (RowsetFactory::create_rowset_writer(context, &rowset_writer) != OLAP_SUCCESS) {
         return false;
     }
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+
+    if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
+        LOG(WARNING) << "failed to merge row blocks.";
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
+        return false;
+    }
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
     add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
     return true;
 }
 
-bool SchemaChangeWithSorting::_external_sorting(
-        vector<RowsetSharedPtr>& src_rowsets,
-        RowsetWriterSharedPtr rowset_writer,
-        TabletSharedPtr new_tablet) {
-    Merger merger(new_tablet, rowset_writer, READER_ALTER_TABLE);
-
-    int64_t merged_rows = 0;
-    int64_t filtered_rows = 0;
+bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
+                                                RowsetWriter* rowset_writer,
+                                                TabletSharedPtr new_tablet) {
     vector<RowsetReaderSharedPtr> rs_readers;
-    for (vector<RowsetSharedPtr>::iterator it = src_rowsets.begin();
-            it != src_rowsets.end(); ++it) {
-        RowsetReaderSharedPtr rs_reader = (*it)->create_reader();
-        if (rs_reader == nullptr) {
-            LOG(WARNING) << "fail to create rowset reader.";
+    for (auto& rowset : src_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        auto res = rowset->create_reader(&rs_reader);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to create rowset reader.";
             return false;
         }
-        rs_readers.push_back(rs_reader);
+        rs_readers.push_back(std::move(rs_reader));
     }
 
-    if (OLAP_SUCCESS != merger.merge(rs_readers, &merged_rows, &filtered_rows)) {
-        LOG(WARNING) << "fail to merge rowsets. tablet=" << new_tablet->full_name()
+    Merger::Statistics stats;
+    auto res = Merger::merge_rowsets(new_tablet, READER_ALTER_TABLE, rs_readers, rowset_writer, &stats);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to merge rowsets. tablet=" << new_tablet->full_name()
                      << ", version=" << rowset_writer->version().first
                      << "-" << rowset_writer->version().second;
         return false;
     }
-    add_merged_rows(merged_rows);
-    add_filtered_rows(filtered_rows);
-
+    add_merged_rows(stats.merged_rows);
+    add_filtered_rows(stats.filtered_rows);
     return true;
 }
 
@@ -1179,7 +1182,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             request.new_tablet_id, request.new_schema_hash);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
-                     << ", new_tablet=" << request.new_tablet_id
+                     << " new_tablet=" << request.new_tablet_id
                      << ", new_schema_hash=" << request.new_schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
@@ -1261,7 +1264,8 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
                         << new_tablet->full_name();
         }
         for (auto& rowset : rowsets_to_delete) {
-            rowset->remove();
+            // do not call rowset.remove directly, using gc thread to delete it
+            StorageEngine::instance()->add_unused_rowset(rowset);
         }
 
         // init one delete handler
@@ -1332,14 +1336,19 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         if (res != OLAP_SUCCESS) {
             break;
         }
-        res = _validate_alter_result(new_tablet, request);
     } while(0);
+
+    if (res == OLAP_SUCCESS) {
+        // _validate_alter_result should be outside the above while loop.
+        // to avoid requiring the header lock twice.
+        res = _validate_alter_result(new_tablet, request);
+    }
 
     // if failed convert history data, then just remove the new tablet
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", drop new_tablet=" << new_tablet->full_name();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        // do not drop the new tablet and its data. GC thread will 
     }
 
     return res;
@@ -1664,28 +1673,28 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
 
-    RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
+    RowsetReaderSharedPtr rowset_reader;
+    RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     rowset_reader->init(&_reader_context);
 
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = rowset_id;
+    writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
     writer_context.tablet_uid = new_tablet->tablet_uid();
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
-    writer_context.rowset_type = ALPHA_ROWSET;
+    writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
     writer_context.txn_id = (*base_rowset)->txn_id();
     writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
     writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    rowset_writer->init(writer_context);
 
-    if (!sc_procedure->process(rowset_reader, rowset_writer, new_tablet, base_tablet)) {
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+
+    if (!sc_procedure->process(rowset_reader, rowset_writer.get(), new_tablet, base_tablet)) {
         if ((*base_rowset)->is_pending()) {
             LOG(WARNING) << "failed to process the transaction when schema change. "
                          << "tablet=" << new_tablet->full_name() << "'"
@@ -1696,11 +1705,11 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                          << "-" << (*base_rowset)->version().second;
         }
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         goto SCHEMA_VERSION_CONVERT_ERR;
     }
     *new_rowset = rowset_writer->build();
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
     if (*new_rowset == nullptr) {
         LOG(WARNING) << "build rowset failed.";
         res = OLAP_ERR_MALLOC_ERROR;
@@ -1715,7 +1724,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
 SCHEMA_VERSION_CONVERT_ERR:
     if (*new_rowset != nullptr) {
-        (*new_rowset)->remove();
+        StorageEngine::instance()->add_unused_rowset(*new_rowset);
     }
 
     SAFE_DELETE(sc_procedure);
@@ -1891,42 +1900,38 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        RowsetId rowset_id = 0;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-        res = sc_params.new_tablet->next_rowset_id(&rowset_id);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "generate next id failed";
-            goto PROCESS_ALTER_EXIT;
-        }
 
         RowsetWriterContext writer_context;
-        writer_context.rowset_id = rowset_id;
+        writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
         writer_context.tablet_uid = new_tablet->tablet_uid();
         writer_context.tablet_id = new_tablet->tablet_id();
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
-        writer_context.rowset_type = ALPHA_ROWSET;
+        // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
+        writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
         writer_context.version_hash = rs_reader->version_hash();
-        RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-        OLAPStatus status = rowset_writer->init(writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        OLAPStatus status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
         if (status != OLAP_SUCCESS) {
             res = OLAP_ERR_ROWSET_BUILDER_INIT;
             goto PROCESS_ALTER_EXIT;
         }
 
-        if (!sc_procedure->process(rs_reader, rowset_writer, sc_params.new_tablet, sc_params.base_tablet)) {
+        if (!sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet, sc_params.base_tablet)) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
             goto PROCESS_ALTER_EXIT;
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rowset_writer->rowset_id()));
+        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
         sc_params.new_tablet->obtain_push_lock();
@@ -1942,14 +1947,14 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                          << "tablet=" << sc_params.new_tablet->full_name()
                          << ", version='" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
-            new_rowset->remove();
+            StorageEngine::instance()->add_unused_rowset(new_rowset);
             res = OLAP_SUCCESS;
         } else if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to register new version. "
                          << " tablet=" << sc_params.new_tablet->full_name()
                          << ", version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
-            new_rowset->remove();
+            StorageEngine::instance()->add_unused_rowset(new_rowset);
             sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         } else {
@@ -1962,19 +1967,12 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         VLOG(10) << "succeed to convert a history version."
                  << " version=" << rs_reader->version().first
                  << "-" << rs_reader->version().second;
-
-        // 释放RowsetReader
-        rs_reader->close();
     }
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
         res = sc_params.new_tablet->check_version_integrity(test_version);
-    }
-
-    for (auto& rs_reader : sc_params.ref_rowset_readers) {
-        rs_reader->close();
     }
     SAFE_DELETE(sc_procedure);
 
@@ -2141,7 +2139,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
     new_tablet->max_continuous_version_from_begining(&max_continuous_version, &max_continuous_version_hash);
-    LOG(INFO) << "find max continuous version "
+    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second
               << ", version_hash=" << max_continuous_version_hash;

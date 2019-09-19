@@ -114,7 +114,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     _seek_schema.reset(new Schema(key_fields, key_fields.size()));
-    _seek_block.reset(new RowBlockV2(*_seek_schema, 1, &_arena));
+    _seek_block.reset(new RowBlockV2(*_seek_schema, 1));
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
@@ -258,21 +258,21 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
         _column_iterators[cid]->seek_to_ordinal(rowid);
     }
     size_t num_rows = 1;
-    _seek_block->resize(num_rows);
+    // please note that usually RowBlockV2.clear() is called to free arena memory before reading the next block,
+    // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
+    // a single arena for all seeked keys.
     RETURN_IF_ERROR(_next_batch(_seek_block.get(), &num_rows));
+    _seek_block->set_num_rows(num_rows);
     return Status::OK();
 }
 
-// Try to read data as much to block->num_rows(). The number of read rows
-// will be set in rows_read when return OK. rows_read will small than
-// block->num_rows() when reach the end of this segment
+// Trying to read `rows_read` rows into `block`. Return the actual number of rows read in `*rows_read`.
 Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
     bool has_read = false;
     size_t first_read = 0;
-    for (int i = 0; i < block->schema()->column_ids().size(); ++i) {
-        auto cid = block->schema()->column_ids()[i];
+    for (auto cid : block->schema()->column_ids()) {
         size_t num_rows = has_read ? first_read : *rows_read;
-        auto column_block = block->column_block(i);
+        auto column_block = block->column_block(cid);
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &column_block));
         if (!has_read) {
             has_read = true;
@@ -295,7 +295,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     }
 
     if (_row_ranges.is_empty() || _cur_rowid >= _row_ranges.to()) {
-        block->resize(0);
+        block->set_num_rows(0);
         return Status::EndOfFile("no more data in segment");
     }
     size_t rows_to_read = block->capacity();
@@ -322,7 +322,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         _cur_rowid += to_read_in_range;
         rows_to_read -= to_read_in_range;
     }
-    block->resize(block->capacity() - rows_to_read);
+    block->set_num_rows(block->capacity() - rows_to_read);
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
     }

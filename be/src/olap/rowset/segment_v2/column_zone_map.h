@@ -56,6 +56,10 @@ public:
 
     Status flush();
 
+    uint64_t size() {
+        return _page_builder->size();
+    }
+
     Slice finish() {
         return _page_builder->finish();
     }

@@ -28,12 +28,15 @@ public class FeConstants {
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
-    public static String dpp_version = "3_1_0";
+    public static String dpp_version = "3_2_0";
 
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
 
+    // set to true to skip some step when running FE unit test
+    public static boolean runningUnitTest = false;
+
     // general model
     // Current meta data version. Use this version to write journals and image
-    public static int meta_version = FeMetaVersion.VERSION_60;
+    public static int meta_version = FeMetaVersion.VERSION_63;
 }

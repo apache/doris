@@ -65,7 +65,7 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
             const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
             bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _tablet_id(tablet_id),
@@ -101,7 +101,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSch
     }
 }
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
         const std::string& rowset_path_prefix, bool delete_flag,
         int32_t segment_group_id, int32_t num_segments, bool is_pending,
         TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),
@@ -155,13 +155,13 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
     if (_segment_group_id > 0) {
         tmp_sg_id = _segment_group_id;
     }
-    std::string file_name = std::to_string(_rowset_id) + "_"
+    std::string file_name = _rowset_id.to_string() + "_"
             + std::to_string(tmp_sg_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
 
-std::string SegmentGroup::_construct_file_name(int64_t rowset_id, int32_t segment_id, const string& suffix) const {
-    std::string file_name = std::to_string(rowset_id) + "_"
+std::string SegmentGroup::_construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const string& suffix) const {
+    std::string file_name = rowset_id.to_string() + "_"
             + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
@@ -584,7 +584,7 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
         boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
         std::string data_dir_string = data_dir_path.string();
         DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
-        data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_id));
+        data_dir->add_pending_ids(ROWSET_ID_PREFIX + _rowset_id.to_string());
         res = _current_file_handler.open_with_mode(
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
@@ -855,7 +855,7 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
+OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id) {
     if (dest_path.empty()) {
         LOG(WARNING) << "dest path is empty, return error";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;

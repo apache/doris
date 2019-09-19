@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
@@ -63,7 +64,7 @@ public class IndicesProcDir implements ProcDirInterface {
         db.readLock();
         try {
             result.setNames(TITLE_NAMES);
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 List<Comparable> indexInfo = new ArrayList<Comparable>();
                 indexInfo.add(materializedIndex.getId());
                 indexInfo.add(olapTable.getIndexNameById(materializedIndex.getId()));

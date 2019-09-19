@@ -126,7 +126,12 @@ public:
 
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
+    // Note: when you set error for the UDFs used in Data Load, you should
+    // ensure the function return value is null.
     void set_error(const char* error_msg);
+
+    // when you reused this FunctionContext, you maybe need clear the error status and message.
+    void clear_error_msg();
 
     // Adds a warning that is returned to the user. This can include things like
     // overflow or other recoverable error conditions.
@@ -765,6 +770,8 @@ struct LargeIntVal : public AnyVal {
     }
 };
 
+// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
+//            when doris 0.12 release
 struct HllVal : public StringVal {
     HllVal() : StringVal() { }
 

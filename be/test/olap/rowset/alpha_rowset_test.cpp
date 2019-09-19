@@ -25,10 +25,11 @@
 #include "json2pb/json_to_pb.h"
 #include "util/logging.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
@@ -85,7 +86,9 @@ void tear_down() {
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, DataDir* data_dir,
         RowsetWriterContext* rowset_writer_context) {
-    rowset_writer_context->rowset_id = 10000;
+    RowsetId rowset_id;
+    rowset_id.init(10000);
+    rowset_writer_context->rowset_id = rowset_id;
     rowset_writer_context->tablet_id = 12345;
     rowset_writer_context->tablet_schema_hash = 1111;
     rowset_writer_context->partition_id = 10;
@@ -164,20 +167,16 @@ public:
         set_up();
         _data_dir = k_engine->get_store(config::storage_root_path);
         ASSERT_TRUE(_data_dir != nullptr);
-        _alpha_rowset_writer = new(std::nothrow) AlphaRowsetWriter();
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
     virtual void TearDown() {
-        delete _alpha_rowset_writer;
-        _alpha_rowset_writer = nullptr;
         tear_down();
     }
 
 private:
     DataDir* _data_dir;
-    AlphaRowsetWriter* _alpha_rowset_writer;
     std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 };
@@ -211,7 +210,10 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     create_tablet_schema(AGG_KEYS, &tablet_schema);
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, _data_dir, &rowset_writer_context);
-    _alpha_rowset_writer->init(rowset_writer_context);
+
+    std::unique_ptr<RowsetWriter> _alpha_rowset_writer;
+    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
+
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -226,10 +228,13 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     _alpha_rowset_writer->flush();
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);
-    ASSERT_EQ(10000, alpha_rowset->rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(10000);
+    ASSERT_EQ(rowset_id, alpha_rowset->rowset_id());
     ASSERT_EQ(1, alpha_rowset->num_rows());
-    RowsetReaderSharedPtr rowset_reader = alpha_rowset->create_reader();
-    ASSERT_TRUE(rowset_reader != nullptr);
+    RowsetReaderSharedPtr rowset_reader;
+    res = alpha_rowset->create_reader(&rowset_reader);
+    ASSERT_EQ(OLAP_SUCCESS, res);
     std::vector<uint32_t> return_columns;
     for (int i = 0;  i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);

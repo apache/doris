@@ -240,7 +240,8 @@ namespace config {
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
-    CONF_Int64(cumulative_compaction_num_singleton_deltas, "5");
+    CONF_Int64(min_cumulative_compaction_num_singleton_deltas, "5");
+    CONF_Int64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_Int32(cumulative_compaction_num_threads, "1");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
@@ -303,6 +304,19 @@ namespace config {
 
     CONF_Bool(disable_mem_pools, "false");
 
+    // Whether to allocate chunk using mmap. If you enable this, you'd better to 
+    // increase vm.max_map_count's value whose default value is 65530.
+    // you can do it as root via "sysctl -w vm.max_map_count=262144" or
+    // "echo 262144 > /proc/sys/vm/max_map_count"
+    // NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
+    // to a relative large number or the performace is very very bad.
+    CONF_Bool(use_mmap_allocate_chunk, "false");
+
+    // Chunk Allocator's reserved bytes limit,
+    // Default value is 2GB, increase this variable can improve performance, but will
+    // aquire more free memory which can not be used by other modules
+    CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
+
     // The probing algorithm of partitioned hash table.
     // Enable quadratic probing hash table
     CONF_Bool(enable_quadratic_probing, "false");
@@ -344,8 +358,9 @@ namespace config {
     
     CONF_Bool(enable_prefetch, "true");
 
-    // cpu count
-    CONF_Int32(flags_num_cores, "32");
+    // Number of cores Doris will used, this will effect only when it's greater than 0.
+    // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
+    CONF_Int32(num_cores, "0");
 
     CONF_Bool(thread_creation_fault_injection, "false");
 
@@ -423,6 +438,12 @@ namespace config {
     // This configuration is used for the context gc thread schedule period
     // note: unit is minute, default is 5min
     CONF_Int32(scan_context_gc_interval_min, "5");
+
+    // es scroll keep-alive
+    CONF_String(es_scroll_keepalive, "5m");
+
+    // HTTP connection timeout for es
+    CONF_Int32(es_http_timeout_ms, "5000");
 
     // the max client cache number per each host
     // There are variety of client cache in BE, but currently we use the

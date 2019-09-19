@@ -33,6 +33,7 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 
@@ -374,9 +375,9 @@ private:
         _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
-            return _helper_cursor->index_cmp(key) < 0;
+            return index_compare_row(*_helper_cursor, key) < 0;
         } else {
-            return _helper_cursor->index_cmp(key) > 0;
+            return index_compare_row(*_helper_cursor, key) > 0;
         }
     }
 
@@ -415,9 +416,9 @@ private:
         _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
-            return _helper_cursor->index_cmp(key) < 0;
+            return index_compare_row(*_helper_cursor, key) < 0;
         } else {
-            return _helper_cursor->index_cmp(key) > 0;
+            return index_compare_row(*_helper_cursor, key) > 0;
         }
     }
 

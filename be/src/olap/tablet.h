@@ -53,7 +53,6 @@ public:
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
 
-    OLAPStatus init_once();
     OLAPStatus init();
     inline bool init_succeeded();
 
@@ -216,18 +215,9 @@ public:
     void delete_all_files();
 
     bool check_path(const std::string& check_path);
-
-    // check rowset_id is valid
-    bool check_rowset_id(RowsetId rowset_id);
-
-    OLAPStatus next_rowset_id(RowsetId* id);
-    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
+    bool check_rowset_id(const RowsetId& rowset_id);
 
     OLAPStatus set_partition_id(int64_t partition_id);
-
-    RowsetId initial_end_rowset_id() {
-        return _tablet_meta->initial_end_rowset_id();
-    }
 
     TabletInfo get_tablet_info();
 
@@ -244,6 +234,7 @@ public:
     inline bool in_eco_mode() { return false; }
 
 private:
+    OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
 

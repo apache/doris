@@ -136,6 +136,7 @@ ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
 ${DORIS_TEST_BINARY_DIR}/util/count_down_latch_test
+${DORIS_TEST_BINARY_DIR}/util/crc32c_test
 ${DORIS_TEST_BINARY_DIR}/util/lru_cache_util_test
 ${DORIS_TEST_BINARY_DIR}/util/filesystem_util_test
 ${DORIS_TEST_BINARY_DIR}/util/internal_queue_test
@@ -167,6 +168,7 @@ ${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 ${DORIS_TEST_BINARY_DIR}/exprs/timestamp_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/percentile_approx_test
 ${DORIS_TEST_BINARY_DIR}/exprs/bitmap_function_test
+${DORIS_TEST_BINARY_DIR}/exprs/hll_function_test
 
 ## Running geo unit test
 ${DORIS_TEST_BINARY_DIR}/geo/geo_functions_test
@@ -208,6 +210,9 @@ ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
+${DORIS_TEST_BINARY_DIR}/runtime/mem_pool_test
+${DORIS_TEST_BINARY_DIR}/runtime/memory/chunk_allocator_test
+${DORIS_TEST_BINARY_DIR}/runtime/memory/system_allocator_test
 # Running expr Unittest
 
 # Running http
@@ -247,6 +252,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/olap_snapshot_converter_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/alpha_rowset_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/beta_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test

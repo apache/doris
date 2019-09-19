@@ -17,14 +17,17 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Lists;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+
 import org.apache.doris.common.UserException;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Test;
 
 import java.util.Collections;
 import java.util.List;
-
-import static org.junit.Assert.*;
 
 public class BrokerUtilTest {
 
@@ -108,6 +111,14 @@ public class BrokerUtilTest {
             List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
             fail();
         } catch (UserException ignored) {
+        }
+
+        path = "/path/to/dir/k1=2/a/xxx.csv";
+        try {
+            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
+            fail();
+        } catch (UserException ignored) {
+            ignored.printStackTrace();
         }
 
     }

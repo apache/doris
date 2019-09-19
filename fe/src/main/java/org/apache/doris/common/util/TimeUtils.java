@@ -20,15 +20,15 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,10 +48,12 @@ import java.util.regex.Pattern;
 public class TimeUtils {
     private static final Logger LOG = LogManager.getLogger(TimeUtils.class);
 
+    public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
+
     private static final TimeZone TIME_ZONE;
 
     // set CST to +08:00 instead of America/Chicago
-    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of("CST", "Asia/Shanghai");
+    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of("CST", DEFAULT_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
@@ -78,8 +80,6 @@ public class TimeUtils {
 
     public static int MIN_TIME;
     public static int MAX_TIME;
-
-    public static String DEFAULT_TIME_ZONE = "Asia/Shanghai";
 
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");

@@ -6,10 +6,11 @@
         (column_definition1[, column_definition2, ...])
         [ENGINE = [olap|mysql|broker]]
         [key_desc]
+        [COMMENT "table comment"];
         [partition_desc]
         [distribution_desc]
-        [PROPERTIES ("key"="value", ...)];
-        [BROKER PROPERTIES ("key"="value", ...)];
+        [PROPERTIES ("key"="value", ...)]
+        [BROKER PROPERTIES ("key"="value", ...)]
         
     1. column_definition
         语法：
@@ -32,7 +33,7 @@
                                 支持科学计数法
                             DOUBLE（12字节）
                                 支持科学计数法
-                            DECIMAL[(precision, scale)] (40字节)
+                            DECIMAL[(precision, scale)] (16字节)
                                 保证精度的小数类型。默认是 DECIMAL(10, 0)
                                 precision: 1 ~ 27
                                 scale: 0 ~ 9
@@ -191,6 +192,7 @@
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)
+        COMMENT "my first doris table"
         DISTRIBUTED BY HASH(k1) BUCKETS 32
         PROPERTIES ("storage_type"="column");
         

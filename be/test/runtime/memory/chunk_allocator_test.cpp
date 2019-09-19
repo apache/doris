@@ -15,24 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset_factory.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/rowset/alpha_rowset.h"
+#include "runtime/memory/chunk_allocator.h"
+
+#include <gtest/gtest.h>
+
+#include "common/config.h"
+#include "runtime/memory/chunk.h"
+#include "util/cpu_info.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
-OLAPStatus RowsetFactory::load_rowset(const TabletSchema& schema,
-                                      const std::string& rowset_path,
-                                      DataDir* data_dir,
-                                      RowsetMetaSharedPtr rowset_meta, 
-                                      RowsetSharedPtr* rowset) {
-
-    if (rowset_meta->rowset_type() == RowsetTypePB::ALPHA_ROWSET) {
-        rowset->reset(new AlphaRowset(&schema, rowset_path, data_dir, rowset_meta));
-        return (*rowset)->init();
-    } else {
-        return OLAP_ERR_ROWSET_TYPE_NOT_FOUND;
+TEST(ChunkAllocatorTest, Normal) {
+    config::use_mmap_allocate_chunk = true;
+    for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
+        Chunk chunk;
+        ASSERT_TRUE(ChunkAllocator::instance()->allocate(size, &chunk));
+        ASSERT_NE(nullptr, chunk.data);
+        ASSERT_EQ(size, chunk.size);
+        ChunkAllocator::instance()->free(chunk);
     }
 }
+}
 
-} // namespace doris
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    doris::DorisMetrics::instance()->initialize("chunk_allocator_ut");
+    doris::CpuInfo::init();
+    doris::ChunkAllocator::init_instance(1024 * 1024);
+    return RUN_ALL_TESTS();
+}

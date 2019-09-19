@@ -22,11 +22,8 @@
 #include "http/http_client.h"
 #include "olap/olap_snapshot_converter.h"
 #include "olap/snapshot_manager.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_factory.h"
 
 using std::set;
 using std::stringstream;
@@ -526,7 +523,7 @@ AgentStatus EngineCloneTask::_clone_copy(
                   << ", total file size: " << total_file_size << " B"
                   << ", cost: " << total_time_ms << " ms"
                   << ", rate: " << copy_rate << " B/s";
-        if (make_snapshot_result.snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
+        if (make_snapshot_result.snapshot_version == 1) {
             OLAPStatus convert_status = _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
             if (convert_status != OLAP_SUCCESS) {
                 status = DORIS_ERROR;
@@ -847,10 +844,19 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     // in previous step, copy all files from CLONE_DIR to tablet dir
     // but some rowset is useless, so that remove them here
     for (auto& rs_meta_ptr : rs_metas_found_in_src) {
-        RowsetSharedPtr org_rowset(new AlphaRowset(&(cloned_tablet_meta->tablet_schema()), 
-            tablet->tablet_path(), tablet->data_dir(), rs_meta_ptr));
-        if (org_rowset->init() == OLAP_SUCCESS && org_rowset->load() == OLAP_SUCCESS) {
-            org_rowset->remove();
+        RowsetSharedPtr rowset_to_remove;
+        auto s = RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
+                                              tablet->tablet_path(),
+                                              tablet->data_dir(),
+                                              rs_meta_ptr,
+                                              &rowset_to_remove);
+        if (s != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to init rowset to remove: " << rs_meta_ptr->rowset_id().to_string();
+            continue;
+        }
+        s = rowset_to_remove->remove();
+        if (s != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to remove rowset " << rs_meta_ptr->rowset_id().to_string() << ", res=" << s;
         }
     }
     return clone_res;

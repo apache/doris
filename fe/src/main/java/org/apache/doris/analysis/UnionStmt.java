@@ -451,7 +451,8 @@ public class UnionStmt extends QueryStmt {
                 Expr resultExpr = op.getQueryStmt().getResultExprs().get(i);
                 slotDesc.addSourceExpr(resultExpr);
                 SlotRef slotRef = resultExpr.unwrapSlotRef(false);
-                if (slotRef == null || slotRef.getDesc().getIsNullable()) isNullable = true;
+                if (slotRef == null || slotRef.getDesc().getIsNullable()
+                        || analyzer.isOuterJoined(slotRef.getDesc().getParent().getId())) isNullable = true;
                 if (op.hasAnalyticExprs()) continue;
                 slotRef = resultExpr.unwrapSlotRef(true);
                 if (slotRef == null) continue;

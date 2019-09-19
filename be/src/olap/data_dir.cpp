@@ -47,8 +47,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset_factory.h"
+#include "olap/rowset/rowset_factory.h"
 
 namespace doris {
 
@@ -105,12 +104,6 @@ Status DataDir::init() {
     RETURN_IF_ERROR(_init_extension_and_capacity());
     RETURN_IF_ERROR(_init_file_system());
     RETURN_IF_ERROR(_init_meta());
-
-    _id_generator = new RowsetIdGenerator(_meta);
-    auto res = _id_generator->init();
-    if (res != OLAP_SUCCESS) {
-        return Status::InternalError("Id generator initialized failed.");
-    }
 
     _is_used = true;
     return Status::OK();
@@ -582,7 +575,9 @@ OLAPStatus DataDir::_convert_old_tablet() {
         for (auto& rowset_pb : pending_rowsets) {
             string meta_binary;
             rowset_pb.SerializeToString(&meta_binary);
-            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_pb.rowset_id() , meta_binary);
+            RowsetId rowset_id;
+            rowset_id.init(rowset_pb.rowset_id_v2());
+            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_id, meta_binary);
             if (status != OLAP_SUCCESS) {
                 LOG(FATAL) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
                              << tablet_id << "." << schema_hash;
@@ -643,15 +638,17 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         // convert visible pdelta file to rowsets and remove old files
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
-            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
-            alpha_rowset_meta->init_from_pb(visible_rowset);
-            AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
-            if (rowset.init() != OLAP_SUCCESS) {
+            RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+            rowset_meta->init_from_pb(visible_rowset);
+
+            RowsetSharedPtr rowset;
+            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, this, rowset_meta, &rowset);
+            if (s != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while init rowset. tablet_path=" << data_path_prefix;
                 return true;
             }
             std::vector<std::string> old_files;
-            if (rowset.remove_old_files(&old_files) != OLAP_SUCCESS) {
+            if (rowset->remove_old_files(&old_files) != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while remove_old_files. tablet_path=" << data_path_prefix;
                 return true;
             }
@@ -798,10 +795,10 @@ OLAPStatus DataDir::load() {
             continue;
         }
         RowsetSharedPtr rowset;
-        OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
-                                                             tablet->tablet_path(), 
-                                                             tablet->data_dir(), 
-                                                             rowset_meta, &rowset);
+        OLAPStatus create_status = RowsetFactory::create_rowset(&tablet->tablet_schema(),
+                                                              tablet->tablet_path(),
+                                                              tablet->data_dir(),
+                                                              rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
@@ -903,11 +900,12 @@ void DataDir::perform_path_gc() {
                 }
             } else {
                 bool valid = tablet->check_path(path);
+                // TODO(ygl): should change a method to do gc
                 if (!valid) {
-                    RowsetId rowset_id = -1;
+                    RowsetId rowset_id;
                     bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
                     if (is_rowset_file) {
-                        std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
+                        std::string rowset_path_id = ROWSET_ID_PREFIX + rowset_id.to_string();
                         bool exist_in_pending = _check_pending_ids(rowset_path_id);
                         if (!exist_in_pending) {
                             _process_garbage_path(path);
@@ -959,22 +957,14 @@ void DataDir::perform_path_gc_by_rowsetid() {
             // tablet schema hash path or rowset file path
             // gc thread should get tablet include deleted tablet
             // or it will delete rowset file before tablet is garbage collected
-            RowsetId rowset_id = -1;
+            RowsetId rowset_id;
             bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet != nullptr) {
-                    bool valid = tablet->check_rowset_id(rowset_id);
-                    if (!valid) {
-                        // if the rowset id is less than tablet's initial end rowset id
-                        // and the rowsetid is not in unused_rowsets
-                        // and the rowsetid is not in committed rowsets
-                        // then delete the path.
-                        if (rowset_id < tablet->initial_end_rowset_id()
-                                && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)
-                                && !RowsetMetaManager::check_rowset_meta(_meta, tablet->tablet_uid(), rowset_id)) {
-                            _process_garbage_path(path);
-                        }
+                    if (!tablet->check_rowset_id(rowset_id) 
+                        && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
+                        _process_garbage_path(path);
                     }
                 }
             }
@@ -1036,10 +1026,10 @@ void DataDir::perform_path_scan() {
 
 void DataDir::_process_garbage_path(const std::string& path) {
     if (check_dir_existed(path)) {
-        LOG(INFO) << "collect garbage dir path:" << path;
+        LOG(INFO) << "collect garbage dir path: " << path;
         OLAPStatus status = remove_all_dir(path);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
         }
     }
 }
@@ -1078,7 +1068,7 @@ Status DataDir::update_capacity() {
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
-    double used_pct = (_available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
+    double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) / (double) _disk_capacity_bytes;
     int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
     
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0

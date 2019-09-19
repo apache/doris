@@ -19,6 +19,7 @@
 
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/row.h"
 
@@ -148,6 +149,11 @@ OLAPStatus AlphaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
+    if (_current_rowset_meta->rowset_id().version == 0) {
+        LOG(WARNING) << "invalid rowset id, version == 0, rowset id=" 
+                     << _current_rowset_meta->rowset_id().to_string();
+        return nullptr;
+    }
     if (_writer_state != WRITER_FLUSHED) {
         LOG(WARNING) << "invalid writer state before build, state:" << _writer_state;
         return nullptr;
@@ -208,14 +214,14 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         return nullptr;
     }
 
-    RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
-                                    _rowset_writer_context.rowset_path_prefix,
-                                    _rowset_writer_context.data_dir, _current_rowset_meta));
-    DCHECK(rowset != nullptr) << "new rowset failed when build new rowset";
-
-    OLAPStatus status = rowset->init();
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_rowset_writer_context.tablet_schema,
+                                               _rowset_writer_context.rowset_path_prefix,
+                                               _rowset_writer_context.data_dir,
+                                               _current_rowset_meta,
+                                               &rowset);
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "rowset init failed when build new rowset";
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
     }
     _rowset_build = true;

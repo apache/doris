@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "gutil/strings/substitute.h"
 #include "olap/compaction.h"
+#include "olap/rowset/rowset_factory.h"
 
 using std::vector;
 
@@ -28,7 +30,7 @@ Compaction::Compaction(TabletSharedPtr tablet)
       _state(CompactionState::INITED)
 { }
 
-Compaction::~Compaction() { }
+Compaction::~Compaction() {}
 
 OLAPStatus Compaction::do_compaction() {
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name();
@@ -46,10 +48,9 @@ OLAPStatus Compaction::do_compaction() {
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
 
-    Merger merger(_tablet, compaction_type(), _output_rs_writer, _input_rs_readers);
-    OLAPStatus res = merger.merge();
-
-    // 2. 如果merge失败，执行清理工作，返回错误码退出
+    // 2. write merged rows to output rowset
+    Merger::Statistics stats;
+    auto res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers, _output_rs_writer.get(), &stats);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do " << compaction_name()
                      << ". res=" << res
@@ -68,7 +69,7 @@ OLAPStatus Compaction::do_compaction() {
     }
 
     // 3. check correctness
-    RETURN_NOT_OK(check_correctness(merger));
+    RETURN_NOT_OK(check_correctness(stats));
 
     // 4. modify rowsets in memory
     RETURN_NOT_OK(modify_rowsets());
@@ -83,35 +84,28 @@ OLAPStatus Compaction::do_compaction() {
 }
 
 OLAPStatus Compaction::construct_output_rowset_writer() {
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
     RowsetWriterContext context;
-    context.rowset_id = rowset_id;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = _tablet->tablet_uid();
     context.tablet_id = _tablet->tablet_id();
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
-    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_type = DEFAULT_ROWSET_TYPE;
     context.rowset_path_prefix = _tablet->tablet_path();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.data_dir = _tablet->data_dir();
     context.version = _output_version;
     context.version_hash = _output_version_hash;
-
-    _output_rs_writer.reset(new (std::nothrow)AlphaRowsetWriter());
-    RETURN_NOT_OK(_output_rs_writer->init(context));
+    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
-        RowsetReaderSharedPtr rs_reader(rowset->create_reader());
-        if (rs_reader == nullptr) {
-            LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
-            return OLAP_ERR_ROWSET_CREATE_READER;
-        }
-        _input_rs_readers.push_back(rs_reader);
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
 }
@@ -172,13 +166,13 @@ OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& r
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Compaction::check_correctness(const Merger& merger) {
+OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
-    if (_input_row_num != _output_rowset->num_rows() + merger.merged_rows() + merger.filted_rows()) {
+    if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
         LOG(FATAL) << "row_num does not match between cumulative input and output! "
                    << "input_row_num=" << _input_row_num
-                   << ", merged_row_num=" << merger.merged_rows()
-                   << ", filted_row_num=" << merger.filted_rows()
+                   << ", merged_row_num=" << stats.merged_rows
+                   << ", filted_row_num=" << stats.filtered_rows
                    << ", output_row_num=" << _output_rowset->num_rows();
         return OLAP_ERR_CHECK_LINES_ERROR;
     }

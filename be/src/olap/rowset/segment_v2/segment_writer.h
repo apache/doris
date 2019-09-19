@@ -25,6 +25,7 @@
 #include "common/logging.h" // LOG
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
+#include "gutil/macros.h"
 #include "olap/schema.h"
 
 namespace doris {
@@ -62,9 +63,10 @@ public:
 
     uint32_t num_rows_written() { return _row_count; }
 
-    Status finalize(uint32_t* segment_file_size);
+    Status finalize(uint64_t* segment_file_size);
 
 private:
+    DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
@@ -76,15 +78,13 @@ private:
     std::string _fname;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
-    size_t _num_short_keys;
     SegmentWriterOptions _opts;
 
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
     std::unique_ptr<WritableFile> _output_file;
-    std::vector<ColumnWriter*> _column_writers;
+    std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     uint32_t _row_count = 0;
-    uint32_t _block_count = 0;
 };
 
 }

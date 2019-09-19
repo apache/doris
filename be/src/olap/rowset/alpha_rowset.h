@@ -20,8 +20,6 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_group.h"
-#include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/data_dir.h"
 #include "olap/tuple.h"
@@ -33,25 +31,25 @@ namespace doris {
 
 class AlphaRowset;
 using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
+class AlphaRowsetWriter;
+class AlphaRowsetReader;
+class OlapSnapshotConverter;
+class RowsetFactory;
 
 class AlphaRowset : public Rowset {
 public:
-    AlphaRowset(const TabletSchema* schema,
-                std::string rowset_path,
-                DataDir* data_dir,
-                RowsetMetaSharedPtr rowset_meta);
-
     virtual ~AlphaRowset() {}
-
-    static bool is_valid_rowset_path(std::string path);
-
-    OLAPStatus init() override;
 
     // this api is for lazy loading data
     // always means that there are some io
     OLAPStatus load(bool use_cache = true) override;
 
-    std::shared_ptr<RowsetReader> create_reader() override;
+    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
+
+    OLAPStatus split_range(const RowCursor& start_key,
+                           const RowCursor& end_key,
+                           uint64_t request_block_row_count,
+                           std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
 
@@ -66,12 +64,6 @@ public:
                                  std::vector<std::string>* success_files);
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
-
-    OLAPStatus split_range(
-            const RowCursor& start_key,
-            const RowCursor& end_key,
-            uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges);
     
     bool check_path(const std::string& path) override;
 
@@ -80,6 +72,15 @@ public:
     OLAPStatus reset_sizeinfo();
 
 protected:
+    friend class RowsetFactory;
+
+    AlphaRowset(const TabletSchema* schema,
+                std::string rowset_path,
+                DataDir* data_dir,
+                RowsetMetaSharedPtr rowset_meta);
+
+    OLAPStatus init() override;
+
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;
 
@@ -91,6 +92,7 @@ private:
 private:
     friend class AlphaRowsetWriter;
     friend class AlphaRowsetReader;
+    friend class OlapSnapshotConverter;
 
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
 };

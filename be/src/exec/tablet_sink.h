@@ -219,7 +219,7 @@ private:
     int64_t _db_id = -1;
     int64_t _table_id = -1;
     int _num_repicas = -1;
-    bool _need_gen_rollup = true;
+    bool _need_gen_rollup = false;
     std::string _db_name;
     std::string _table_name;
     int _tuple_desc_id = -1;

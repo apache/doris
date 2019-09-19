@@ -53,7 +53,7 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 // the max length supported for string type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
 
-static const int32_t PREFERRED_SNAPSHOT_VERSION = 2;
+static const int32_t PREFERRED_SNAPSHOT_VERSION = 3;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -357,7 +357,10 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_TYPE_NOT_FOUND = -3105,
     OLAP_ERR_ROWSET_ALREADY_EXIST = -3106,
     OLAP_ERR_ROWSET_CREATE_READER = -3107,
-    OLAP_ERR_ROWSET_INVALID = -3108
+    OLAP_ERR_ROWSET_INVALID = -3108,
+    OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
+    OLAP_ERR_ROWSET_READER_INIT = -3110,
+    OLAP_ERR_ROWSET_READ_FAILED = -3111
 };
 
 enum ColumnFamilyIndex {
@@ -381,12 +384,30 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
 
+#if defined(__GNUC__)
+#define OLAP_LIKELY(x) __builtin_expect((x), 1)
+#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
+#else
+#define OLAP_LIKELY(x)
+#define OLAP_UNLIKELY(x)
+#endif
+
 #ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s) do { \
-    OLAPStatus _s = (s);      \
-    if (_s != OLAP_SUCCESS) { \
-        return _s; \
-    } \
+#define RETURN_NOT_OK(s) do {                           \
+    OLAPStatus _s = (s);                                \
+    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
+        return _s;                                      \
+    }                                                   \
+} while (0);
+#endif
+
+#ifndef RETURN_NOT_OK_LOG
+#define RETURN_NOT_OK_LOG(s, msg) do {                  \
+    OLAPStatus _s = (s);                                \
+    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
+        LOG(WARNING) << (msg) << "[res=" << _s <<"]";   \
+        return _s;                                      \
+    }                                                   \
 } while (0);
 #endif
 
@@ -433,9 +454,6 @@ const std::string ROWSET_ID_PREFIX = "s_";
             ptr = NULL; \
         } \
     } while (0)
-
-#define OLAP_LIKELY(x) __builtin_expect((x), 1)
-#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
 
 #ifndef BUILD_VERSION
 #define BUILD_VERSION "Unknow"

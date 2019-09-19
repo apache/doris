@@ -63,6 +63,8 @@ struct UniqueId {
     int64_t hi;
     int64_t lo;
 
+    // !!!! Not modify this method, it is very important. it will generate a random uid
+    // it need modify it contact yiguolei
     UniqueId() {
         auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
         memcpy(&hi, uuid.data, sizeof(int64_t));

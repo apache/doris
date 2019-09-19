@@ -15,41 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
+#pragma once
 
-#include <boost/shared_ptr.hpp>
-#include <list>
-#include <vector>
-#include <string>
-#include <utility>
-
-#include "common/status.h"
-#include "exec/olap_common.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
+#include <cstddef>
+#include <cstdint>
 
 namespace doris {
 
-class StorageShowHints;
-class RuntimeProfile;
-
-/*
- * @breif 读取olap engine meta的接口
- */
-class EngineMetaReader {
-public:
-    static Status get_hints(
-        boost::shared_ptr<DorisScanRange> scan_range,
-        int block_row_count,
-        bool is_begin_include,
-        bool is_end_include,
-        std::vector<OlapScanRange>& scan_key_range,
-        std::vector<OlapScanRange>* sub_scan_range, 
-        RuntimeProfile* profile);
+// A chunk of continuous memory.
+// Almost all files depend on this struct, and each modification
+// will result in recompilation of all files. So, we put it in a
+// file to keep this file simple and infrequently changed.
+struct Chunk {
+    uint8_t* data;
+    size_t size;
+    int core_id;
 };
 
-} // namespace doris
-
-#endif
+}

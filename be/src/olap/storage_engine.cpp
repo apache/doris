@@ -42,13 +42,13 @@
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset_factory.h"
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/unique_rowset_id_generator.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -87,6 +87,7 @@ static Status _validate_options(const EngineOptions& options) {
 
 Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
+    LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
     auto st = engine->open();
     if (st != OLAP_SUCCESS) {
@@ -112,7 +113,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_report_disk_state_already(false),
         _is_report_tablet_already(false), 
         _tablet_manager(new TabletManager()),
-        _txn_manager(new TxnManager()) {
+        _txn_manager(new TxnManager()),
+        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -712,6 +714,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
         _unused_rowsets[rowset->unique_id()] = rowset;
+        release_rowset_id(rowset->rowset_id());
     }
     _gc_mutex.unlock();
 }
@@ -888,7 +891,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
 }
 
 // check whether any unused rowsets's id equal to rowset_id
-bool StorageEngine::check_rowset_id_in_unused_rowsets(RowsetId rowset_id) {
+bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     _gc_mutex.lock();
     for (auto& _unused_rowset_pair : _unused_rowsets) {
         if (_unused_rowset_pair.second->rowset_id() == rowset_id) {

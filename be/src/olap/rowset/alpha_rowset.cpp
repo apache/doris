@@ -17,6 +17,7 @@
 
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/row.h"
 #include "util/hash_util.hpp"
@@ -40,15 +41,7 @@ OLAPStatus AlphaRowset::init() {
 }
 
 OLAPStatus AlphaRowset::load(bool use_cache) {
-    // load is depend on init, so that check if init here and do init if not
-    if (!is_inited()) {
-        OLAPStatus res = init();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to init rowset before load"
-                         << " rowset id " << rowset_id();
-            return res;
-        }
-    }
+    DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
     if (is_loaded()) {
         return OLAP_SUCCESS;
     }
@@ -73,17 +66,16 @@ OLAPStatus AlphaRowset::load(bool use_cache) {
     return OLAP_SUCCESS;
 }
 
-std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
+OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
     if (!is_loaded()) {
         OLAPStatus status = load();
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "alpha rowset load failed. rowset path:" << _rowset_path;
-            return nullptr;
+            return OLAP_ERR_ROWSET_CREATE_READER;
         }
-        set_loaded(true);
     }
-    return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_rows_per_row_block(), shared_from_this()));
+    result->reset(new AlphaRowsetReader(
+        _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {
@@ -243,6 +235,11 @@ OLAPStatus AlphaRowset::split_range(
         return OLAP_ERR_INIT_FAILED;
     }
 
+    std::vector<uint32_t> cids;
+    for (uint32_t cid = 0; cid < _schema->num_short_key_columns(); ++cid) {
+        cids.push_back(cid);
+    }
+
     if (largest_segment_group->get_row_block_entry(start_pos, &entry) != OLAP_SUCCESS) {
         LOG(WARNING) << "get block entry failed.";
         return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
@@ -269,7 +266,7 @@ OLAPStatus AlphaRowset::split_range(
         }
         cur_start_key.attach(entry.data);
 
-        if (cur_start_key.cmp(last_start_key) != 0) {
+        if (!equal_row(cids, cur_start_key, last_start_key)) {
             ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
             ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
             direct_copy_row(&last_start_key, cur_start_key);

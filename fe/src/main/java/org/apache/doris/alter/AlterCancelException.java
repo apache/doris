@@ -15,24 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
-#define DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
+package org.apache.doris.alter;
 
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/data_dir.h"
+import org.apache.doris.common.DdlException;
 
-namespace doris {
+/*
+ * This exception will be thrown when the alter job(v2) being cancelled due to
+ * internal error
+ */
+public class AlterCancelException extends DdlException {
 
-class RowsetFactory {
+    private static final long serialVersionUID = 7648387358354279124L;
 
-public:
-    static OLAPStatus load_rowset(const TabletSchema& schema,
-                                  const std::string& rowset_path,
-                                  DataDir* data_dir,
-                                  RowsetMetaSharedPtr rowset_meta,
-                                  RowsetSharedPtr* rowset);
-};
-
-} // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
+    public AlterCancelException(String msg) {
+        super(msg);
+    }
+}

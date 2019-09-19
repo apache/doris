@@ -25,7 +25,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
-#include "util/hash_util.hpp"
+#include "util/crc32c.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -48,18 +48,6 @@ Segment::~Segment() {
 
 Status Segment::open() {
     RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
-    RETURN_IF_ERROR(_input_file->size(&_file_size));
-
-    // 24: 1 * magic + 1 * checksum + 1 * footer length
-    if (_file_size < 12) {
-        return Status::Corruption(
-            Substitute("Bad segment, file size is too small, real=$0 vs need=$1",
-                       _file_size, 12));
-    }
-
-    // check header's magic
-    RETURN_IF_ERROR(_check_magic(0));
-
     // parse footer to get meta
     RETURN_IF_ERROR(_parse_footer());
     // parse short key index
@@ -75,53 +63,46 @@ std::unique_ptr<SegmentIterator> Segment::new_iterator(const Schema& schema, con
     return it;
 }
 
-// Read data at offset of input file, check if the file content match the magic
-Status Segment::_check_magic(uint64_t offset) {
-    // read magic and length
-    uint8_t buf[k_segment_magic_length];
-    Slice slice(buf, k_segment_magic_length);
-    RETURN_IF_ERROR(_input_file->read_at(offset, slice));
-
-    if (memcmp(slice.data, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(
-            Substitute("Bad segment, file magic don't match, magic=$0 vs need=$1",
-                       std::string((char*)buf, k_segment_magic_length), k_segment_magic));
-    }
-    return Status::OK();
-}
-
 Status Segment::_parse_footer() {
-    uint64_t offset = _file_size - 8;
-    // read footer's length and checksum
-    uint8_t buf[8];
-    Slice slice(buf, 8);
-    RETURN_IF_ERROR(_input_file->read_at(offset, slice));
+    // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
+    uint64_t file_size;
+    RETURN_IF_ERROR(_input_file->size(&file_size));
 
-    // check file size footer
-    uint32_t footer_length = decode_fixed32_le((uint8_t*)slice.data);
-    if (offset < footer_length) {
-        return Status::Corruption(
-            Substitute("Bad segment, file size is too small, file_size=$0 vs footer_size=$1",
-                       _file_size, footer_length));
+    if (file_size < 12) {
+        return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
-    offset -= footer_length;
 
+    uint8_t fixed_buf[12];
+    RETURN_IF_ERROR(_input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+
+    // validate magic number
+    if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
+        return Status::Corruption(Substitute("Bad segment file $0: magic number not match", _fname));
+    }
+
+    // read footer PB
+    uint32_t footer_length = decode_fixed32_le(fixed_buf);
+    if (file_size < 12 + footer_length) {
+        return Status::Corruption(
+            Substitute("Bad segment file $0: file size $1 < $2", _fname, file_size, 12 + footer_length));
+    }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_input_file->read_at(offset, footer_buf));
+    RETURN_IF_ERROR(_input_file->read_at(file_size - 12 - footer_length, footer_buf));
 
-    uint32_t expect_checksum = decode_fixed32_le((uint8_t*)slice.data + 4);
-    uint32_t actual_checksum = HashUtil::crc_hash(footer_buf.data(), footer_buf.size(), 0);
+    // validate footer PB's checksum
+    uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
+    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-            Substitute("Bad segment, segment footer checksum not match, actual=$0 vs expect=$1",
-                       actual_checksum, expect_checksum));
+            Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
+                       _fname, actual_checksum, expect_checksum));
     }
 
+    // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
-        return Status::Corruption("Bad segment, parse footer from PB failed");
+        return Status::Corruption(Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
     }
-
     return Status::OK();
 }
 

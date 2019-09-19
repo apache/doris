@@ -68,6 +68,10 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
     
+    public static final String PROPERTIES_TIMEOUT = "timeout";
+
+    public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         DataProperty dataProperty = oldDataProperty;
@@ -352,5 +356,19 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_COLOCATE_WITH);
         }
         return colocateGroup;
+    }
+
+    public static long analyzeTimeout(Map<String, String> properties, long defaultTimeout) throws AnalysisException {
+        long timeout = defaultTimeout;
+        if (properties != null && properties.containsKey(PROPERTIES_TIMEOUT)) {
+            String timeoutStr = properties.get(PROPERTIES_TIMEOUT);
+            try {
+                timeout = Long.valueOf(timeoutStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid timeout format: " + timeoutStr);
+            }
+            properties.remove(PROPERTIES_TIMEOUT);
+        }
+        return timeout;
     }
 }

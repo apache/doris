@@ -26,7 +26,7 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status PageDecompressor::decompress_to(Slice* content) {
+Status PageDecompressor::decompress_to(Slice* uncompressed_data) {
     if (_data.size < 4) {
         return Status::Corruption(
             Substitute("Compressed page's size is too small, size=$0, needed=$1",
@@ -40,7 +40,7 @@ Status PageDecompressor::decompress_to(Slice* content) {
         // If compressed_slice's size is equal with _uncompressed_bytes, it means
         // compressor store this directly without compression. So we just copy
         // this to buf and return.
-        *content = compressed_slice;
+        *uncompressed_data = compressed_slice;
         return Status::OK();
     }
     std::unique_ptr<char[]> buf(new char[uncompressed_bytes]);
@@ -54,7 +54,7 @@ Status PageDecompressor::decompress_to(Slice* content) {
             Substitute("Uncompressed size not match, record=$0 vs decompress=$1",
                        uncompressed_bytes, uncompressed_slice.size));
     }
-    *content = Slice(buf.release(), uncompressed_bytes);
+    *uncompressed_data = Slice(buf.release(), uncompressed_bytes);
     return Status::OK();
 }
 

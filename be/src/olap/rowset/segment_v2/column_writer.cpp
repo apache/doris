@@ -28,10 +28,10 @@
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/types.h" // for TypeInfo
+#include "util/crc32c.h"
 #include "util/faststring.h" // for fastring
 #include "util/rle_encoding.h" // for RleEncoder
 #include "util/block_compression.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -54,6 +54,10 @@ public:
     void reset() {
         _offset = 0;
         _rle_encoder.Clear();
+    }
+
+    uint64_t size() {
+        return _bitmap_buf.size();
     }
     // slice returned by finish should be deleted by caller
     void release() {
@@ -129,8 +133,8 @@ Status ColumnWriter::append(const void* data, size_t num_rows) {
     return _append_data((const uint8_t**)&data, num_rows);
 }
 
-// append data to page builder. this funciton will make sure that
-// num_rows must be written before return. And ptr will be modifed
+// append data to page builder. this function will make sure that
+// num_rows must be written before return. And ptr will be modified
 // to next data should be written
 Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
@@ -176,6 +180,27 @@ Status ColumnWriter::append_nullable(
         }
     }
     return Status::OK();
+}
+
+uint64_t ColumnWriter::estimate_buffer_size() {
+    uint64_t size = 0;
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        size += page->data.get_size();
+        if (_is_nullable) {
+            size += page->null_bitmap.get_size();
+        }
+        page = page->next;
+    }
+    size += _page_builder->size();
+    if (_is_nullable) {
+        size += _null_bitmap_builder->size();
+    }
+    size += _ordinal_index_builder->size();
+    if (_opts.need_zone_map) {
+        size += _column_zone_map_builder->size();
+    }
+    return size;
 }
 
 Status ColumnWriter::finish() {
@@ -247,7 +272,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
 
-    // Put compressor out of if block, because we should use compressor's
+    // Put compressor out of if block, because we will use compressor's
     // content until this function finished.
     PageCompressor compressor(_compress_codec);
     if (_compress_codec != nullptr) {
@@ -257,7 +282,7 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = HashUtil::crc_hash(*output_data, 0);
+    uint32_t checksum = crc32c::Value(*output_data);
     encode_fixed32_le(checksum_buf, checksum);
     output_data->emplace_back(checksum_buf, sizeof(uint32_t));
 

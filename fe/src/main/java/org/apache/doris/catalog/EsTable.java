@@ -17,6 +17,18 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.external.EsTableState;
+import org.apache.doris.thrift.TEsTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
+
+import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -24,17 +36,6 @@ import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.Adler32;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.external.EsTableState;
-import org.apache.doris.thrift.TEsTable;
-import org.apache.doris.thrift.TTableDescriptor;
-import org.apache.doris.thrift.TTableType;
-import com.google.common.base.Strings;
 
 public class EsTable extends Table {
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
@@ -66,8 +67,7 @@ public class EsTable extends Table {
     }
 
     public EsTable(long id, String name, List<Column> schema,
-            Map<String, String> properties, PartitionInfo partitionInfo)
-            throws DdlException {
+            Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
         this.partitionInfo = partitionInfo;
         validate(properties);
@@ -121,7 +121,7 @@ public class EsTable extends Table {
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }

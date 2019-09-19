@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <unordered_set>
 
+#include "util/stack_util.h"
+
 using std::min;
 using std::nothrow;
 using std::string;
@@ -38,7 +40,6 @@ RowCursor::~RowCursor() {
 OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
                             const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
-    _fixed_len = _schema->schema_size();
     _variable_len = 0;
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
@@ -182,40 +183,6 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
         variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
     }
     return OLAP_SUCCESS;
-}
-
-int RowCursor::cmp(const RowCursor& other) const {
-    // 两个cursor有可能field个数不同，只比较共同部分
-    size_t common_prefix_count = min(_schema->num_key_columns(), other._schema->num_key_columns());
-    // 只有key column才会参与比较
-    for (size_t i = 0; i < common_prefix_count; ++i) {
-        if (column_schema(i) == nullptr || other.column_schema(i) == nullptr) {
-            continue;
-        }
-        auto res = column_schema(i)->compare_cell(cell(i), other.cell(i));
-        if (res != 0) {
-            return res;
-        }
-    }
-    return 0;
-}
-
-int RowCursor::index_cmp(const RowCursor& other) const {
-    int res = 0;
-    // 两个cursor有可能field个数不同，只比较共同部分
-    size_t common_prefix_count = min(_schema->num_key_columns(), other._schema->num_key_columns());
-    // 只有key column才会参与比较
-    for (size_t i = 0; i < common_prefix_count; ++i) {
-        if (column_schema(i) == nullptr || other.column_schema(i) == nullptr) {
-            continue;
-        }
-        res = column_schema(i)->index_cmp(cell(i), other.cell(i));
-        if (res != 0) {
-            return res;
-        }
-    }
-
-    return res;
 }
 
 OLAPStatus RowCursor::build_max_key() {

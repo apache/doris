@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <iostream>
+#include <boost/filesystem.hpp>
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
@@ -84,7 +85,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
         writer.append_row(row);
     }
 
-    uint32_t file_size = 0;
+    uint64_t file_size = 0;
     st = writer.finalize(&file_size);
     ASSERT_TRUE(st.ok());
     // reader
@@ -100,14 +101,14 @@ TEST_F(SegmentReaderWriterTest, normal) {
             StorageReadOptions read_opts;
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 1024, &arena);
+            RowBlockV2 block(schema, 1024);
 
             int left = 4096;
 
             int rowid = 0;
             while (left > 0)  {
                 int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
@@ -154,8 +155,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.ok());
             ASSERT_EQ(11, block.num_rows());
@@ -179,8 +179,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
@@ -208,8 +207,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 100, &arena);
+            RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
             ASSERT_EQ(0, block.num_rows());
@@ -261,7 +259,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
         writer.append_row(row);
     }
 
-    uint32_t file_size = 0;
+    uint64_t file_size = 0;
     st = writer.finalize(&file_size);
     ASSERT_TRUE(st.ok());
 
@@ -288,8 +286,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
 
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 1024, &arena);
+            RowBlockV2 block(schema, 1024);
 
             // only first page will be read because of zone map
             int left = 16 * 1024;
@@ -297,6 +294,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             int rowid = 0;
             while (left > 0)  {
                 int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
@@ -319,6 +317,72 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             ASSERT_EQ(0, block.num_rows());
         }
     }
+    FileUtils::remove_all(dname);
+}
+
+TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
+    size_t num_rows_per_block = 10;
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 2;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(3));
+    tablet_schema->_cols.push_back(create_int_value(4));
+
+    // segment write
+    std::string dname = "./ut_dir/segment_write_size";
+    FileUtils::create_dir(dname);
+
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+
+    std::string fname = dname + "/int_case";
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    for (int i = 0; i < 1048576; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+        }
+        writer.append_row(row);
+    }
+
+    uint32_t segment_size = writer.estimate_segment_size();
+    LOG(INFO) << "estimate segment size is:" << segment_size;
+
+    uint64_t file_size = 0;
+    st = writer.finalize(&file_size);
+
+    ASSERT_TRUE(st.ok());
+
+    file_size = boost::filesystem::file_size(fname);
+    LOG(INFO) << "segment file size is:" << file_size;
+
+    ASSERT_NE(segment_size, 0);
+
+    float error = 0;
+    if (segment_size > file_size) {
+        error = (segment_size - file_size) * 1.0 / segment_size;
+    } else {
+        error = (file_size - segment_size) * 1.0 / segment_size;
+    }
+
+    ASSERT_LT(error, 0.30);
+
     FileUtils::remove_all(dname);
 }
 

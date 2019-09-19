@@ -24,9 +24,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "olap/rowset/beta_rowset.h"
-#include <olap/rowset/segment_v2/segment_writer.h>
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/row.h" // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
 
@@ -142,13 +143,14 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         _rowset_meta->set_rowset_state(VISIBLE);
     }
 
-    RowsetSharedPtr rowset(new BetaRowset(_context.tablet_schema,
-                                          _context.rowset_path_prefix,
-                                          _context.data_dir,
-                                          _rowset_meta));
-    auto status = rowset->init();
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema,
+                                               _context.rowset_path_prefix,
+                                               _context.data_dir,
+                                               _rowset_meta,
+                                               &rowset);
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "rowset init failed when build new rowset";
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
     }
     _rowset_build = true;
@@ -170,7 +172,7 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
 }
 
 OLAPStatus BetaRowsetWriter::_flush_segment_writer() {
-    uint32_t segment_size;
+    uint64_t segment_size;
     auto s = _segment_writer->finalize(&segment_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();

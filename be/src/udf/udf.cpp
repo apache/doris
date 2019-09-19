@@ -264,7 +264,7 @@ const char* FunctionContext::error_msg() const {
         return _impl->_error_msg.c_str();
     }
 
-    return NULL;
+    return nullptr;
 }
 
 uint8_t* FunctionContext::allocate(int byte_size) {  
@@ -338,10 +338,14 @@ void FunctionContext::set_error(const char* error_msg) {
         std::stringstream ss;
         ss << "UDF ERROR: " << error_msg;
 
-        if (_impl->_state != NULL) {
+        if (_impl->_state != nullptr) {
             _impl->_state->set_process_status(ss.str());
         }
     }
+}
+
+void FunctionContext::clear_error_msg() {
+    _impl->_error_msg.clear();
 }
 
 bool FunctionContext::add_warning(const char* warning_msg) {

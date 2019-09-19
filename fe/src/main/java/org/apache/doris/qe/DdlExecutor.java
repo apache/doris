@@ -115,7 +115,7 @@ public class DdlExecutor {
                 }
                 jobType = EtlJobType.HADOOP;
             }
-            if (loadStmt.getVersion().equals(Load.VERSION) || loadStmt.getBrokerDesc() == null) {
+            if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt, origStmt);

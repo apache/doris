@@ -26,29 +26,23 @@ namespace doris {
 
 class OlapMeta;
 
+// all implementations must be thread-safe
 class RowsetIdGenerator {
 public:    
-    RowsetIdGenerator(OlapMeta* meta) : _meta(meta) { }
-    ~RowsetIdGenerator() {}
+    RowsetIdGenerator() {}
+    virtual ~RowsetIdGenerator() {}
 
-    // This function would try to restore sate from meta first,
-    // If there is no such state, will initialize a state, and store 
-    // it into meta.
-    OLAPStatus init();
+    // generate and return the next global unique rowset id
+    virtual RowsetId next_id() = 0;
 
-    // generator a id according to data dir
-    // rowsetid is not globally unique, it is dir level
-    // it saves the batch end id into meta env
-    OLAPStatus get_next_id(RowsetId* rowset_id); 
+    // check whether the rowset id is useful or validate
+    // for example, during gc logic, gc thread finds a file
+    // and it could not find it under rowset list. but it maybe in use
+    // during load procedure. Gc thread will check it using this method.
+    virtual bool id_in_use(const RowsetId& rowset_id) = 0;
 
-    OLAPStatus set_next_id(RowsetId new_rowset_id);
-
-private:
-    OlapMeta* _meta = nullptr;
-
-    std::mutex _lock;
-    RowsetId _next_id = -1;
-    RowsetId _id_batch_end = -1;
+    // remove the rowsetid from useful rowsetid list.
+    virtual void release_id(const RowsetId& rowset_id) = 0;
 }; // RowsetIdGenerator
 
 } // namespace doris

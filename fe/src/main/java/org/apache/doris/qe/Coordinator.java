@@ -31,6 +31,7 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -88,6 +89,7 @@ import org.apache.thrift.TException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -110,6 +112,9 @@ public class Coordinator {
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static String localIP = FrontendOptions.getLocalHostAddress();
+
+    // Random is used to shuffle instances of partitioned
+    private static Random instanceRandom = new Random();
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
@@ -197,9 +202,9 @@ public class Coordinator {
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+            this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);
         } else {
-            this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());             
+            this.queryGlobals.setTime_zone(context.getSessionVariable().getTimeZone());
         }
         this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
                 context.getSessionVariable().getResourceGroup());
@@ -212,7 +217,7 @@ public class Coordinator {
 
     // Used for broker load task/export task coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
+            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster, String timezone) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -222,7 +227,7 @@ public class Coordinator {
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestamp_ms(new Date().getTime());
-        this.queryGlobals.setTime_zone(TimeUtils.DEFAULT_TIME_ZONE);                      
+        this.queryGlobals.setTime_zone(timezone);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.clusterName = cluster;
@@ -534,6 +539,11 @@ public class Coordinator {
             if (value != null) {
                 numRowsAbnormal = Long.valueOf(value);
             }
+            long numRowsUnselected = 0L;
+            value = this.loadCounters.get(LoadJob.UNSELECTED_ROWS);
+            if (value != null) {
+                numRowsUnselected = Long.valueOf(value);
+            }
 
             // new load counters
             value = newLoadCounters.get(LoadEtlTask.DPP_NORMAL_ALL);
@@ -544,9 +554,14 @@ public class Coordinator {
             if (value != null) {
                 numRowsAbnormal += Long.valueOf(value);
             }
+            value = newLoadCounters.get(LoadJob.UNSELECTED_ROWS);
+            if (value != null) {
+                numRowsUnselected += Long.valueOf(value);
+            }
 
             this.loadCounters.put(LoadEtlTask.DPP_NORMAL_ALL, "" + numRowsNormal);
             this.loadCounters.put(LoadEtlTask.DPP_ABNORMAL_ALL, "" + numRowsAbnormal);
+            this.loadCounters.put(LoadJob.UNSELECTED_ROWS, "" + numRowsUnselected);
         } finally {
             lock.unlock();
         }
@@ -672,7 +687,7 @@ public class Coordinator {
         cancelRemoteFragmentsAsync(cancelReason);
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
-            profileDoneSignal.countDownToZero();
+            profileDoneSignal.countDownToZero(new Status());
             LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks().stream().map(e->DebugUtil.printId(e.getKey())).toArray());
         }
     }
@@ -844,20 +859,43 @@ public class Coordinator {
             // be BE that fragment's scannode locates,  avoid less data.
             // chenhao added
             boolean hasUnionNode = containsUnionNode(fragment.getPlanRoot());
+
             if (!(leftMostNode instanceof ScanNode) && !hasUnionNode) {
                 // there is no leftmost scan; we assign the same hosts as those of our
                 // leftmost input fragment (so that a partitioned aggregation
                 // fragment runs on the hosts that provide the input data)
                 PlanFragmentId inputFragmentIdx =
-                    fragments.get(i).getChild(0).getFragmentId();
+                        fragments.get(i).getChild(0).getFragmentId();
                 // AddAll() soft copy()
-                for (FInstanceExecParam execParams 
-                        : fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 
-                            0, params);
-                    params.instanceExecParams.add(instanceParam);
+                int exchangeInstances = -1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
-                
+                if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > exchangeInstances) {
+                    // random select some instance
+                    // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
+                    Set<TNetworkAddress> hostSet = Sets.newHashSet();
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                        hostSet.add(execParams.host);
+                    }
+                    List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
+                    Collections.shuffle(hosts, instanceRandom);
+                    for (int index = 0; index < exchangeInstances; index++) {
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, hosts.get(index % hosts.size()), 0, params);
+                        params.instanceExecParams.add(instanceParam);
+                    }
+                } else {
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
+                        params.instanceExecParams.add(instanceParam);
+                    }
+                }
+
+                // When group by cardinality is smaller than number of backend, only some backends always
+                // process while other has no data to process.
+                // So we shuffle instances to make different backends handle different queries.
+                Collections.shuffle(params.instanceExecParams, instanceRandom);
+
                 // TODO: switch to unpartitioned/coord execution if our input fragment
                 // is executed that way (could have been downgraded from distributed)
                 continue;
@@ -1150,10 +1188,10 @@ public class Coordinator {
                 updateCommitInfos(params.getCommitInfos());
             }
             profileDoneSignal.markedCountDown(params.getFragment_instance_id(), -1L);
-        } 
+        }
 
         if (params.isSetLoaded_rows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobLoadedRows(jobId, params.query_id, params.loaded_rows);
+            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(jobId, params.query_id, params.loaded_rows);
         }
 
         return;
@@ -1301,7 +1339,7 @@ public class Coordinator {
         public List<PlanFragmentId> inputFragments = Lists.newArrayList();
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
-        
+
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
         }

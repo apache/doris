@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
@@ -40,7 +39,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -79,6 +77,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected static final String QUALITY_FAIL_MSG = "quality not good enough to cancel";
     protected static final String DPP_NORMAL_ALL = "dpp.norm.ALL";
     protected static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
+    public static final String UNSELECTED_ROWS = "unselected.rows";
 
     protected long id;
     // input params
@@ -94,9 +93,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long timeoutSecond = Config.broker_load_default_timeout_second;
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
+    protected boolean strictMode = true;
+    protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     @Deprecated
     protected boolean deleteFlag = false;
-    protected boolean strictMode = true;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -130,22 +130,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public static class LoadStatistic {
         // number of rows processed on BE, this number will be updated periodically by query report.
         // A load job may has several load tasks, so the map key is load task's plan load id.
-        public Map<TUniqueId, AtomicLong> numLoadedRowsMap = Maps.newConcurrentMap();
+        public Map<TUniqueId, AtomicLong> numScannedRowsMap = Maps.newConcurrentMap();
         // number of file to be loaded
         public int fileNum = 0;
         public long totalFileSizeB = 0;
         
         public String toJson() {
             long total = 0;
-            for (AtomicLong atomicLong : numLoadedRowsMap.values()) {
+            for (AtomicLong atomicLong : numScannedRowsMap.values()) {
                 total += atomicLong.get();
             }
 
             Map<String, Object> details = Maps.newHashMap();
-            details.put("LoadedRows", total);
+            details.put("ScannedRows", total);
             details.put("FileNumber", fileNum);
             details.put("FileSize", totalFileSizeB);
-            details.put("TaskNumber", numLoadedRowsMap.size());
+            details.put("TaskNumber", numScannedRowsMap.size());
             Gson gson = new Gson();
             return gson.toJson(details);
         }
@@ -222,10 +222,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return transactionId;
     }
 
-    public void updateLoadedRows(TUniqueId loadId, long loadedRows) {
-        AtomicLong atomicLong = loadStatistic.numLoadedRowsMap.get(loadId);
+    public void updateScannedRows(TUniqueId loadId, long scannedRows) {
+        AtomicLong atomicLong = loadStatistic.numScannedRowsMap.get(loadId);
         if (atomicLong != null) {
-            atomicLong.set(loadedRows);
+            atomicLong.set(scannedRows);
         }
     }
 
@@ -303,17 +303,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (properties.containsKey(LoadStmt.STRICT_MODE)) {
                 strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
             }
-        }
-    }
 
-    protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions,
-            EtlJobType jobType) throws DdlException {
-        for (DataDescription dataDescription : dataDescriptions) {
-            // loadInfo is a temporary param for the method of checkAndCreateSource.
-            // <TableId,<PartitionId,<LoadInfoList>>>
-            Map<Long, Map<Long, List<Source>>> loadInfo = Maps.newHashMap();
-            // only support broker load now
-            Load.checkAndCreateSource(db, dataDescription, loadInfo, false, jobType);
+            if (properties.containsKey(LoadStmt.TIMEZONE)) {
+                timezone = properties.get(LoadStmt.TIMEZONE);
+            } else if (ConnectContext.get() != null) {
+                // get timezone for session variable
+                timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+            }
         }
     }
 
@@ -514,7 +510,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
-        loadStatistic.numLoadedRowsMap.clear();
+        loadStatistic.numScannedRowsMap.clear();
 
         // set failMsg and state
         this.failMsg = failMsg;
@@ -880,6 +876,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             out.writeBoolean(true);
             authorizationInfo.write(out);
         }
+        Text.writeString(out, timezone);
     }
 
     @Override
@@ -919,6 +916,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 authorizationInfo = new AuthorizationInfo();
                 authorizationInfo.readFields(in);
             }
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
+            timezone = Text.readString(in);
         }
     }
 }

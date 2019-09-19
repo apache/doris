@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
@@ -352,6 +353,9 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
         return nullptr;
     }
 
+    // TODO(yiguolei)
+    // the following code is very difficult to understand because it mixed alter tablet v2 and alter tablet v1
+    // should remove alter tablet v1 code after v0.12
     OLAPStatus res = OLAP_SUCCESS;
     do {
         res = tablet->init();
@@ -359,7 +363,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
             LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
             break;
         }
-        if (!is_schema_change_tablet) {
+        if (!is_schema_change_tablet || (request.__isset.base_tablet_id && request.base_tablet_id > 0)) {
             // Create init version if this is not a restore mode replica and request.version is set
             // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
             // if (!in_restore_mode && request.__isset.version) {
@@ -369,10 +373,19 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
                 break;
             }
-        } else {
-            // add alter task to new tablet if it is a new tablet during schema change
-            tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
-                vector<Version>(), alter_type);
+        }
+        if (is_schema_change_tablet) {
+            if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
+                LOG(INFO) << "this request is for alter tablet request v2, so that not add alter task to tablet";
+                // if this is a new alter tablet, has to set its state to not ready
+                // because schema change hanlder depends on it to check whether history data
+                // convert finished
+                tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+            } else {
+                // add alter task to new tablet if it is a new tablet during schema change
+                tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
+                    vector<Version>(), alter_type);
+            }
             // 有可能出现以下2种特殊情况：
             // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
             // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
@@ -387,16 +400,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 int64_t new_creation_time = ref_tablet->creation_time() + 1;
                 tablet->set_creation_time(new_creation_time);
             }
-        }
-        if (request.__isset.base_tablet_id) {
-            if (request.base_tablet_id < 1) {
-                LOG(FATAL) << "base tablet is set but it value=" << request.base_tablet_id;
-                
-            }
-            // if this is a new alter tablet, has to set its state to not ready
-            // because schema change hanlder depends on it to check whether history data
-            // convert finished
-            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
         }
         // Add tablet to StorageEngine will make it visiable to user
         res = _add_tablet_unlock(request.tablet_id, request.tablet_schema.schema_hash, tablet, true, false);
@@ -705,12 +708,12 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static std::regex rgx ("/data/\\d+/\\d+/\\d+/(\\d+)_.*");
+    static std::regex rgx ("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
     std::smatch sm;
     bool ret = std::regex_search(path, sm, rgx);
     if (ret) {
         if (sm.size() == 2) {
-            *rowset_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
+            rowset_id->init(sm.str(1));
             return true;
         } else {
             return false;
@@ -755,6 +758,10 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                         // it means cur tablet is a new tablet during schema change or rollup, skip compaction
                         continue;
                     }
+            }
+            // if tablet is not ready, it maybe a new tablet under schema change, not do compaction
+            if (table_ptr->tablet_state() == TABLET_NOTREADY) {
+                continue;
             }
 
             if (table_ptr->data_dir()->path_hash() != data_dir->path_hash()
@@ -840,12 +847,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         _shutdown_tablets.push_back(tablet);
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
-
-    if (tablet->max_version().first == -1 && tablet->alter_task() == nullptr) {
-        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
-                     << "tablet=" << tablet->full_name();
-        // tablet state is invalid, drop tablet
-        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+    // not check tablet init version because when be restarts during alter task the new tablet may be empty
+    if (tablet->max_version().first == -1 && tablet->tablet_state() == TABLET_RUNNING) {	
+        LOG(WARNING) << "tablet is in running state without delta is invalid."	
+                     << "tablet=" << tablet->full_name();	
+        // tablet state is invalid, drop tablet	
+        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;	
     }
 
     OLAPStatus res = tablet->init();
@@ -1225,51 +1232,46 @@ OLAPStatus TabletManager::_create_inital_rowset(
                 res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                 break;
             }
-            RowsetId rowset_id = 1;
-            // if we know this is the first rowset in this tablet, then not call
-            // tablet to generate rowset id, just set it to 1
-            // RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
             RowsetWriterContext context;
-            context.rowset_id = rowset_id;
+            context.rowset_id = StorageEngine::instance()->next_rowset_id();
             context.tablet_uid = tablet->tablet_uid();
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
-            context.rowset_type = ALPHA_ROWSET;
+            context.rowset_type = DEFAULT_ROWSET_TYPE;
             context.rowset_path_prefix = tablet->tablet_path();
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;
             context.data_dir = tablet->data_dir();
             context.version = version;
             context.version_hash = request.version_hash;
-            RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
-            if (builder == nullptr) {
-                LOG(WARNING) << "fail to new rowset.";
-                res = OLAP_ERR_MALLOC_ERROR;
+
+            std::unique_ptr<RowsetWriter> builder;
+            res = RowsetFactory::create_rowset_writer(context, &builder);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to init rowset writer for tablet " << tablet->full_name();
                 break;
             }
-            builder->init(context);
             res = builder->flush();
-            if (OLAP_SUCCESS != res) {
-                LOG(WARNING) << "fail to finalize writer. tablet=" << tablet->full_name();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to flush rowset writer for tablet " << tablet->full_name();
                 break;
             }
 
             new_rowset = builder->build();
             res = tablet->add_rowset(new_rowset);
             if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to add rowset to tablet. "
-                            << "tablet=" << tablet->full_name();
+                LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
                 break;
             }
         } while (0);
 
         // Unregister index and delete files(index and data) if failed
         if (res != OLAP_SUCCESS) {
-            StorageEngine::instance()->add_unused_rowset(new_rowset);
-            LOG(WARNING) << "fail to create init base version. " 
+            LOG(WARNING) << "fail to create init base version. "
                          << " res=" << res 
                          << " version=" << request.version;
+            StorageEngine::instance()->add_unused_rowset(new_rowset);
             return res;
         }
     }

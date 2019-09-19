@@ -33,7 +33,8 @@
 #include "olap/storage_engine.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/time.h"
@@ -83,14 +84,14 @@ Tablet::~Tablet() {
     _inc_rs_version_map.clear();
 }
 
-OLAPStatus Tablet::init_once() {
+OLAPStatus Tablet::_init_once_action() {
     OLAPStatus res = OLAP_SUCCESS;
     VLOG(3) << "begin to load tablet. tablet=" << full_name()
             << ", version_size=" << _tablet_meta->version_count();
     for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
-        RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
-        res = rowset->init();
+        RowsetSharedPtr rowset;
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash()
@@ -98,7 +99,7 @@ OLAPStatus Tablet::init_once() {
                          << ", res:" << res;
             return res;
         }
-        _rs_version_map[version] = rowset;
+        _rs_version_map[version] = std::move(rowset);
     }
 
     // init incremental rowset
@@ -106,8 +107,7 @@ OLAPStatus Tablet::init_once() {
         Version version = { inc_rs_meta->start_version(), inc_rs_meta->end_version() };
         RowsetSharedPtr rowset = get_rowset_by_version(version);
         if (rowset == nullptr) {
-            rowset.reset(new(std::nothrow) AlphaRowset(&_schema, _tablet_path, _data_dir, inc_rs_meta));
-            res = rowset->init();
+            res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, inc_rs_meta, &rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init incremental rowset. tablet_id:" << tablet_id()
                              << ", schema_hash:" << schema_hash()
@@ -116,7 +116,7 @@ OLAPStatus Tablet::init_once() {
                 return res;
             }
         }
-        _inc_rs_version_map[version] = rowset;
+        _inc_rs_version_map[version] = std::move(rowset);
     }
 
     _cumulative_point = -1;
@@ -125,7 +125,7 @@ OLAPStatus Tablet::init_once() {
 }
 
 OLAPStatus Tablet::init() {
-    return _init_once.init([this] { return init_once(); });
+    return _init_once.init([this] { return _init_once_action(); });
 }
 
 bool Tablet::is_used() {
@@ -215,13 +215,13 @@ OLAPStatus Tablet::revise_tablet_meta(
 
     for (auto& rs_meta : rowsets_to_clone) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
-        RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
-        res = rowset->init();
+        RowsetSharedPtr rowset;
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. version=" << version.first << "-" << version.second;
             return res;
         }
-        _rs_version_map[version] = rowset;
+        _rs_version_map[version] = std::move(rowset);
     }
 
     _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
@@ -282,7 +282,8 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return nullptr;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -294,7 +295,8 @@ size_t Tablet::get_rowset_size_by_version(const Version& version) {
             << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second
+                << ", tablet: " << full_name();
         return -1;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -496,12 +498,13 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
                          << ", version='" << version.first << "-" << version.second;
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
-        std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
-        if (rs_reader == nullptr) {
+        RowsetReaderSharedPtr rs_reader;
+        auto res = it->second->create_reader(&rs_reader);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
-        rs_readers->push_back(rs_reader);
+        rs_readers->push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
 }
@@ -825,9 +828,7 @@ OLAPStatus Tablet::split_range(
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-    AlphaRowset* alpha_rowset = reinterpret_cast<AlphaRowset*>(rowset.get());
-    OLAPStatus status = alpha_rowset->split_range(start_key, end_key, request_block_row_count, ranges);
-    return status;
+    return rowset->split_range(start_key, end_key, request_block_row_count, ranges);
 }
 
 void Tablet::delete_all_files() {
@@ -871,32 +872,31 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
-bool Tablet::check_rowset_id(RowsetId rowset_id) {
+// check rowset id in tablet meta and in rowset meta atomicly
+// for example, during publish version stage, it will first add rowset meta to tablet meta and then
+// remove it from rowset meta manager. If we check tablet meta first and then check rowset meta using 2 step unlocked
+// the sequence maybe: 1. check in tablet meta [return false]  2. add to tablet meta  3. remove from rowset meta manager
+// 4. check in rowset meta manager return false. so that the rowset maybe checked return false it means it is useless and 
+// will be treated as a garbage.
+bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     ReadLock rdlock(&_meta_lock);
+    if (StorageEngine::instance()->rowset_id_in_use(rowset_id)) {
+        return true;
+    }
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
-
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
+    if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rowset_id)) {
+        return true;
+    }
     return false;
-}
-
-// lock here, function that call next_rowset_id should not have meta lock
-OLAPStatus Tablet::next_rowset_id(RowsetId* id) {
-    WriteLock wrlock(&_meta_lock);
-    return _tablet_meta->get_next_rowset_id(id, _data_dir);
-}
-
-// lock here, function that call set_next_rowset_id should not have meta lock
-OLAPStatus Tablet::set_next_rowset_id(RowsetId new_rowset_id) {
-    WriteLock wrlock(&_meta_lock);
-    return _tablet_meta->set_next_rowset_id(new_rowset_id, _data_dir);
 }
 
 void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
@@ -911,13 +911,6 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
 
  OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {
     if (rowset == nullptr) {
-        return OLAP_ERR_ROWSET_INVALID;
-    }
-    // check if the rowset id is valid
-    if (rowset->rowset_id() >= _tablet_meta->get_cur_rowset_id()) {
-        LOG(FATAL) << "rowset id is larger than next rowsetid, it is fatal error"
-                   << " rowset_id=" << rowset->rowset_id()
-                   << " next_id=" << _tablet_meta->get_cur_rowset_id();
         return OLAP_ERR_ROWSET_INVALID;
     }
     Version version = {rowset->start_version(), rowset->end_version()};
@@ -963,8 +956,7 @@ TabletInfo Tablet::get_tablet_info() {
 void Tablet::pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets) {
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
-        if (it.first.first >= _cumulative_point
-            && it.first.first == it.first.second) {
+        if (it.first.first >= _cumulative_point) {
             candidate_rowsets->push_back(it.second);
         }
     }

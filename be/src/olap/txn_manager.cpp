@@ -201,7 +201,8 @@ OLAPStatus TxnManager::commit_txn(
                 << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string()
-                << ", rowsetid: " << rowset_ptr->rowset_id();
+                << ", rowsetid: " << rowset_ptr->rowset_id()
+                << ", version: " << rowset_ptr->version().first;
     }
     return OLAP_SUCCESS;
 }
@@ -337,7 +338,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
                             << " partition_id: " << key.first
                             << ", transaction_id: " << key.second
                             << ", tablet: " << tablet_info.to_string()
-                            << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);
+                            << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id().to_string(): "0");
             }
         }
     }
@@ -388,7 +389,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                       << " partition_id: " << it.first.first
                       << ", transaction_id: " << it.first.second
                       << ", tablet: " << tablet_info.to_string()
-                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);
+                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id().to_string() : "0");
             it.second.erase(tablet_info);
         }
         if (it.second.empty()) {

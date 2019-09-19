@@ -32,18 +32,19 @@ class RowCursor;
 class MemTable {
 public:
     MemTable(Schema* schema, const TabletSchema* tablet_schema,
-             std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
+             const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type);
     ~MemTable();
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(RowsetWriterSharedPtr rowset_writer);
-    OLAPStatus close(RowsetWriterSharedPtr rowset_writer);
+    OLAPStatus flush(RowsetWriter* rowset_writer);
+    OLAPStatus close(RowsetWriter* rowset_writer);
 private:
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;
-    std::vector<uint32_t>* _col_ids;
+    // the slot in _slot_descs are in order of tablet's schema
+    const std::vector<SlotDescriptor*>* _slot_descs;
     KeysType _keys_type;
 
     struct RowCursorComparator {

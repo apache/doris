@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/exec_node.h"
 #include "runtime/buffered_block_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -76,9 +77,7 @@ Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
     new_block->_buffer_desc->block = new_block;
     *block = new_block;
 
-    if (UNLIKELY(_state->instance_mem_tracker()->any_limit_exceeded())) {
-        return Status::MemoryLimitExceeded("Memory limit exceeded");
-    }
+    RETURN_IF_LIMIT_EXCEEDED(_state, "Buffered block mgr, while getting new block");
 
     return Status::OK();
 }

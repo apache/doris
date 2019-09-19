@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "olap/olap_define.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -37,6 +38,7 @@ OLAPStatus parse_conf_store_paths(const std::string& config_path, std::vector<St
 struct EngineOptions {
     // list paths that tablet will be put into.
     std::vector<StorePath> store_paths;
+    UniqueId backend_uid;
 };
 
 }

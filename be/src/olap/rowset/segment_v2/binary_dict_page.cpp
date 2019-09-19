@@ -124,6 +124,10 @@ size_t BinaryDictPageBuilder::count() const {
     return _data_page_builder->count();
 }
 
+uint64_t BinaryDictPageBuilder::size() const {
+    return _buffer.size() + _data_page_builder->size();
+}
+
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
     DCHECK(_finished) << "get dictionary page when the builder is not finished";
     _dictionary.clear();
@@ -162,7 +166,6 @@ Status BinaryDictPageDecoder::init() {
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        // use plain page decoder to decode data
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
     } else {
         LOG(WARNING) << "invalide encoding type:" << _encoding_type;

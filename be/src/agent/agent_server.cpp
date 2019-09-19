@@ -329,8 +329,8 @@ void AgentServer::submit_tasks(
             break;
         case TTaskType::ROLLUP:
         case TTaskType::SCHEMA_CHANGE:
-        case TTaskType::ALTER_TASK:
-            if (task.__isset.alter_tablet_req) {
+        case TTaskType::ALTER:
+            if (task.__isset.alter_tablet_req || task.__isset.alter_tablet_req_v2) {
                 _alter_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
@@ -426,7 +426,15 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
-    return_value.__set_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
+    int32_t return_snapshot_version = PREFERRED_SNAPSHOT_VERSION;
+    // if the request's snapshot version is less than current be's snapshot version
+    // it means the request be is under old version. just set the request version to 1
+    // current be will generate snapshot files like tabletid_schemahash_startversion_endversion
+    // format. Every be is able to parse this format snapshot files.
+    if (snapshot_request.preferred_snapshot_version <  PREFERRED_SNAPSHOT_VERSION) {
+        return_snapshot_version = 1;
+    }
+    return_value.__set_snapshot_version(return_snapshot_version);
     string snapshot_path;
     OLAPStatus make_snapshot_status =
             SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);

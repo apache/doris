@@ -87,7 +87,6 @@ public class ShowAlterStmt extends ShowStmt {
         Preconditions.checkNotNull(type);
 
         // check auth when get job info
-
         handleShowAlterTable(analyzer);
     }
 

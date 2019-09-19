@@ -70,9 +70,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -930,7 +932,7 @@ public class ShowExecutor {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
                                                 + " in db " + showRoutineLoadStmt.getDbFullName()
-                                                + " include history " + showRoutineLoadStmt.isIncludeHistory());
+                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
@@ -1119,6 +1121,21 @@ public class ShowExecutor {
                         isSync = false;
                         break;
                     }
+
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
+                        if (tmp == null) {
+                            isSync = false;
+                            break;
+                        }
+                        // use !=, not equals(), because this should be the same object.
+                        if (tmp != replica) {
+                            isSync = false;
+                            break;
+                        }
+                    }
+
                 } finally {
                     db.readUnlock();
                 }
@@ -1180,7 +1197,7 @@ public class ShowExecutor {
                     if (stop) {
                         break;
                     }
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         if (indexId > -1 && index.getId() != indexId) {
                             continue;
                         }

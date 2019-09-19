@@ -30,9 +30,9 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/olap_snapshot_converter.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
 
@@ -118,7 +118,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
     return OLAP_ERR_CE_CMD_PARAMS_ERROR;
 }
 
-
+// TODO support beta rowset
 OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, 
     const int32_t& schema_hash, TabletSharedPtr tablet) {
     OLAPStatus res = OLAP_SUCCESS;   
@@ -157,40 +157,10 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     TabletSchema tablet_schema;
     RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
 
-    RowsetId max_rowset_id = 0;
-    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
-        if (visible_rowset.rowset_id() > max_rowset_id) {
-            max_rowset_id = visible_rowset.rowset_id();
-        }
-    }
-
-    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
-        if (inc_rowset.rowset_id() > max_rowset_id) {
-            max_rowset_id = inc_rowset.rowset_id();
-        }
-    }
-    RowsetId next_rowset_id = 0;
-    if (tablet == nullptr) {
-        next_rowset_id = 10000;
-    } else {
-        RETURN_NOT_OK(tablet->next_rowset_id(&next_rowset_id));
-    }
-    if (next_rowset_id <= max_rowset_id) {
-        next_rowset_id = max_rowset_id + 1;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->set_next_rowset_id(next_rowset_id));
-        }
-    }
-
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-        RowsetId rowset_id = 0;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        } else {
-            rowset_id = ++next_rowset_id;
-        }
+        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
         RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
@@ -207,23 +177,11 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
             continue;
         }
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
-        RowsetId rowset_id = 0;
-        if (tablet != nullptr) {
-            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        } else {
-            rowset_id = ++next_rowset_id;
-        }
+        RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
         RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
-    RowsetId new_next_rowset_id = 0;
-    if (tablet != nullptr) {
-        RETURN_NOT_OK(tablet->next_rowset_id(&new_next_rowset_id));
-    } else {
-        new_next_rowset_id = next_rowset_id + 1;
-    }
-    new_tablet_meta_pb.set_end_rowset_id(new_next_rowset_id);
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
@@ -235,12 +193,13 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
 }
 
 OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-    DataDir& data_dir, TabletSchema& tablet_schema, RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
+    DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
+    // TODO use factory to obtain RowsetMeta when SnapshotManager::convert_rowset_ids supports beta rowset
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
-    RowsetSharedPtr org_rowset(new AlphaRowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta));
-    RETURN_NOT_OK(org_rowset->init());
+    RowsetSharedPtr org_rowset;
+    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta, &org_rowset));
     // do not use cache to load index
     // because the index file may conflict
     // and the cached fd may be invalid
@@ -258,12 +217,10 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     context.data_dir = &data_dir;
     context.version = org_rowset_meta->version();
     context.version_hash = org_rowset_meta->version_hash();
-    RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
-    if (rs_writer == nullptr) {
-        LOG(WARNING) << "fail to new rowset.";
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    rs_writer->init(context);
+
+    std::unique_ptr<RowsetWriter> rs_writer;
+    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rs_writer));
+
     res = rs_writer->add_rowset(org_rowset);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to add rowset " 
@@ -276,7 +233,6 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
         LOG(WARNING) << "failed to build rowset when rename rowset id";
         return OLAP_ERR_MALLOC_ERROR; 
     }
-    RETURN_NOT_OK(new_rowset->init());
     RETURN_NOT_OK(new_rowset->load());
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     org_rowset->remove();

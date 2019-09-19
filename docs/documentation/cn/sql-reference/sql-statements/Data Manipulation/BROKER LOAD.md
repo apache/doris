@@ -1,7 +1,7 @@
 # BROKER LOAD
 ## description
 
-    Broker load 通过随 Palo 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
+    Broker load 通过随 Doris 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
     可以通过 show broker 命令查看已经部署的 broker。
     目前支持以下4种数据源：
 
@@ -41,7 +41,8 @@
             [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
-    
+            [WHERE predicate]    
+
         说明：
             file_path: 
 
@@ -80,6 +81,9 @@
             例2: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式。
             那么可以指定 columns(tmp_time) set (year = year(tmp_time), month=month(tmp_time), day=day(tmp_time)) 完成导入。
 
+            WHERE:
+          
+            对做完 transform 的数据进行过滤，符合 where 条件的数据才能被导入。WHERE 语句中只可引用表中列名。
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
@@ -133,7 +137,8 @@
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         exec_mem_limit:   设置导入使用的内存上限。默认为2G，单位字节。这里是指单个 BE 节点的内存上限。
                           一个导入可能分布于多个BE。我们假设 1GB 数据在单个节点处理需要最大5GB内存。那么假设1GB文件分布在2个节点处理，那么理论上，每个节点需要内存为2.5GB。则该参数可以设置为 2684354560，即2.5GB
-	strict mode：     是否对数据进行严格限制。默认为true。
+        strict mode：     是否对数据进行严格限制。默认为true。
+        timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
 
     5. 导入数据格式样例
 
@@ -311,7 +316,8 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-     8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+    8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+
         LOAD LABEL example_db.label9
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
@@ -320,6 +326,36 @@
         (k1, k2, k3)
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+    9. 提取文件路径中的分区字段
+
+        如果需要，则会根据表中定义的字段类型解析文件路径中的分区字段（partitioned fields），类似Spark中Partition Discovery的功能
+
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
+        INTO TABLE `my_table`
+        FORMAT AS "csv"
+        (k1, k2, k3)
+        COLUMNS FROM PATH AS (city, utc_date)
+        SET (uniq_id = md5sum(k1, city))
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing目录下包括如下文件：
+
+        [hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
+
+        则提取文件路径的中的city和utc_date字段
+
+    10. 对待导入数据进行过滤，k1 值大于 k2 值的列才能被导入
+
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        where k1 > k2
+        )
      
 ## keyword
     BROKER,LOAD

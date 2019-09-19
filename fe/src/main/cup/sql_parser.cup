@@ -231,6 +231,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
+terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
 terminal String IDENT;
 terminal String NUMERIC_OVERFLOW;
 terminal Long INTEGER_LITERAL;
@@ -338,6 +339,7 @@ nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier union_op;
+nonterminal ArrayList<String> opt_common_hints;
 
 nonterminal ArrayList<PartitionName> opt_partition_name_list, partition_name_list;
 nonterminal PartitionName partition_name;
@@ -376,10 +378,13 @@ nonterminal AccessPrivilege privilege_type;
 nonterminal DataDescription data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
+nonterminal String opt_with_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
+nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
+nonterminal ColWithComment col_with_comment;
 nonterminal List<String> opt_partitions, partitions;
 nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
@@ -874,12 +879,13 @@ create_stmt ::=
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
             opt_keys:keys
+            opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
-        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition, distribution, tblProperties, extProperties);
+        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition, distribution, tblProperties, extProperties, tableComment);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
@@ -887,9 +893,9 @@ create_stmt ::=
         RESULT = new CreateUserStmt(ifNotExists, user, userRole);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
-        opt_col_list:columns KW_AS query_stmt:view_def
+        opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
     :}
     /* cluster */
     | KW_CREATE KW_CLUSTER ident:name opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -1053,8 +1059,10 @@ data_desc ::=
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
+    where_clause:whereExpr
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, columnsFromPath, isNeg, colMappingList);
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
+        columnsFromPath, isNeg, colMappingList, whereExpr);
     :}
     ;
 
@@ -1125,6 +1133,37 @@ opt_col_list ::=
     | LPAREN ident_list:colList RPAREN
     {:
         RESULT = colList;
+    :}
+    ;
+
+opt_col_with_comment_list ::=
+    {:
+        RESULT = null;
+    :}
+    | LPAREN col_with_comment_list:colList RPAREN
+    {:
+        RESULT = colList;
+    :}
+    ;
+
+col_with_comment_list ::=
+    col_with_comment:col
+    {:
+        ArrayList<ColWithComment> list = new ArrayList<ColWithComment>();
+        list.add(col);
+        RESULT = list;
+    :}
+    | col_with_comment_list:list COMMA col_with_comment:col
+    {:
+        list.add(col);
+        RESULT = list;
+    :}
+    ;
+
+col_with_comment ::=
+    ident:col opt_comment:comment
+    {:
+        RESULT = new ColWithComment(col, comment);
     :}
     ;
 
@@ -2332,9 +2371,9 @@ use_stmt ::=
 
 // Insert statement
 insert_stmt ::=
-    KW_INSERT KW_INTO insert_target:target opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new InsertStmt(target, cols, source, hints);
+        RESULT = new InsertStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
@@ -2344,6 +2383,17 @@ insert_target ::=
     table_name:tbl opt_using_partition:partitions
     {:
         RESULT = new InsertTarget(tbl, partitions);
+    :}
+    ;
+
+opt_with_label ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_WITH KW_LABEL ident:label
+    {:
+        RESULT = label;
     :}
     ;
 
@@ -2698,10 +2748,6 @@ set_expr_or_default ::=
     {:
         RESULT = new StringLiteral("ALL");
     :}
-    | ident:name
-    {:
-        RESULT = new StringLiteral(name);
-    :}
     | expr:expr
     {:
         RESULT = expr;
@@ -2985,9 +3031,24 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_using_partition:parts opt_table_alias:alias
+    table_name:name opt_using_partition:parts opt_table_alias:alias opt_common_hints:common_hints
     {:
-        RESULT = new TableRef(name, alias, parts);
+        RESULT = new TableRef(name, alias, parts, common_hints);
+    :}
+    ;
+
+opt_common_hints ::=
+    COMMENTED_PLAN_HINT_START ident_list:l COMMENTED_PLAN_HINT_END
+    {:
+        RESULT = l;
+    :}
+    | LBRACKET ident_list:l RBRACKET
+    {:
+        RESULT = l;
+    :}
+    |
+    {:
+        RESULT = null;
     :}
     ;
 
@@ -3067,6 +3128,10 @@ opt_plan_hints ::=
         }
         RESULT = hints;
     :}
+    | COMMENTED_PLAN_HINT_START ident_list:l COMMENTED_PLAN_HINT_END
+    {:
+        RESULT = l;
+    :}
     | LBRACKET ident_list:l RBRACKET
     {:
         RESULT = l;
@@ -3113,10 +3178,10 @@ expr_list ::=
   ;
 
 where_clause ::=
-  KW_WHERE expr:e
-  {: RESULT = e; :}
-  | /* empty */
+   /* empty */
   {: RESULT = null; :}
+  | KW_WHERE expr:e
+  {: RESULT = e; :}
   ;
 
 where_clause_without_null ::=

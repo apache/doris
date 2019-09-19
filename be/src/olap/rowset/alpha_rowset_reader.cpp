@@ -23,14 +23,12 @@ namespace doris {
 
 AlphaRowsetReader::AlphaRowsetReader(
         int num_rows_per_row_block,
-        RowsetSharedPtr rowset)
+        AlphaRowsetSharedPtr rowset)
       : _num_rows_per_row_block(num_rows_per_row_block),
-        _rowset(rowset),
-        _alpha_rowset_meta(nullptr),
-        _segment_groups(std::dynamic_pointer_cast<AlphaRowset>(rowset)->_segment_groups),
+        _rowset(std::move(rowset)),
+        _alpha_rowset_meta(std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
+        _segment_groups(_rowset->_segment_groups),
         _key_range_size(0) {
-    RowsetMetaSharedPtr rowset_meta_ptr = (std::dynamic_pointer_cast<AlphaRowset>(rowset)->_rowset_meta);
-    _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta_ptr.get());
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {
@@ -110,10 +108,6 @@ VersionHash AlphaRowsetReader::version_hash() {
     return _alpha_rowset_meta->version_hash();
 }
 
-void AlphaRowsetReader::close() {
-    _merge_ctxs.clear();
-}
-
 int64_t AlphaRowsetReader::filtered_rows() {
     return _stats->rows_del_filtered;
 }
@@ -186,7 +180,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
         }
         RowCursor* current_row = merge_ctx->row_cursor.get();
         merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-        if (min_row == nullptr || min_row->cmp(*current_row) >  0) {
+        if (min_row == nullptr || compare_row(*min_row, *current_row) >  0) {
             min_row = current_row;
             min_index = ordinal;
         }
@@ -330,7 +324,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
 }
 
 RowsetSharedPtr AlphaRowsetReader::rowset() {
-    return _rowset;
+    return std::static_pointer_cast<Rowset>(_rowset);
 }
 
 }  // namespace doris
