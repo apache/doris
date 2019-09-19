@@ -204,7 +204,10 @@ public:
     void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
 
 private:
-    OLAPStatus check_all_root_path_cluster_id();
+
+    OLAPStatus _check_file_descriptor_number();
+
+    OLAPStatus _check_all_root_path_cluster_id();
 
     bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
 

@@ -219,8 +219,12 @@ namespace config {
     CONF_Int32(trash_file_expire_time_sec, "259200");
     // check row nums for BE/CE and schema change. true is open, false is closed.
     CONF_Bool(row_nums_check, "true")
-    //file descriptors cache, by default, cache 30720 descriptors
-    CONF_Int32(file_descriptor_cache_capacity, "30720");
+    //file descriptors cache, by default, cache 32768 descriptors
+    CONF_Int32(file_descriptor_cache_capacity, "32768");
+    // minimum/maximum file descriptor number
+    // modify them upon necessity
+    CONF_Int32(min_file_descriptor_number, "65536");
+    CONF_Int32(max_file_descriptor_number, "131072");
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
 
