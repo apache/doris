@@ -247,6 +247,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
+        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -378,6 +379,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return DEFAULT_STRICT_MODE;
         }
         return Boolean.valueOf(value);
+    }
+
+    public String getTimezone() {
+        String value = jobProperties.get(LoadStmt.TIMEZONE);
+        if (value == null) {
+            return TimeUtils.DEFAULT_TIME_ZONE;
+        }
+        return value;
     }
 
     public RoutineLoadProgress getProgress() {

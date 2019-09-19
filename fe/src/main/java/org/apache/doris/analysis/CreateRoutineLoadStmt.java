@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.KafkaProgress;
@@ -133,13 +134,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
     private boolean strictMode = true;
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
     // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-
 
     //custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
@@ -205,6 +206,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return strictMode;
     }
 
+    public String getTimezone() {
+        return timezone;
+    }
+
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
     }
@@ -220,7 +225,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
     }
-
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -288,7 +292,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 partitionNames);
     }
 
-    private void checkJobProperties() throws AnalysisException {
+    private void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -318,6 +322,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                                                       RoutineLoadJob.DEFAULT_STRICT_MODE,
                                                       LoadStmt.STRICT_MODE + " should be a boolean");
+
+        timezone = jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone);
+        TimeUtils.checkTimeZoneValid(timezone);
     }
 
     private void checkDataSourceProperties() throws AnalysisException {

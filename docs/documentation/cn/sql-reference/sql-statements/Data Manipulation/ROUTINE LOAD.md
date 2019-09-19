@@ -116,6 +116,10 @@
 
             是否开启严格模式，默认为开启。如果开启后，非空原始数据的列类型变换如果结果为 NULL，则会被过滤。指定方式为 "strict_mode" = "true"
 
+        5. timezone
+            
+            指定导入作业所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
+
     5. data_source
 
         数据源的类型。当前支持：
@@ -161,6 +165,7 @@
 
                     "kafka_partitions" = "0,1,2,3",
                     "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END" 
+                    
             4. property
 
                 指定自定义kafka参数。
@@ -232,7 +237,7 @@
             "kafka_offsets" = "101,0,0,200"
         );
 
-    2. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式
+    2. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式，时区为 Africa/Abidjan
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),
@@ -243,7 +248,8 @@
             "max_batch_interval" = "20",
             "max_batch_rows" = "300000",
             "max_batch_size" = "209715200",
-            "strict_mode" = "false"
+            "strict_mode" = "false",
+            "timezone" = "Africa/Abidjan"
         )
         FROM KAFKA
         (
