@@ -21,11 +21,6 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 
-/*
- * Author: Chenmingyu
- * Date: Jan 16, 2019
- */
-
 public class LabelAlreadyUsedException extends DdlException {
 
     private static final long serialVersionUID = -6798925248765094813L;

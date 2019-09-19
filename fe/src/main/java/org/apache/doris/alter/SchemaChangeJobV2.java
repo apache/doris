@@ -68,11 +68,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /*
- * Author: Chenmingyu
- * Date: Jul 8, 2019
- */
-
-/*
  * Version 2 of SchemaChangeJob.
  * This is for replacing the old SchemaChangeJob
  * https://github.com/apache/incubator-doris/issues/1429

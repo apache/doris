@@ -30,11 +30,6 @@ import com.google.common.collect.Maps;
 
 import java.util.Map;
 
-/*
- * Author: Chenmingyu
- * Date: Jan 15, 2019
- */
-
 // admin set frontend config ("key" = "value");
 public class AdminSetConfigStmt extends DdlStmt {
     

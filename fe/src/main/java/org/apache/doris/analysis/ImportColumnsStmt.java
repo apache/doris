@@ -19,9 +19,6 @@ package org.apache.doris.analysis;
 
 import java.util.List;
 
-/**
- * Created by zhaochun on 2018/4/23.
- */
 public class ImportColumnsStmt extends StatementBase {
     private List<ImportColumnDesc> columns;
 
