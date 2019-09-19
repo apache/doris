@@ -144,6 +144,12 @@ inline void put_varint64(T* dst, uint64_t v) {
 }
 
 template<typename T>
+void put_length_prefixed_slice(T* dst, const Slice& value) {
+    put_varint32(dst, value.get_size());
+    dst->append(value.get_data(), value.get_size());
+}
+
+template<typename T>
 inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     uint8_t buf[15];
     uint8_t* ptr = encode_varint64(buf, v1);
@@ -175,4 +181,14 @@ inline bool get_varint64(Slice* input, uint64_t* val) {
     }
 }
 
+inline bool get_length_prefixed_slice(Slice* input, Slice* result) {
+    uint32_t len;
+    if (get_varint32(input, &len) && input->get_size() >= len) {
+        *result = Slice(input->get_data(), len);
+        input->remove_prefix(len);
+        return true;
+    } else {
+        return false;
+    }
+}
 }

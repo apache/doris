@@ -43,9 +43,16 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
+        if (*count == 0) {
+            return Status::OK();
+        }
         auto new_vals = reinterpret_cast<const CppType*>(vals);
+        if (_count == 0) {
+            _first_val = *new_vals;
+        }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
+        _last_val = new_vals[*count - 1];
         return Status::OK();
     }
 
@@ -69,6 +76,22 @@ public:
         return _buf.size();
     }
 
+    Status get_first_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_val, sizeof(CppType));
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_val, sizeof(CppType));
+        return Status::OK();
+    }
+
     // this api will release the memory ownership of encoded data
     // Note:
     //     release() should be called after finish
@@ -85,6 +108,8 @@ private:
     bool _finished;
     std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
+    CppType _first_val;
+    CppType _last_val;
 };
 
 template<FieldType Type>

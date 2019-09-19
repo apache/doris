@@ -66,6 +66,10 @@ public:
 
     uint64_t size() const override;
 
+    Status get_first_value(void* value) const override;
+
+    Status get_last_value(void* value) const override;
+
     Status get_dictionary_page(Slice* dictionary_page) override;
 
     // this api will release the memory ownership of encoded data
@@ -99,6 +103,7 @@ private:
     MemTracker _tracker;
     MemPool _pool;
     faststring _buffer;
+    faststring _first_value;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {

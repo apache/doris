@@ -73,6 +73,16 @@ public:
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
 
+    // Return the first value in this page.
+    // This method could only be called between finish() and reset().
+    // Status::NotFound if no values have been added.
+    virtual Status get_first_value(void* value) const = 0;
+
+    // Return the last value in this page.
+    // This method could only be called between finish() and reset().
+    // Status::NotFound if no values have been added.
+    virtual Status get_last_value(void* value) const = 0;
+
     // This api is for release the resource owned by builder
     // It means it will transfer the ownership of some resource to other.
     // This api is always called after finish

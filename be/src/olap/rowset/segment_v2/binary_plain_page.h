@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"
@@ -67,6 +68,7 @@ public:
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
 
+            _last_value_size = src->size;
             _size_estimate += src->size;
             _size_estimate += sizeof(uint32_t);
 
@@ -97,6 +99,7 @@ public:
         _size_estimate = sizeof(uint32_t);
         _prepared_size = sizeof(uint32_t);
         _finished = false;
+        _last_value_size = 0;
     }
 
     size_t count() const {
@@ -105,6 +108,16 @@ public:
 
     uint64_t size() const override {
         return _size_estimate;
+    }
+
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        return _get_value_at(value, 0);
+    }
+
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        return _get_value_at(value, _offsets.size() - 1);
     }
 
     // this api will release the memory ownership of encoded data
@@ -123,6 +136,17 @@ public:
     }
 
 private:
+    Status _get_value_at(void* value, size_t idx) const {
+        if (_offsets.size() == 0) {
+            return Status::NotFound("page is empty");
+        }
+        size_t value_size = (idx < _offsets.size() - 1) ?
+            _offsets[idx + 1] - _offsets[idx] : _last_value_size;
+        auto res = reinterpret_cast<Slice*>(value);
+        *res = Slice(&_buffer[_offsets[idx]], value_size);
+        return Status::OK();
+    }
+
     faststring _buffer;
     size_t _size_estimate;
     size_t _prepared_size;
@@ -130,6 +154,8 @@ private:
     std::vector<uint32_t> _offsets;
     bool _finished;
     PageBuilderOptions _options;
+    // size of last added value
+    uint32_t _last_value_size;
 };
 
 

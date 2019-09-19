@@ -30,6 +30,7 @@ namespace doris {
 
 using strings::Substitute;
 
+using FullEncodeAscendingFunc = void (*) (const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
 using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool);
 
@@ -41,14 +42,20 @@ public:
     template<typename TraitsType>
     KeyCoder(TraitsType traits);
 
+    void full_encode_ascending(const void* value, std::string* buf) const {
+        _full_encode_ascending(value, buf);
+    }
+
     void encode_ascending(const void* value, size_t index_size, std::string* buf) const {
         _encode_ascending(value, index_size, buf);
     }
+
     Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool) const {
         return _decode_ascending(encoded_key, index_size, cell_ptr, pool);
     }
 
 private:
+    FullEncodeAscendingFunc _full_encode_ascending;
     EncodeAscendingFunc _encode_ascending;
     DecodeAscendingFunc _decode_ascending;
 };
@@ -83,7 +90,7 @@ private:
     }
 
 public:
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // swap MSB to encode integer
@@ -94,6 +101,10 @@ public:
         unsigned_val = swap_big_endian(unsigned_val);
 
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
@@ -122,12 +133,16 @@ public:
     using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
 
 public:
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
         unsigned_val = BigEndian::FromHost24(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
@@ -149,15 +164,15 @@ public:
 template<>
 class KeyCoderTraits<OLAP_FIELD_TYPE_DECIMAL> {
 public:
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    static void full_encode_ascending(const void* value, std::string* buf) {
         decimal12_t decimal_val;
         memcpy(&decimal_val, value, sizeof(decimal12_t));
-        // encode integer
-        KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::encode_ascending(
-            &decimal_val.integer, sizeof(decimal_val.integer), buf);
-        // encode integer
-        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::encode_ascending(
-            &decimal_val.fraction, sizeof(decimal_val.fraction), buf);
+        KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(&decimal_val.integer, buf);
+        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction, buf);
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
@@ -175,6 +190,11 @@ public:
 template<>
 class KeyCoderTraits<OLAP_FIELD_TYPE_CHAR> {
 public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         const Slice* slice = (const Slice*)value;
         CHECK(index_size <= slice->size) << "index size is larger than char size, index=" << index_size << ", char=" << slice->size;
@@ -200,6 +220,11 @@ public:
 template<>
 class KeyCoderTraits<OLAP_FIELD_TYPE_VARCHAR> {
 public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         const Slice* slice = (const Slice*)value;
         size_t copy_size = std::min(index_size, slice->size);

@@ -76,6 +76,22 @@ public:
         return _buffer.size();
     }
 
+    Status get_first_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_buffer[PLAIN_PAGE_HEADER_SIZE + (_count - 1) * SIZE_OF_TYPE], SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
     // this api will release the memory ownership of encoded data
     // Note:
     //     release() should be called after finish
