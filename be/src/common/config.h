@@ -431,10 +431,6 @@ namespace config {
     // and the tablet will be marked as bad, so that FE will try to repair it.
     CONF_Bool(auto_recover_index_loading_failure, "false");
 
-    // This configuration is used to recover compaction under the corner case.
-    // If this configuration is set to true, block will seek position.
-    CONF_Bool(block_seek_position, "false");
-
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
     // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
     CONF_Int32(max_memory_sink_batch_count, "20");

@@ -306,7 +306,7 @@ private:
 
     bool _eof;                             // eof标志
 
-    // If this field is false, client must to call seek_to_block before
+    // If this field is true, client must to call seek_to_block before
     // calling get_block.
     bool _need_to_seek_block = true;
 
