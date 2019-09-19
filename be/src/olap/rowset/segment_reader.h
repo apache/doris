@@ -308,7 +308,7 @@ private:
 
     // If this field is false, client must to call seek_to_block before
     // calling get_block.
-    bool _seek_block = true;
+    bool _need_to_seek_block = true;
 
     int64_t _end_block;                           // 本次读取的结束块
     int64_t _current_block_id = 0;                       // 当前读取到的块
