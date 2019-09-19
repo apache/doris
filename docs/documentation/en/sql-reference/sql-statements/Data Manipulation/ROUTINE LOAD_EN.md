@@ -139,7 +139,7 @@ FROM data_source
             
     5. timezone
 
-        Specifies the time zone in which the job will be loaded. The default is East Eight District. This parameter affects all function results related to the time zone involved in the load.
+        Specifies the time zone in which the job will be loaded. The default by using session variable's timezone. This parameter affects all function results related to the time zone involved in the load.
 
 5. data_source
 
@@ -248,7 +248,7 @@ FROM data_source
 
             1) OFFSET_BEGINNING: Subscribe from the location where the data is avaie.
 
-            2) OFFSET_END: ​​Subscribe from the end.
+            2) OFFSET_END: Subscribe from the end.
 
             Example:
 

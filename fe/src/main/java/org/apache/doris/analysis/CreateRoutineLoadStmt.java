@@ -28,6 +28,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -324,6 +325,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                                       RoutineLoadJob.DEFAULT_STRICT_MODE,
                                                       LoadStmt.STRICT_MODE + " should be a boolean");
 
+        if (ConnectContext.get() != null) {
+            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+        }
         timezone = jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone);
         TimeUtils.checkTimeZoneValid(timezone);
     }
