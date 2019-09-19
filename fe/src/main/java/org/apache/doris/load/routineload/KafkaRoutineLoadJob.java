@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import static org.apache.doris.analysis.CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS;
-
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -133,8 +131,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
         }
-        if (convertedCustomProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
-            kafkaDefaultOffSet = convertedCustomProperties.remove(KAFKA_DEFAULT_OFFSETS);
+        if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)) {
+            kafkaDefaultOffSet = convertedCustomProperties.remove(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
         }
     }
 
