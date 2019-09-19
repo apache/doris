@@ -146,20 +146,11 @@ public:
             break;
         }
         case TUnit::DATE_MS: {
-            std::stringstream time_ss;
-            uint64_t time = (uint64_t)value;
-            if (time < 0) {
-                time_ss << "-";
-                time = -1 * time;
-            }
-            int hour = time / 1000 / 60 / 60;
-            int minute = time / 1000 / 60 % 60;
-            int second = time /1000 % 60;
-
-            ss << std::setw(2) << std::setfill('0') << hour 
-               << ":" << std::setw(2) << std::setfill('0') << minute 
-               << ":" << std::setw(2) << std::setfill('0') << second
-               << "." << (time % 1000) / 1000;
+            char buf[32] = { 0 };
+            time_t now_time = (time_t)(value / 1000);
+            tm * local = localtime(&now_time);
+            strftime(buf, 128, "%Y-%m-%d %H:%M:%S", local);
+            ss << buf << "." << value % 1000;
             break;
         }
         default:
