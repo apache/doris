@@ -28,6 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * ---
+ * Author: Kostya Serebryany
  */
 
 #ifdef __cplusplus

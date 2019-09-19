@@ -1,4 +1,5 @@
 // Copyright 2008 Google Inc. All Rights Reserved.
+// Authors: Numerous. See the .h for contact people.
 
 #include "gutil/strings/escaping.h"
 

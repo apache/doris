@@ -1,4 +1,5 @@
 /*
+ * The authors of this software are Rob Pike and Ken Thompson.
  *              Copyright (c) 2002 by Lucent Technologies.
  * Permission to use, copy, modify, and distribute this software for any
  * purpose without fee is hereby granted, provided that this entire notice

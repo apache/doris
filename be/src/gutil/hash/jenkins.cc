@@ -3,6 +3,8 @@
 // Contains the legacy Bob Jenkins Lookup2-based hashing routines. These need to
 // always return the same results as their values have been recorded in various
 // places and cannot easily be updated.
+// Original Author: Sanjay Ghemawat
+//
 //
 // This is based on Bob Jenkins newhash function
 // see: http://burtleburtle.net/bob/hash/evahash.html
