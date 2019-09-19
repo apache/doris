@@ -24,6 +24,7 @@
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/olap_cond.h" // for CondColumn
+#include "olap/tablet_schema.h"
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
@@ -111,6 +112,8 @@ public:
     ColumnIterator() { }
     virtual ~ColumnIterator() { }
 
+    virtual Status init() { return Status::OK(); }
+
     // Seek to the first entry in the column.
     virtual Status seek_to_first() = 0;
 
@@ -183,6 +186,40 @@ private:
     // page iterator used to get next page when current page is finished.
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
+
+    // current rowid
+    rowid_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class DefaultValueColumnIterator : public ColumnIterator {
+public:
+    DefaultValueColumnIterator(const TabletColumn& tablet_column)
+        : _tablet_column(tablet_column) { }
+
+    ~DefaultValueColumnIterator() { }
+
+    Status init() override;
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(rowid_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, ColumnBlock* dst) override;
+
+    rowid_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    const TabletColumn& _tablet_column;
+    bool _is_default_value_null;
+    char* _default_value;
+    size_t _value_size;
 
     // current rowid
     rowid_t _current_rowid = 0;
