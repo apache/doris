@@ -32,11 +32,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /*
- * Author: Chenmingyu
- * Date: Jun 10, 2019
- */
-
-/*
  * This class saves the schema of a colocation group
  */
 public class ColocateGroupSchema implements Writable {

@@ -37,11 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
- * Author: Chenmingyu
- * Date: Aug 27, 2019
- */
-
 public class HashDistributionPrunerTest {
 
     @Test

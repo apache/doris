@@ -24,11 +24,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 14, 2019
- */
-
 // saves all TxnStateChangeListeners
 public class TxnStateCallbackFactory {
     private static final Logger LOG = LogManager.getLogger(TxnStateCallbackFactory.class);

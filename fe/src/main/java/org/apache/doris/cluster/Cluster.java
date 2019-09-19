@@ -42,8 +42,6 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * cluster only save db and user's id and name
  * 
- * @author chenhao
- *
  */
 public class Cluster implements Writable {
     private static final Logger LOG = LogManager.getLogger(Cluster.class);
