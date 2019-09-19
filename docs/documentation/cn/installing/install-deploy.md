@@ -378,3 +378,17 @@ Broker 是无状态的进程，可以随意启停。当然，停止后，正在�
 	> 出现这个问题的主要原因是：当用户通过 `ADD BACKEND` 语句添加 BE 后，FE 会识别该语句中指定的是 hostname 还是 IP。如果是 hostname，则 FE 会自动将其转换为 IP 地址并存储到元数据中。当 BE 在汇报任务完成信息时，会携带自己的 IP 地址。而如果 FE 发现 BE 汇报的 IP 地址和元数据中不一致时，就会出现如上错误。  
     >
 	> 这个错误的解决方法：1）分别在 FE 和 BE 设置 **priority\_network** 参数。通常 FE 和 BE 都处于一个网段，所以该参数设置为相同即可。2）在 `ADD BACKEND` 语句中直接填写 BE 正确的 IP 地址而不是 hostname，以避免 FE 获取到错误的 IP 地址。
+
+5. BE 进程文件句柄数
+
+    BE进程文件句柄数，受min_file_descriptor_number/max_file_descriptor_number两个参数控制。
+
+    如果不在[min_file_descriptor_number, max_file_descriptor_number]区间内，BE进程启动会出错，可以使用ulimit进行设置。
+
+    min_file_descriptor_number的默认值为65536。
+
+    max_file_descriptor_number的默认值为131072.
+
+    举例而言：ulimit -n 65536; 表示将文件句柄设成65536。
+
+    启动BE进程之后，可以通过 cat /proc/$pid/limits 查看进程实际生效的句柄数
