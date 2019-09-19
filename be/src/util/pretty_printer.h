@@ -145,6 +145,7 @@ public:
             ss << std::setprecision(PRECISION) << output << " ";
             break;
         }
+
         case TUnit::DATE_MS: {
             char buf[32] = { 0 };
             time_t now_time = (time_t)(value / 1000);
