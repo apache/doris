@@ -107,6 +107,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
             .add(LoadStmt.STRICT_MODE)
+            .add(LoadStmt.TIMEZONE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
