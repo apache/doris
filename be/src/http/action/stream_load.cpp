@@ -344,6 +344,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    if (!http_req->header(HTTP_TIMEZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
