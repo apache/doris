@@ -1,5 +1,4 @@
 // Copyright 2010 Google Inc. All Rights Reserved.
-// Authors: jyrki@google.com (Jyrki Alakuijala), gpike@google.com (Geoff Pike)
 
 #ifndef UTIL_HASH_HASH128TO64_H_
 #define UTIL_HASH_HASH128TO64_H_

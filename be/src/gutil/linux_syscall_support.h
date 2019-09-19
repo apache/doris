@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * ---
- * Author: Markus Gutschke
  */
 
 /* This file includes Linux-specific support functions common to the

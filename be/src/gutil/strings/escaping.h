@@ -1,5 +1,4 @@
 // Copyright 2006 Google Inc. All Rights Reserved.
-// Authors: Numerous. Principal maintainers are csilvers and zunger.
 //
 // This is a grab-bag file for string utilities involved in escaping and
 // unescaping strings in various ways. Who knew there were so many?

@@ -35,11 +35,6 @@ import org.junit.rules.ExpectedException;
 
 import java.util.Locale;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 13, 2019
- */
-
 public class FEFunctionsTest {
 
     @Rule

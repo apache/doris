@@ -1,5 +1,4 @@
 // Copyright 2010 Google Inc. All Rights Reserved.
-// Authors: gpike@google.com (Geoff Pike), jyrki@google.com (Jyrki Alakuijala)
 //
 // This file provides a few functions for hashing strings.  On x86-64
 // hardware as of early 2010, CityHash64() is much faster than

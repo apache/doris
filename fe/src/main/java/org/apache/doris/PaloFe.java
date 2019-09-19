@@ -48,9 +48,6 @@ import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
-/**
- * Created by zhaochun on 14-9-22.
- */
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
 

@@ -25,11 +25,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 14, 2019
- */
-
 public class RoutineLoadOperation implements Writable {
     private long id;
     private JobState jobState;

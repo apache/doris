@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * ---
- * Author: Kostya Serebryany
  */
 
 /* This file defines dynamic annotations for use with dynamic analysis

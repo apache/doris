@@ -24,11 +24,6 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-/**
- * author: chenmingyu
- * date: 19/4/25 10:43
- * project: doris
- */
 public class TransStateProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("State").add("Number")

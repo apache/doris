@@ -4,8 +4,6 @@
 // always return the same results as their values have been recorded in various
 // places and cannot easily be updated.
 //
-// Original Author: Sanjay Ghemawat
-//
 // This is based on Bob Jenkins newhash function
 // see: http://burtleburtle.net/bob/hash/evahash.html
 // According to http://burtleburtle.net/bob/c/lookup2.c,

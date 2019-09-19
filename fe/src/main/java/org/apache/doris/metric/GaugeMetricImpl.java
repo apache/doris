@@ -17,11 +17,6 @@
 
 package org.apache.doris.metric;
 
-/*
- * Author: Chenmingyu
- * Date: Jan 30, 2019
- */
-
 public class GaugeMetricImpl<T> extends GaugeMetric<T> {
 
     public GaugeMetricImpl(String name, String description) {
