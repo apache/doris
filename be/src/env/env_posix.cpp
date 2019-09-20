@@ -162,6 +162,7 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset,
 
         if (PREDICT_TRUE(w == rem)) {
             // All requested bytes were read. This is almost always the case.
+            rem = 0;
             break;
         }
         // Adjust iovec vector based on bytes read for the next request.
