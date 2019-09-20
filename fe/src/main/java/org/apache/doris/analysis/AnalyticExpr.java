@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.AnalyticWindow.Boundary;
 import org.apache.doris.analysis.AnalyticWindow.BoundaryType;
 import org.apache.doris.catalog.AggregateFunction;
@@ -30,6 +26,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.thrift.TExprNode;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -285,6 +287,10 @@ public class AnalyticExpr extends Expr {
         Expr val = getFnCall().getChild(2);
 
         if (!(val instanceof LiteralExpr)) {
+            return;
+        }
+
+        if (!getFnCall().getChild(0).getType().getPrimitiveType().isNumericType()) {
             return;
         }
 
