@@ -32,16 +32,16 @@ StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     const int HLL_SINGLE_VALUE_SIZE = 10;
     const int HLL_EMPTY_SIZE = 1;
     std::string buf;
-    std::unique_ptr<HyperLogLog> hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
-        hll.reset(new HyperLogLog(hash_value));
+        HyperLogLog hll(hash_value);
         buf.resize(HLL_SINGLE_VALUE_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
     } else {
-        hll.reset(new HyperLogLog());
+        HyperLogLog hll;
         buf.resize(HLL_EMPTY_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
     }
-    hll->serialize((char*)buf.c_str());
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
@@ -64,7 +64,7 @@ void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
     }
 }
 void HllFunctions::hll_merge(FunctionContext*, const StringVal &src, StringVal* dst) {
-    HyperLogLog src_hll = HyperLogLog((char*)src.ptr);
+    HyperLogLog src_hll((uint8_t*)src.ptr);
     auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst->ptr);
     dst_hll->merge(src_hll);
 }
@@ -89,7 +89,7 @@ BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& i
 StringVal HllFunctions::hll_serialize(FunctionContext *ctx, const StringVal &src) {
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
     StringVal result(ctx, HLL_COLUMN_DEFAULT_LEN);
-    int size = src_hll->serialize((char*)result.ptr);
+    int size = src_hll->serialize((uint8_t*)result.ptr);
     result.resize(ctx, size);
     delete src_hll;
     return result;

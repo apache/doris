@@ -30,15 +30,16 @@ StringVal HllHashFunctions::hll_hash(FunctionContext* ctx, const StringVal& inpu
     const int HLL_SINGLE_VALUE_SIZE = 10;
     const int HLL_EMPTY_SIZE = 1;
     std::string buf;
-    std::unique_ptr<HyperLogLog> hll {new HyperLogLog()};
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
-        hll.reset(new HyperLogLog(hash_value));
+        HyperLogLog hll(hash_value);
         buf.resize(HLL_SINGLE_VALUE_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
     } else {
+        HyperLogLog hll;
         buf.resize(HLL_EMPTY_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
     }
-    hll->serialize((char*)buf.c_str());
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
