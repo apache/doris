@@ -287,14 +287,12 @@ bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_
     bool success = tracker->TryConsumeFromMemTracker(bytes);
     DCHECK(success);
     if (tracker != other_path_to_common[0]) tracker->child_reservations_ += bytes;
-    tracker->DebugString();
   }
   
   for (ReservationTracker* tracker : path_to_common) {
     if (tracker != path_to_common[0]) tracker->child_reservations_ -= bytes;
     tracker->UpdateReservation(-bytes);
     tracker->ReleaseToMemTracker(bytes);
-    tracker->DebugString();
   }
 
   // Update the 'child_reservations_' on the common ancestor if needed.
@@ -302,14 +300,12 @@ bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_
   if (common_ancestor == other) {
     lock_guard<SpinLock> l(other->lock_);
     other->child_reservations_ -= bytes;
-    other->DebugString();
     other->CheckConsistency();
   }
   // Case 2: reservation was pushed down below 'this'.
   if (common_ancestor == this) {
     lock_guard<SpinLock> l(lock_);
     child_reservations_ += bytes;
-    DebugString();
     CheckConsistency();
   }
   return true;
