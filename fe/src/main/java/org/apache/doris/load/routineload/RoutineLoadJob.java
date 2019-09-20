@@ -247,6 +247,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
+        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -378,6 +379,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return DEFAULT_STRICT_MODE;
         }
         return Boolean.valueOf(value);
+    }
+
+    public String getTimezone() {
+        String value = jobProperties.get(LoadStmt.TIMEZONE);
+        if (value == null) {
+            return TimeUtils.DEFAULT_TIME_ZONE;
+        }
+        return value;
     }
 
     public RoutineLoadProgress getProgress() {
@@ -776,7 +785,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                           + " maybe task was aborted by master when timeout")
                                   .build());
             }
-        } else if (checkCommitInfo(rlTaskTxnCommitAttachment)) {
+        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState.getTransactionStatus())) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
@@ -974,7 +983,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     // check the correctness of commit info
-    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment);
+    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
+            TransactionStatus txnStatus);
 
     protected abstract String getStatistic();
 

@@ -289,6 +289,15 @@ OLAPStatus SegmentReader::seek_to_block(
     *next_block_id = _next_block_id;
     *eof = _eof;
 
+    // Must seek block when starts a ScanKey.
+    // In Doris, one block has 1024 rows.
+    // 1. If the previous ScanKey scan rows multiple blocks,
+    //    and also the final block has 1024 rows just right.
+    // 2. The current ScanKey scan rows with number less than one block.
+    // Under the two conditions, if not seek block, the position
+    // of prefix shortkey columns is wrong.
+    _need_to_seek_block = true;
+
     return OLAP_SUCCESS;
 }
 
@@ -832,7 +841,7 @@ OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
 
 OLAPStatus SegmentReader::_seek_to_block_directly(
         int64_t block_id, const std::vector<uint32_t>& cids) {
-    if (!config::block_seek_position && _at_block_start && block_id == _current_block_id) {
+    if (!_need_to_seek_block && block_id == _current_block_id) {
         // no need to execute seek
         return OLAP_SUCCESS;
     }
@@ -861,7 +870,7 @@ OLAPStatus SegmentReader::_seek_to_block_directly(
         }
     }
     _current_block_id = block_id;
-    _at_block_start = true;
+    _need_to_seek_block = false;
     return OLAP_SUCCESS;
 }
 
@@ -933,7 +942,7 @@ OLAPStatus SegmentReader::_load_to_vectorized_row_batch(
     if (size == _num_rows_in_block) {
         _current_block_id++;
     } else {
-        _at_block_start = false;
+        _need_to_seek_block = true;
     }
 
     _stats->blocks_load++;

@@ -37,6 +37,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -55,8 +56,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.apache.doris.analysis.CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS;
 
 /**
  * KafkaRoutineLoadJob is a kind of RoutineLoadJob which fetch data from kafka.
@@ -132,8 +131,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
             }
         }
-        if (convertedCustomProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
-            kafkaDefaultOffSet = convertedCustomProperties.remove(KAFKA_DEFAULT_OFFSETS);
+        if (convertedCustomProperties.containsKey(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)) {
+            kafkaDefaultOffSet = convertedCustomProperties.remove(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
         }
     }
 
@@ -189,15 +188,26 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return currentTaskConcurrentNum;
     }
 
-    // partitionIdToOffset must be not empty when loaded rows > 0
-    // situation1: be commit txn but fe throw error when committing txn,
-    //             fe rollback txn without partitionIdToOffset by itself
-    //             this task should not be commit
-    //             otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
+    // case1: BE execute the task successfully and commit it to FE, but failed on FE(such as db renamed, not found),
+    //        after commit failed, BE try to rollback this txn, and loaded rows in its attachment is larger than 0.
+    //        In this case, FE should not update the progress.
+    //
+    // case2: partitionIdToOffset must be not empty when loaded rows > 0
+    //        be commit txn but fe throw error when committing txn,
+    //        fe rollback txn without partitionIdToOffset by itself
+    //        this task should not be commit
+    //        otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
     @Override
-    protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+    protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
+            TransactionStatus txnStatus) {
+        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0 && txnStatus == TransactionStatus.ABORTED) {
+            // case 1
+            return false;
+        }
+        
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
                 && (!((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition())) {
+            // case 2
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
                              .add("job_id", id)
                              .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())

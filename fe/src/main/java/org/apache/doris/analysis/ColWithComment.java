@@ -15,10 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.proc;
+package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeNameFormat;
 
-public interface ProcNodeInterface {
-    public ProcResult fetchResult() throws AnalysisException;
+import com.google.common.base.Strings;
+
+public class ColWithComment {
+
+    private String colName;
+    private String comment;
+
+    public ColWithComment(String colName, String comment) {
+        this.colName = colName;
+        this.comment = Strings.nullToEmpty(comment);
+    }
+
+    public void analyze() throws AnalysisException {
+        FeNameFormat.checkColumnName(colName);
+    }
+
+    public String getColName() {
+        return colName;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    @Override
+    public String toString() {
+        String str = "`" + colName + "`";
+        if (!comment.isEmpty()) {
+            str += " COMMENT \"" + comment + "\"";
+        }
+        return str;
+    }
 }

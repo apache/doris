@@ -1,7 +1,7 @@
 # BROKER LOAD
 ## description
 
-    Broker load 通过随 Palo 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
+    Broker load 通过随 Doris 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
     可以通过 show broker 命令查看已经部署的 broker。
     目前支持以下4种数据源：
 
@@ -316,7 +316,8 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-     8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+    8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+
         LOAD LABEL example_db.label9
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
@@ -326,7 +327,29 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-     9. 对待导入数据进行过滤，k1 值大于 k2 值的列才能被导入
+    9. 提取文件路径中的分区字段
+
+        如果需要，则会根据表中定义的字段类型解析文件路径中的分区字段（partitioned fields），类似Spark中Partition Discovery的功能
+
+        LOAD LABEL example_db.label10
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/*/*")
+        INTO TABLE `my_table`
+        FORMAT AS "csv"
+        (k1, k2, k3)
+        COLUMNS FROM PATH AS (city, utc_date)
+        SET (uniq_id = md5sum(k1, city))
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+        hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing目录下包括如下文件：
+
+        [hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0000.csv, hdfs://hdfs_host:hdfs_port/user/palo/data/input/dir/city=beijing/utc_date=2019-06-26/0001.csv, ...]
+
+        则提取文件路径的中的city和utc_date字段
+
+    10. 对待导入数据进行过滤，k1 值大于 k2 值的列才能被导入
+
         LOAD LABEL example_db.label10
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")

@@ -25,9 +25,6 @@ import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
 public enum AggregateType {
     SUM("SUM"),
     MIN("MIN"),

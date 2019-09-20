@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-/**
- * Created by zhaochun on 2018/4/24.
- */
 public class ImportWhereStmt extends StatementBase {
     private Expr expr;
 

@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include <rapidjson/document.h>
 
@@ -219,10 +220,6 @@ namespace doris {
             virtual void get_cache_status(rapidjson::Document* document) = 0;
 
         private:
-            void _lru_remove(Handle* e);
-            void _lru_append(Handle* e);
-            void _unref(Handle* e);
-
             DISALLOW_COPY_AND_ASSIGN(Cache);
     };
 
@@ -250,6 +247,12 @@ namespace doris {
                 return CacheKey(key_data, key_length);
             }
         }
+
+        void free() {
+            (*deleter)(key(), value);
+            ::free(this);
+        }
+
     } LRUHandle;
 
     // We provide our own simple hash tablet since it removes a whole bunch
@@ -327,9 +330,8 @@ namespace doris {
         private:
             void _lru_remove(LRUHandle* e);
             void _lru_append(LRUHandle* list, LRUHandle* e);
-            void _ref(LRUHandle* e);
-            void _unref(LRUHandle* e);
-            bool _finish_erase(LRUHandle* e);
+            bool _unref(LRUHandle* e);
+            void _evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted);
 
             // Initialized before use.
             size_t _capacity;
@@ -344,11 +346,7 @@ namespace doris {
             // Entries have refs==1 and in_cache==true.
             LRUHandle _lru;
 
-            // Dummy head of in-use list.
-            // Entries are in use by clients, and have refs >= 2 and in_cache==true.
-            LRUHandle _in_use;
-
-            HandleTable _tablet;
+            HandleTable _table;
 
             uint64_t _lookup_count;    // cache查找总次数
             uint64_t _hit_count;       // 命中cache的总次数

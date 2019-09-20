@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -36,13 +37,15 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class CreateViewStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateViewStmt.class);
 
     private final boolean ifNotExists;
     private final TableName tableName;
-    private final List<String> columnNames;
+    private final List<ColWithComment> cols;
+    private final String comment;
     private final QueryStmt viewDefStmt;
 
     // Set during analyze
@@ -52,10 +55,12 @@ public class CreateViewStmt extends DdlStmt {
     private String inlineViewDef;
     private QueryStmt cloneStmt;
 
-    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<String> columnNames, QueryStmt queryStmt) {
+    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
+            String comment, QueryStmt queryStmt) {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
-        this.columnNames = columnNames;
+        this.cols = cols;
+        this.comment = Strings.nullToEmpty(comment);
         this.viewDefStmt = queryStmt;
         finalCols = Lists.newArrayList();
     }
@@ -80,22 +85,26 @@ public class CreateViewStmt extends DdlStmt {
         return inlineViewDef;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     /**
      * Sets the originalViewDef and the expanded inlineViewDef based on viewDefStmt.
      * If columnNames were given, checks that they do not contain duplicate column names
      * and throws an exception if they do.
      */
     private void createColumnAndViewDefs(Analyzer analyzer) throws AnalysisException, UserException {
-        if (columnNames != null) {
-            if (columnNames.size() != viewDefStmt.getColLabels().size()) {
+        if (cols != null) {
+            if (cols.size() != viewDefStmt.getColLabels().size()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             // TODO(zc): type
-            for (int i = 0; i < columnNames.size(); ++i) {
+            for (int i = 0; i < cols.size(); ++i) {
                 PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        columnNames.get(i),
-                        ScalarType.createType(type)));
+                Column col = new Column(cols.get(i).getColName(), ScalarType.createType(type));
+                col.setComment(cols.get(i).getComment());
+                finalCols.add(col);
             }
         } else {
             // TODO(zc): type
@@ -117,13 +126,14 @@ public class CreateViewStmt extends DdlStmt {
         // format view def string
         originalViewDef = viewDefStmt.toSql();
 
-        if (columnNames == null) {
+        if (cols == null) {
             inlineViewDef = originalViewDef;
             return;
         }
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
-        cloneStmt.substituteSelectList(tmpAnalyzer, columnNames);
+        List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
+        cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
         inlineViewDef = cloneStmt.toSql();
 
         // StringBuilder sb = new StringBuilder();
@@ -146,7 +156,7 @@ public class CreateViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (columnNames != null) {
+        if (cols != null) {
             cloneStmt = viewDefStmt.clone();
         }
         tableName.analyze(analyzer);

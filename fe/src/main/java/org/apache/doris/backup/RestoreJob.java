@@ -502,11 +502,11 @@ public class RestoreJob extends AbstractJob {
                                 if (localRange.equals(remoteRange)) {
                                     // Same partition, same range
                                     if (localRangePartInfo.getReplicationNum(localPartition.getId()) != restoreReplicationNum) {
-                                        status = new Status(ErrCode.COMMON_ERROR, "Parition " + backupPartInfo.name
+                                        status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                                                 + " in table " + localTbl.getName()
                                                 + " has different replication num '"
                                                 + localRangePartInfo.getReplicationNum(localPartition.getId())
-                                                + "' with parition in repository, which is " + restoreReplicationNum);
+                                                + "' with partition in repository, which is " + restoreReplicationNum);
                                         return;
                                     }
                                     genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
@@ -516,19 +516,19 @@ public class RestoreJob extends AbstractJob {
                                                                         backupPartInfo.versionHash));
                                 } else {
                                     // Same partition name, different range
-                                    status = new Status(ErrCode.COMMON_ERROR, "Parition " + backupPartInfo.name
+                                    status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                                             + " in table " + localTbl.getName()
-                                            + " has different range with parition in repository");
+                                            + " has different range with partition in repository");
                                     return;
                                 }
                             } else {
                                 // If this is a single partitioned table.
                                 if (localPartInfo.getReplicationNum(localPartition.getId()) != restoreReplicationNum) {
-                                    status = new Status(ErrCode.COMMON_ERROR, "Parition " + backupPartInfo.name
+                                    status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                                             + " in table " + localTbl.getName()
                                             + " has different replication num '"
                                             + localPartInfo.getReplicationNum(localPartition.getId())
-                                            + "' with parition in repository, which is " + restoreReplicationNum);
+                                            + "' with partition in repository, which is " + restoreReplicationNum);
                                     return;
                                 }
 
@@ -549,7 +549,7 @@ public class RestoreJob extends AbstractJob {
                                         = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
                                 Range<PartitionKey> remoteRange = remoteRangePartitionInfo.getRange(backupPartInfo.id);
                                 if (!localRangePartitionInfo.checkRange(remoteRange)) {
-                                    status = new Status(ErrCode.COMMON_ERROR, "Parition " + backupPartInfo.name
+                                    status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                                             + " in table " + localTbl.getName()
                                             + " has conflict range with existing ranges");
                                     return;
