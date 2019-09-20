@@ -27,8 +27,6 @@ void HllHashFunctions::init() {
 }
 
 StringVal HllHashFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
-    const int HLL_SINGLE_VALUE_SIZE = 10;
-    const int HLL_EMPTY_SIZE = 1;
     std::string buf;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);

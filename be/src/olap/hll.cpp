@@ -49,8 +49,8 @@ void HyperLogLog::_convert_explicit_to_register() {
     std::set<uint64_t>().swap(_hash_set);
 }
 
-// Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly because they are
-// implemented in the same way in memory.
+// Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly, because HLL_DATA_SPRASE
+// is implemented in the same way in memory with HLL_DATA_FULL.
 void HyperLogLog::update(uint64_t hash_value) {
     switch (_type) {
     case HLL_DATA_EMPTY:
@@ -167,7 +167,7 @@ int HyperLogLog::serialize(uint8_t* dest) {
         // each register in sparse format will occupy 3bytes, 2 for index and
         // 1 for register value. So if num_non_zero_registers is greater than
         // 4K we use full encode format.
-        if (num_non_zero_registers > 4096) {
+        if (num_non_zero_registers > HLL_SPARSE_THRESHOLD) {
             *ptr++ = HLL_DATA_FULL;
             memcpy(ptr, _registers, HLL_REGISTERS_COUNT);
             ptr += HLL_REGISTERS_COUNT;

@@ -28,10 +28,16 @@
 namespace doris {
 
 const static int HLL_COLUMN_PRECISION = 14;
+const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICLIT_INT64_NUM = 160;
+const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
 const static int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
+
+// 1 for type; 1 for hash values count; 8 for hash value
+const static int HLL_SINGLE_VALUE_SIZE = 10;
+const static int HLL_EMPTY_SIZE = 1;
 
 // Hyperloglog distinct estimate algorithm.
 // See these papers for more details.
@@ -42,9 +48,18 @@ const static int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
 // Each HLL value is a set of values. To save space, Doris store HLL value
 // in different format according to its cardinality.
 //
-// HLL_DATA_EMPTY: when set is empty
-// HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit
-// HLL_DATA_SPRASE:  only store registers which is not emtpy
+// HLL_DATA_EMPTY: when set is empty.
+//
+// HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit.
+// If the number of hash values is not greater than 160, set is encoded in this format.
+// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is choosed,
+// maybe can be other number. If you are interested, you can try other number and see
+// if it will be better.
+//
+// HLL_DATA_SPRASE: only store non-zero registers. If the number of non-zero registers
+// is not greater than 4096, set is encoded in this format. The max space occupied is
+// (1 + 4 + 3 * 4096) = 12293.
+//
 // HLL_DATA_FULL: most space-consuming, store all registers
 // 
 // A HLL value will change in the sequence empty -> explicit -> sparse -> full, and not
@@ -123,17 +138,15 @@ private:
 
     void _convert_explicit_to_register();
 
-    // return trailing zeros
-    uint8_t trailing_zeros(uint64_t value) {
-        return value == 0 ? 64 : __builtin_ctzl(value);
-    }
-
     // update one hash value into this registers
     void _update_registers(uint64_t hash_value) {
         // Use the lower bits to index into the number of streams and then
         // find the first 1 bit after the index bits.
         int idx = hash_value % HLL_REGISTERS_COUNT;
-        uint8_t first_one_bit = trailing_zeros(hash_value >> HLL_COLUMN_PRECISION) + 1;
+        hash_value >>= HLL_COLUMN_PRECISION;
+        // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
+        hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
+        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
         _registers[idx] = std::max((uint8_t)_registers[idx], first_one_bit);
     }
 
