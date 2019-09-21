@@ -923,20 +923,17 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
             }
 
-            if (KeysType.AGG_KEYS == olapTable.getKeysType()
-                    || KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-                // 2. check compatible
-                for (Column alterColumn : alterSchema) {
-                    for (Column oriColumn : originSchema) {
-                        if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
-                            if (!alterColumn.equals(oriColumn)) {
-                                // 3.1 check type
-                                oriColumn.checkSchemaChangeAllowed(alterColumn);
-                            }
+            // 2. check compatible
+            for (Column alterColumn : alterSchema) {
+                for (Column oriColumn : originSchema) {
+                    if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
+                        if (!alterColumn.equals(oriColumn)) {
+                            // 3.1 check type
+                            oriColumn.checkSchemaChangeAllowed(alterColumn);
                         }
-                    } // end for ori
-                } // end for alter
-            }
+                    }
+                } // end for ori
+            } // end for alter
 
             // 3. check partition key
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
