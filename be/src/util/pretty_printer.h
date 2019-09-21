@@ -146,7 +146,7 @@ public:
             break;
         }
 
-        case TUnit::DATE_MS: {
+        case TUnit::TIMESTAMP_MS: {
             char buf[32] = { 0 };
             time_t now_time = (time_t)(value / 1000);
             tm * local = localtime(&now_time);

@@ -46,7 +46,7 @@ namespace doris {
 #if ENABLE_COUNTERS
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
-#define ADD_TS(profile, name) (profile)->add_counter(name, TUnit::DATE_MS)
+#define ADD_TS(profile, name) (profile)->add_counter(name, TUnit::TIMESTAMP_MS)
 #define ADD_CHILD_TIMER(profile, name, parent) \
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
