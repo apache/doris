@@ -23,15 +23,21 @@
 #include <set>
 #include <map>
 
-#include "olap/olap_common.h"
+#include "gutil/macros.h"
 
 namespace doris {
 
 const static int HLL_COLUMN_PRECISION = 14;
+const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICLIT_INT64_NUM = 160;
-const static int HLL_REGISTERS_COUNT = 16384;
+const static int HLL_SPARSE_THRESHOLD = 4096;
+const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
-const static int HLL_COLUMN_DEFAULT_LEN = 16385;
+const static int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
+
+// 1 for type; 1 for hash values count; 8 for hash value
+const static int HLL_SINGLE_VALUE_SIZE = 10;
+const static int HLL_EMPTY_SIZE = 1;
 
 // Hyperloglog distinct estimate algorithm.
 // See these papers for more details.
@@ -39,43 +45,61 @@ const static int HLL_COLUMN_DEFAULT_LEN = 16385;
 // algorithm (2007)
 // 2) HyperLogLog in Practice (paper from google with some improvements)
 
-// 通过varchar的变长编码方式实现hll集合
-// 实现hll列中间计算结果的处理
-// empty 空集合
-// explicit 存储64位hash值的集合
-// sparse 存储hll非0的register
-// full  存储全部的hll register
-// empty -> explicit -> sparse -> full 四种类型的转换方向不可逆
-// 第一个字节存放hll集合的类型 0:empty 1:explicit 2:sparse 3:full
-// 已决定后面的数据怎么解析
+// Each HLL value is a set of values. To save space, Doris store HLL value
+// in different format according to its cardinality.
+//
+// HLL_DATA_EMPTY: when set is empty.
+//
+// HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit.
+// If the number of hash values is not greater than 160, set is encoded in this format.
+// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is choosed,
+// maybe can be other number. If you are interested, you can try other number and see
+// if it will be better.
+//
+// HLL_DATA_SPRASE: only store non-zero registers. If the number of non-zero registers
+// is not greater than 4096, set is encoded in this format. The max space occupied is
+// (1 + 4 + 3 * 4096) = 12293.
+//
+// HLL_DATA_FULL: most space-consuming, store all registers
+// 
+// A HLL value will change in the sequence empty -> explicit -> sparse -> full, and not
+// allow reverse.
+//
+// NOTE: This values are persisted in storage devices, so don't change exist
+// enum values.
+enum HllDataType {
+    HLL_DATA_EMPTY = 0,
+    HLL_DATA_EXPLICIT = 1,
+    HLL_DATA_SPRASE = 2,
+    HLL_DATA_FULL = 3,
+};
+
 class HyperLogLog {
 public:
-    HyperLogLog(): _type(HLL_DATA_EMPTY){
-        memset(_registers, 0, HLL_REGISTERS_COUNT);
-    }
 
+    HyperLogLog() = default;
     explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
         _hash_set.emplace(hash_value);
     }
+    explicit HyperLogLog(const uint8_t* src);
 
-    explicit HyperLogLog(char* src);
+    ~HyperLogLog() {
+        delete[] _registers;
+    }
 
     typedef uint8_t SetTypeValueType;
     typedef int32_t SparseLengthValueType;
     typedef uint16_t SparseIndexType;
     typedef uint8_t SparseValueType;
 
-    // change the _type to HLL_DATA_FULL directly has two reasons:
-    // 1. keep behavior consistent with before
-    // 2. make the code logic is simple
-    void update(const uint64_t hash_value) {
-        _type = HLL_DATA_FULL;
-        update_registers(_registers, hash_value);
-    }
+    // Add a hash value to this HLL value
+    // NOTE: input must be a hash_value
+    void update(uint64_t hash_value);
 
     void merge(const HyperLogLog& other);
 
-    int serialize(char* dest);
+    int serialize(uint8_t* dest);
+    bool deserialize(const uint8_t* ptr);
 
     int64_t estimate_cardinality();
 
@@ -102,66 +126,35 @@ public:
     }
 
 private:
-    HllDataType _type;
-    char _registers[HLL_REGISTERS_COUNT];
+    HllDataType _type = HLL_DATA_EMPTY;
     std::set<uint64_t> _hash_set;
 
-    static void update_registers(char* registers, uint64_t hash_value) {
+    // This field is much space consumming(HLL_REGISTERS_COUNT), we craete
+    // it only when it is really needed.
+    uint8_t* _registers = nullptr;
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(HyperLogLog);
+
+    void _convert_explicit_to_register();
+
+    // update one hash value into this registers
+    void _update_registers(uint64_t hash_value) {
         // Use the lower bits to index into the number of streams and then
         // find the first 1 bit after the index bits.
         int idx = hash_value % HLL_REGISTERS_COUNT;
-        uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
-        registers[idx] = std::max((uint8_t)registers[idx], first_one_bit);
+        hash_value >>= HLL_COLUMN_PRECISION;
+        // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
+        hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
+        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
+        _registers[idx] = std::max((uint8_t)_registers[idx], first_one_bit);
     }
 
-    static void merge_hash_set_to_registers(char* registers, const std::set<uint64_t>& hash_set) {
-        for (auto hash_value: hash_set) {
-            update_registers(registers, hash_value);
+    // absorb other registers into this registers
+    void _merge_registers(const uint8_t* other_registers) {
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            _registers[i] = std::max(_registers[i], other_registers[i]);
         }
-    }
-
-    static void merge_registers(char* registers, const char* other_registers) {
-        for (int i = 0; i < doris::HLL_REGISTERS_COUNT; ++i) {
-            registers[i] = std::max(registers[i], other_registers[i]);
-        }
-    }
-
-    static int serialize_full(char* result, char* registers) {
-        result[0] = HLL_DATA_FULL;
-        memcpy(result + 1, registers, HLL_REGISTERS_COUNT);
-        return HLL_COLUMN_DEFAULT_LEN;
-    }
-
-    static int serialize_sparse(char *result, const std::map<int, uint8_t>& index_to_value) {
-        result[0] = HLL_DATA_SPRASE;
-        int len = sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-        char* write_value_pos = result + len;
-        for (auto iter = index_to_value.begin();
-             iter != index_to_value.end(); iter++) {
-            write_value_pos[0] = (char)(iter->first & 0xff);
-            write_value_pos[1] = (char)(iter->first >> 8 & 0xff);
-            write_value_pos[2] = iter->second;
-            write_value_pos += 3;
-        }
-        int registers_count = index_to_value.size();
-        len += registers_count * (sizeof(SparseIndexType)+ sizeof(SparseValueType));
-        *(int*)(result + 1) = registers_count;
-        return len;
-    }
-
-    static int serialize_explicit(char* result, const std::set<uint64_t>& hash_value_set) {
-        result[0] = HLL_DATA_EXPLICIT;
-        result[1] = (uint8_t)(hash_value_set.size());
-        int len = sizeof(SetTypeValueType) + sizeof(uint8_t);
-        char* write_pos = result + len;
-        for (auto iter = hash_value_set.begin();
-             iter != hash_value_set.end(); iter++) {
-            uint64_t hash_value = *iter;
-            *(uint64_t*)write_pos = hash_value;
-            write_pos += 8;
-        }
-        len += sizeof(uint64_t) * hash_value_set.size();
-        return len;
     }
 };
 

@@ -31,6 +31,7 @@
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
+#include "util/uid_util.h" // for print_id
 
 namespace llvm {
 class Function;
