@@ -394,8 +394,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             read_opts.conditions = conditions.get();
             std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
 
-            Arena arena;
-            RowBlockV2 block(schema, 1024, &arena);
+            RowBlockV2 block(schema, 1024);
 
             // only first block(first 1024 rows) will be read because of bloom filter
             int left = 1024;
