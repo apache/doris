@@ -53,8 +53,7 @@ public:
         Status status = page_builder.get_dictionary_page(&dict_slice);
         ASSERT_TRUE(status.ok());
         PageDecoderOptions dict_decoder_options;
-        std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice, dict_decoder_options));
+        BinaryPlainPageDecoder* dict_page_decoder = new BinaryPlainPageDecoder(dict_slice, dict_decoder_options);
         status = dict_page_decoder->init();
         ASSERT_TRUE(status.ok());
         // because every slice is unique
@@ -62,8 +61,9 @@ public:
 
         // decode
         PageDecoderOptions decoder_options;
-        decoder_options.dict_decoder = dict_page_decoder;
         BinaryDictPageDecoder page_decoder(s, decoder_options);
+        page_decoder.set_dict_decoder(dict_page_decoder);
+
         status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(slices.size(), page_decoder.count());
@@ -147,16 +147,15 @@ public:
             int slice_index = random() % results.size();
             //int slice_index = 1;
             PageDecoderOptions dict_decoder_options;
-            std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice, dict_decoder_options));
+            BinaryPlainPageDecoder* dict_page_decoder = new BinaryPlainPageDecoder(dict_slice, dict_decoder_options);
             status = dict_page_decoder->init();
             ASSERT_TRUE(status.ok());
 
             // decode
             PageDecoderOptions decoder_options;
-            decoder_options.dict_decoder = dict_page_decoder;
             BinaryDictPageDecoder page_decoder(results[slice_index], decoder_options);
             status = page_decoder.init();
+            page_decoder.set_dict_decoder(dict_page_decoder);
             ASSERT_TRUE(status.ok());
 
             //check values

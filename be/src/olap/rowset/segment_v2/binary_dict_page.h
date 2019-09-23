@@ -118,13 +118,13 @@ public:
 
     bool is_dict_encoding();
 
-    void set_dict_decoder(std::shared_ptr<BinaryPlainPageDecoder> dict_decoder);
+    void set_dict_decoder(PageDecoder* dict_decoder);
 
 private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    std::shared_ptr<BinaryPlainPageDecoder> _dict_decoder;
+    BinaryPlainPageDecoder* _dict_decoder;
     bool _parsed;
     EncodingTypePB _encoding_type;
     faststring _code_buf;

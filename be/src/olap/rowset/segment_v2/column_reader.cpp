@@ -167,22 +167,8 @@ void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
-Status ColumnReader::get_dict_page_decoder(BinaryDictPageDecoder* binaryDictPageDecoder) {
-    if (_column_dict_page_decoder == nullptr) {
-        PagePointer pp = _meta.dict_page();
-        PageHandle ph;
-        RETURN_IF_ERROR(read_page(pp, &ph));
-
-        Slice dict_data = ph.data();
-
-        std::shared_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_data));
-        RETURN_IF_ERROR(dict_page_decoder->init());
-
-        _column_dict_page_decoder = dict_page_decoder;
-    }
-    binaryDictPageDecoder->set_dict_decoder(_column_dict_page_decoder);
-    return Status::OK();
+PagePointer ColumnReader::get_dict_page_pointer() {
+     return _meta.dict_page();
 }
 
 void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
@@ -433,7 +419,17 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
         BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
         if (binary_dict_page_decoder->is_dict_encoding()) {
-            RETURN_IF_ERROR(_reader->get_dict_page_decoder(binary_dict_page_decoder));
+            if (_dict_decoder == nullptr) {
+                PagePointer pp = _reader->get_dict_page_pointer();
+                RETURN_IF_ERROR(_reader->read_page(pp, &_dict_page_handle));
+
+                BinaryPlainPageDecoder* dict_decoder = new BinaryPlainPageDecoder(_dict_page_handle.data());
+                RETURN_IF_ERROR(dict_decoder->init());
+
+                std::unique_ptr<PageDecoder> dict_page_ptr(dict_decoder);
+                _dict_decoder = std::move(dict_page_ptr);
+            }
+            binary_dict_page_decoder->set_dict_decoder(_dict_decoder.get());
         }
     }
 

@@ -148,7 +148,6 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
     _data(data),
     _options(options),
     _data_page_decoder(nullptr),
-    _dict_decoder(options.dict_decoder),
     _parsed(false),
     _encoding_type(UNKNOWN_ENCODING) { }
 
@@ -184,8 +183,8 @@ bool BinaryDictPageDecoder::is_dict_encoding() {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(std::shared_ptr<BinaryPlainPageDecoder> dict_decoder){
-    _dict_decoder = dict_decoder;
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder){
+    _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {

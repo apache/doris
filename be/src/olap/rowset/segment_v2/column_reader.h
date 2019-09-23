@@ -28,7 +28,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
-#include "binary_dict_page.h"
+#include "page_handle.h"
 
 namespace doris {
 
@@ -80,7 +80,7 @@ public:
     bool has_zone_map() { return _meta.has_zone_map_page(); }
     void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
 
-    Status get_dict_page_decoder(BinaryDictPageDecoder* opts);
+    PagePointer get_dict_page_pointer();
 
 private:
     Status _init_ordinal_index();
@@ -106,9 +106,6 @@ private:
 
     // column zone map info
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
-
-    // keep dict page
-    std::shared_ptr<BinaryPlainPageDecoder> _column_dict_page_decoder;
 };
 
 // Base iterator to read one column data
@@ -185,6 +182,12 @@ private:
     //    If new seek is issued, the _page will be reset.
     // 3. When _page is null, it means that this reader can not be read.
     std::unique_ptr<ParsedPage> _page;
+
+    // keep dict page decoder
+    std::unique_ptr<PageDecoder> _dict_decoder;
+
+    // keep dict page handle to avoid released
+    PageHandle _dict_page_handle;
 
     // page iterator used to get next page when current page is finished.
     // This value will be reset when a new seek is issued

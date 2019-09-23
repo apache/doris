@@ -33,7 +33,6 @@ struct PageBuilderOptions {
 };
 
 struct PageDecoderOptions {
-    std::shared_ptr<BinaryPlainPageDecoder> dict_decoder = nullptr;
 };
 
 } // namespace segment_v2
