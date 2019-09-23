@@ -1038,7 +1038,7 @@ public class Analyzer {
      */
     public SlotDescriptor getColumnSlot(TupleDescriptor tupleDesc, Column col) {
         for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-            if (slotDesc.getColumn() == col) {
+            if (slotDesc.getColumn().equals(col)) {
                 return slotDesc;
             }
         }
