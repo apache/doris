@@ -417,15 +417,14 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 }
 
 Status DefaultValueColumnIterator::init() {
-    std::string default_value = _tablet_column.default_value();
     // be consistent with segment v1
-    if (default_value == "NULL" && _tablet_column.is_nullable()) {
+    if (_default_value == "NULL" && _is_nullable) {
         _is_default_value_null = true;
     } else {
-        TypeInfo* type_info = get_type_info(_tablet_column.type());
+        TypeInfo* type_info = get_type_info(_type);
         _value_size = type_info->size();
-        _default_value.reserve(_value_size);
-        OLAPStatus s = type_info->from_string(_default_value.data(), _tablet_column.default_value());
+        _mem_value.reserve(_value_size);
+        OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
         if (s != OLAP_SUCCESS) {
             return Status::InternalError("get value of type from default value failed.");
         }
@@ -440,7 +439,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
         }
     } else {
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->mutable_cell_ptr(i), _default_value.data(), _value_size);
+            memcpy(dst->mutable_cell_ptr(i), _mem_value.data(), _value_size);
             dst->set_is_null(i, false);
         }
     }

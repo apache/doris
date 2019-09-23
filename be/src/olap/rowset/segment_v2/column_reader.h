@@ -194,8 +194,10 @@ private:
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
-    DefaultValueColumnIterator(const TabletColumn& tablet_column)
-        : _tablet_column(tablet_column),
+    DefaultValueColumnIterator(const std::string& default_value, bool is_nullable, FieldType type)
+        : _default_value(default_value),
+          _is_nullable(is_nullable),
+          _type(type),
           _is_default_value_null(false),
           _value_size(0) { }
 
@@ -216,10 +218,12 @@ public:
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
-    const TabletColumn& _tablet_column;
+    std::string _default_value;
+    bool _is_nullable;
+    FieldType _type;
     bool _is_default_value_null;
-    faststring _default_value;
     size_t _value_size;
+    faststring _mem_value;
 
     // current rowid
     rowid_t _current_rowid = 0;
