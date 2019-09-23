@@ -97,27 +97,26 @@ TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
     std::vector<DataDir*> data_dir = k_engine->get_stores();
     int64_t path_hash = data_dir[0]->path_hash();
 
-    FlushHandler* flush_handler;
+    std::flush_handler_ptr<FlushHandler> flush_handler;
     k_flush_executor->create_flush_handler(path_hash, &flush_handler);
-    ASSERT_NE(nullptr, flush_handler);
+    ASSERT_NE(nullptr, flush_handler.get());
 
-    std::shared_ptr<FlushHandler> shared(flush_handler);
     FlushResult res;
     res.flush_status = OLAP_SUCCESS;
     res.flush_time_ns = 100;
-    shared->on_flush_finished(res);
-    ASSERT_EQ(OLAP_SUCCESS, shared->last_flush_status());
-    ASSERT_EQ(100, shared->get_stats().flush_time_ns);
-    ASSERT_EQ(1, shared->get_stats().flush_count);
+    flush_handler->on_flush_finished(res);
+    ASSERT_EQ(OLAP_SUCCESS, flush_handler->last_flush_status());
+    ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
+    ASSERT_EQ(1, flush_handler->get_stats().flush_count);
 
     FlushResult res2;
     res2.flush_status = OLAP_ERR_OTHER_ERROR;
-    shared->on_flush_finished(res2);
-    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, shared->last_flush_status());
-    ASSERT_EQ(100, shared->get_stats().flush_time_ns);
-    ASSERT_EQ(1, shared->get_stats().flush_count);
+    flush_handler->on_flush_finished(res2);
+    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, flush_handler->last_flush_status());
+    ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
+    ASSERT_EQ(1, flush_handler->get_stats().flush_count);
 
-    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, shared->wait());
+    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, flush_handler->wait());
 }
 
 } // namespace doris

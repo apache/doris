@@ -84,7 +84,7 @@ public:
     // wait for all submitted memtable finished.
     OLAPStatus wait();
     // get flush operations' statistics
-    const FlushStatistic& get_stats();
+    const FlushStatistic& get_stats() const { return _stats; }
     // called when a memtable is finished by executor.
     void on_flush_finished(const FlushResult& res);
 
@@ -106,9 +106,8 @@ private:
 // User SHOULD NOT call method of this class directly, use pattern should be:
 //
 //      ...
-//      FlushHandler* flush_handler;
+//      std::shared_ptr<FlushHandler> flush_handler;
 //      memTableFlushExecutor.create_flush_handler(path_hash, &flush_handler);
-//      std::shared_ptr<FlushHandler> shared_handler(flush_handler);
 //      ...      
 //      flush_handler->submit(memtable)
 //      ...
@@ -122,7 +121,7 @@ public:
     ~MemTableFlushExecutor();
 
     // create a flush handler to access the flush executor
-    OLAPStatus create_flush_handler(int64_t path_hash, FlushHandler** flush_handler);
+    OLAPStatus create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
 
 private:
 

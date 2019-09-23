@@ -50,10 +50,6 @@ OLAPStatus FlushHandler::wait() {
     return OLAP_SUCCESS;
 }
 
-const FlushStatistic& FlushHandler::get_stats() {
-    return _stats;
-}
-
 void FlushHandler::on_flush_finished(const FlushResult& res) {
     if (res.flush_status != OLAP_SUCCESS) {
         _last_flush_status.store(res.flush_status);
@@ -63,9 +59,9 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
     }
 }
 
-OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, FlushHandler** flush_handler) {
+OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
     int32_t flush_queue_idx = _get_queue_idx(path_hash); 
-    *flush_handler = new FlushHandler(flush_queue_idx, this);
+    flush_handler->reset(new FlushHandler(flush_queue_idx, this));
     return OLAP_SUCCESS;
 }
 

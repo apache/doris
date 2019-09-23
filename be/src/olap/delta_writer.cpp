@@ -141,9 +141,7 @@ OLAPStatus DeltaWriter::init() {
             _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get());
 
     // create flush handler
-    FlushHandler* flush_handler;
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &flush_handler));
-    _flush_handler.reset(flush_handler);
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &_flush_handler));
 
     _is_init = true;
     return OLAP_SUCCESS;
