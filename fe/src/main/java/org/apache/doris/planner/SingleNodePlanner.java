@@ -715,8 +715,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createAggregationPlan(SelectStmt selectStmt, Analyzer analyzer,
                                            PlanNode root) throws UserException {
-        // add Having clause
-        root.assignConjuncts(analyzer);
         Preconditions.checkState(selectStmt.getAggInfo() != null);
         // add aggregation, if required
         AggregateInfo aggInfo = selectStmt.getAggInfo();
