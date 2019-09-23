@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
 #define DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
 
-#include <string>
 #include "udf/udf.h"
 
 namespace doris {
@@ -40,9 +39,6 @@ public:
     static StringVal hll_serialize(FunctionContext* ctx, const StringVal& src);
 
     static BigIntVal hll_cardinality(FunctionContext* ctx, const StringVal& src);
-
-    const static std::string hll_empty_buffer;
-    static std::string init_empty_hll();
 };
 }
 
