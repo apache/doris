@@ -103,8 +103,8 @@ public class CastExpr extends Expr {
                 if (fromType.isStringType() && toType.isBoolean()) {
                     continue;
                 }
-                // Disable casting from boolean/timestamp to decimal
-                if ((fromType.isBoolean() || fromType.isDateType()) && 
+                // Disable casting from boolean to decimal
+                if (fromType.isBoolean() &&
                         (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
                     continue;
                 }
