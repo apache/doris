@@ -211,7 +211,6 @@ ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/mem_pool_test
-${DORIS_TEST_BINARY_DIR}/runtime/memtable_flush_executor_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/chunk_allocator_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/system_allocator_test
 # Running expr Unittest
@@ -242,6 +241,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
+${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test

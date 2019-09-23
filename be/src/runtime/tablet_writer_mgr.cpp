@@ -54,7 +54,7 @@ Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
             channel = *val;
         } else {
             // create a new 
-            channel.reset(new TabletsChannel(key, _exec_env->memtable_flush_executor()));
+            channel.reset(new TabletsChannel(key));
             _tablets_channels.insert(key, channel);
         }
     }

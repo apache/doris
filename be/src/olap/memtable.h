@@ -29,21 +29,19 @@
 namespace doris {
 
 class RowCursor;
+class RowsetWriter;
 
 class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type);
+             KeysType keys_type, RowsetWriter* rowset_writer);
     ~MemTable();
     int64_t tablet_id() { return _tablet_id; }
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(RowsetWriter* rowset_writer);
-    OLAPStatus close(RowsetWriter* rowset_writer);
-
-    std::future<OLAPStatus> get_flush_future() { return _flush_promise.get_future(); }
-    void set_flush_status(OLAPStatus st) { _flush_promise.set_value(st); }
+    OLAPStatus flush();
+    OLAPStatus close();
 
 private:
     int64_t _tablet_id; 
@@ -68,8 +66,8 @@ private:
     size_t _schema_size;
     Table* _skip_list;
 
-    // the promise it to save result status of flush
-    std::promise<OLAPStatus> _flush_promise;
+    RowsetWriter* _rowset_writer;
+
 }; // class MemTable
 
 } // namespace doris

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memtable_flush_executor.h"
+#include "olap/memtable_flush_executor.h"
 
 #include <sys/file.h>
 #include <string>
@@ -34,7 +34,6 @@
 #include "runtime/tuple.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/memtable_flush_executor.h"
 #include "util/logging.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
@@ -47,7 +46,7 @@ MemTableFlushExecutor* k_flush_executor = nullptr;
 void set_up() {
     char buffer[1024];
     getcwd(buffer, 1024);
-    config::storage_root_path = std::string(buffer) + "/data_test";
+    config::storage_root_path = std::string(buffer) + "/flush_test";
     remove_all_dir(config::storage_root_path);
     create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
@@ -60,16 +59,13 @@ void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
 
-    k_flush_executor = new MemTableFlushExecutor(exec_env);
-    k_flush_executor->init();
+    k_flush_executor = k_engine->memtable_flush_executor();
 }
 
 void tear_down() {
     delete k_engine;
     k_engine = nullptr;
-    delete k_flush_executor;
-    k_flush_executor = nullptr;
-    system("rm -rf ./data_test");
+    system("rm -rf ./flush_test");
     remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
@@ -96,17 +92,32 @@ public:
     }
 };
 
-TEST_F(TestMemTableFlushExecutor, get_queue_idx) {
-    for (auto store : k_engine->get_stores<true>()) {
-        int32_t idx = k_flush_executor->get_queue_idx(store->path_hash());
-        ASSERT_EQ(0, idx);
-        idx = k_flush_executor->get_queue_idx(store->path_hash());
-        ASSERT_EQ(1, idx);
-        idx = k_flush_executor->get_queue_idx(store->path_hash());
-        ASSERT_EQ(0, idx);
-        idx = k_flush_executor->get_queue_idx(store->path_hash());
-        ASSERT_EQ(1, idx);
-    }
+TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
+
+    std::vector<DataDir*> data_dir = k_engine->get_stores();
+    int64_t path_hash = data_dir[0]->path_hash();
+
+    FlushHandler* flush_handler;
+    k_flush_executor->create_flush_handler(path_hash, &flush_handler);
+    ASSERT_NE(nullptr, flush_handler);
+
+    std::shared_ptr<FlushHandler> shared(flush_handler);
+    FlushResult res;
+    res.flush_status = OLAP_SUCCESS;
+    res.flush_time_ns = 100;
+    shared->on_flush_finished(res);
+    ASSERT_EQ(OLAP_SUCCESS, shared->last_flush_status());
+    ASSERT_EQ(100, shared->get_stats().flush_time_ns);
+    ASSERT_EQ(1, shared->get_stats().flush_count);
+
+    FlushResult res2;
+    res2.flush_status = OLAP_ERR_OTHER_ERROR;
+    shared->on_flush_finished(res2);
+    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, shared->last_flush_status());
+    ASSERT_EQ(100, shared->get_stats().flush_time_ns);
+    ASSERT_EQ(1, shared->get_stats().flush_count);
+
+    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, shared->wait());
 }
 
 } // namespace doris

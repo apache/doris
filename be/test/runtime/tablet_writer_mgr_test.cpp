@@ -27,12 +27,12 @@
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
 #include "runtime/mem_tracker.h"
-// #include "runtime/memtable_flush_executor.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "runtime/descriptor_helper.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -43,7 +43,7 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTableFlushExecutor* flush_executor) : _req(*req) {
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _req(*req) {
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -53,11 +53,11 @@ OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, MemTableFlushExecutor* flush_executor, DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
-    *writer = new DeltaWriter(req, flush_executor);
+    *writer = new DeltaWriter(req, nullptr);
     return open_status;
 }
 
@@ -70,11 +70,11 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     return add_status;
 }
 
-OLAPStatus DeltaWriter::flush() {
+OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     return close_status;
 }
 

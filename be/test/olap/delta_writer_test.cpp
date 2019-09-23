@@ -31,7 +31,6 @@
 #include "runtime/tuple.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/memtable_flush_executor.h"
 #include "util/logging.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
@@ -45,7 +44,6 @@ static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
-MemTableFlushExecutor* k_flush_executor = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -62,16 +60,11 @@ void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
-
-    k_flush_executor = new MemTableFlushExecutor(exec_env);
-    k_flush_executor->init();
 }
 
 void tear_down() {
     delete k_engine;
     k_engine = nullptr;
-    delete k_flush_executor;
-    k_flush_executor = nullptr;
     system("rm -rf ./data_test");
     remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
@@ -310,11 +303,11 @@ TEST_F(TestDeltaWriter, open) {
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
                               20001, 30001, load_id, false, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_flush_executor, &delta_writer); 
+    DeltaWriter::open(&write_req, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
-    res = delta_writer->flush();
+    res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close(nullptr);
+    res = delta_writer->close_wait(nullptr);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -345,7 +338,7 @@ TEST_F(TestDeltaWriter, write) {
                               20002, 30002, load_id, false, tuple_desc,
                               &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_flush_executor, &delta_writer); 
+    DeltaWriter::open(&write_req, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
 
     Arena arena;
@@ -404,9 +397,9 @@ TEST_F(TestDeltaWriter, write) {
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
 
-    res = delta_writer->flush();
+    res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close(nullptr);
+    res = delta_writer->close_wait(nullptr);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success

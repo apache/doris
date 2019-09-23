@@ -15,28 +15,64 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memtable_flush_executor.h"
+#include "olap/memtable_flush_executor.h"
 
-#include "olap/memtable.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/memtable.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
 
-MemTableFlushExecutor::MemTableFlushExecutor(ExecEnv* exec_env):
-    _exec_env(exec_env) {
+OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
+    RETURN_NOT_OK(_last_flush_status.load());
+    MemTableFlushContext ctx;
+    ctx.memtable = memtable;
+    ctx.flush_handler = this->shared_from_this();
+    _flush_futures.push(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
+    return OLAP_SUCCESS; 
 }
 
-void MemTableFlushExecutor::init() {
-#ifndef BE_TEST
-    int32_t data_dir_num = _exec_env->store_paths().size();
+OLAPStatus FlushHandler::wait() {
+    if (_last_flush_status.load() != OLAP_SUCCESS) {
+        return _last_flush_status.load();
+    }
+
+    while(!_flush_futures.empty()) {
+        std::future<OLAPStatus>& fu = _flush_futures.front();
+        OLAPStatus st = fu.get();
+        if (st != OLAP_SUCCESS) {
+            _last_flush_status.store(st);
+            return st;
+        }
+        _flush_futures.pop();
+    }
+    return OLAP_SUCCESS;
+}
+
+const FlushStatistic& FlushHandler::get_stats() {
+    return _stats;
+}
+
+void FlushHandler::on_flush_finished(const FlushResult& res) {
+    if (res.flush_status != OLAP_SUCCESS) {
+        _last_flush_status.store(res.flush_status);
+    } else {
+        _stats.flush_time_ns.fetch_add(res.flush_time_ns);
+        _stats.flush_count.fetch_add(1);
+    }
+}
+
+OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, FlushHandler** flush_handler) {
+    int32_t flush_queue_idx = _get_queue_idx(path_hash); 
+    *flush_handler = new FlushHandler(flush_queue_idx, this);
+    return OLAP_SUCCESS;
+}
+
+void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
+    int32_t data_dir_num = data_dirs.size();
     _thread_num_per_store = std::max(1, config::flush_thread_num_per_store);
     _num_threads = data_dir_num * _thread_num_per_store;
-#else
-    int32_t data_dir_num = 1;
-    _thread_num_per_store = std::max(1, config::flush_thread_num_per_store);
-    _num_threads = data_dir_num * _thread_num_per_store;
-#endif
 
     // create flush queues
     for (int i = 0; i < _num_threads; ++i) {
@@ -55,7 +91,7 @@ void MemTableFlushExecutor::init() {
     // so there are 8(= 4 * 2) queues in _flush_queues.
     // and the path hash of the 4 paths are mapped to idx 0, 2, 4, 6.
     int32_t group = 0;
-    for (auto store : _exec_env->storage_engine()->get_stores<true>()) {
+    for (auto store : data_dirs) {
         _path_map[store->path_hash()] = group;
         group += _thread_num_per_store;
     }
@@ -80,7 +116,7 @@ MemTableFlushExecutor::~MemTableFlushExecutor() {
     delete _flush_pool;
 }
 
-int32_t MemTableFlushExecutor::get_queue_idx(size_t path_hash) {
+int32_t MemTableFlushExecutor::_get_queue_idx(size_t path_hash) {
     std::lock_guard<SpinLock> l(_lock);
     int32_t cur_idx = _path_map[path_hash];
     int32_t group = cur_idx / _thread_num_per_store;
@@ -90,9 +126,17 @@ int32_t MemTableFlushExecutor::get_queue_idx(size_t path_hash) {
     return cur_idx;
 }
 
-std::future<OLAPStatus> MemTableFlushExecutor::push_memtable(int32_t queue_idx, const MemTableFlushContext& ctx) {
+std::future<OLAPStatus> MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushContext& ctx) {
+    ctx.flush_id = _id_generator.fetch_add(1);
+    std::promise<OLAPStatus> promise;
+    std::future<OLAPStatus> fu = promise.get_future();
+    {
+        std::lock_guard<SpinLock> l(_lock);
+        _flush_promises[ctx.flush_id] = std::move(promise);
+    }
+
     _flush_queues[queue_idx]->blocking_put(ctx);
-    return ctx.memtable->get_flush_future();
+    return fu;
 }
 
 void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
@@ -103,26 +147,31 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
             return;
         }
 
-        DeltaWriter* delta_writer = ctx.delta_writer;
         // if last flush of this tablet already failed, just skip
-        if (delta_writer->get_flush_status() != OLAP_SUCCESS) {
+        if (ctx.flush_handler->last_flush_status() != OLAP_SUCCESS) {
             continue;
         }
 
         // flush the memtable
+        FlushResult res;
         MonotonicStopWatch timer;
         timer.start();
-        OLAPStatus st = ctx.memtable->flush(delta_writer->rowset_writer());
-        if (st == OLAP_SUCCESS) {
-            delta_writer->update_flush_time(timer.elapsed_time());
-        } else {
-            // if failed, update the flush status, this staus will be observed
-            // by delta writer.
-            ctx.flush_status->store(st);
+        res.flush_status = ctx.memtable->flush();
+        res.flush_time_ns = timer.elapsed_time();
+        ctx.flush_handler->on_flush_finished(res);
+
+        {
+            std::lock_guard<SpinLock> l(_lock);
+            _flush_promises[ctx.flush_id].set_value(res.flush_status);
+            _flush_promises.erase(ctx.flush_id);
         }
-        // set the promise's value
-        ctx.memtable->set_flush_status(st);
     }
 }
 
-} // end of namespace
+std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
+    os << "(flush time(ms)=" << stat.flush_time_ns / 1000 / 1000
+       << ", flush count=" << stat.flush_count << ")";
+    return os;
+}
+
+} // end of namespac

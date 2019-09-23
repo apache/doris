@@ -45,6 +45,7 @@ add_library(Olap STATIC
     key_coder.cpp
     lru_cache.cpp
     memtable.cpp
+    memtable_flush_executor.cpp
     merger.cpp
     new_status.cpp
     null_predicate.cpp

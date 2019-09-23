@@ -84,7 +84,6 @@ set(RUNTIME_FILES
     export_sink.cpp
     tablet_writer_mgr.cpp
     tablets_channel.cpp
-    memtable_flush_executor.cpp
     bufferpool/buffer_allocator.cc
     bufferpool/buffer_pool.cc
     bufferpool/reservation_tracker.cc

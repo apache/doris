@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_DELTA_WRITER_H
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
-#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
 #include "runtime/descriptors.h"
@@ -29,10 +28,11 @@
 
 namespace doris {
 
-class SegmentGroup;
+class FlushHandler;
 class MemTable;
-class MemTableFlushExecutor;
 class Schema;
+class SegmentGroup;
+class StorageEngine;
 
 enum WriteType {
     LOAD = 1,
@@ -55,36 +55,23 @@ struct WriteRequest {
 
 class DeltaWriter {
 public:
-    static OLAPStatus open(
-        WriteRequest* req, 
-        MemTableFlushExecutor* _flush_executor,
-        DeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 
     OLAPStatus init();
-
-    DeltaWriter(WriteRequest* req, MemTableFlushExecutor* _flush_executor);
 
     ~DeltaWriter();
 
     OLAPStatus write(Tuple* tuple);
-    // flush the last memtable to flush queue, must call it before close
-    OLAPStatus flush();
-
-    
-
-    OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    // flush the last memtable to flush queue, must call it before close_wait()
+    OLAPStatus close();
+    // wait for all memtables being flushed
+    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     OLAPStatus cancel();
 
     int64_t partition_id() const { return _req.partition_id; }
-
-    OLAPStatus get_flush_status() { return _flush_status.load(); }
-    RowsetWriter* rowset_writer() { return _rowset_writer.get(); }
-
-    void update_flush_time(int64_t flush_ns) {
-        _flush_time_ns += flush_ns;
-        _flush_count++;
-    }
 
 private:
     // push a full memtable to flush executor
@@ -105,26 +92,8 @@ private:
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
 
-    // the flush status of previous memtable.
-    // the default is OLAP_SUCCESS, and once it changes to some ERROR code,
-    // it will never change back to OLAP_SUCCESS.
-    // this status will be checked each time the next memtable is going to be flushed,
-    // so that if the previous flush is already failed, no need to flush next memtable.
-    std::atomic<OLAPStatus> _flush_status;
-    // the future of the very last memtable flush execution.
-    // because the flush of this delta writer's memtables are executed serially,
-    // if the last memtable is flushed, all previous memtables should already be flushed.
-    // so we only need to wait and block on the last memtable's flush future.
-    std::future<OLAPStatus> _flush_future;
-    // total flush time and flush count of memtables
-    int64_t _flush_time_ns;
-    int64_t _flush_count;
-
-    MemTableFlushExecutor* _flush_executor;
-    // the idx of flush queues vector in MemTableFlushExecutor.
-    // this idx is got from MemTableFlushExecutor,
-    // and memtables of this delta writer will be pushed to this certain flush queue only.
-    int32_t _flush_queue_idx;
+    StorageEngine* _storage_engine;
+    std::shared_ptr<FlushHandler> _flush_handler;
 };
 
 }  // namespace doris

@@ -24,6 +24,7 @@
 #include "runtime/mem_tracker.h"
 #include "util/bitmap.h"
 #include "util/thread_pool.hpp"
+#include "util/uid_util.h"
 
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -55,14 +56,12 @@ struct TabletsChannelKeyHasher {
 };
 
 class DeltaWriter;
-class MemTable;
-class MemTableFlushExecutor;
 class OlapTableSchemaParam;
 
 // channel that process all data for this load
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, MemTableFlushExecutor* flush_executor);
+    TabletsChannel(const TabletsChannelKey& key);
 
     ~TabletsChannel();
 
@@ -85,7 +84,6 @@ private:
 private:
     // id of this load channel
     TabletsChannelKey _key;
-    MemTableFlushExecutor* _flush_executor;
 
     // make execute sequece
     std::mutex _lock;

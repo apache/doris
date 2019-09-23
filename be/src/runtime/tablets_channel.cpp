@@ -25,8 +25,8 @@
 
 namespace doris {
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTableFlushExecutor* flush_executor):
-    _key(key), _flush_executor(flush_executor), _closed_senders(64) {
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key): 
+    _key(key), _closed_senders(64) {
 }
 
 TabletsChannel::~TabletsChannel() {
@@ -121,11 +121,11 @@ Status TabletsChannel::close(int sender_id, bool* finished,
     *finished = (_num_remaining_senders == 0);
     if (*finished) {
         // All senders are closed
-        // 1. flush all delta writers
+        // 1. close all delta writers
         std::vector<DeltaWriter*> need_wait_writers;
         for (auto& it : _tablet_writers) {
             if (_partition_ids.count(it.second->partition_id()) > 0) {
-                auto st = it.second->flush();
+                auto st = it.second->close();
                 if (st != OLAP_SUCCESS) {
                     LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
                         << ", transaction_id=" << _txn_id << ", err=" << st;
@@ -144,11 +144,11 @@ Status TabletsChannel::close(int sender_id, bool* finished,
             }
         }
 
-        // 2. wait and close delta writers and build the tablet vector
+        // 2. wait delta writers and build the tablet vector
         for (auto writer : need_wait_writers) { 
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close(tablet_vec);
+            writer->close_wait(tablet_vec);
         }
     }
     return Status::OK();
@@ -182,7 +182,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, _flush_executor, &writer);
+        auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

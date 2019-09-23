@@ -59,7 +59,6 @@ ADD_BE_TEST(user_function_cache_test)
 ADD_BE_TEST(kafka_consumer_pipe_test)
 ADD_BE_TEST(routine_load_task_executor_test)
 ADD_BE_TEST(small_file_mgr_test)
-ADD_BE_TEST(memtable_flush_executor_test)
 
 ADD_BE_TEST(result_queue_mgr_test)
 ADD_BE_TEST(memory_scratch_sink_test)
