@@ -424,8 +424,8 @@ Status DefaultValueColumnIterator::init() {
     } else {
         TypeInfo* type_info = get_type_info(_tablet_column.type());
         _value_size = type_info->size();
-        _default_value = new char[_value_size];
-        OLAPStatus s = type_info->from_string(_default_value, _tablet_column.default_value());
+        _default_value.reserve(_value_size);
+        OLAPStatus s = type_info->from_string(_default_value.data(), _tablet_column.default_value());
         if (s != OLAP_SUCCESS) {
             return Status::InternalError("get value of type from default value failed.");
         }
@@ -440,7 +440,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
         }
     } else {
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->mutable_cell_ptr(i), _default_value, _value_size);
+            memcpy(dst->mutable_cell_ptr(i), _default_value.data(), _value_size);
             dst->set_is_null(i, false);
         }
     }

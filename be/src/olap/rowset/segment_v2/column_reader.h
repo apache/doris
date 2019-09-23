@@ -195,9 +195,9 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(const TabletColumn& tablet_column)
-        : _tablet_column(tablet_column) { }
-
-    ~DefaultValueColumnIterator() { }
+        : _tablet_column(tablet_column),
+          _is_default_value_null(false),
+          _value_size(0) { }
 
     Status init() override;
 
@@ -218,7 +218,7 @@ public:
 private:
     const TabletColumn& _tablet_column;
     bool _is_default_value_null;
-    char* _default_value;
+    faststring _default_value;
     size_t _value_size;
 
     // current rowid
