@@ -27,11 +27,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-/*
- * Author: Chenmingyu
- * Date: Feb 14, 2019
- */
-
 public class BackendTabletsInfo implements Writable {
 
     private long backendId;

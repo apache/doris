@@ -56,11 +56,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/*
- * Author: Chenmingyu
- * Date: Aug 21, 2019
- */
-
 public class RollupJobV2Test {
 
     private static FakeEditLog fakeEditLog;

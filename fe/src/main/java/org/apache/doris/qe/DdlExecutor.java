@@ -71,9 +71,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 
-/**
- * Created by zhaochun on 14/11/10.
- */
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt, String origStmt) throws DdlException, Exception {
         if (ddlStmt instanceof CreateClusterStmt) {

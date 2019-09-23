@@ -36,9 +36,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Created by zhaochun on 15/10/28.
- */
 public class FunctionSet {
     private static final Logger LOG = LogManager.getLogger(FunctionSet.class);
 

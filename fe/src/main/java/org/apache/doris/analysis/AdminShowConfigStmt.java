@@ -31,11 +31,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-/*
- * Author: Chenmingyu
- * Date: Jan 15, 2019
- */
-
 // admin show frontend config;
 public class AdminShowConfigStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(

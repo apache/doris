@@ -56,10 +56,21 @@ public class DateLiteral extends LiteralExpr {
     
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
+    /* 
+     * Dates containing two-digit year values are ambiguous because the century is unknown. 
+     * MySQL interprets two-digit year values using these rules:
+     * Year values in the range 70-99 are converted to 1970-1999.
+     * Year values in the range 00-69 are converted to 2000-2069.
+     * */
+    private static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
+    private static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
+
     static {
         try {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
+            DATE_TIME_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d %H:%i:%s").toFormatter();
+            DATE_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d").toFormatter();
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -171,10 +182,19 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             LocalDateTime dateTime;
             if (type == Type.DATE) {
-                dateTime = DATE_FORMATTER.parseLocalDateTime(s);
+                if (s.split("-")[0].length() == 2) {
+                    dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
+                } else {
+                    dateTime = DATE_FORMATTER.parseLocalDateTime(s);
+                }
             } else {
-                dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(s);
+                if (s.split("-")[0].length() == 2) {
+                    dateTime = DATE_TIME_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
+                } else {
+                    dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(s);
+                }
             }
+
             year = dateTime.getYear();
             month = dateTime.getMonthOfYear();
             day = dateTime.getDayOfMonth();
