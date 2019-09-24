@@ -53,7 +53,8 @@ public:
             if (value_string.size() > _var_length) {
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
                 slice->size = value_string.size();
-                slice->data = _arena.Allocate(slice->size);
+                _string_content.reset(new char[slice->size]);
+                slice->data = _string_content.get();
                 memset(slice->data, 0, slice->size);
             }
         }
@@ -112,7 +113,10 @@ private:
     //include fixed and variable length and null bytes
     size_t _length;
     size_t _var_length;
+    // used for copy
     Arena _arena;
+    // memory for string type field
+    std::unique_ptr<char> _string_content;
 };
 
 }
