@@ -153,11 +153,18 @@ Status EsHttpScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
+
+    _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        std::promise<Status> p;
-        std::future<Status> f = p.get_future();
         _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
-                    _scan_ranges.size(), std::ref(p));
+                    _scan_ranges.size(), std::ref(_scanners_status[i]));
+    }
+    return Status::OK();
+}
+
+Status EsHttpScanNode::collect_scanners_status() {
+    for (int i = 0; i < _scan_ranges.size(); i++) {
+        std::future<Status> f = _scanners_status[i].get_future();
         Status status = f.get();
         if (!status.ok()) return status;
     }
@@ -176,12 +183,12 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
 
     if (_eos) {
         *eos = true;
-        return Status::OK();
+        return collect_scanners_status();
     }
 
     if (_scan_finished.load()) {
         *eos = true;
-        return Status::OK();
+        return collect_scanners_status();
     }
 
     std::shared_ptr<RowBatch> scanner_batch;
@@ -214,7 +221,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     if (scanner_batch == nullptr) {
         _scan_finished.store(true);
         *eos = true;
-        return Status::OK();
+        return collect_scanners_status();
     }
 
     // notify one scanner
@@ -248,7 +255,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         }
     }
     
-    return Status::OK();
+    return collect_scanners_status();
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
