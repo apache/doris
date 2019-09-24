@@ -53,6 +53,7 @@ public:
             if (value_string.size() > _var_length) {
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
                 slice->size = value_string.size();
+                _var_length = slice->size;
                 _string_content.reset(new char[slice->size]);
                 slice->data = _string_content.get();
                 memset(slice->data, 0, slice->size);
@@ -100,9 +101,19 @@ public:
 
     void copy(const char* value) {
         set_is_null(false);
-        _rep->deep_copy_content((char*)cell_ptr(), value, &_arena);
+        if (_is_string_type) {
+            const Slice* src = reinterpret_cast<const Slice*>(value);
+            if (src->size > _var_length) {
+                _string_content.reset(new char[src->size]);
+                _var_length = src->size;
+                Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
+                slice->size = _var_length;
+                slice->data = _string_content.get();
+                memset(slice->data, 0, slice->size);
+            }
+        }
+        _rep->direct_copy(this, value);
     }
-
 
 private:
     Field* _rep = nullptr;
@@ -113,10 +124,8 @@ private:
     //include fixed and variable length and null bytes
     size_t _length;
     size_t _var_length;
-    // used for copy
-    Arena _arena;
     // memory for string type field
-    std::unique_ptr<char> _string_content;
+    std::unique_ptr<char[]> _string_content;
 };
 
 }

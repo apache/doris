@@ -156,6 +156,16 @@ public:
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
 
+    // Copy source content to destination cell directly.
+    // For string type, this function assume that destination has
+    // enough space and copy source content into destination without
+    // memory allocation.
+    template<typename DstCellType>
+    void direct_copy(DstCellType* dst, const char* src) const {
+        dst->set_is_null(false);
+        return _type_info->direct_copy(dst->mutable_cell_ptr(), src);
+    }
+
     // deep copy source cell' content to destination cell.
     // For string type, this will allocate data form pool,
     // and copy srouce's conetent.
