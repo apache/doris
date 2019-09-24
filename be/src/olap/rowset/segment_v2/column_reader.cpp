@@ -160,13 +160,16 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     return Status::OK();
 }
 
-void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges) {
+void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions,
+        RowRanges* row_ranges) {
     std::vector<uint32_t> page_indexes;
-    _get_filtered_pages(cond_column, &page_indexes);
+    _get_filtered_pages(cond_column, delete_conditions, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
-void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
@@ -188,7 +191,19 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint
                 max_value->set_null();
             }
         }
-        if (cond_column->eval({min_value.get(), max_value.get()})) {
+        bool should_read = false;
+        if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
+            should_read = true;
+        }
+        if (should_read) {
+            for (auto& col_cond : delete_conditions) {
+                if (col_cond->del_eval({min_value.get(), max_value.get()}) == DEL_SATISFIED) {
+                    should_read = false;
+                    break;
+                }
+            }
+        }
+        if (should_read) {
             page_indexes->push_back(i);
         }
     }

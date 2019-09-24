@@ -66,6 +66,9 @@ public:
     // used by column index to filter pages and rows
     // TODO use vector<ColumnPredicate*> instead
     const Conditions* conditions = nullptr;
+
+    // delete conditions used by column index to filter pages
+    std::vector<const Conditions*> delete_conditions;
 };
 
 // Used to read data in RowBlockV2 one by one
