@@ -25,17 +25,6 @@ namespace doris {
 using doris_udf::BigIntVal;
 using doris_udf::StringVal;
 
-const std::string HllFunctions::hll_empty_buffer = init_empty_hll();
-std::string HllFunctions::init_empty_hll() {
-    const int HLL_EMPTY_SIZE = 1;
-    std::string buf;
-    std::unique_ptr<HyperLogLog> hll;
-    hll.reset(new HyperLogLog());
-    buf.resize(HLL_EMPTY_SIZE);
-    hll->serialize((uint8_t*)buf.c_str());
-    return buf;
-}
-
 void HllFunctions::init() {
 }
 
@@ -60,7 +49,8 @@ void HllFunctions::hll_init(FunctionContext *, StringVal* dst) {
     dst->ptr = (uint8_t*)new HyperLogLog();
 }
 StringVal HllFunctions::empty_hll(FunctionContext* ctx) {
-    return AnyValUtil::from_string_temp(ctx, hll_empty_buffer);
+    HyperLogLog hll;
+    return AnyValUtil::from_string_temp(ctx, hll.empty());
 }
 
 template <typename T>

@@ -103,6 +103,14 @@ public:
 
     int64_t estimate_cardinality();
 
+    std::string empty() {
+        const int HLL_EMPTY_SIZE = 1;
+        std::string buf;
+        buf.resize(HLL_EMPTY_SIZE);
+        this->serialize((uint8_t*)buf.c_str());
+        return buf;
+    }
+
     // only for debug
     std::string to_string() {
         switch (_type) {
