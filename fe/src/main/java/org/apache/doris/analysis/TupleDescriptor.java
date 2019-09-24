@@ -103,12 +103,12 @@ public class TupleDescriptor {
     }
 
     /**
-	 * Return slot descriptor corresponding to column referenced in the context
-	 * of tupleDesc, or null if no such reference exists.
-	 */
+     * Return slot descriptor corresponding to column referenced in the context
+     * of tupleDesc, or null if no such reference exists.
+     */
     public SlotDescriptor getColumnSlot(String columnName) {
         for (SlotDescriptor slotDesc : slots) {
-            if (slotDesc.getColumn().getName().equalsIgnoreCase(columnName)) {
+            if (slotDesc.getColumn() != null && slotDesc.getColumn().getName().equalsIgnoreCase(columnName)) {
                 return slotDesc;
             }    
         }    
