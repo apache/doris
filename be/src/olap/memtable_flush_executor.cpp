@@ -36,22 +36,21 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
 
 OLAPStatus FlushHandler::wait() {
     // wait util encoutering error, or all submitted memtables are finished
-    while(_last_flush_status.load() == OLAP_SUCCESS) {
-        if (_counter_cond.check_wait()) {
-            break;
-        }
-    }
+    RETURN_NOT_OK(_last_flush_status.load());
+    _counter_cond.block_wait();
     return _last_flush_status.load();
 }
 
 void FlushHandler::on_flush_finished(const FlushResult& res) {
     if (res.flush_status != OLAP_SUCCESS) {
         _last_flush_status.store(res.flush_status);
+        // if one failed, all other memtables no need to flush
+        _counter_cond.dec_to_zero();
     } else {
         _stats.flush_time_ns.fetch_add(res.flush_time_ns);
         _stats.flush_count.fetch_add(1);
+        _counter_cond.dec();
     }
-    _counter_cond.dec();
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {

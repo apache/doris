@@ -29,45 +29,64 @@ namespace doris {
 //      one or more workers do the task and call dec_count() after finishing the task
 // waiter:
 //      one or more waiter call xxx_wait() to wait until all or at least one tasks are finished.
+// Use pattern:
+//      thread1(submitter):
+//          CounterCondVariable cond(0);
+//          ... submit task ...
+//          cond.inc();
+//          ... submit task ...
+//          cond.inr();
+//
+//      thread2(worker):
+//          ... do work...
+//          cond.dec();
+//          ... do work...
+//          cond.dec();
+//          or
+//          ... failed ...
+//          cond.dec_to_zero();
+//
+//      thread3(waiter):    
+//          cond.block_wait();            
+
 class CounterCondVariable {
-    public:
-        explicit CounterCondVariable(int init = 0) : _count(init) {
-        }
+public:
+    explicit CounterCondVariable(int init = 0) : _count(init) {
+    }
 
-        // increase the counter
-        void inc(int inc = 1) {
-            std::unique_lock<std::mutex> lock(_lock);
-            _count += inc;
-        }
+    // increase the counter
+    void inc(int inc = 1) {
+        std::unique_lock<std::mutex> lock(_lock);
+        _count += inc;
+    }
 
-        // decrease the counter, and notify all waiters
-        void dec(int dec = 1) {
-            std::unique_lock<std::mutex> lock(_lock);
-            _count -= dec;
-            _cv.notify_all();
-        }
+    // decrease the counter, and notify all waiters
+    void dec(int dec = 1) {
+        std::unique_lock<std::mutex> lock(_lock);
+        _count -= dec;
+        _cv.notify_all();
+    }
 
-        // wait until count down to zero
-        void block_wait() {
-            std::unique_lock<std::mutex> lock(_lock);
-            _cv.wait(lock, [=] { return _count <= 0; });
-        }
+    // decrease the counter to zero
+    void dec_to_zero() {
+        std::unique_lock<std::mutex> lock(_lock);
+        _count = 0;
+        _cv.notify_all();
+    }
 
-        // wait if count larger than 0
-        // and after being notified, return true if count down zo zero,
-        // or return false other wise.
-        bool check_wait() {
-            std::unique_lock<std::mutex> lock(_lock);
-            if (_count > 0) {
-                _cv.wait(lock);
-            }
-            return _count <= 0; 
+    // wait until count down to zero
+    void block_wait() {
+        std::unique_lock<std::mutex> lock(_lock);
+        if (_count <= 0) {
+            return;
         }
+        _cv.wait(lock, [this] { return _count <= 0; });
+    }
 
-    private:
-        std::mutex _lock;
-        std::condition_variable _cv;
-        int _count;
+private:
+    std::mutex _lock;
+    std::condition_variable _cv;
+    int _count;
 };
 
 } // end namespace

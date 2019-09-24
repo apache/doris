@@ -51,23 +51,15 @@ void worker() {
 }
 
 void waiter() {
-    while (!g_cond.check_wait()) {
-        {
-            std::unique_lock<std::mutex> lock(g_io_mu);
-            std::cout << "wait " << std::endl;
-        }
-        sleep(1);
-    }
+    g_cond.block_wait();
     std::cout << "wait finished" << std::endl;
 }
-
 
 TEST_F(CounterCondVariableTest, test) {
     g_cond.block_wait();
     g_cond.inc(10);
     g_cond.dec(10);
     g_cond.block_wait();
-    ASSERT_TRUE(g_cond.check_wait());
 
     std::thread submit(submitter);
     std::thread wait1(waiter);
@@ -80,7 +72,10 @@ TEST_F(CounterCondVariableTest, test) {
     wait2.join();
     work1.join();
     work2.join();
-    ASSERT_TRUE(g_cond.check_wait());
+
+    g_cond.inc(10);
+    g_cond.dec_to_zero();
+    g_cond.block_wait();
 }
 
 }
