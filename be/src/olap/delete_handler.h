@@ -147,6 +147,9 @@ public:
         return _del_conds;
     }
 
+    void get_delete_conditions_after_version(int32_t version,
+            std::vector<const Conditions*>* delete_conditions) const;
+
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
     bool _parse_condition(const std::string& condition_str, TCondition* condition);
