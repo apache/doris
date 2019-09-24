@@ -450,6 +450,162 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     FileUtils::remove_all(dname);
 }
 
+TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
+    size_t num_rows_per_block = 10;
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 2;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(3));
+    tablet_schema->_cols.push_back(create_int_value(4));
+
+    // segment write
+    std::string dname = "./ut_dir/segment_test";
+    FileUtils::create_dir(dname);
+
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+
+    std::string fname = dname + "/int_case";
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    for (int i = 0; i < 4096; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+        }
+        writer.append_row(row);
+    }
+
+    uint64_t file_size = 0;
+    st = writer.finalize(&file_size);
+    ASSERT_TRUE(st.ok());
+
+    // add a column with null default value
+    {
+        std::shared_ptr<TabletSchema> new_tablet_schema_1(new TabletSchema());
+        new_tablet_schema_1->_num_columns = 5;
+        new_tablet_schema_1->_num_key_columns = 3;
+        new_tablet_schema_1->_num_short_key_columns = 2;
+        new_tablet_schema_1->_num_rows_per_row_block = num_rows_per_block;
+        new_tablet_schema_1->_cols.push_back(create_int_key(1));
+        new_tablet_schema_1->_cols.push_back(create_int_key(2));
+        new_tablet_schema_1->_cols.push_back(create_int_key(3));
+        new_tablet_schema_1->_cols.push_back(create_int_value(4));
+        new_tablet_schema_1->_cols.push_back(
+            create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "NULL"));
+
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
+        st = segment->open();
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(4096, segment->num_rows());
+        Schema schema(*new_tablet_schema_1);
+        // scan all rows
+        {
+            StorageReadOptions read_opts;
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            int left = 4096;
+
+            int rowid = 0;
+            while (left > 0) {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        if (cid == 4) {
+                            ASSERT_TRUE(BitmapTest(column_block.null_bitmap(), i));
+                        } else {
+                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                        }
+                    }
+                }
+                rowid += rows_read;
+            }
+        }
+    }
+
+    // add a column with non-null default value
+    {
+        std::shared_ptr<TabletSchema> new_tablet_schema_1(new TabletSchema());
+        new_tablet_schema_1->_num_columns = 5;
+        new_tablet_schema_1->_num_key_columns = 3;
+        new_tablet_schema_1->_num_short_key_columns = 2;
+        new_tablet_schema_1->_num_rows_per_row_block = num_rows_per_block;
+        new_tablet_schema_1->_cols.push_back(create_int_key(1));
+        new_tablet_schema_1->_cols.push_back(create_int_key(2));
+        new_tablet_schema_1->_cols.push_back(create_int_key(3));
+        new_tablet_schema_1->_cols.push_back(create_int_value(4));
+        new_tablet_schema_1->_cols.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "10086"));
+
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
+        st = segment->open();
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(4096, segment->num_rows());
+        Schema schema(*new_tablet_schema_1);
+        // scan all rows
+        {
+            StorageReadOptions read_opts;
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            int left = 4096;
+
+            int rowid = 0;
+            while (left > 0) {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        if (cid == 4) {
+                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_EQ(10086, *(int*)column_block.cell_ptr(i));
+                        } else {
+                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                        }
+                    }
+                }
+                rowid += rows_read;
+            }
+        }
+    }
+}
+
 }
 }
 
