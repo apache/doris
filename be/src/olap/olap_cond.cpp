@@ -661,5 +661,13 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     return ret;
 }
 
+CondColumn* Conditions::get_column(int32_t cid) const {
+    auto iter = _columns.find(cid);
+    if (iter != _columns.end()) {
+        return iter->second;
+    }
+    return nullptr;
+}
+
 }  // namespace doris
 

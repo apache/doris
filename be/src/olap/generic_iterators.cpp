@@ -28,7 +28,7 @@ namespace doris {
 
 // This iterator will generate ordered data. For example for schema
 // (int, int) this iterator will generator data like
-// (0, 1), (1, 2), (2, 4), (3, 4)...
+// (0, 1), (1, 2), (2, 3), (3, 4)...
 //
 // Usage:
 //      Schema schema;
