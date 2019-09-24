@@ -125,7 +125,7 @@ size_t BinaryDictPageBuilder::count() const {
 }
 
 uint64_t BinaryDictPageBuilder::size() const {
-    return _buffer.size() + _data_page_builder->size();
+    return _arena.MemoryUsage() + _data_page_builder->size();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
