@@ -27,6 +27,10 @@ namespace doris {
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key): 
     _key(key), _closed_senders(64) {
+    // _last_updated_time should be set before being inserted to
+    // _tablet_channels in tablet_channel_mgr, or it may be erased
+    // immediately by gc thread.
+    _last_updated_time = time(nullptr);
 }
 
 TabletsChannel::~TabletsChannel() {

@@ -93,11 +93,10 @@ public:
 };
 
 TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
-
     std::vector<DataDir*> data_dir = k_engine->get_stores();
     int64_t path_hash = data_dir[0]->path_hash();
 
-    std::flush_handler_ptr<FlushHandler> flush_handler;
+    std::shared_ptr<FlushHandler> flush_handler;
     k_flush_executor->create_flush_handler(path_hash, &flush_handler);
     ASSERT_NE(nullptr, flush_handler.get());
 
@@ -105,14 +104,14 @@ TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
     res.flush_status = OLAP_SUCCESS;
     res.flush_time_ns = 100;
     flush_handler->on_flush_finished(res);
-    ASSERT_EQ(OLAP_SUCCESS, flush_handler->last_flush_status());
+    ASSERT_FALSE(flush_handler->is_cancelled());
     ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
     ASSERT_EQ(1, flush_handler->get_stats().flush_count);
 
     FlushResult res2;
     res2.flush_status = OLAP_ERR_OTHER_ERROR;
     flush_handler->on_flush_finished(res2);
-    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, flush_handler->last_flush_status());
+    ASSERT_TRUE(flush_handler->is_cancelled());
     ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
     ASSERT_EQ(1, flush_handler->get_stats().flush_count);
 

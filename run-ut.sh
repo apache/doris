@@ -158,6 +158,7 @@ ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
+${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test

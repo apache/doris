@@ -29,25 +29,19 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     MemTableFlushContext ctx;
     ctx.memtable = memtable;
     ctx.flush_handler = this->shared_from_this();
-    _flush_futures.push(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
+    _counter_cond.inc(); 
+    _flush_executor->_push_memtable(_flush_queue_idx, ctx);
     return OLAP_SUCCESS; 
 }
 
 OLAPStatus FlushHandler::wait() {
-    if (_last_flush_status.load() != OLAP_SUCCESS) {
-        return _last_flush_status.load();
-    }
-
-    while(!_flush_futures.empty()) {
-        std::future<OLAPStatus>& fu = _flush_futures.front();
-        OLAPStatus st = fu.get();
-        if (st != OLAP_SUCCESS) {
-            _last_flush_status.store(st);
-            return st;
+    // wait util encoutering error, or all submitted memtables are finished
+    while(_last_flush_status.load() == OLAP_SUCCESS) {
+        if (_counter_cond.check_wait()) {
+            break;
         }
-        _flush_futures.pop();
     }
-    return OLAP_SUCCESS;
+    return _last_flush_status.load();
 }
 
 void FlushHandler::on_flush_finished(const FlushResult& res) {
@@ -57,6 +51,7 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
         _stats.flush_time_ns.fetch_add(res.flush_time_ns);
         _stats.flush_count.fetch_add(1);
     }
+    _counter_cond.dec();
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
@@ -122,17 +117,8 @@ int32_t MemTableFlushExecutor::_get_queue_idx(size_t path_hash) {
     return cur_idx;
 }
 
-std::future<OLAPStatus> MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushContext& ctx) {
-    ctx.flush_id = _id_generator.fetch_add(1);
-    std::promise<OLAPStatus> promise;
-    std::future<OLAPStatus> fu = promise.get_future();
-    {
-        std::lock_guard<SpinLock> l(_lock);
-        _flush_promises[ctx.flush_id] = std::move(promise);
-    }
-
+void MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushContext& ctx) {
     _flush_queues[queue_idx]->blocking_put(ctx);
-    return fu;
 }
 
 void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
@@ -144,7 +130,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         }
 
         // if last flush of this tablet already failed, just skip
-        if (ctx.flush_handler->last_flush_status() != OLAP_SUCCESS) {
+        if (ctx.flush_handler->is_cancelled()) {
             continue;
         }
 
@@ -154,13 +140,8 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         timer.start();
         res.flush_status = ctx.memtable->flush();
         res.flush_time_ns = timer.elapsed_time();
+        // callback
         ctx.flush_handler->on_flush_finished(res);
-
-        {
-            std::lock_guard<SpinLock> l(_lock);
-            _flush_promises[ctx.flush_id].set_value(res.flush_status);
-            _flush_promises.erase(ctx.flush_id);
-        }
     }
 }
 
