@@ -79,7 +79,6 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         slice->size = _var_length;
         _string_content.reset(new char[slice->size]);
         slice->data = _string_content.get();
-        memset(slice->data, 0, slice->size);
     }
 }
 

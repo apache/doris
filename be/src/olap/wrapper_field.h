@@ -56,7 +56,6 @@ public:
                 _var_length = slice->size;
                 _string_content.reset(new char[slice->size]);
                 slice->data = _string_content.get();
-                memset(slice->data, 0, slice->size);
             }
         }
         return _rep->from_string(_field_buf + 1, value_string);
