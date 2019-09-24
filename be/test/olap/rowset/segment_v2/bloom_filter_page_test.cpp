@@ -60,17 +60,17 @@ TEST_F(BloomFilterPageTest, normal) {
     ASSERT_EQ(3, bf_page.block_num());
     ASSERT_EQ(2, bf_page.expected_num());
 
-    std::shared_ptr<BloomFilter> bf_1 = bf_page.get_bloom_filter(0);
+    BloomFilter* bf_1 = bf_page.get_bloom_filter(0);
     ASSERT_TRUE(bf_1->test_bytes(slice1.data, slice1.size));
     ASSERT_TRUE(bf_1->test_bytes(slice2.data, slice2.size));
     ASSERT_FALSE(bf_1->test_bytes(slice3.data, slice3.size));
     
-    std::shared_ptr<BloomFilter> bf_2 = bf_page.get_bloom_filter(1);
+    BloomFilter* bf_2 = bf_page.get_bloom_filter(1);
     ASSERT_TRUE(bf_2->test_bytes(slice3.data, slice3.size));
     ASSERT_TRUE(bf_2->test_bytes(slice4.data, slice4.size));
     ASSERT_FALSE(bf_2->test_bytes(slice1.data, slice1.size));
 
-    std::shared_ptr<BloomFilter> bf_3 = bf_page.get_bloom_filter(2);
+    BloomFilter* bf_3 = bf_page.get_bloom_filter(2);
     ASSERT_TRUE(bf_3->test_bytes(nullptr, 1));
 }
 

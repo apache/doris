@@ -225,7 +225,7 @@ void ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRa
     RowRanges bf_row_ranges;
     uint32_t expected_num = _column_bloom_filter_page->expected_num();
     for (int i = 0; i < block_num; ++i) {
-        std::shared_ptr<BloomFilter> bf = _column_bloom_filter_page->get_bloom_filter(i);
+        BloomFilter* bf = _column_bloom_filter_page->get_bloom_filter(i);
         if (cond_column->eval(*bf)) {
             RowRanges::ranges_union(bf_row_ranges,
                 RowRanges::create_single(i * expected_num, (i + 1) * expected_num), &bf_row_ranges);

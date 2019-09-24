@@ -69,12 +69,18 @@ public:
     BloomFilterPage(Slice data)
         : _data(data), _block_num(0), _expected_num(0) {
     }
-    
+
+    ~BloomFilterPage() {
+        for (auto& bf : _bloom_filters) {
+            delete bf;
+        }
+    }
+
     // parse bloom filter of each block.
     Status load();
-    
+
     // get column's bloom filter infos
-    std::shared_ptr<BloomFilter> get_bloom_filter(int index) {
+    BloomFilter* get_bloom_filter(int index) {
         return _bloom_filters[index];
     }
 
@@ -87,7 +93,7 @@ private:
     Slice _data;
     size_t _block_num;
     uint32_t _expected_num;
-    std::vector<std::shared_ptr<BloomFilter>> _bloom_filters;
+    std::vector<BloomFilter*> _bloom_filters;
 };
 
 } // namespace segment_v2

@@ -37,16 +37,20 @@ void BloomFilterPageBuilder::add_not_nulls(const uint8_t* vals, size_t count) {
 }
 
 void BloomFilterPageBuilder::add_nulls(size_t count) {
-    _bf_builder.add_bytes(nullptr, 0);
     _num_inserted += count;
-    if (_num_inserted > _block_size) {
+    if (_num_inserted >= _block_size) {
         int flush_round = _num_inserted / _block_size;
         for (int i = 0; i < flush_round; ++i) {
+            _bf_builder.add_bytes(nullptr, 0);
             flush();
         }
         _num_inserted = _num_inserted % _block_size;
+        if (_num_inserted > 0) {
+            _bf_builder.add_bytes(nullptr, 0);
+        }
+    } else {
+        _bf_builder.add_bytes(nullptr, 0);
     }
-    
 }
 
 Status BloomFilterPageBuilder::flush() {
@@ -104,12 +108,12 @@ Status BloomFilterPage::load() {
     // TODO(hkp): realize block split bloom filter and create bloom filter according to footer.bf_algorithm
     for (int i = 0; i < count - 1; ++i) {
         Slice data = page_decoder.string_at_index(i);
-        std::shared_ptr<BloomFilter> bloom_filter(new BloomFilter());
+        BloomFilter* bloom_filter = new BloomFilter();
         bool ret = bloom_filter->init_with_deep_copy((uint64_t*)data.data, data.size / 8, hash_function_num);
         if (!ret) {
             return Status::Corruption("load bloom filter failed");
         }
-        _bloom_filters.emplace_back(bloom_filter);
+        _bloom_filters.emplace_back(std::move(bloom_filter));
     }
     return Status::OK();
 }
