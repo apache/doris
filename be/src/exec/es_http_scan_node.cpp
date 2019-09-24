@@ -232,6 +232,8 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     _num_rows_returned += row_batch->num_rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
+    Status  status = Status::OK();
+
     // This is first time reach limit.
     // Only valid when query 'select * from table1 limit 20'
     if (reached_limit()) {
@@ -243,6 +245,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         _scan_finished.store(true);
         _queue_writer_cond.notify_all();
         *eos = true;
+        status = collect_scanners_status();
     } else {
         *eos = false;
     }
@@ -255,7 +258,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         }
     }
     
-    return collect_scanners_status();
+    return status;
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
