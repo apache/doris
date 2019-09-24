@@ -153,7 +153,6 @@ Status EsHttpScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
-
     _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
         _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
@@ -165,8 +164,7 @@ Status EsHttpScanNode::start_scanners() {
 Status EsHttpScanNode::collect_scanners_status() {
     for (int i = 0; i < _scan_ranges.size(); i++) {
         std::future<Status> f = _scanners_status[i].get_future();
-        Status status = f.get();
-        if (!status.ok()) return status;
+        RETURN_IF_ERROR(f.get());
     }
     return Status::OK();
 }
@@ -183,12 +181,12 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
 
     if (_eos) {
         *eos = true;
-        return collect_scanners_status();
+        return Status::OK();
     }
 
     if (_scan_finished.load()) {
         *eos = true;
-        return collect_scanners_status();
+        return Status::OK();
     }
 
     std::shared_ptr<RowBatch> scanner_batch;
@@ -221,7 +219,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     if (scanner_batch == nullptr) {
         _scan_finished.store(true);
         *eos = true;
-        return collect_scanners_status();
+        return Status::OK();
     }
 
     // notify one scanner
@@ -231,8 +229,6 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     row_batch->acquire_state(scanner_batch.get());
     _num_rows_returned += row_batch->num_rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-
-    Status  status = Status::OK();
 
     // This is first time reach limit.
     // Only valid when query 'select * from table1 limit 20'
@@ -245,7 +241,6 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         _scan_finished.store(true);
         _queue_writer_cond.notify_all();
         *eos = true;
-        status = collect_scanners_status();
     } else {
         *eos = false;
     }
@@ -257,11 +252,13 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
                 << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
-    
-    return status;
+
+    return Status::OK();
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
+
+
     if (is_closed()) {
         return Status::OK();
     }
@@ -276,7 +273,10 @@ Status EsHttpScanNode::close(RuntimeState* state) {
 
     _batch_queue.clear();
 
-    return ExecNode::close(state);
+    RETURN_IF_ERROR(ExecNode::close(state));
+
+    //collect scanners status at last
+    return collect_scanners_status();
 }
 
 // This function is called after plan node has been prepared.

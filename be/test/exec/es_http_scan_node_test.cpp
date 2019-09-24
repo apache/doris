@@ -136,10 +136,10 @@ TEST_F(EsHttpScanNodeTest, normal_use) {
     ASSERT_TRUE(status.ok());
 
     status = scan_node.open(&_runtime_state);
-    ASSERT_FALSE(scan_node.collect_scanners_status().ok());
+    ASSERT_TRUE(status.ok());
 
     status = scan_node.close(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    ASSERT_FALSE(status.ok());
 }
 
 }

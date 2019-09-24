@@ -52,9 +52,6 @@ public:
     virtual Status close(RuntimeState* state) override;
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    // Collect all scanners 's status
-    // public for ut
-    Status collect_scanners_status();
 protected:
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
@@ -73,6 +70,8 @@ private:
     // Create scanners to do scan job
     Status start_scanners();
 
+    // Collect all scanners 's status
+    Status collect_scanners_status();
 
     // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
