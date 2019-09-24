@@ -98,21 +98,6 @@ public:
         _rep->direct_copy(this, *field);
     }
 
-    void copy(const char* value) {
-        set_is_null(false);
-        if (_is_string_type) {
-            const Slice* src = reinterpret_cast<const Slice*>(value);
-            if (src->size > _var_length) {
-                _string_content.reset(new char[src->size]);
-                _var_length = src->size;
-                Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
-                slice->size = _var_length;
-                slice->data = _string_content.get();
-            }
-        }
-        _rep->direct_copy(this, value);
-    }
-
 private:
     Field* _rep = nullptr;
     bool _is_string_type;
