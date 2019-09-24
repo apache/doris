@@ -109,7 +109,6 @@ public:
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
                 slice->size = _var_length;
                 slice->data = _string_content.get();
-                memset(slice->data, 0, slice->size);
             }
         }
         _rep->direct_copy(this, value);
