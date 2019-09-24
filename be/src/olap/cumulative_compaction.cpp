@@ -85,7 +85,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // So the ultimate singleton rowset is revserved.
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
-            if (transient_rowsets.size() > config::cumulative_compaction_num_singleton_deltas) {
+            if (transient_rowsets.size() > config::min_cumulative_compaction_num_singleton_deltas) {
                 _input_rowsets = transient_rowsets;
                 break;
             }
@@ -93,10 +93,14 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             continue;
         }
 
+        if (transient_rowsets.size() >= config::max_cumulative_compaction_num_singleton_deltas) {
+            // the threshold of files to compacted one time
+            break;
+        }
         transient_rowsets.push_back(rowset); 
     }
 
-    if (transient_rowsets.size() > config::cumulative_compaction_num_singleton_deltas) {
+    if (transient_rowsets.size() > config::min_cumulative_compaction_num_singleton_deltas) {
         _input_rowsets = transient_rowsets;
     }
 		

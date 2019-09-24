@@ -715,8 +715,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createAggregationPlan(SelectStmt selectStmt, Analyzer analyzer,
                                            PlanNode root) throws UserException {
-        // add Having clause
-        root.assignConjuncts(analyzer);
         Preconditions.checkState(selectStmt.getAggInfo() != null);
         // add aggregation, if required
         AggregateInfo aggInfo = selectStmt.getAggInfo();
@@ -1263,7 +1261,7 @@ public class SingleNodePlanner {
             Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
             List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
             for (Column column : tblRef.getTable().getBaseSchema()) {
-                SlotDescriptor slotDesc = analyzer.getColumnSlot(tblRef.getDesc(), column);
+                SlotDescriptor slotDesc = tblRef.getDesc().getColumnSlot(column.getName());
                 if (null == slotDesc) {
                     continue;
                 }

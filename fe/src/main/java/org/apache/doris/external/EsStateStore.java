@@ -56,7 +56,6 @@ import okhttp3.Route;
 
 /**
  * it is used to call es api to get shard allocation state
- * @author yiguolei
  *
  */
 public class EsStateStore extends Daemon {

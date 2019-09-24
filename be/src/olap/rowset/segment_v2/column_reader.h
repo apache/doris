@@ -24,6 +24,7 @@
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/olap_cond.h" // for CondColumn
+#include "olap/tablet_schema.h"
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
@@ -78,7 +79,12 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() { return _meta.has_zone_map_page(); }
-    void get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges);
+
+    // get row ranges with zone map
+    // cond_column is user's query predicate
+    // delete_conditions is a vector of delete predicate of different version
+    void get_row_ranges_by_zone_map(CondColumn* cond_column,
+            const std::vector<CondColumn*>& delete_conditions, RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer();
 
@@ -87,7 +93,8 @@ private:
 
     Status _init_column_zone_map();
 
-    void _get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes);
+    void _get_filtered_pages(CondColumn* cond_column,
+            const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes);
 
     void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
@@ -113,6 +120,8 @@ class ColumnIterator {
 public:
     ColumnIterator() { }
     virtual ~ColumnIterator() { }
+
+    virtual Status init() { return Status::OK(); }
 
     // Seek to the first entry in the column.
     virtual Status seek_to_first() = 0;
@@ -192,6 +201,44 @@ private:
     // page iterator used to get next page when current page is finished.
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
+
+    // current rowid
+    rowid_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class DefaultValueColumnIterator : public ColumnIterator {
+public:
+    DefaultValueColumnIterator(const std::string& default_value, bool is_nullable, FieldType type)
+        : _default_value(default_value),
+          _is_nullable(is_nullable),
+          _type(type),
+          _is_default_value_null(false),
+          _value_size(0) { }
+
+    Status init() override;
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(rowid_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, ColumnBlock* dst) override;
+
+    rowid_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    std::string _default_value;
+    bool _is_nullable;
+    FieldType _type;
+    bool _is_default_value_null;
+    size_t _value_size;
+    faststring _mem_value;
 
     // current rowid
     rowid_t _current_rowid = 0;

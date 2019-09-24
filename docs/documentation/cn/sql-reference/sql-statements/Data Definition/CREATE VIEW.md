@@ -3,7 +3,8 @@
     该语句用于创建一个逻辑视图
     语法：
         CREATE VIEW [IF NOT EXISTS]
-        [db_name.]view_name (column1[, column2, ...])
+        [db_name.]view_name
+        (column1[ COMMENT "col comment"][, column2, ...])
         AS query_stmt
         
     说明：
@@ -12,7 +13,22 @@
         
 ## example
     1. 在 example_db 上创建视图 example_view
+    
         CREATE VIEW example_db.example_view (k1, k2, k3, v1)
+        AS
+        SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
+        WHERE k1 = 20160112 GROUP BY k1,k2,k3;
+        
+    2. 创建一个包含 comment 的 view
+    
+        CREATE VIEW example_db.example_view
+        (
+            k1 COMMENT "first key",
+            k2 COMMENT "second key",
+            k3 COMMENT "third key",
+            v1 COMMENT "first value"
+        )
+        COMMENT "my first view"
         AS
         SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
         WHERE k1 = 20160112 GROUP BY k1,k2,k3;

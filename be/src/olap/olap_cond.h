@@ -158,6 +158,8 @@ public:
         return _columns;
     }
 
+    CondColumn* get_column(int32_t cid) const;
+
 private:
     int32_t _get_field_index(const std::string& field_name) const {
         for (int i = 0; i < _schema->num_columns(); i++) {

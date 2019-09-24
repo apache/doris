@@ -63,11 +63,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
 /*
- * Author: Chenmingyu
- * Date: Jul 8, 2019
- */
-
-/*
  * Version 2 of RollupJob.
  * This is for replacing the old RollupJob
  * https://github.com/apache/incubator-doris/issues/1429

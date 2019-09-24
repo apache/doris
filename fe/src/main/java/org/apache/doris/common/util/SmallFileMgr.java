@@ -56,11 +56,6 @@ import java.util.List;
 import java.util.Map;
 
 /*
- * Author: Chenmingyu
- * Date: May 29, 2019
- */
-
-/*
  * Manage some small files, such as certification file, public/private key used for some operations
  */
 public class SmallFileMgr implements Writable {

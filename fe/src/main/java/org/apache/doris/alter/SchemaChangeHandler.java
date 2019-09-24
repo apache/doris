@@ -81,8 +81,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
-
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
@@ -539,7 +537,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("HLL type column can only be in Aggregation data model table: " + newColName);
         }
 
-        if (newColumn.getAggregationType() == BITMAP_UNION && KeysType.AGG_KEYS != olapTable.getKeysType()) {
+        if (newColumn.getAggregationType() == AggregateType.BITMAP_UNION && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("BITMAP_UNION must be used in AGG_KEYS");
         }
 
@@ -925,20 +923,17 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
             }
 
-            if (KeysType.AGG_KEYS == olapTable.getKeysType()
-                    || KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-                // 2. check compatible
-                for (Column alterColumn : alterSchema) {
-                    for (Column oriColumn : originSchema) {
-                        if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
-                            if (!alterColumn.equals(oriColumn)) {
-                                // 3.1 check type
-                                oriColumn.checkSchemaChangeAllowed(alterColumn);
-                            }
+            // 2. check compatible
+            for (Column alterColumn : alterSchema) {
+                for (Column oriColumn : originSchema) {
+                    if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
+                        if (!alterColumn.equals(oriColumn)) {
+                            // 3.1 check type
+                            oriColumn.checkSchemaChangeAllowed(alterColumn);
                         }
-                    } // end for ori
-                } // end for alter
-            }
+                    }
+                } // end for ori
+            } // end for alter
 
             // 3. check partition key
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -1305,7 +1300,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 // so just return after finished handling.
                 if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
                     String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
-                    Catalog.getInstance().modifyTableColocate(db, olapTable, colocateGroup, false, null);
+                    Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
+                    return;
+                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
+                    Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
                     return;
                 }
             }

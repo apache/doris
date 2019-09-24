@@ -23,9 +23,6 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-/**
- * Created by zhaochun on 14/12/2.
- */
 public class BaseProcNode implements ProcNodeInterface {
     private ProcResult result;
 

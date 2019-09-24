@@ -26,9 +26,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
-/**
- * Created by lingbin on 17/4/14.
- */
 public class MysqlUtil {
     private static final Logger LOG = LogManager.getLogger(MysqlUtil.class);
 

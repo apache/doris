@@ -22,11 +22,6 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 
 import java.util.List;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 24, 2019
- */
-
 public class WrappedAuth extends PaloAuth {
     @Override
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,

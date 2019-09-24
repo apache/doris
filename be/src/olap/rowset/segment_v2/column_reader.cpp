@@ -161,17 +161,20 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     return Status::OK();
 }
 
-void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges) {
+void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions,
+        RowRanges* row_ranges) {
     std::vector<uint32_t> page_indexes;
-    _get_filtered_pages(cond_column, &page_indexes);
+    _get_filtered_pages(cond_column, delete_conditions, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
 PagePointer ColumnReader::get_dict_page_pointer() {
-     return _meta.dict_page();
+    return _meta.dict_page();
 }
 
-void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
@@ -193,7 +196,19 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint
                 max_value->set_null();
             }
         }
-        if (cond_column->eval({min_value.get(), max_value.get()})) {
+        bool should_read = false;
+        if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
+            should_read = true;
+        }
+        if (should_read) {
+            for (auto& col_cond : delete_conditions) {
+                if (col_cond->del_eval({min_value.get(), max_value.get()}) == DEL_SATISFIED) {
+                    should_read = false;
+                    break;
+                }
+            }
+        }
+        if (should_read) {
             page_indexes->push_back(i);
         }
     }
@@ -435,6 +450,36 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 
     page->offset_in_page = 0;
 
+    return Status::OK();
+}
+
+Status DefaultValueColumnIterator::init() {
+    // be consistent with segment v1
+    if (_default_value == "NULL" && _is_nullable) {
+        _is_default_value_null = true;
+    } else {
+        TypeInfo* type_info = get_type_info(_type);
+        _value_size = type_info->size();
+        _mem_value.reserve(_value_size);
+        OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
+        if (s != OLAP_SUCCESS) {
+            return Status::InternalError("get value of type from default value failed.");
+        }
+    }
+    return Status::OK();
+}
+
+Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
+    if (_is_default_value_null) {
+        for (int i = 0; i < *n; ++i) {
+            dst->set_is_null(i, true);
+        }
+    } else {
+        for (int i = 0; i < *n; ++i) {
+            memcpy(dst->mutable_cell_ptr(i), _mem_value.data(), _value_size);
+            dst->set_is_null(i, false);
+        }
+    }
     return Status::OK();
 }
 

@@ -19,9 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 
-/**
- * Created by zhaochun on 14/11/6.
- */
 public interface ProcDirInterface extends ProcNodeInterface {
     public boolean register(String name, ProcNodeInterface node);
 

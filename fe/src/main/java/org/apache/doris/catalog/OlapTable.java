@@ -145,7 +145,7 @@ public class OlapTable extends Table {
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
-                     KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+            KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
@@ -1114,5 +1114,21 @@ public class OlapTable extends Table {
             }
         }
         return keysNum;
+    }
+
+    public boolean convertRandomDistributionToHashDistribution() {
+        boolean hasChanged = false;
+        List<Column> baseSchema = indexIdToSchema.get(baseIndexId);
+        if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+            defaultDistributionInfo = ((RandomDistributionInfo) defaultDistributionInfo).toHashDistributionInfo(baseSchema);
+            hasChanged = true;
+        }
+        
+        for (Partition partition : idToPartition.values()) {
+            if (partition.convertRandomDistributionToHashDistribution(baseSchema)) {
+                hasChanged = true;
+            }
+        }
+        return hasChanged;
     }
 }

@@ -992,6 +992,7 @@ public class Load {
                 // If column is not nullable, error will be thrown when filling the dest slot,
                 // which is not nullable.
                 slotDesc.setIsNullable(true);
+                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 params.addToSrc_slot_ids(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }

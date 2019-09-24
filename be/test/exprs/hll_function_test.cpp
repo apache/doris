@@ -32,7 +32,7 @@ namespace doris {
 StringVal convert_hll_to_string(FunctionContext* ctx, HyperLogLog& hll) {
     std::string buf;
     buf.resize(HLL_COLUMN_DEFAULT_LEN);
-    int size = hll.serialize((char*)buf.c_str());
+    int size = hll.serialize((uint8_t*)buf.c_str());
     buf.resize(size);
     return AnyValUtil::from_string_temp(ctx, buf);
 }
@@ -58,7 +58,7 @@ TEST_F(HllFunctionsTest, hll_hash) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("1024"));
     StringVal result = HllFunctions::hll_hash(ctx, input);
 
-    HyperLogLog hll((char*)result.ptr);
+    HyperLogLog hll((uint8_t*)result.ptr);
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 1;
 
@@ -69,7 +69,7 @@ TEST_F(HllFunctionsTest, hll_hash_null) {
     StringVal input = StringVal::null();
     StringVal result = HllFunctions::hll_hash(ctx, input);
 
-    HyperLogLog hll((char*)result.ptr);
+    HyperLogLog hll((uint8_t*)result.ptr);
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 0;
 
@@ -102,7 +102,7 @@ TEST_F(HllFunctionsTest, hll_merge) {
     HllFunctions::hll_merge(ctx, src2, &dst);
 
     StringVal serialized = HllFunctions::hll_serialize(ctx, dst);
-    HyperLogLog hll((char*)serialized.ptr);
+    HyperLogLog hll((uint8_t*)serialized.ptr);
 
     BigIntVal expected(1);
     ASSERT_EQ(expected, hll.estimate_cardinality());

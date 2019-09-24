@@ -28,11 +28,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-/*
- * Author: Chenmingyu
- * Date: Jun 12, 2019
- */
-
 public class ColocateTableIndexTest {
 
     @Test
