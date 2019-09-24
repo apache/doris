@@ -315,7 +315,8 @@
         (id, k1, k2)
         SET (
           v1 = hll_hash(k1),
-          v2 = hll_hash(k2)
+          v2 = hll_hash(k2),
+          v3 = empty_hll()
         )
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
