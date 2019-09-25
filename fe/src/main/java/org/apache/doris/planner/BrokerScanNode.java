@@ -277,9 +277,9 @@ public class BrokerScanNode extends LoadScanNode {
                             + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash") && !fn.getFnName().getFunction().equalsIgnoreCase("empty_hll")) {
                     throw new AnalysisException("HLL column must use hll_hash function, like "
-                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx) or " + destSlotDesc.getColumn().getName() + "=empty_hll()");
                 }
                 expr.setType(Type.HLL);
             }
