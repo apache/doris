@@ -31,40 +31,4 @@ SelectionVector::SelectionVector(size_t row_capacity)
     pad_extra_bits_wit_zeroes();
 }
 
-size_t SelectionVector::count_selected() const {
-    return Bits::Count(_bitmap.get(), _n_bytes);
-}
-
-bool SelectionVector::any_selected() const {
-    size_t rem = _n_bytes;
-    const uint32_t* p32 = reinterpret_cast<const uint32_t*>(_bitmap.get());
-    while (rem >= 4) {
-        if (*p32 != 0) {
-            return true;
-        }
-        ++p32;
-        rem -= 4;
-    }
-
-    const uint8_t* p8 = reinterpret_cast<const uint8_t*>(p32);
-    while (rem > 0) {
-        if (*p8 != 0) {
-            return true;
-        }
-        ++p8;
-        --rem;
-    }
-    return false;
-}
-
-bool SelectionVector::is_row_selected(size_t row) const {
-    DCHECK_LT(row, _n_rows);
-    return BitmapTest(_bitmap.get(), row);
-}
-
-void SelectionVector::clear_bit(size_t row) {
-    DCHECK_LT(row, _n_rows);
-    return BitmapClear(_bitmap.get(), row);
-}
-
 }

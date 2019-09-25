@@ -34,13 +34,18 @@ public:
     explicit SelectionVector(size_t row_capacity);
 
     // returen the number of selected rows.
-    size_t count_selected() const;
+    size_t count_selected() const {
+        return Bits::Count(_bitmap.get(), _n_bytes);
+    }
 
     // Return true if any rows are selected, or false
     // This is equivalent to (count_selected() > 0), but faster.
-    bool any_selected() const;
+    inline bool any_selected() const;
 
-    bool is_row_selected(size_t row) const;
+    bool is_row_selected(size_t row) const {
+        DCHECK_LT(row, _n_rows);
+        return BitmapTest(_bitmap.get(), row);
+    }
 
     void set_row_selected(size_t row) {
         DCHECK_LT(row, _n_rows);
@@ -56,7 +61,10 @@ public:
         memset(_bitmap.get(), 0, _n_bytes);
     }
 
-    void clear_bit(size_t row);
+    void clear_bit(size_t row) {
+        DCHECK_LT(row, _n_rows);
+        return BitmapClear(_bitmap.get(), row);
+    }
 
     uint8_t* mutable_bitmap() { return _bitmap.get(); }
 
@@ -95,6 +103,28 @@ private:
     std::unique_ptr<uint8_t> _bitmap;
     DISALLOW_COPY_AND_ASSIGN(SelectionVector);
 };
+
+inline bool SelectionVector::any_selected() const {
+    size_t rem = _n_bytes;
+    const uint32_t* p32 = reinterpret_cast<const uint32_t*>(_bitmap.get());
+    while (rem >= 4) {
+        if (*p32 != 0) {
+            return true;
+        }
+        ++p32;
+        rem -= 4;
+    }
+
+    const uint8_t* p8 = reinterpret_cast<const uint8_t*>(p32);
+    while (rem > 0) {
+        if (*p8 != 0) {
+            return true;
+        }
+        ++p8;
+        --rem;
+    }
+    return false;
+}
 
 // A SelectionVectorView keeps track of where in the selection vector a given
 // batch will start from. After processing a batch, Advance() should be called
