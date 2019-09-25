@@ -24,7 +24,7 @@ namespace doris {
 
 #define COMPARISON_PRED_CONSTRUCTOR(CLASS) \
     template<class type> \
-    CLASS<type>::CLASS(int column_id, const type& value) \
+    CLASS<type>::CLASS(uint32_t column_id, const type& value) \
         : ColumnPredicate(column_id), \
           _value(value) \
         {} \
@@ -38,7 +38,7 @@ COMPARISON_PRED_CONSTRUCTOR(GreaterEqualPredicate)
 
 #define COMPARISON_PRED_CONSTRUCTOR_STRING(CLASS) \
     template<> \
-    CLASS<StringValue>::CLASS(int column_id, const StringValue& value) \
+    CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value) \
         : ColumnPredicate(column_id) \
         { \
             _value.len = value.len; \
@@ -113,17 +113,29 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
     template<class type> \
     void CLASS<type>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const { \
-        for (int i = 0; i < block->nrows(); ++i) { \
-            if (!selector_vector->is_row_selected(i)) { \
+        if (block->is_nullable()) { \
+            for (int i = 0; i < block->nrows(); ++i) { \
+                if (!selector_vector->is_row_selected(i)) { \
                     continue; \
+                } \
+                if (block->cell(i).is_null()) { \
+                    selector_vector->clear_bit(i); \
+                    continue; \
+                } \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
+                if (!(*cell_value OP _value)) { \
+                    selector_vector->clear_bit(i); \
+                } \
             } \
-            if (block->is_nullable() && block->cell(i).is_null()) { \
-                selector_vector->clear_bit(i); \
-                continue; \
-            } \
-            const type* cell_value = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
-            if (!(*cell_value OP _value)) { \
-                selector_vector->clear_bit(i); \
+        } else { \
+            for (int i = 0; i < block->nrows(); ++i) { \
+                if (!selector_vector->is_row_selected(i)) { \
+                    continue; \
+                } \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
+                if (!(*cell_value OP _value)) { \
+                    selector_vector->clear_bit(i); \
+                } \
             } \
         } \
     } \
@@ -136,17 +148,17 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
-    template CLASS<int8_t>::CLASS(int column_id, const int8_t& value); \
-    template CLASS<int16_t>::CLASS(int column_id, const int16_t& value); \
-    template CLASS<int32_t>::CLASS(int column_id, const int32_t& value); \
-    template CLASS<int64_t>::CLASS(int column_id, const int64_t& value); \
-    template CLASS<int128_t>::CLASS(int column_id, const int128_t& value); \
-    template CLASS<float>::CLASS(int column_id, const float& value); \
-    template CLASS<double>::CLASS(int column_id, const double& value); \
-    template CLASS<decimal12_t>::CLASS(int column_id, const decimal12_t& value); \
-    template CLASS<StringValue>::CLASS(int column_id, const StringValue& value); \
-    template CLASS<uint24_t>::CLASS(int column_id, const uint24_t& value); \
-    template CLASS<uint64_t>::CLASS(int column_id, const uint64_t& value); \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value); \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value); \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, const int32_t& value); \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, const int64_t& value); \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, const int128_t& value); \
+    template CLASS<float>::CLASS(uint32_t column_id, const float& value); \
+    template CLASS<double>::CLASS(uint32_t column_id, const double& value); \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value); \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value); \
 
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(EqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(NotEqualPredicate)

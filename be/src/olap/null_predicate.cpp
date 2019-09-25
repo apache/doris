@@ -22,7 +22,7 @@
 
 namespace doris {
 
-NullPredicate::NullPredicate(int32_t column_id, bool is_null)
+NullPredicate::NullPredicate(uint32_t column_id, bool is_null)
     : ColumnPredicate(column_id), _is_null(is_null) {}
 
 NullPredicate::~NullPredicate() {}

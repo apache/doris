@@ -26,7 +26,7 @@ class VectorizedRowBatch;
 
 class NullPredicate : public ColumnPredicate {
 public:
-    NullPredicate(int32_t column_id, bool is_null);
+    NullPredicate(uint32_t column_id, bool is_null);
     virtual ~NullPredicate();
 
     virtual void evaluate(VectorizedRowBatch* batch) const override;

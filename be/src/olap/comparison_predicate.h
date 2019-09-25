@@ -29,7 +29,7 @@ class VectorizedRowBatch;
     template <class type> \
     class CLASS : public ColumnPredicate { \
     public: \
-        CLASS(int column_id, const type& value); \
+        CLASS(uint32_t column_id, const type& value); \
         virtual ~CLASS() { }  \
         virtual void evaluate(VectorizedRowBatch* batch) const override; \
         void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const override; \

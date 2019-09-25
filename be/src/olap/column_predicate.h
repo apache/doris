@@ -27,7 +27,7 @@ class VectorizedRowBatch;
 
 class ColumnPredicate {
 public:
-    ColumnPredicate(int32_t column_id) : _column_id(column_id) { }
+    ColumnPredicate(uint32_t column_id) : _column_id(column_id) { }
 
     virtual ~ColumnPredicate() {}
 
@@ -37,10 +37,10 @@ public:
     // evaluate predicate on ColumnBlock
     virtual void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const = 0;
 
-    int32_t column_id() { return _column_id; }
+    uint32_t column_id() const { return _column_id; }
 
 protected:
-    int32_t _column_id;
+    uint32_t _column_id;
 };
 
 } //namespace doris

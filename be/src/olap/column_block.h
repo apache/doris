@@ -54,7 +54,7 @@ public:
 
     ColumnBlockCell cell(size_t idx) const;
 
-    size_t nrows() { return _nrows; }
+    size_t nrows() const { return _nrows; }
 
 private:
     const TypeInfo* _type_info;

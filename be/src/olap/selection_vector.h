@@ -31,7 +31,13 @@ class SelectionVector {
 public:
     // Construct a new vector. The bits are initially in an indeterminate state.
     // Call SetAllTrue() if you require all rows to be initially selected.
-    explicit SelectionVector(size_t row_capacity);
+    explicit SelectionVector(size_t row_capacity)
+    : _n_rows(row_capacity),
+      _n_bytes(BitmapSize(row_capacity)),
+      _bitmap(new uint8_t[_n_bytes]) {
+        CHECK_GT(_n_bytes, 0);
+        pad_extra_bits_wit_zeroes();
+    }
 
     // returen the number of selected rows.
     size_t count_selected() const {

@@ -24,7 +24,7 @@ namespace doris {
 
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS) \
 template<class type> \
-CLASS<type>::CLASS(int column_id, std::set<type>&& values) \
+CLASS<type>::CLASS(uint32_t column_id, std::set<type>&& values) \
     : ColumnPredicate(column_id), \
       _values(std::move(values)) {} \
 
@@ -87,19 +87,29 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 #define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
     template<class type> \
     void CLASS<type>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const { \
-        for (int i = 0; i < block->nrows(); ++i) { \
-            if (!selector_vector->is_row_selected(i)) { \
+        if (block->is_nullable()) { \
+            for (int i = 0; i < block->nrows(); ++i) { \
+                if (!selector_vector->is_row_selected(i)) { \
                     continue; \
-            } \
-            if (block->is_nullable()) { \
+                } \
                 if (block->cell(i).is_null()) { \
                     selector_vector->clear_bit(i); \
                     continue; \
                 } \
+                const type* col_vector = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
+                if ((_values.find(*col_vector) OP _values.end())) { \
+                    selector_vector->clear_bit(i); \
+                } \
             } \
-            const type* col_vector = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
-            if ((_values.find(*col_vector) OP _values.end())) { \
-                selector_vector->clear_bit(i); \
+        } else { \
+            for (int i = 0; i < block->nrows(); ++i) { \
+                if (!selector_vector->is_row_selected(i)) { \
+                    continue; \
+                } \
+                const type* col_vector = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
+                if ((_values.find(*col_vector) OP _values.end())) { \
+                    selector_vector->clear_bit(i); \
+                } \
             } \
         } \
     } \
@@ -108,17 +118,17 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, ==)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, !=)
 
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
-    template CLASS<int8_t>::CLASS(int column_id, std::set<int8_t>&& values); \
-    template CLASS<int16_t>::CLASS(int column_id, std::set<int16_t>&& values); \
-    template CLASS<int32_t>::CLASS(int column_id, std::set<int32_t>&& values); \
-    template CLASS<int64_t>::CLASS(int column_id, std::set<int64_t>&& values); \
-    template CLASS<int128_t>::CLASS(int column_id, std::set<int128_t>&& values); \
-    template CLASS<float>::CLASS(int column_id, std::set<float>&& values); \
-    template CLASS<double>::CLASS(int column_id, std::set<double>&& values); \
-    template CLASS<decimal12_t>::CLASS(int column_id, std::set<decimal12_t>&& values); \
-    template CLASS<StringValue>::CLASS(int column_id, std::set<StringValue>&& values); \
-    template CLASS<uint24_t>::CLASS(int column_id, std::set<uint24_t>&& values); \
-    template CLASS<uint64_t>::CLASS(int column_id, std::set<uint64_t>&& values); \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values); \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, std::set<int16_t>&& values); \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, std::set<int32_t>&& values); \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, std::set<int64_t>&& values); \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, std::set<int128_t>&& values); \
+    template CLASS<float>::CLASS(uint32_t column_id, std::set<float>&& values); \
+    template CLASS<double>::CLASS(uint32_t column_id, std::set<double>&& values); \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, std::set<decimal12_t>&& values); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, std::set<StringValue>&& values); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, std::set<uint24_t>&& values); \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, std::set<uint64_t>&& values); \
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
