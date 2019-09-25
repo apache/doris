@@ -19,6 +19,9 @@ This function is used to estimate the cardinality of a single HLL sequence
 HLL_HASH(column_name)
 Generate HLL column types for insert or import, see the instructions for the use of imports
 
+EMPTY_HLL()
+Generate empty HLL column types for insert or import, see the instructions for the use of imports
+
 ## example
 1. First create a table with HLL columns
 create table test(
