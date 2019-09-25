@@ -103,6 +103,14 @@ public:
 
     int64_t estimate_cardinality();
 
+    static std::string empty() {
+        static HyperLogLog hll;
+        std::string buf;
+        buf.resize(HLL_EMPTY_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
+        return buf;
+    }
+
     // only for debug
     std::string to_string() {
         switch (_type) {

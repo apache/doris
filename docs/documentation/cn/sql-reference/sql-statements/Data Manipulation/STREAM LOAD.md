@@ -90,8 +90,8 @@
     6. 使用streaming方式导入（用户是defalut_cluster中的）
         seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load
 
-    7. 导入含有HLL列的表，可以是表中的列或者数据中的列用于生成HLL列
-        curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    7. 导入含有HLL列的表，可以是表中的列或者数据中的列用于生成HLL列，也可使用empty_hll补充数据中没有的列
+        curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=empty_hll()" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
     8. 导入数据进行严格模式过滤，并设置时区为 Africa/Abidjan
         curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
