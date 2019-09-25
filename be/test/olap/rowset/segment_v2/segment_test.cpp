@@ -606,20 +606,24 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     }
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, size_t _length = 0) {
+void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena* _arena, size_t _length = 0) {
     if (fieldType == OLAP_FIELD_TYPE_CHAR) {
         char* src_value = &std::to_string(src)[0];
         int src_len = strlen(src_value);
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = _length;
-        dest_slice->data = new char[dest_slice->size];
+        dest_slice->data = _arena->Allocate(dest_slice->size);
         memcpy(dest_slice->data, src_value, src_len);
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
     } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
-        Slice* slice = new Slice(*new string(&std::to_string(src)[0]));
-        std::memcpy(target, slice, sizeof(Slice));
-        delete slice;
+        char* src_value = &std::to_string(src)[0];
+        int src_len = strlen(src_value);
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = _arena->Allocate(src_len);
+        std::memcpy(dest_slice->data, src_value, src_len);
     } else {
         *(int*)target = src;
     }
@@ -627,6 +631,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, size_t
 
 TEST_F(SegmentReaderWriterTest, TestStringDict) {
     size_t num_rows_per_block = 10;
+    Arena _arena;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
     tablet_schema->_num_columns = 4;
@@ -658,13 +663,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     // 0, 1, 2, 3
     // 10, 11, 12, 13
     // 20, 21, 22, 23
-    //
-    // 64k int will generate 4 pages
+    // convert int to string
     for (int i = 0; i < 4096; ++i) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
-            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), tablet_schema->_cols[j]._length);
+            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[j]._length);
         }
         Status status = writer.append_row(row);
         ASSERT_TRUE(status.ok());
@@ -707,11 +711,9 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                         ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
 
-                        char* expect = new char[sizeof(Slice)];
-                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, expect, tablet_schema->_cols[j]._length);
-                        Slice* expect_ = reinterpret_cast<Slice*>(expect);
-                        ASSERT_EQ(expect_->to_string(), actual->to_string());
-                        delete expect;
+                        Slice expect;
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        ASSERT_EQ(expect.to_string(), actual->to_string());
                     }
                 }
                 rowid += rows_read;
@@ -726,7 +728,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, 40970, (char*)cell.mutable_cell_ptr(), tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, 40970, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
             }
 
             StorageReadOptions read_opts;
@@ -747,7 +749,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -2, (char*)cell.mutable_cell_ptr(), tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -2, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
             }
 
             std::unique_ptr<RowCursor> upper_bound(new RowCursor());
@@ -755,7 +757,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = upper_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -1, (char*)cell.mutable_cell_ptr(), tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -1, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
             }
 
             StorageReadOptions read_opts;

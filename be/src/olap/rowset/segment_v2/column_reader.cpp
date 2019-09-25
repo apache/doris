@@ -169,7 +169,7 @@ void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
-PagePointer ColumnReader::get_dict_page_pointer() {
+PagePointer ColumnReader::get_dict_page_pointer() const {
     return _meta.dict_page();
 }
 
