@@ -60,6 +60,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
         type = OLAP_FIELD_TYPE_VARCHAR;
+    } else if (0 == upper_type_str.compare("BOOLEAN")) {
+        type = OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
         type = OLAP_FIELD_TYPE_HLL;
     } else if (0 == upper_type_str.compare("STRUCT")) {
@@ -156,6 +158,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
         case OLAP_FIELD_TYPE_VARCHAR:
             return "VARCHAR";
 
+        case OLAP_FIELD_TYPE_BOOL:
+            return "BOOLEAN";
         case OLAP_FIELD_TYPE_HLL:
             return "HLL";
 
@@ -204,6 +208,7 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
 uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length) {
     switch (type) {
         case TPrimitiveType::TINYINT:
+        case TPrimitiveType::BOOLEAN:
             return 1;
         case TPrimitiveType::SMALLINT:
             return 2;

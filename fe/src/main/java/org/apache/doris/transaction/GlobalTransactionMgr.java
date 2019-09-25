@@ -395,7 +395,7 @@ public class GlobalTransactionMgr {
                         }
 
                         if (successReplicaNum < quorumReplicaNum) {
-                            LOG.warn("Failed to commit txn []. "
+                            LOG.warn("Failed to commit txn [{}]. "
                                              + "Tablet [{}] success replica num is {} < quorum replica num {} "
                                              + "while error backends {}",
                                      transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,

@@ -51,9 +51,10 @@
 
 namespace doris {
 
-class Tablet;
 class DataDir;
 class EngineTask;
+class MemTableFlushExecutor;
+class Tablet;
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -203,6 +204,8 @@ public:
 
     void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
 
+    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
+
 private:
 
     OLAPStatus _check_file_descriptor_number();
@@ -344,6 +347,8 @@ private:
     std::unique_ptr<TxnManager> _txn_manager;
 
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
+
+    MemTableFlushExecutor* _memtable_flush_executor;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

@@ -29,6 +29,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/tablets_channel.h"
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
@@ -37,29 +38,6 @@
 namespace doris {
 
 class ExecEnv;
-class TabletsChannel;
-
-struct TabletsChannelKey {
-    UniqueId id;
-    int64_t index_id;
-
-    TabletsChannelKey(const PUniqueId& pid, int64_t index_id_)
-        : id(pid), index_id(index_id_) { }
-    ~TabletsChannelKey() noexcept { }
-
-    bool operator==(const TabletsChannelKey& rhs) const noexcept {
-        return index_id == rhs.index_id && id == rhs.id;
-    }
-
-    std::string to_string() const;
-};
-
-struct TabletsChannelKeyHasher {
-    std::size_t operator()(const TabletsChannelKey& key) const {
-        size_t seed = key.id.hash();
-        return doris::HashUtil::hash(&key.index_id, sizeof(key.index_id), seed);
-    }
-};
 
 class Cache;
 
@@ -103,7 +81,5 @@ private:
 
     Status _start_tablets_channel_clean();
 };
-
-std::ostream& operator<<(std::ostream& os, const TabletsChannelKey&);
 
 }

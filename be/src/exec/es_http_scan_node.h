@@ -70,6 +70,9 @@ private:
     // Create scanners to do scan job
     Status start_scanners();
 
+    // Collect all scanners 's status
+    Status collect_scanners_status();
+
     // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
 
@@ -94,6 +97,7 @@ private:
     Status _process_status;
 
     std::vector<std::thread> _scanner_threads;
+    std::vector<std::promise<Status>> _scanners_status;
     std::map<std::string, std::string> _properties;
     std::vector<TScanRangeParams> _scan_ranges;
     std::vector<std::string> _column_names;
