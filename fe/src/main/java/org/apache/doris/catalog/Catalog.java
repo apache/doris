@@ -5126,13 +5126,6 @@ public class Catalog {
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDef(stmt.getInlineViewDef());
-        newView.setOriginalViewDef(stmt.getInlineViewDef());
-        try {
-            newView.init();
-        } catch (UserException e) {
-            throw new DdlException(e.getMessage());
-        }
-
         if (!db.createTableWithLock(newView, false, stmt.isSetIfNotExists())) {
             throw new DdlException("Failed to create view[" + tableName + "].");
         }
