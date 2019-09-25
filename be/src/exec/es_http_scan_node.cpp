@@ -273,10 +273,14 @@ Status EsHttpScanNode::close(RuntimeState* state) {
 
     _batch_queue.clear();
 
-    RETURN_IF_ERROR(ExecNode::close(state));
+    //don't need to hold lock to update_status in close function
+    //collect scanners status
+    update_status(collect_scanners_status());
 
-    //collect scanners status at last
-    return collect_scanners_status();
+    //close exec node
+    update_status(ExecNode::close(state));
+
+    return _process_status;
 }
 
 // This function is called after plan node has been prepared.
