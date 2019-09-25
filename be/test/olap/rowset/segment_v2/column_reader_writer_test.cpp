@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/decimal12.h"
 
 #include <gtest/gtest.h>
 #include <iostream>
@@ -199,6 +200,41 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
     delete[] is_null;
     delete[] float_vals;
     delete[] double_vals;
+}
+
+TEST_F(ColumnReaderWriterTest, test_types) {
+    size_t num_uint8_rows = 1024 * 1024;
+    uint8_t* is_null = new uint8_t[num_uint8_rows];
+
+    bool* bool_vals = new bool[num_uint8_rows];
+    uint24_t* date_vals = new uint24_t[num_uint8_rows];
+    uint64_t* datetime_vals = new uint64_t[num_uint8_rows];
+    decimal12_t* decimal_vals = new decimal12_t[num_uint8_rows];
+    for (int i = 0; i < num_uint8_rows; ++i) {
+        bool_vals[i] = i % 2;
+        date_vals[i] = i + 33;
+        datetime_vals[i] = i + 33;
+        decimal_vals[i] = decimal12_t(i, i); // 1.000000001
+        BitmapChange(is_null, i, (i % 4) == 0);
+    }
+    test_nullable_data<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>((uint8_t*)bool_vals, is_null, num_uint8_rows, "null_bool_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>((uint8_t*)date_vals, is_null, num_uint8_rows / 3, "null_date_bs");
+
+    for (int i = 0; i < num_uint8_rows; ++i) {
+        BitmapChange(is_null, i, (i % 16) == 0);
+    }
+    test_nullable_data<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>((uint8_t*)datetime_vals, is_null, num_uint8_rows / 8, "null_datetime_bs");
+
+    for (int i = 0; i< num_uint8_rows; ++i) {
+        BitmapChange(is_null, i, (i % 24) == 0);
+    }
+    test_nullable_data<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>((uint8_t*)decimal_vals, is_null, num_uint8_rows / 12, "null_decimal_bs");
+
+    delete[] is_null;
+    delete[] bool_vals;
+    delete[] date_vals;
+    delete[] datetime_vals;
+    delete[] decimal_vals;
 }
 
 }
