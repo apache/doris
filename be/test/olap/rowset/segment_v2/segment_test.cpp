@@ -619,6 +619,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, size_t
     } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
         Slice* slice = new Slice(*new string(&std::to_string(src)[0]));
         std::memcpy(target, slice, sizeof(Slice));
+        delete slice;
     } else {
         *(int*)target = src;
     }
@@ -634,8 +635,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     tablet_schema->_num_rows_per_row_block = num_rows_per_block;
     tablet_schema->_cols.push_back(create_char_key(1));
     tablet_schema->_cols.push_back(create_char_key(2));
-    tablet_schema->_cols.push_back(create_char_key(3));
-    tablet_schema->_cols.push_back(create_char_key(4));
+    tablet_schema->_cols.push_back(create_varchar_key(3));
+    tablet_schema->_cols.push_back(create_varchar_key(4));
 
     //    segment write
     std::string dname = "./ut_dir/segment_test";
@@ -663,8 +664,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
-            Slice* slice = new Slice(*new string(&std::to_string(i * 10 + j)[0]));
-            std::memcpy(cell.mutable_cell_ptr(), slice, sizeof(Slice));
+            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), tablet_schema->_cols[j]._length);
         }
         Status status = writer.append_row(row);
         ASSERT_TRUE(status.ok());
@@ -706,7 +706,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                         int rid = rowid + i;
                         ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
-                        ASSERT_EQ(&std::to_string(rid * 10 + cid)[0], actual->to_string());
+
+                        char* expect = new char[sizeof(Slice)];
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, expect, tablet_schema->_cols[j]._length);
+                        Slice* expect_ = reinterpret_cast<Slice*>(expect);
+                        ASSERT_EQ(expect_->to_string(), actual->to_string());
+                        delete expect;
                     }
                 }
                 rowid += rows_read;

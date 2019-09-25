@@ -32,7 +32,7 @@
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
-#include "binary_dict_page.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 
 namespace doris {
 namespace segment_v2 {
@@ -438,11 +438,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
                 PagePointer pp = _reader->get_dict_page_pointer();
                 RETURN_IF_ERROR(_reader->read_page(pp, &_dict_page_handle));
 
-                BinaryPlainPageDecoder* dict_decoder = new BinaryPlainPageDecoder(_dict_page_handle.data());
-                RETURN_IF_ERROR(dict_decoder->init());
-
-                std::unique_ptr<PageDecoder> dict_page_ptr(dict_decoder);
-                _dict_decoder = std::move(dict_page_ptr);
+                _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
+                RETURN_IF_ERROR(_dict_decoder->init());
             }
             binary_dict_page_decoder->set_dict_decoder(_dict_decoder.get());
         }
