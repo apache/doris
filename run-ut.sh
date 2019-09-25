@@ -158,6 +158,7 @@ ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
+${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
@@ -241,6 +242,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
+${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
