@@ -53,9 +53,11 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
 import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
@@ -67,7 +69,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
@@ -129,23 +130,48 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public static class LoadStatistic {
         // number of rows processed on BE, this number will be updated periodically by query report.
-        // A load job may has several load tasks, so the map key is load task's plan load id.
-        public Map<TUniqueId, AtomicLong> numScannedRowsMap = Maps.newConcurrentMap();
+        // A load job may has several load tasks(queries), and each task has several fragments.
+        // each fragment will report independently.
+        // load task id -> fragment id -> rows count
+        private Table<TUniqueId, TUniqueId, Long> counterTbl = HashBasedTable.create();
+
         // number of file to be loaded
         public int fileNum = 0;
         public long totalFileSizeB = 0;
-        
-        public String toJson() {
+
+        // init the statistic of specified load task
+        public synchronized void initLoad(TUniqueId loadId, Set<TUniqueId> fragmentIds) {
+            counterTbl.rowMap().remove(loadId);
+            for (TUniqueId fragId : fragmentIds) {
+                counterTbl.put(loadId, fragId, 0L);
+            }
+        }
+
+        public synchronized void removeLoad(TUniqueId loadId) {
+            counterTbl.rowMap().remove(loadId);
+        }
+
+        public synchronized void updateLoad(TUniqueId loadId, TUniqueId fragmentId, long rows) {
+            if (counterTbl.contains(loadId, fragmentId)) {
+                counterTbl.put(loadId, fragmentId, rows);
+            }
+        }
+
+        public synchronized void clearAllLoads() {
+            counterTbl.clear();
+        }
+
+        public synchronized String toJson() {
             long total = 0;
-            for (AtomicLong atomicLong : numScannedRowsMap.values()) {
-                total += atomicLong.get();
+            for (long rows : counterTbl.values()) {
+                total += rows;
             }
 
             Map<String, Object> details = Maps.newHashMap();
             details.put("ScannedRows", total);
             details.put("FileNumber", fileNum);
             details.put("FileSize", totalFileSizeB);
-            details.put("TaskNumber", numScannedRowsMap.size());
+            details.put("TaskNumber", counterTbl.rowMap().size());
             Gson gson = new Gson();
             return gson.toJson(details);
         }
@@ -222,11 +248,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return transactionId;
     }
 
-    public void updateScannedRows(TUniqueId loadId, long scannedRows) {
-        AtomicLong atomicLong = loadStatistic.numScannedRowsMap.get(loadId);
-        if (atomicLong != null) {
-            atomicLong.set(scannedRows);
-        }
+    public void initScannedRows(TUniqueId loadId, Set<TUniqueId> fragmentIds) {
+        loadStatistic.initLoad(loadId, fragmentIds);
+    }
+
+    public void updateScannedRows(TUniqueId loadId, TUniqueId fragmentId, long scannedRows) {
+        loadStatistic.updateLoad(loadId, fragmentId, scannedRows);
     }
 
     public void setLoadFileInfo(int fileNum, long fileSize) {
@@ -510,7 +537,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
-        loadStatistic.numScannedRowsMap.clear();
+        loadStatistic.clearAllLoads();
 
         // set failMsg and state
         this.failMsg = failMsg;

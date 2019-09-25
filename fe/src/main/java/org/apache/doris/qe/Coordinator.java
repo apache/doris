@@ -400,10 +400,11 @@ public class Coordinator {
                     toBrpcHost(topParams.instanceExecParams.get(0).host),
                     queryOptions.query_timeout * 1000);
         } else {
-            // This is a insert statement.
+            // This is a load process.
             this.queryOptions.setIs_report_success(true);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
+            Catalog.getCurrentCatalog().getLoadManager().initJobScannedRows(jobId, queryId, instanceIds);
         }
 
         // to keep things simple, make async Cancel() calls wait until plan fragment
@@ -1191,7 +1192,8 @@ public class Coordinator {
         }
 
         if (params.isSetLoaded_rows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(jobId, params.query_id, params.loaded_rows);
+            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(
+                    jobId, params.query_id, params.fragment_instance_id, params.loaded_rows);
         }
 
         return;
