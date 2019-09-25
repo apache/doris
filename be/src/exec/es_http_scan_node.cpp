@@ -153,13 +153,18 @@ Status EsHttpScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
+    _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        std::promise<Status> p;
-        std::future<Status> f = p.get_future();
         _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
-                    _scan_ranges.size(), std::ref(p));
-        Status status = f.get();
-        if (!status.ok()) return status;
+                    _scan_ranges.size(), std::ref(_scanners_status[i]));
+    }
+    return Status::OK();
+}
+
+Status EsHttpScanNode::collect_scanners_status() {
+    for (int i = 0; i < _scan_ranges.size(); i++) {
+        std::future<Status> f = _scanners_status[i].get_future();
+        RETURN_IF_ERROR(f.get());
     }
     return Status::OK();
 }
@@ -247,11 +252,13 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
                 << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
-    
+
     return Status::OK();
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
+
+
     if (is_closed()) {
         return Status::OK();
     }
@@ -266,7 +273,14 @@ Status EsHttpScanNode::close(RuntimeState* state) {
 
     _batch_queue.clear();
 
-    return ExecNode::close(state);
+    //don't need to hold lock to update_status in close function
+    //collect scanners status
+    update_status(collect_scanners_status());
+
+    //close exec node
+    update_status(ExecNode::close(state));
+
+    return _process_status;
 }
 
 // This function is called after plan node has been prepared.
