@@ -130,6 +130,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
 
         // if last flush of this tablet already failed, just skip
         if (ctx.flush_handler->is_cancelled()) {
+            ctx.flush_handler->on_flush_cancelled();
             continue;
         }
 

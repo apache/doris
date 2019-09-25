@@ -18,9 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
-#include <future>
-#include <memory>
-
 #include "olap/schema.h"
 #include "olap/skiplist.h"
 #include "runtime/tuple.h"
