@@ -72,7 +72,7 @@ public class View extends Table {
     // 'queryStmtRef' is a soft reference, it is created from parsing query stmt, and it will be cleared if
     // JVM memory is not enough.
     private QueryStmt queryStmt;
-    private SoftReference<QueryStmt> queryStmtRef;
+    private SoftReference<QueryStmt> queryStmtRef = new SoftReference<QueryStmt>(null);
 
     // Set if this View is from a WITH clause and not persisted in the catalog.
     private boolean isLocalView;
