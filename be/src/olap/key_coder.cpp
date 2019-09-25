@@ -70,7 +70,7 @@ private:
         _coder_map.emplace(field_type, new KeyCoder(KeyCoderTraits<field_type>()));
     }
 
-    std::unordered_map<FieldType, KeyCoder*> _coder_map;
+    std::unordered_map<FieldType, KeyCoder*, EnumClassHash> _coder_map;
 };
 
 const KeyCoder* get_key_coder(FieldType type) {
