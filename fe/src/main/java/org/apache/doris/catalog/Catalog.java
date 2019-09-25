@@ -2869,12 +2869,16 @@ public class Catalog {
                 }
 
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    List<Column> newDistriCols = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
                     List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo)
                             .getDistributionColumns();
                     if (!newDistriCols.equals(defaultDistriCols)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "default is: " + defaultDistriCols);
+                    }
+                    if (hashDistributionInfo.getBucketNum() <= 0) {
+                        throw new DdlException("Cannot assign hash distribution buckets less than 1");
                     }
                 }
             } else {
