@@ -18,19 +18,21 @@
 #ifndef DORIS_BE_SRC_DELTA_WRITER_H
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
-#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
+#include "util/blocking_queue.hpp"
 
 namespace doris {
 
-class SegmentGroup;
+class FlushHandler;
 class MemTable;
 class Schema;
+class SegmentGroup;
+class StorageEngine;
 
 enum WriteType {
     LOAD = 1,
@@ -54,17 +56,27 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
+
     OLAPStatus init();
-    DeltaWriter(WriteRequest* req);
+
     ~DeltaWriter();
+
     OLAPStatus write(Tuple* tuple);
-    OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    // flush the last memtable to flush queue, must call it before close_wait()
+    OLAPStatus close();
+    // wait for all memtables being flushed
+    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     OLAPStatus cancel();
 
     int64_t partition_id() const { return _req.partition_id; }
 
 private:
+    // push a full memtable to flush executor
+    OLAPStatus _flush_memtable_async();
+
     void _garbage_collection();
 
 private:
@@ -75,10 +87,13 @@ private:
     RowsetSharedPtr _new_rowset;
     TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
-    MemTable* _mem_table;
+    std::shared_ptr<MemTable> _mem_table;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
+
+    StorageEngine* _storage_engine;
+    std::shared_ptr<FlushHandler> _flush_handler;
 };
 
 }  // namespace doris
