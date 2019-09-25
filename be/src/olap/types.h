@@ -524,6 +524,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
              * inputed by user may be greater than fixed length.
              */
             slice->size = value_len;
+        } else {
+            // append \0 to the tail
+            memset(slice->data + value_len, 0, slice->size - value_len);
         }
         return OLAP_SUCCESS;
     }

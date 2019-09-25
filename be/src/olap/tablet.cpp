@@ -609,6 +609,9 @@ const uint32_t Tablet::calc_cumulative_compaction_score() const {
         if (rs_meta->start_version() >= point) {
             score++;
         }
+        if (rs_meta->start_version() == rs_meta->end_version()) {
+            score += rs_meta->num_segments();
+        }
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }

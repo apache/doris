@@ -145,9 +145,9 @@ Where url is the url given by ErrorURL.
 
     ```Seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load```
 
-7. load a table with HLL columns, which can be columns in the table or columns in the data used to generate HLL columns
+7. load a table with HLL columns, which can be columns in the table or columns in the data used to generate HLL columns,you can also use empty_hll to supplement columns that are not in the data
 
-    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load```
+    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=empty_hll()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
 8. load data for strict mode filtering and set the time zone to Africa/Abidjan
 

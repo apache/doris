@@ -48,6 +48,9 @@ void HllFunctions::hll_init(FunctionContext *, StringVal* dst) {
     dst->len = sizeof(HyperLogLog);
     dst->ptr = (uint8_t*)new HyperLogLog();
 }
+StringVal HllFunctions::empty_hll(FunctionContext* ctx) {
+    return AnyValUtil::from_string_temp(ctx, HyperLogLog::empty());
+}
 
 template <typename T>
 void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
