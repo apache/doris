@@ -232,8 +232,10 @@ public:
         switch (_size_of_element) {
             case 1:
             case 2:
+            case 3:
             case 4:
             case 8:
+            case 12:
             case 16:
                 break;
             default:
