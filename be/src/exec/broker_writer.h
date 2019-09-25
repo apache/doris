@@ -50,6 +50,8 @@ public:
 
     virtual void close() override;
 
+    bool is_closed() { return _is_closed; }
+
 private:
     ExecEnv* _env;
     const std::vector<TNetworkAddress>& _addresses;

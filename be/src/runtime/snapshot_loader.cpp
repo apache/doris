@@ -222,6 +222,13 @@ Status SnapshotLoader::upload(
                     read_offset += read_len;
                     left_len -= read_len;
                 }
+
+                // close manually, because we need to check its close status
+                broker_writer->close();
+                if (!broker_writer->is_closed()) {
+                    return Status::InternalError("failed to close remote file: " + full_remote_file);
+                }
+
                 LOG(INFO) << "finished to write file via broker. file: " <<
                     full_local_file << ", length: " << file_len;
             }

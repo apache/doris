@@ -198,7 +198,9 @@ void BrokerWriter::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        // use 20 second because close may take longer in remote storage, sometimes.
+        // TODO(cmy): optimize this if necessary.
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 20000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
@@ -208,9 +210,11 @@ void BrokerWriter::close() {
         try {
             client->closeWriter(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
+            LOG(WARNING) << "Close broker writer failed. broker=" << broker_addr
+                << ", status=" << status.get_error_msg();
             status = client.reopen();
             if (!status.ok()) {
-                LOG(WARNING) << "Close broker writer failed. broker=" << broker_addr
+                LOG(WARNING) << "Reopen broker writer failed. broker=" << broker_addr
                     << ", status=" << status.get_error_msg();
                 return;
             }
