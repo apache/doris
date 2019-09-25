@@ -36,6 +36,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
+#include "olap/memtable_flush_executor.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
@@ -221,6 +222,9 @@ OLAPStatus StorageEngine::open() {
     load_data_dirs(dirs);
     // 取消未完成的SchemaChange任务
     _tablet_manager->cancel_unfinished_schema_change();
+
+    _memtable_flush_executor = new MemTableFlushExecutor();
+    _memtable_flush_executor->init(dirs);
 
     return OLAP_SUCCESS;
 }
@@ -492,6 +496,9 @@ OLAPStatus StorageEngine::clear() {
         store_pair.second = nullptr;
     }
     _store_map.clear();
+
+    delete _memtable_flush_executor;
+
     return OLAP_SUCCESS;
 }
 

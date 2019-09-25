@@ -26,15 +26,17 @@
 
 namespace doris {
 
-MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
+MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type)
-    : _schema(schema),
+                   KeysType keys_type, RowsetWriter* rowset_writer)
+    : _tablet_id(tablet_id),
+      _schema(schema),
       _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
       _slot_descs(slot_descs),
       _keys_type(keys_type),
-      _row_comparator(_schema) {
+      _row_comparator(_schema),
+      _rowset_writer(rowset_writer) {
     _schema_size = _schema->schema_size();
     _tuple_buf = _arena.Allocate(_schema_size);
     _skip_list = new Table(_row_comparator, &_arena);
@@ -59,6 +61,7 @@ size_t MemTable::memory_usage() {
 
 void MemTable::insert(Tuple* tuple) {
     ContiguousRow row(_schema, _tuple_buf);
+    
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
         const SlotDescriptor* slot = (*_slot_descs)[i];
@@ -75,7 +78,7 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(RowsetWriter* rowset_writer) {
+OLAPStatus MemTable::flush() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -84,17 +87,17 @@ OLAPStatus MemTable::flush(RowsetWriter* rowset_writer) {
             char* row = (char*)it.key();
             ContiguousRow dst_row(_schema, row);
             agg_finalize_row(&dst_row, _skip_list->arena());
-            RETURN_NOT_OK(rowset_writer->add_row(dst_row));
+            RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
         }
-        RETURN_NOT_OK(rowset_writer->flush());
+        RETURN_NOT_OK(_rowset_writer->flush());
     }
     DorisMetrics::memtable_flush_total.increment(1); 
     DorisMetrics::memtable_flush_duration_us.increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(RowsetWriter* rowset_writer) {
-    return flush(rowset_writer);
+OLAPStatus MemTable::close() {
+    return flush();
 }
 
 } // namespace doris
