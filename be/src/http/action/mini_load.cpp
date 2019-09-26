@@ -369,7 +369,7 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
     request.__set_function_name(_streaming_function_name);
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     TFeResult res;
-    Status status = FrontendHelper::rpc(
+    Status status = FrontendHelper::rpc<FrontendServiceClient>(
             master_address.hostname, master_address.port,
             [&request, &res] (FrontendServiceConnection& client) {
             client->isMethodSupported(res, request);
@@ -652,7 +652,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &res] (FrontendServiceConnection& client) {
             client->miniLoadBegin(res, request);
@@ -729,7 +729,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    RETURN_IF_ERROR(FrontendHelper::rpc(master_addr.hostname, master_addr.port,
+    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(master_addr.hostname, master_addr.port,
                     [&put_request, ctx] (FrontendServiceConnection& client) {
                     client->streamLoadPut(ctx->put_result, put_request);
                     }));

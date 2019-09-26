@@ -132,7 +132,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 
     TLoadTxnBeginResult result;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result] (FrontendServiceConnection& client) {
                 client->loadTxnBegin(result, request);
@@ -177,7 +177,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &result] (FrontendServiceConnection& client) {
             client->loadTxnCommit(result, request);
@@ -218,7 +218,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
-    auto rpc_st = FrontendHelper::rpc(
+    auto rpc_st = FrontendHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &result] (FrontendServiceConnection& client) {
             client->loadTxnRollback(result, request);

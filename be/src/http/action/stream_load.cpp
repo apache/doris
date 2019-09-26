@@ -355,7 +355,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
     }
 
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
             [&request, ctx] (FrontendServiceConnection& client) {
             client->streamLoadPut(ctx->put_result, request);

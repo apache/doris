@@ -917,7 +917,7 @@ Status SnapshotLoader::_report_every(
     request.__set_total_num(total_num);
     TStatus report_st;
 
-    Status rpcStatus = FrontendHelper::rpc(
+    Status rpcStatus = FrontendHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &report_st] (FrontendServiceConnection& client) {
             client->snapshotLoaderReport(report_st, request);
