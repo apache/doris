@@ -465,9 +465,19 @@ void HllVal::init(FunctionContext* ctx) {
     is_null = false;
 }
 
-void HllVal::agg_parse_and_cal(const HllVal &other) {
+void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
     doris::HllSetResolver resolver;
-    resolver.init((char*)other.ptr, other.len);
+
+    // zero size means the src input is a HyperLogLog object
+    if (other.len == 0) {
+        auto* hll = reinterpret_cast<doris::HyperLogLog*>(other.ptr);
+        uint8_t* ptr = ctx->allocate(doris::HLL_COLUMN_DEFAULT_LEN);
+        int len = hll->serialize(ptr);
+        resolver.init((char*)ptr, len);
+    } else {
+        resolver.init((char*)other.ptr, other.len);
+    }
+
     resolver.parse();
 
     if (resolver.get_hll_data_type() == doris::HLL_DATA_EMPTY) {
