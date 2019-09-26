@@ -44,14 +44,14 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
     RETURN_NOT_OK_LOG(row_cursor.init(tablet->tablet_schema()),
                  "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
     row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
-
     // The following procedure would last for long time, half of one day, etc.
     int64_t output_rows = 0;
     while (true) {
         Arena arena;
+        ObjectPool objectPool;
         bool eof = false;
         // Read one row into row_cursor
-        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, &arena, &eof),
+        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, &arena, &objectPool, &eof),
                           "failed to read next row when merging rowsets of tablet " + tablet->full_name());
         if (eof) {
             break;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/object_pool.h"
 #include "olap/hll.h"
 #include "olap/types.h"
 #include "olap/row_cursor_cell.h"
@@ -28,7 +29,7 @@
 
 namespace doris {
 
-using AggInitFunc = void (*)(RowCursorCell* dst, const char* src, bool src_null, Arena* arena);
+using AggInitFunc = void (*)(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool);
 using AggUpdateFunc = void (*)(RowCursorCell* dst, const RowCursorCell& src, Arena* arena);
 using AggFinalizeFunc = void (*)(RowCursorCell* src, Arena* arena);
 
@@ -43,8 +44,8 @@ public:
     // Memory Note: For plain memory can be allocated from arena, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize functioin to avoid memory leak.
-    inline void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) const {
-        _init_fn(dst, src, src_null, arena);
+    inline void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) const {
+        _init_fn(dst, src, src_null, arena, agg_pool);
     }
 
     // Update aggregated intermediate data. Data stored in engine is aggregated.
@@ -73,7 +74,7 @@ public:
     FieldAggregationMethod agg_method() const { return _agg_method; }
 
 private:
-    void (*_init_fn)(RowCursorCell* dst, const char* src, bool src_null, Arena* arena);
+    void (*_init_fn)(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool);
     void (*_update_fn)(RowCursorCell* dst, const RowCursorCell& src, Arena* arena);
     void (*_finalize_fn)(RowCursorCell* src, Arena* arena);
 
@@ -87,7 +88,7 @@ private:
 
 template<FieldType field_type>
 struct BaseAggregateFuncs {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -113,7 +114,7 @@ struct AggregateFuncTraits : public BaseAggregateFuncs<field_type> {
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL> :
         public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL>  {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -129,7 +130,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL>
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME> :
         public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -144,7 +145,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATE> :
         public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -398,17 +399,21 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
 // so when init, update hll, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
 
         auto* src_slice = reinterpret_cast<const Slice*>(src);
         auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
 
-        dst_slice->size = sizeof(HyperLogLog);
-        // use 'placement new' to allocate HyperLogLog on arena, so that we can control the memory usage.
-        char* mem = arena->Allocate(dst_slice->size);
-        dst_slice->data = (char*) new (mem) HyperLogLog((const uint8_t*)src_slice->data);
+        // we use zero size represent this slice is a agg object
+        dst_slice->size = 0;
+        auto* hll = new HyperLogLog((const uint8_t*) src_slice->data);
+        dst_slice->data = reinterpret_cast<char*>(hll);
+
+        arena->track_memory(sizeof(HyperLogLog));
+
+        agg_pool->add(hll);
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
@@ -425,33 +430,36 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         } else {   // for stream load
             auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
             dst_hll->merge(*src_hll);
-            // NOT use 'delete src_hll' because the memory is managed by arena
-            src_hll->~HyperLogLog();
         }
     }
 
+    // The HLL object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, Arena* arena) {
         auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
         auto *hll = reinterpret_cast<HyperLogLog*>(slice->data);
 
         slice->data = arena->Allocate(HLL_COLUMN_DEFAULT_LEN);
         slice->size = hll->serialize((uint8_t*)slice->data);
-        // NOT using 'delete hll' because the memory is managed by arena
-        hll->~HyperLogLog();
     }
 };
 // when data load, after bitmap_init fucntion, bitmap_union column won't be null
 // so when init, update bitmap, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, Arena* arena, ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
         auto* src_slice = reinterpret_cast<const Slice*>(src);
         auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
 
-        dst_slice->size = sizeof(RoaringBitmap);
-        dst_slice->data = (char*)new RoaringBitmap(src_slice->data);
+        // we use zero size represent this slice is a agg object
+        dst_slice->size = 0;
+        auto* bitmap = new RoaringBitmap(src_slice->data);
+        dst_slice->data = (char*) bitmap;
+
+        arena->track_memory(sizeof(RoaringBitmap));
+
+        agg_pool->add(bitmap);
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) {
@@ -468,11 +476,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         } else {   // for stream load
             auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src_slice->data);
             dst_bitmap->merge(*src_bitmap);
-
-            delete src_bitmap;
         }
     }
 
+    // The RoaringBitmap object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, Arena *arena) {
         auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
         auto *bitmap = reinterpret_cast<RoaringBitmap*>(slice->data);
@@ -480,8 +487,6 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         slice->size = bitmap->size();
         slice->data = arena->Allocate(slice->size);
         bitmap->serialize(slice->data);
-
-        delete bitmap;
     }
 };
 
