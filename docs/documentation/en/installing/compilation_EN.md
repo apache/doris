@@ -70,7 +70,7 @@ You can try to compile Doris directly in your own Linux environment.
     
     `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev`
 
-	After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+    After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
 
 2. Compile Doris
 
