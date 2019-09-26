@@ -562,7 +562,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     }
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
-        memset(slice->data, 0, slice->size);
+        slice->size = 0;
     }
     static uint32_t hash_code(const void* data, uint32_t seed) {
         auto slice = reinterpret_cast<const Slice*>(data);

@@ -770,6 +770,78 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             ASSERT_EQ(0, block.num_rows());
         }
 
+        // test char zone_map query hit;should read whole page
+        {
+            TCondition condition;
+            condition.__set_column_name("1");
+            condition.__set_condition_op(">");
+            std::vector<std::string> vals = {"100"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+            int left = 4 * 1024;
+            int rowid = 0;
+
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+
+                        const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
+                        Slice expect;
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        ASSERT_EQ(expect.to_string(), actual->to_string()) << "rid:" << rid << ", i:" << i;;
+                    }
+                }
+                rowid += rows_read;
+            }
+            ASSERT_EQ(4 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
+        // test char zone_map query miss;col < -1
+        {
+            TCondition condition;
+            condition.__set_column_name("1");
+            condition.__set_condition_op("<");
+            std::vector<std::string> vals = {"-1"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
     }
 
     FileUtils::remove_all(dname);

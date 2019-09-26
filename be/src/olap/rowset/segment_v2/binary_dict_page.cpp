@@ -179,7 +179,7 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
 
-bool BinaryDictPageDecoder::is_dict_encoding() {
+bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
