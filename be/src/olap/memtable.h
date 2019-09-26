@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
+#include "common/object_pool.h"
 #include "olap/schema.h"
 #include "olap/skiplist.h"
 #include "runtime/tuple.h"
@@ -57,6 +58,7 @@ private:
 
     RowCursorComparator _row_comparator;
     Arena _arena;
+    ObjectPool _agg_object_pool;
 
     typedef SkipList<char*, RowCursorComparator> Table;
     char* _tuple_buf;

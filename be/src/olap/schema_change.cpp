@@ -569,6 +569,7 @@ bool RowBlockMerger::merge(
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
     std::unique_ptr<Arena> arena(new Arena());
+    std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
         goto MERGE_ERR;
@@ -578,7 +579,7 @@ bool RowBlockMerger::merge(
 
     row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
-        init_row_with_others(&row_cursor, *(_heap.top().row_cursor), arena.get());
+        init_row_with_others(&row_cursor, *(_heap.top().row_cursor), arena.get(), agg_object_pool.get());
 
         if (!_pop_heap()) {
             goto MERGE_ERR;
@@ -604,6 +605,7 @@ bool RowBlockMerger::merge(
         // the memory allocate by arena has been copied,
         // so we should release these memory immediately
         arena.reset(new Arena());
+        agg_object_pool.reset(new ObjectPool());
     }
     if (rowset_writer->flush() != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to finalizing writer.";
