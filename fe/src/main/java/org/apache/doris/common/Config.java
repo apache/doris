@@ -884,5 +884,19 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static int max_distribution_pruner_recursion_depth = 100;
+
+    /*
+     * If the jvm memory used percent(heap or old mem pool) exceed this threshold, checkpoint thread will
+     * not work to avoid OOM.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long metadata_checkopoint_memory_threshold = 60;
+
+    /*
+     * If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean force_do_metadata_checkpoint = false;
+
 }
 
