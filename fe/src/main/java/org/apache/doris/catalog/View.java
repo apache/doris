@@ -141,7 +141,7 @@ public class View extends Table {
      * Throws a TableLoadingException if there was any error parsing the
      * the SQL or if the view definition did not parse into a QueryStmt.
      */
-    private synchronized QueryStmt init() throws UserException {
+    public synchronized QueryStmt init() throws UserException {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
