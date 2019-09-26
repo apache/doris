@@ -64,9 +64,13 @@ You can try to compile Doris directly in your own Linux environment.
 
 1. System Dependence
 
-    `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+`
+    `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+`
 
-	After installation, set environment variables `PATH', `JAVA_HOME', etc.
+    If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+    
+    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev`
+
+    After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
 
 2. Compile Doris
 
