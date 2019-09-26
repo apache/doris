@@ -64,8 +64,12 @@
 
 1. 系统依赖
 
-    `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+`
+    `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+`
+
+    如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
     
+    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev`
+
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
     
 2. 编译 Doris
