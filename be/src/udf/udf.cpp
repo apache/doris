@@ -471,9 +471,9 @@ void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
     // zero size means the src input is a HyperLogLog object
     if (other.len == 0) {
         auto* hll = reinterpret_cast<doris::HyperLogLog*>(other.ptr);
-        uint8_t* ptr = ctx->allocate(doris::HLL_COLUMN_DEFAULT_LEN);
-        int len = hll->serialize(ptr);
-        resolver.init((char*)ptr, len);
+        uint8_t* other_ptr = ctx->allocate(doris::HLL_COLUMN_DEFAULT_LEN);
+        int other_len = hll->serialize(ptr);
+        resolver.init((char*)other_ptr, other_len);
     } else {
         resolver.init((char*)other.ptr, other.len);
     }
