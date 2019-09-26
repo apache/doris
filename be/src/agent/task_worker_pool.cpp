@@ -960,10 +960,18 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
         vector<string> error_msgs;
         TStatus task_status;
 
-        worker_pool_this->_env->storage_engine()->clear_transaction_task(
-            clear_transaction_task_req.transaction_id, clear_transaction_task_req.partition_id);
-        LOG(INFO) << "finish to clear transaction task. signature:" << agent_task_req.signature
-                  << ", transaction_id:" << clear_transaction_task_req.transaction_id;
+        if (clear_transaction_task_req.transaction_id > 0) {
+            // transaction_id should be greater than zero.
+            // If it is not greater than zero, no need to execute
+            // the following clear_transaction_task() function.
+            worker_pool_this->_env->storage_engine()->clear_transaction_task(
+                    clear_transaction_task_req.transaction_id, clear_transaction_task_req.partition_id);
+            LOG(INFO) << "finish to clear transaction task. signature:" << agent_task_req.signature
+                      << ", transaction_id:" << clear_transaction_task_req.transaction_id;
+        } else {
+            LOG(WARNING) << "invalid transaction id: " << clear_transaction_task_req.transaction_id
+                         << ", signature:" << agent_task_req.signature;
+        }
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
