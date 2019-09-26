@@ -48,7 +48,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
         _row_desc(row_desc),
         _auxiliary_mem_usage(0),
         _need_to_return(false),
-        _tuple_data_pool(new MemPool(_mem_tracker)) {
+        _tuple_data_pool(new MemPool(_mem_tracker)),
+        _agg_object_pool(new ObjectPool()) {
     DCHECK(_mem_tracker != NULL);
     DCHECK_GT(capacity, 0);
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
@@ -82,7 +83,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
             _row_desc(row_desc),
             _auxiliary_mem_usage(0),
             _need_to_return(false),
-            _tuple_data_pool(new MemPool(_mem_tracker)) {
+            _tuple_data_pool(new MemPool(_mem_tracker)),
+            _agg_object_pool(new ObjectPool()) {
     DCHECK(_mem_tracker != nullptr);
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
@@ -173,7 +175,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
         _row_desc(row_desc),
         _auxiliary_mem_usage(0),
         _need_to_return(false),
-        _tuple_data_pool(new MemPool(_mem_tracker)) {
+        _tuple_data_pool(new MemPool(_mem_tracker)),
+        _agg_object_pool(new ObjectPool()) {
     DCHECK(_mem_tracker != NULL);
     _tuple_ptrs_size = _num_rows * input_batch.row_tuples.size() * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
@@ -259,6 +262,7 @@ void RowBatch::clear() {
     }
 
     _tuple_data_pool->free_all();
+    _agg_object_pool.reset(new ObjectPool());
     for (int i = 0; i < _io_buffers.size(); ++i) {
         _io_buffers[i]->return_buffer();
     }
@@ -464,6 +468,7 @@ void RowBatch::reset() {
     
     // TODO: Change this to Clear() and investigate the repercussions.
     _tuple_data_pool->free_all();
+    _agg_object_pool.reset(new ObjectPool());
     for (int i = 0; i < _io_buffers.size(); ++i) {
         _io_buffers[i]->return_buffer();
     }
@@ -500,35 +505,30 @@ void RowBatch::close_tuple_streams() {
 void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     dest->_auxiliary_mem_usage += _tuple_data_pool->total_allocated_bytes();
     dest->_tuple_data_pool->acquire_data(_tuple_data_pool.get(), false);
+    dest->_agg_object_pool->acquire_data(_agg_object_pool.get());
     for (int i = 0; i < _io_buffers.size(); ++i) {
         DiskIoMgr::BufferDescriptor* buffer = _io_buffers[i];
         dest->_io_buffers.push_back(buffer);
         dest->_auxiliary_mem_usage += buffer->buffer_len();
         buffer->set_mem_tracker(dest->_mem_tracker);
     }
-    _io_buffers.clear();
 
     for (BufferInfo& buffer_info : _buffers) {
         dest->add_buffer(
             buffer_info.client, std::move(buffer_info.buffer), FlushMode::NO_FLUSH_RESOURCES);
     }
-    _buffers.clear();
 
     for (int i = 0; i < _tuple_streams.size(); ++i) {
         dest->_tuple_streams.push_back(_tuple_streams[i]);
         dest->_auxiliary_mem_usage += _tuple_streams[i]->byte_size();
     }
-    _tuple_streams.clear();
+
     for (int i = 0; i < _blocks.size(); ++i) {
         dest->_blocks.push_back(_blocks[i]);
         dest->_auxiliary_mem_usage += _blocks[i]->buffer_len();
     }
-    _blocks.clear();
+
     dest->_need_to_return |= _need_to_return;
-    _auxiliary_mem_usage = 0;
-    if (!config::enable_partitioned_aggregation && !config::enable_new_partitioned_aggregation) {
-        _tuple_ptrs = NULL;
-    }
 
     if (_needs_deep_copy) {
       dest->mark_needs_deep_copy();
@@ -587,28 +587,6 @@ void RowBatch::acquire_state(RowBatch* src) {
         std::swap(_tuple_ptrs, src->_tuple_ptrs);
     }
     src->transfer_resource_ownership(this);
-}
-
-void RowBatch::swap(RowBatch* other) {
-    DCHECK(_row_desc.equals(other->_row_desc));
-    DCHECK_EQ(_num_tuples_per_row, other->_num_tuples_per_row);
-    DCHECK_EQ(_tuple_ptrs_size, other->_tuple_ptrs_size);
-
-    // The destination row batch should be empty.
-    DCHECK(!_has_in_flight_row);
-    DCHECK_EQ(_tuple_data_pool->total_reserved_bytes(), 0);
-
-    std::swap(_has_in_flight_row, other->_has_in_flight_row);
-    std::swap(_num_rows, other->_num_rows);
-    std::swap(_capacity, other->_capacity);
-    if (!config::enable_partitioned_aggregation && !config::enable_new_partitioned_aggregation) {
-        // Tuple pointers are allocated from tuple_data_pool_ so are transferred.
-        _tuple_ptrs = other->_tuple_ptrs;
-        other->_tuple_ptrs = NULL;
-    } else {
-        // tuple_ptrs_ were allocated with malloc so can be swapped between batches.
-        std::swap(_tuple_ptrs, other->_tuple_ptrs);
-    }
 }
 
 // TODO: consider computing size of batches as they are built up

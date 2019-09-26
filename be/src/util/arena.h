@@ -34,6 +34,11 @@ public:
         return memory_usage_.load(std::memory_order_relaxed);
     }
 
+    // For the object wasn't allocated from Arena, but need to
+    // collect and control the object memory usage.
+    void track_memory(size_t bytes) {
+        memory_usage_.store(MemoryUsage() + bytes,std::memory_order_relaxed);
+    }
 private:
     char* AllocateFallback(size_t bytes);
     char* AllocateNewBlock(size_t block_bytes);

@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 
@@ -37,6 +38,7 @@ void test_min() {
     char buf[64];
 
     Arena arena;
+    ObjectPool agg_object_pool;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MIN, field_type);
 
     RowCursorCell dst(buf);
@@ -44,7 +46,7 @@ void test_min() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->init(&dst, val_buf, true, &arena);
+        agg->init(&dst, val_buf, true, &arena, &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -110,6 +112,7 @@ void test_max() {
     char buf[64];
 
     Arena arena;
+    ObjectPool agg_object_pool;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_MAX, field_type);
 
     RowCursorCell dst(buf);
@@ -117,7 +120,7 @@ void test_max() {
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->init(&dst, val_buf, true, &arena);
+        agg->init(&dst, val_buf, true, &arena, &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -183,13 +186,14 @@ void test_sum() {
     RowCursorCell dst(buf);
 
     Arena arena;
+    ObjectPool agg_object_pool;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_SUM, field_type);
 
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->init(&dst, val_buf, true, &arena);
+        agg->init(&dst, val_buf, true, &arena, &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -255,13 +259,14 @@ void test_replace() {
     RowCursorCell dst(buf);
 
     Arena arena;
+    ObjectPool agg_object_pool;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
 
     // null
     {
         char val_buf[16];
         *(bool*)val_buf = true;
-        agg->init(&dst, val_buf, true, &arena);
+        agg->init(&dst, val_buf, true, &arena, &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
@@ -312,6 +317,7 @@ void test_replace_string() {
     dst_slice->size = 0;
 
     Arena arena;
+    ObjectPool agg_object_pool;
     const AggregateInfo* agg = get_aggregate_info(OLAP_FIELD_AGGREGATION_REPLACE, field_type);
 
     char src[string_field_size];
@@ -320,7 +326,7 @@ void test_replace_string() {
     // null
     {
         src_cell.set_null();
-        agg->init(&dst_cell, (const char*)src_slice, true, &arena);
+        agg->init(&dst_cell, (const char*)src_slice, true, &arena, &agg_object_pool);
         ASSERT_TRUE(dst_cell.is_null());
     }
     // "12345"

@@ -48,15 +48,24 @@ BigIntVal BitmapFunctions::bitmap_finalize(FunctionContext* ctx, const StringVal
 }
 
 void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
-    RoaringBitmap src_bitmap = RoaringBitmap((char*)src.ptr);
     auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
-    dst_bitmap->merge(src_bitmap);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        dst_bitmap->merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+    } else {
+        dst_bitmap->merge(RoaringBitmap((char*)src.ptr));
+    }
 }
 
 BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& src) {
-    RoaringBitmap bitmap ((char*)src.ptr);
-    BigIntVal result(bitmap.cardinality());
-    return result;
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+        return {bitmap->cardinality()};
+    } else {
+        RoaringBitmap bitmap ((char*)src.ptr);
+        return {bitmap.cardinality()};
+    }
 }
 
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
