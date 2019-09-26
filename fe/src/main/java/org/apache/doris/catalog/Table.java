@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -168,15 +167,6 @@ public class Table extends MetaObject implements Writable {
 
         table.setTypeRead(true);
         table.readFields(in);
-        if (type == TableType.VIEW) {
-            View view = (View) table;
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new IOException(e.getMessage());
-            }
-        }
-
         return table;
     }
 
