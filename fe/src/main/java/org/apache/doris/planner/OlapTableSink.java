@@ -198,6 +198,9 @@ public class OlapTableSink extends DataSink {
             }
             case RANDOM: {
                 for (Column column : table.getBaseSchema()) {
+                    // ATTN(cmy): this is absolutely WRONG to add all column(include value columns) as distribution columns.
+                    // But we CAN NOT modify this because if we do so, all previous loaded data will be unable to find...
+                    // So, If a table with random distribution and has value columns, the table has to be rebuild...
                     distColumns.add(column.getName());
                 }
                 break;

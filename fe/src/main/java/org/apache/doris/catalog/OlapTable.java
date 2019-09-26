@@ -1116,9 +1116,15 @@ public class OlapTable extends Table {
         return keysNum;
     }
 
-    public boolean convertRandomDistributionToHashDistribution() {
+    public void convertRandomDistributionToHashDistribution() throws DdlException {
         boolean hasChanged = false;
         List<Column> baseSchema = indexIdToSchema.get(baseIndexId);
+        for (Column column : baseSchema) {
+            if (!column.isKey()) {
+                throw new DdlException("table contains non-key column, can not do the convert");
+            }
+        }
+        
         if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
             defaultDistributionInfo = ((RandomDistributionInfo) defaultDistributionInfo).toHashDistributionInfo(baseSchema);
             hasChanged = true;
@@ -1129,6 +1135,8 @@ public class OlapTable extends Table {
                 hasChanged = true;
             }
         }
-        return hasChanged;
+        if (!hasChanged) {
+            throw new DdlException("no random distribution");
+        }
     }
 }
