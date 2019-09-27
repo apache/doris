@@ -53,6 +53,8 @@ public:
         const doris_udf::StringVal& src);
     static doris_udf::StringVal string_val_serialize_or_finalize(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& src);
+    static doris_udf::StringVal decimalv2_avg_serialize(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& src);
 
     // Implementation of Count and Count(*)
     static void count_update(doris_udf::FunctionContext*, const doris_udf::AnyVal& src,
