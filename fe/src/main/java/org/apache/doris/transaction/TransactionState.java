@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -47,6 +48,22 @@ import java.util.concurrent.TimeUnit;
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
     
+    // compare the TransactionState by txn id, desc
+    public static class TxnStateComparator implements Comparator<TransactionState> {
+        @Override
+        public int compare(TransactionState t1, TransactionState t2) {
+            if (t1.getTransactionId() > t2.getTransactionId()) {
+                return -1;
+            } else if (t1.getTransactionId() < t2.getTransactionId()) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    public static final TxnStateComparator TXN_ID_COMPARATOR = new TxnStateComparator();
+
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type

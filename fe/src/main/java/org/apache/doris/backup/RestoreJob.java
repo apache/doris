@@ -1294,7 +1294,7 @@ public class RestoreJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedSignatureToId.keySet()));
+        info.add(Joiner.on(", ").join(unfinishedSignatureToId.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
                 e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
                         Collectors.toList())));
