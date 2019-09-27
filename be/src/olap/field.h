@@ -148,10 +148,12 @@ public:
     // memory allocation.
     template<typename DstCellType, typename SrcCellType>
     void direct_copy(DstCellType* dst, const SrcCellType& src) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
+        if (_is_nullable) {
+            bool is_null = src.is_null();
+            dst->set_is_null(is_null);
+            if (is_null) {
+                return;
+            }
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
@@ -163,10 +165,12 @@ public:
     void deep_copy(DstCellType* dst,
                    const SrcCellType& src,
                    MemPool* pool) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
+        if (_is_nullable) {
+            bool is_null = src.is_null();
+            dst->set_is_null(is_null);
+            if (is_null) {
+                return;
+            }
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
@@ -175,10 +179,12 @@ public:
     void deep_copy(DstCellType* dst,
                    const SrcCellType& src,
                    Arena* arena) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
+        if (_is_nullable) {
+            bool is_null = src.is_null();
+            dst->set_is_null(is_null);
+            if (is_null) {
+                return;
+            }
         }
         _type_info->deep_copy_with_arena(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
     }

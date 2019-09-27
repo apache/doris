@@ -44,7 +44,7 @@ public:
     const uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
     uint8_t* mutable_cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
     bool is_null(size_t idx) const {
-        return BitmapTest(_null_bitmap, idx);
+        return is_nullable() && BitmapTest(_null_bitmap, idx);
     }
     void set_is_null(size_t idx, bool is_null) const {
         return BitmapChange(_null_bitmap, idx, is_null);
