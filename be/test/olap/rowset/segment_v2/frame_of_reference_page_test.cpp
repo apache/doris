@@ -152,8 +152,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
     Slice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
-    // header: 1 + 4 = 5
-    ASSERT_EQ(25, s.size);
+    // header: 1 + 1 + 4 = 6
+    ASSERT_EQ(26, s.size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
@@ -168,8 +168,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
     Slice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
-    // header: 1 + 4 = 5
-    ASSERT_EQ(121, s.size);
+    // header: 1 + 1 + 4 = 6
+    ASSERT_EQ(122, s.size);
 }
 
 }

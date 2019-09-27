@@ -132,7 +132,7 @@ TEST_F(TestForCoding, TestZeroValue) {
     ForEncoder<int32_t> encoder(&buffer);
     encoder.flush();
 
-    ASSERT_EQ(buffer.length(), 4);
+    ASSERT_EQ(buffer.length(), 4 + 1);
 
     ForDecoder<int32_t> decoder(buffer.data(), buffer.length());
     decoder.init();

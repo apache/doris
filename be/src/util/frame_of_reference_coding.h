@@ -27,11 +27,6 @@
 #include "util/faststring.h"
 
 namespace doris {
-
-struct ForCoding {
-    const static uint8_t FRAME_VALUE_NUM = 128;
-};
-
 // The implementation for frame-of-reference coding
 // The detail of frame-of-reference coding, please refer to
 // https://lemire.me/blog/2012/02/08/effective-compression-using-frame-of-reference-and-delta-coding/
@@ -43,13 +38,14 @@ struct ForCoding {
 //      BitPackingFrame * FrameCount
 // 2. Footer:
 //      (2 bit OrderFlag + 6 bit BitWidth) * FrameCount
+//       8 bit FrameValueNum
 //      32 bit ValuesNum
 //
 // The not ascending order BitPackingFrame format:
-//      MinValue, (Value - MinVale) * FRAME_VALUE_NUM
+//      MinValue, (Value - MinVale) * FrameValueNum
 //
 // The ascending order BitPackingFrame format:
-//      MinValue, (Value[i] - Value[i - 1]) * FRAME_VALUE_NUM
+//      MinValue, (Value[i] - Value[i - 1]) * FrameValueNum
 //
 // The OrderFlag is 1 represents ascending order, 0 represents  not ascending order
 // The last frame value num maybe less than 128
@@ -71,7 +67,7 @@ public:
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
     uint32_t len() {
-        return _buffer->size() + _order_flag_and_bit_widths.size() + 4;
+        return _buffer->size() + _order_flag_and_bit_widths.size() + 5;
     }
 
     // Resets all the state in the encoder.
@@ -90,7 +86,8 @@ private:
 
     uint32_t _values_num = 0;
     uint8_t _buffered_values_num = 0;
-    T _buffered_values[ForCoding::FRAME_VALUE_NUM];
+    static const uint8_t FRAME_VALUE_NUM = 128;
+    T _buffered_values[FRAME_VALUE_NUM];
 
     faststring* _buffer;
     std::vector<uint8_t> _order_flag_and_bit_widths;
@@ -130,16 +127,16 @@ private:
     T* copy_value(T* val, size_t count);
 
     bool need_decode_frame() {
-        return !(ForCoding::FRAME_VALUE_NUM * _current_decoded_frame < _current_index
-                 && _current_index < ForCoding::FRAME_VALUE_NUM * (_current_decoded_frame + 1));
+        return !(_frame_value_num * _current_decoded_frame < _current_index
+                 && _current_index < _frame_value_num * (_current_decoded_frame + 1));
     }
 
-    uint8_t _last_frame_num = ForCoding::FRAME_VALUE_NUM;
+    uint8_t _frame_value_num = 0;
     uint32_t _values_num = 0;
     uint32_t _frame_count = 0;
     uint32_t _current_index = 0;
     uint32_t _current_decoded_frame = -1;
-    T _out_buffer[ForCoding::FRAME_VALUE_NUM];
+    std::vector<T> _out_buffer;
     std::vector<uint32_t> _frame_offsets;
     std::vector<uint8_t> _bit_widths;
     std::vector<uint8_t> _order_flags;

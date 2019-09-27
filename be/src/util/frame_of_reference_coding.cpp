@@ -38,29 +38,29 @@ const T* ForEncoder<T>::copy_value(const T *p_data, size_t count) {
 }
 
 template<typename T>
-void ForEncoder<T>::put_batch(const T* in_data, size_t count) {
-    if (_buffered_values_num + count < ForCoding::FRAME_VALUE_NUM) {
+void ForEncoder<T>::put_batch(const T *in_data, size_t count) {
+    if (_buffered_values_num + count < FRAME_VALUE_NUM) {
         copy_value(in_data, count);
         _values_num += count;
         return;
     }
 
     // 1. padding one frame
-    size_t padding_num = ForCoding::FRAME_VALUE_NUM - _buffered_values_num;
+    size_t padding_num = FRAME_VALUE_NUM - _buffered_values_num;
     in_data = copy_value(in_data, padding_num);
     bit_packing_one_frame_value(_buffered_values);
 
     // 2. process frame by frame
-    size_t frame_size = (count - padding_num) / ForCoding::FRAME_VALUE_NUM;
-    for (size_t i = 0; i < frame_size; i++) {
+    size_t frame_size = (count - padding_num) / FRAME_VALUE_NUM;
+    for (size_t i = 0; i < frame_size; i ++) {
         // directly encode value to the bit_writer, don't buffer the value
-        _buffered_values_num = ForCoding::FRAME_VALUE_NUM;
+        _buffered_values_num = FRAME_VALUE_NUM;
         bit_packing_one_frame_value(in_data);
-        in_data += ForCoding::FRAME_VALUE_NUM;
+        in_data += FRAME_VALUE_NUM;
     }
 
     // 3. process remaining value
-    size_t remaining_num = (count - padding_num) % ForCoding::FRAME_VALUE_NUM;
+    size_t remaining_num = (count - padding_num) % FRAME_VALUE_NUM;
     if (remaining_num > 0) {
         copy_value(in_data, remaining_num);
     }
@@ -136,7 +136,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     }
 
     // improve for ascending order input, we could use fewer bit
-    T delta_values[ForCoding::FRAME_VALUE_NUM];
+    T delta_values[FRAME_VALUE_NUM];
     u_int8_t order_flag = 0;
     if (is_ascending) {
         delta_values[0] = 0;
@@ -157,8 +157,9 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     uint32_t packing_len = BitUtil::Ceil(_buffered_values_num * bit_width, 8);
 
     _buffer->reserve(_buffer->size() + packing_len);
-    bit_pack(delta_values, _buffered_values_num, bit_width, _buffer->data() + _buffer->size());
+    size_t origin_size = _buffer->size();
     _buffer->resize(_buffer->size() + packing_len);
+    bit_pack(delta_values, _buffered_values_num, bit_width, _buffer->data() + origin_size);
 
     _buffered_values_num = 0;
 }
@@ -170,11 +171,13 @@ uint32_t ForEncoder<T>::flush() {
     }
 
     // write the footer:
-    // 1 _order_flags and _bit_widths
+    // 1 order_flags and bit_widths
     for (auto value: _order_flag_and_bit_widths) {
         _buffer->append(&value, 1);
     }
-    // 2 _values_num
+    // 2 frame_value_num and values_num
+    uint8_t frame_value_num = FRAME_VALUE_NUM;
+    _buffer->append(&frame_value_num, 1);
     put_fixed32_le(_buffer, _values_num);
 
     return _buffer->size();
@@ -183,21 +186,17 @@ uint32_t ForEncoder<T>::flush() {
 
 template<typename T>
 bool ForDecoder<T>::init() {
-    // When row count is zero, the minimum footer size is 4:
-    // only has ValuesNum(4)
-    if (_buffer_len < 4) {
+    // When row count is zero, the minimum footer size is 5:
+    // only has ValuesNum(4) + FrameValueNum(1)
+    if (_buffer_len < 5) {
         return false;
     }
 
+    _frame_value_num = decode_fixed32_le(_buffer + _buffer_len - 5);
     _values_num = decode_fixed32_le(_buffer + _buffer_len - 4);
-    _frame_count = _values_num / ForCoding::FRAME_VALUE_NUM +
-                   (_values_num % ForCoding::FRAME_VALUE_NUM != 0);
+    _frame_count = _values_num / _frame_value_num + (_values_num % _frame_value_num != 0);
 
-    if (_values_num % ForCoding::FRAME_VALUE_NUM != 0) {
-        _last_frame_num = _values_num % ForCoding::FRAME_VALUE_NUM;
-    }
-
-    size_t bit_width_offset = _buffer_len - 4 - _frame_count;
+    size_t bit_width_offset = _buffer_len - 5 - _frame_count;
     if (bit_width_offset < 0) {
         return false;
     }
@@ -217,11 +216,13 @@ bool ForDecoder<T>::init() {
 
         _frame_offsets.push_back(frame_start_offset);
         if (sizeof(T) == 8) {
-            frame_start_offset +=  bit_width * ForCoding::FRAME_VALUE_NUM / 8 + 8;
+            frame_start_offset +=  bit_width * _frame_value_num / 8 + 8;
         } else {
-            frame_start_offset +=  bit_width * ForCoding::FRAME_VALUE_NUM / 8 + 4;
+            frame_start_offset +=  bit_width * _frame_value_num / 8 + 4;
         }
     }
+
+    _out_buffer.reserve(_frame_value_num);
 
     return true;
 }
@@ -253,10 +254,11 @@ void ForDecoder<T>::bit_unpack(const uint8_t *input, uint8_t in_num, int bit_wid
 
 template<typename T>
 void ForDecoder<T>::decode_current_frame(T* output) {
-    _current_decoded_frame = _current_index / ForCoding::FRAME_VALUE_NUM;
-    uint8_t frame_value_num = ForCoding::FRAME_VALUE_NUM;
-    if (_current_decoded_frame == _frame_count - 1) {
-        frame_value_num = _last_frame_num;
+    _current_decoded_frame = _current_index / _frame_value_num;
+    uint8_t frame_value_num = _frame_value_num;
+    // compute last frame value num
+    if (_current_decoded_frame == _frame_count - 1 && _values_num % _frame_value_num != 0) {
+        frame_value_num = _values_num % _frame_value_num;;
     }
 
     uint32_t base_offset = _frame_offsets[_current_decoded_frame];
@@ -273,8 +275,8 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     uint8_t bit_width = _bit_widths[_current_decoded_frame];
     bool is_ascending = _order_flags[_current_decoded_frame];
 
-    T delta_values[ForCoding::FRAME_VALUE_NUM] = {0};
-    bit_unpack(_buffer + delta_offset, frame_value_num, bit_width, delta_values);
+    std::vector<T> delta_values(_frame_value_num);
+    bit_unpack(_buffer + delta_offset, frame_value_num, bit_width, delta_values.data());
     if (is_ascending) {
         T pre_value = min;
         for (uint8_t i = 0; i < frame_value_num; i ++) {
@@ -291,7 +293,7 @@ void ForDecoder<T>::decode_current_frame(T* output) {
 
 template<typename T>
 T* ForDecoder<T>::copy_value(T* val, size_t count) {
-    memcpy(val, &_out_buffer[_current_index % ForCoding::FRAME_VALUE_NUM], sizeof(T) * count);
+    memcpy(val, &_out_buffer[_current_index % _frame_value_num], sizeof(T) * count);
     _current_index += count;
     val += count;
     return val;
@@ -304,31 +306,31 @@ bool ForDecoder<T>::get_batch(T* val, size_t count) {
     }
 
     if (need_decode_frame()) {
-        decode_current_frame(_out_buffer);
+        decode_current_frame(_out_buffer.data());
     }
 
-    if (_current_index + count < ForCoding::FRAME_VALUE_NUM * (_current_decoded_frame + 1)) {
+    if (_current_index + count < _frame_value_num * (_current_decoded_frame + 1)) {
         copy_value(val, count);
         return true;
     }
 
     // 1. padding one frame
-    size_t padding_num = ForCoding::FRAME_VALUE_NUM * (_current_decoded_frame + 1) - _current_index;
+    size_t padding_num = _frame_value_num * (_current_decoded_frame + 1) - _current_index;
     val = copy_value(val, padding_num);
 
     // 2. process frame by frame
-    size_t frame_size = (count - padding_num) / ForCoding::FRAME_VALUE_NUM;
+    size_t frame_size = (count - padding_num) / _frame_value_num;
     for (size_t i = 0; i < frame_size; i++) {
         // directly decode value to the output, don't  buffer the value
         decode_current_frame(val);
-        _current_index += ForCoding::FRAME_VALUE_NUM;
-        val += ForCoding::FRAME_VALUE_NUM;
+        _current_index += _frame_value_num;
+        val += _frame_value_num;
     }
 
     // 3. process remaining value
-    size_t remaining_num = (count - padding_num) % ForCoding::FRAME_VALUE_NUM;
+    size_t remaining_num = (count - padding_num) % _frame_value_num;
     if (remaining_num > 0) {
-        decode_current_frame(_out_buffer);
+        decode_current_frame(_out_buffer.data());
         val = copy_value(val, remaining_num);
     }
 
