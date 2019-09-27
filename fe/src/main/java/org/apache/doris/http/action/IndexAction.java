@@ -81,18 +81,16 @@ public class IndexAction extends WebBaseAction {
         HardwareAbstractionLayer hal = si.getHardware();
         CentralProcessor processor = hal.getProcessor();
         GlobalMemory memory = hal.getMemory();
-        hardwareInfo.addAll(getOperatingSystem(os));
-        hardwareInfo.addAll(getProcessor(processor));
-        hardwareInfo.addAll(getMemory(memory));
-        hardwareInfo.addAll(getProcesses(os, memory));
-        hardwareInfo.addAll(getDisks(hal.getDiskStores()));
-        hardwareInfo.addAll(getFileSystem(os.getFileSystem()));
-        hardwareInfo.addAll(getNetworkInterfaces(hal.getNetworkIFs()));
-        hardwareInfo.addAll(getNetworkParameters(os.getNetworkParams()));
-
         buffer.append("<h2>Hardware Info</h2>");
         buffer.append("<pre>");
-        buffer.append(String.join("<br/>", hardwareInfo));
+        buffer.append(String.join("<br/>", getOperatingSystem(os)) + "<hr>");
+        buffer.append(String.join("<br/>", getProcessor(processor)) + "<hr>");
+        buffer.append(String.join("<br/>", getMemory(memory)) + "<hr>");
+        buffer.append(String.join("<br/>", getProcesses(os, memory)) + "<hr>");
+        buffer.append(String.join("<br/>", getDisks(hal.getDiskStores())) + "<hr>");
+        buffer.append(String.join("<br/>", getFileSystem(os.getFileSystem())) + "<hr>");
+        buffer.append(String.join("<br/>", getNetworkInterfaces(hal.getNetworkIFs())) + "<hr>");
+        buffer.append(String.join("<br/>", getNetworkParameters(os.getNetworkParams())) + "<hr>");
         buffer.append("</pre>");
     }
     private List<String> getOperatingSystem(OperatingSystem os) {
@@ -113,7 +111,7 @@ public class IndexAction extends WebBaseAction {
         processorInfo.add("Identifier: " + processor.getIdentifier());
         processorInfo.add("ProcessorID: " + processor.getProcessorID());
         processorInfo.add("Context Switches/Interrupts: " + processor.getContextSwitches()
-                + " / " + processor.getInterrupts());
+                + " / " + processor.getInterrupts() + "\n");
 
         long[] prevTicks = processor.getSystemCpuLoadTicks();
         long[][] prevProcTicks = processor.getProcessorCpuLoadTicks();
@@ -133,10 +131,10 @@ public class IndexAction extends WebBaseAction {
         long totalCpu = user + nice + sys + idle + iowait + irq + softirq + steal;
 
         processorInfo.add(String.format(
-                "User: %.1f%% Nice: %.1f%% System: %.1f%% Idle: %.1f%% IOwait: %.1f%% IRQ: %.1f%% SoftIRQ: %.1f%% Steal: %.1f%%%n",
+                "User: %.1f%% Nice: %.1f%% System: %.1f%% Idle: %.1f%% IOwait: %.1f%% IRQ: %.1f%% SoftIRQ: %.1f%% Steal: %.1f%%",
                 100d * user / totalCpu, 100d * nice / totalCpu, 100d * sys / totalCpu, 100d * idle / totalCpu,
                 100d * iowait / totalCpu, 100d * irq / totalCpu, 100d * softirq / totalCpu, 100d * steal / totalCpu));
-        processorInfo.add(String.format("CPU load: %.1f%%%n",
+        processorInfo.add(String.format("CPU load: %.1f%%",
                 processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100));
         double[] loadAverage = processor.getSystemLoadAverage(3);
         processorInfo.add("CPU load averages:" + (loadAverage[0] < 0 ? " N/A" : String.format(" %.2f", loadAverage[0]))
@@ -190,7 +188,7 @@ public class IndexAction extends WebBaseAction {
         processInfo.add("   PID  %CPU %MEM       VSZ       RSS Name");
         for (int i = 0; i < procs.size() && i < 5; i++) {
             OSProcess p = procs.get(i);
-            processInfo.add(String.format(" %5d %5.1f %4.1f %9s %9s %s%n", p.getProcessID(),
+            processInfo.add(String.format(" %5d %5.1f %4.1f %9s %9s %s", p.getProcessID(),
                     100d * (p.getKernelTime() + p.getUserTime()) / p.getUpTime(),
                     100d * p.getResidentSetSize() / memory.getTotal(), FormatUtil.formatBytes(p.getVirtualSize()),
                     FormatUtil.formatBytes(p.getResidentSetSize()), p.getName()));
@@ -202,7 +200,7 @@ public class IndexAction extends WebBaseAction {
         diskInfo.add("Disks:");
         for (HWDiskStore disk : diskStores) {
             boolean readwrite = disk.getReads() > 0 || disk.getWrites() > 0;
-            diskInfo.add(String.format(" %s: (model: %s - S/N: %s) size: %s, reads: %s (%s), writes: %s (%s), xfer: %s ms%n",
+            diskInfo.add(String.format(" %s: (model: %s - S/N: %s) size: %s, reads: %s (%s), writes: %s (%s), xfer: %s ms",
                     disk.getName(), disk.getModel(), disk.getSerial(),
                     disk.getSize() > 0 ? FormatUtil.formatBytesDecimal(disk.getSize()) : "?",
                     readwrite ? disk.getReads() : "?", readwrite ? FormatUtil.formatBytes(disk.getReadBytes()) : "?",
@@ -210,7 +208,7 @@ public class IndexAction extends WebBaseAction {
                     readwrite ? disk.getTransferTime() : "?"));
             HWPartition[] partitions = disk.getPartitions();
             for (HWPartition part : partitions) {
-                diskInfo.add(String.format(" |-- %s: %s (%s) Maj:Min=%d:%d, size: %s%s%n", part.getIdentification(),
+                diskInfo.add(String.format(" |-- %s: %s (%s) Maj:Min=%d:%d, size: %s%s", part.getIdentification(),
                         part.getName(), part.getType(), part.getMajor(), part.getMinor(),
                         FormatUtil.formatBytesDecimal(part.getSize()),
                         part.getMountPoint().isEmpty() ? "" : " @ " + part.getMountPoint()));
@@ -223,7 +221,7 @@ public class IndexAction extends WebBaseAction {
         List<String> fsInfo = new ArrayList<>();
         fsInfo.add("File System:");
 
-        fsInfo.add(String.format(" File Descriptors: %d/%d%n", fileSystem.getOpenFileDescriptors(),
+        fsInfo.add(String.format(" File Descriptors: %d/%d", fileSystem.getOpenFileDescriptors(),
                 fileSystem.getMaxFileDescriptors()));
 
         OSFileStore[] fsArray = fileSystem.getFileStores();
@@ -232,7 +230,7 @@ public class IndexAction extends WebBaseAction {
             long total = fs.getTotalSpace();
             fsInfo.add(String.format(" %s (%s) [%s] %s of %s free (%.1f%%), %s of %s files free (%.1f%%) is %s " +
                             (fs.getLogicalVolume() != null && fs.getLogicalVolume().length() > 0 ? "[%s]" : "%s") +
-                            " and is mounted at %s%n",
+                            " and is mounted at %s",
                     fs.getName(), fs.getDescription().isEmpty() ? "file system" : fs.getDescription(), fs.getType(),
                     FormatUtil.formatBytes(usable), FormatUtil.formatBytes(fs.getTotalSpace()), 100d * usable / total,
                     FormatUtil.formatValue(fs.getFreeInodes(), ""), FormatUtil.formatValue(fs.getTotalInodes(), ""),
@@ -246,14 +244,14 @@ public class IndexAction extends WebBaseAction {
         List<String> getNetwork = new ArrayList<>();
         getNetwork.add("Network interfaces:");
         for (NetworkIF net : networkIFs) {
-            getNetwork.add(String.format(" Name: %s (%s)%n", net.getName(), net.getDisplayName()));
-            getNetwork.add(String.format("   MAC Address: %s %n", net.getMacaddr()));
-            getNetwork.add(String.format("   MTU: %s, Speed: %s %n", net.getMTU(), FormatUtil.formatValue(net.getSpeed(), "bps")));
-            getNetwork.add(String.format("   IPv4: %s %n", Arrays.toString(net.getIPv4addr())));
-            getNetwork.add(String.format("   IPv6: %s %n", Arrays.toString(net.getIPv6addr())));
+            getNetwork.add(String.format(" Name: %s (%s)", net.getName(), net.getDisplayName()));
+            getNetwork.add(String.format("   MAC Address: %s", net.getMacaddr()));
+            getNetwork.add(String.format("   MTU: %s, Speed: %s", net.getMTU(), FormatUtil.formatValue(net.getSpeed(), "bps")));
+            getNetwork.add(String.format("   IPv4: %s", Arrays.toString(net.getIPv4addr())));
+            getNetwork.add(String.format("   IPv6: %s", Arrays.toString(net.getIPv6addr())));
             boolean hasData = net.getBytesRecv() > 0 || net.getBytesSent() > 0 || net.getPacketsRecv() > 0
                     || net.getPacketsSent() > 0;
-            getNetwork.add(String.format("   Traffic: received %s/%s%s; transmitted %s/%s%s %n",
+            getNetwork.add(String.format("   Traffic: received %s/%s%s; transmitted %s/%s%s",
                     hasData ? net.getPacketsRecv() + " packets" : "?",
                     hasData ? FormatUtil.formatBytes(net.getBytesRecv()) : "?",
                     hasData ? " (" + net.getInErrors() + " err)" : "",
@@ -267,11 +265,11 @@ public class IndexAction extends WebBaseAction {
     private List<String> getNetworkParameters(NetworkParams networkParams) {
         List<String> networkParameterInfo = new ArrayList<>();
         networkParameterInfo.add("Network parameters:");
-        networkParameterInfo.add(String.format(" Host name: %s%n", networkParams.getHostName()));
-        networkParameterInfo.add(String.format(" Domain name: %s%n", networkParams.getDomainName()));
-        networkParameterInfo.add(String.format(" DNS servers: %s%n", Arrays.toString(networkParams.getDnsServers())));
-        networkParameterInfo.add(String.format(" IPv4 Gateway: %s%n", networkParams.getIpv4DefaultGateway()));
-        networkParameterInfo.add(String.format(" IPv6 Gateway: %s%n", networkParams.getIpv6DefaultGateway()));
+        networkParameterInfo.add(String.format(" Host name: %s", networkParams.getHostName()));
+        networkParameterInfo.add(String.format(" Domain name: %s", networkParams.getDomainName()));
+        networkParameterInfo.add(String.format(" DNS servers: %s", Arrays.toString(networkParams.getDnsServers())));
+        networkParameterInfo.add(String.format(" IPv4 Gateway: %s", networkParams.getIpv4DefaultGateway()));
+        networkParameterInfo.add(String.format(" IPv6 Gateway: %s", networkParams.getIpv6DefaultGateway()));
         return networkParameterInfo;
     }
 }
