@@ -35,7 +35,7 @@
 #include "runtime/tuple_row.h"
 #include "runtime/client_cache.h"
 #include "util/debug_util.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
 #include "util/runtime_profile.h"
@@ -48,7 +48,7 @@ Status SchemaHelper::get_db_names(
          const int32_t port,
          const TGetDbsParams &request,
          TGetDbsResult *result) {
-    return FrontendHelper::rpc<FrontendServiceClient>(ip, port,
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
                [&request, &result] (FrontendServiceConnection& client) {
                 client->getDbNames(*result, request);
                });
@@ -59,7 +59,7 @@ Status SchemaHelper::get_table_names(
          const int32_t port,
          const TGetTablesParams &request,
          TGetTablesResult *result) {
-    return FrontendHelper::rpc<FrontendServiceClient>(ip, port,
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
                [&request, &result] (FrontendServiceConnection& client) {
                 client->getTableNames(*result, request);
                });
@@ -70,7 +70,7 @@ Status SchemaHelper::list_table_status(
          const int32_t port,
          const TGetTablesParams &request,
          TListTableStatusResult *result) {
-    return FrontendHelper::rpc<FrontendServiceClient>(ip, port,
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
                [&request, &result] (FrontendServiceConnection& client) {
                 client->listTableStatus(*result, request);
                });
@@ -81,7 +81,7 @@ Status SchemaHelper::describe_table(
          const int32_t port,
          const TDescribeTableParams &request,
          TDescribeTableResult *result) {
-    return FrontendHelper::rpc<FrontendServiceClient>(ip, port,
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
                [&request, &result] (FrontendServiceConnection& client) {
                 client->describeTable(*result, request);
                });
@@ -92,7 +92,7 @@ Status SchemaHelper::show_varialbes(
          const int32_t port,
          const TShowVariableRequest &request,
          TShowVariableResult *result) {
-    return FrontendHelper::rpc<FrontendServiceClient>(ip, port,
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
                [&request, &result] (FrontendServiceConnection& client) {
                 client->showVariables(*result, request);
                });

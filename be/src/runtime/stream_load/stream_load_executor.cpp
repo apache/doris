@@ -25,7 +25,7 @@
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/doris_metrics.h"
 
 #include "gen_cpp/FrontendService.h"
@@ -132,7 +132,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 
     TLoadTxnBeginResult result;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result] (FrontendServiceConnection& client) {
                 client->loadTxnBegin(result, request);
@@ -177,7 +177,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(FrontendHelper::rpc<FrontendServiceClient>(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &result] (FrontendServiceConnection& client) {
             client->loadTxnCommit(result, request);
@@ -218,7 +218,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
-    auto rpc_st = FrontendHelper::rpc<FrontendServiceClient>(
+    auto rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &result] (FrontendServiceConnection& client) {
             client->loadTxnRollback(result, request);
