@@ -222,6 +222,10 @@ Status SnapshotLoader::upload(
                     read_offset += read_len;
                     left_len -= read_len;
                 }
+
+                // close manually, because we need to check its close status
+                RETURN_IF_ERROR(broker_writer->close());
+
                 LOG(INFO) << "finished to write file via broker. file: " <<
                     full_local_file << ", length: " << file_len;
             }

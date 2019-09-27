@@ -51,7 +51,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,7 +68,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -95,8 +93,8 @@ public class BackupJob extends AbstractJob {
     private long snapshotFinishedTime = -1;
     private long snapshopUploadFinishedTime = -1;
 
-    // save all tablets which tasks are not finished.
-    private Set<Long> unfinishedTaskIds = Sets.newConcurrentHashSet();
+    // save task id map to the backend it be executed
+    private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
     private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
@@ -164,12 +162,12 @@ public class BackupJob extends AbstractJob {
         
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
-        boolean res = unfinishedTaskIds.remove(task.getTabletId());
+        Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                  info, unfinishedTaskIds.size(), res, this);
+                info, unfinishedTaskIds.size(), (oldValue != null), this);
 
-        return res;
+        return oldValue != null;
     }
 
     public synchronized boolean finishSnapshotUploadTask(UploadTask task, TFinishTaskRequest request) {
@@ -221,11 +219,11 @@ public class BackupJob extends AbstractJob {
         }
 
         taskProgress.remove(task.getSignature());
-        boolean res = unfinishedTaskIds.remove(task.getSignature());
+        Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                  unfinishedTaskIds.size(), res, this);
-        return res;
+                unfinishedTaskIds.size(), (oldValue != null), this);
+        return oldValue != null;
     }
 
     @Override
@@ -406,7 +404,7 @@ public class BackupJob extends AbstractJob {
                                     visibleVersion, visibleVersionHash,
                                     schemaHash, timeoutMs, false /* not restore task */);
                             batchTask.addTask(task);
-                            unfinishedTaskIds.add(tablet.getId());
+                            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                         }
                     }
 
@@ -505,7 +503,7 @@ public class BackupJob extends AbstractJob {
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0), repo.getStorage().getProperties());
                 batchTask.addTask(task);
-                unfinishedTaskIds.add(signature);
+                unfinishedTaskIds.put(signature, beId);
             }
         }
 
@@ -680,13 +678,13 @@ public class BackupJob extends AbstractJob {
         switch (state) {
             case SNAPSHOTING:
                 // remove all snapshot tasks in AgentTaskQueue
-                for (Long taskId : unfinishedTaskIds) {
+                for (Long taskId : unfinishedTaskIds.keySet()) {
                     AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, taskId);
                 }
                 break;
             case UPLOADING:
                 // remove all upload tasks in AgentTaskQueue
-                for (Long taskId : unfinishedTaskIds) {
+                for (Long taskId : unfinishedTaskIds.keySet()) {
                     AgentTaskQueue.removeTaskOfType(TTaskType.UPLOAD, taskId);
                 }
                 break;
@@ -729,7 +727,7 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedTaskIds));
+        info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
                 e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
                         Collectors.toList())));
