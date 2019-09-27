@@ -568,7 +568,8 @@ bool RowBlockMerger::merge(
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
-    std::unique_ptr<Arena> arena(new Arena());
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
@@ -579,7 +580,7 @@ bool RowBlockMerger::merge(
 
     row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
-        init_row_with_others(&row_cursor, *(_heap.top().row_cursor), arena.get(), agg_object_pool.get());
+        init_row_with_others(&row_cursor, *(_heap.top().row_cursor), mem_pool.get(), agg_object_pool.get());
 
         if (!_pop_heap()) {
             goto MERGE_ERR;
@@ -599,12 +600,12 @@ bool RowBlockMerger::merge(
                 goto MERGE_ERR;
             }
         }
-        agg_finalize_row(&row_cursor, arena.get());
+        agg_finalize_row(&row_cursor, mem_pool.get());
         rowset_writer->add_row(row_cursor);
 
-        // the memory allocate by arena has been copied,
-        // so we should release these memory immediately
-        arena.reset(new Arena());
+        // the memory allocate by mem pool has been copied,
+        // so we should release memory immediately
+        mem_pool->clear();
         agg_object_pool.reset(new ObjectPool());
     }
     if (rowset_writer->flush() != OLAP_SUCCESS) {

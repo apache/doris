@@ -104,7 +104,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     RowCursor row;
-    std::unique_ptr<Arena> arena(new Arena());
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {
@@ -116,7 +117,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     bool eof = false;
     uint32_t row_checksum = 0;
     while (true) {
-        OLAPStatus res = reader.next_row_with_aggregation(&row, arena.get(), agg_object_pool.get(), &eof);
+        OLAPStatus res = reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
         if (res == OLAP_SUCCESS && eof) {
             VLOG(3) << "reader reads to the end.";
             break;
@@ -126,9 +127,9 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         }
 
         row_checksum = hash_row(row, row_checksum);
-        // the memory allocate by arena has been copied,
-        // so we should release these memory immediately
-        arena.reset(new Arena());
+        // the memory allocate by mem pool has been copied,
+        // so we should release memory immediately
+        mem_pool->clear();
         agg_object_pool.reset(new ObjectPool());
     }
 
