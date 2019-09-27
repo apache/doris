@@ -715,7 +715,7 @@ struct DecimalV2Val : public AnyVal {
     }
     
     void set_to_zero() {
-        memset(&val, 0, sizeof(val));
+        val = 0;
     }
     
     void set_to_abs_value() {

@@ -92,12 +92,12 @@ public:
         return success;
     }
 
-    DecimalV2Value(const int128_t& int_value) {
-        memcpy(&_value, &int_value, sizeof(_value));
+    DecimalV2Value(int128_t int_value) {
+        _value = int_value;
     }
 
-    void set_value(const int128_t& value) {
-        memcpy(&_value, &value, sizeof(_value));
+    void set_value(int128_t value) {
+        _value = value;
     }
 
     DecimalV2Value& assign_from_float(const float float_value) {

@@ -189,7 +189,7 @@ struct DecimalAvgState {
 
 struct DecimalV2AvgState {
     DecimalV2Val sum;
-    int64_t count;
+    int64_t count = 0;
 };
 
 void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
@@ -212,11 +212,10 @@ void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) 
 void AggregateFunctions::decimalv2_avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(DecimalV2AvgState);
-    dst->ptr = ctx->allocate(dst->len);
-    // memset(dst->ptr, 0, sizeof(DecimalAvgState));
-    DecimalV2AvgState* avg = reinterpret_cast<DecimalV2AvgState*>(dst->ptr);
-    avg->count = 0;
-    avg->sum.set_to_zero();
+    // The memroy for int128 need to be aligned by 16.
+    // So the constructor has been used instead of allocating memory.
+    // Also, it will be release in finalize.
+    dst->ptr = new DecimalV2AvgState();
 }
 
 
@@ -493,7 +492,7 @@ DecimalV2Val AggregateFunctions::decimalv2_avg_finalize(FunctionContext* ctx, co
         return DecimalV2Val::null();
     }
     DecimalV2Val result = decimalv2_avg_get_value(ctx, src);
-    ctx->free(src.ptr);
+    delete src.ptr;
     return result;
 }
 
