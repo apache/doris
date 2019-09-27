@@ -24,6 +24,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>
 
+#include "common/status.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/runtime_state.h"
@@ -35,6 +36,12 @@
 #include "runtime/client_cache.h"
 
 namespace doris {
+
+using apache::thrift::protocol::TProtocol;
+using apache::thrift::protocol::TBinaryProtocol;
+using apache::thrift::transport::TSocket;
+using apache::thrift::transport::TTransport;
+using apache::thrift::transport::TBufferedTransport;
 
 ExecEnv* ThriftRpcHelper::_s_exec_env;
 
@@ -81,16 +88,32 @@ Status ThriftRpcHelper::rpc(
     return Status::OK();
 }
 
-Status ThriftRpcHelper::rpc(
+template
+Status ThriftRpcHelper::rpc<FrontendServiceClient>(
     const std::string& ip,
     const int32_t port,
     std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
     int timeout_ms);
 
-Status ThriftRpcHelper::rpc(
+template
+Status ThriftRpcHelper::rpc<BackendServiceClient>(
     const std::string& ip,
     const int32_t port,
     std::function<void (ClientConnection<BackendServiceClient>&)> callback,
+    int timeout_ms);
+
+template
+Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<TPaloBrokerServiceClient>&)> callback,
+    int timeout_ms);
+
+template
+Status ThriftRpcHelper::rpc<TExtDataSourceServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<TExtDataSourceServiceClient>&)> callback,
     int timeout_ms);
 
 }
