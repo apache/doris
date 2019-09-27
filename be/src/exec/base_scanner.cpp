@@ -154,6 +154,7 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
                 ctx->clear_error_msg();
                 return false;
             }
+            // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
             if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
                 !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
                 //Type of the slot is must be Varchar in _src_tuple.
