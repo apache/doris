@@ -448,7 +448,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;
-    std::unique_ptr<Arena> arena(new Arena());
+
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 78);
@@ -471,8 +471,10 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     ObjectPool agg_object_pool;
-    init_row_with_others(&row, left, arena.get(), &agg_object_pool);
+    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -509,7 +511,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;
-    std::unique_ptr<Arena> arena(new Arena());
+
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 78);
@@ -530,8 +532,10 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     ObjectPool agg_object_pool;
-    init_row_with_others(&row, left, arena.get(), &agg_object_pool);
+    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);

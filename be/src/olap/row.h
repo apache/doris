@@ -107,10 +107,10 @@ int index_compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
 // function will first initialize destination column and then update with source column
 // value.
 template<typename DstRowType, typename SrcRowType>
-void init_row_with_others(DstRowType* dst, const SrcRowType& src, Arena* arena, ObjectPool* agg_pool) {
+void init_row_with_others(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool, ObjectPool* agg_pool) {
     for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), arena, agg_pool);
+        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), mem_pool, agg_pool);
     }
 }
 
@@ -145,11 +145,11 @@ void copy_row(DstRowType* dst, const SrcRowType& src, Arena* arena) {
 }
 
 template<typename DstRowType, typename SrcRowType>
-void agg_update_row(DstRowType* dst, const SrcRowType& src, Arena* arena) {
+void agg_update_row(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool) {
     for (uint32_t cid = dst->schema()->num_key_columns(); cid < dst->schema()->num_columns(); ++cid) {
         auto dst_cell = dst->cell(cid);
         auto src_cell = src.cell(cid);
-        dst->schema()->column(cid)->agg_update(&dst_cell, src_cell, arena);
+        dst->schema()->column(cid)->agg_update(&dst_cell, src_cell, mem_pool);
     }
 }
 
@@ -166,18 +166,18 @@ void agg_update_row(const std::vector<uint32_t>& cids, DstRowType* dst, const Sr
 }
 
 template<typename RowType>
-void agg_finalize_row(RowType* row, Arena* arena) {
+void agg_finalize_row(RowType* row, MemPool* mem_pool) {
     for (uint32_t cid = row->schema()->num_key_columns(); cid < row->schema()->num_columns(); ++cid) {
         auto cell = row->cell(cid);
-        row->schema()->column(cid)->agg_finalize(&cell, arena);
+        row->schema()->column(cid)->agg_finalize(&cell, mem_pool);
     }
 }
 
 template<typename RowType>
-void agg_finalize_row(const std::vector<uint32_t>& ids, RowType* row, Arena* arena) {
+void agg_finalize_row(const std::vector<uint32_t>& ids, RowType* row, MemPool* mem_pool) {
     for (uint32_t id : ids) {
         auto cell = row->cell(id);
-        row->schema()->column(id)->agg_finalize(&cell, arena);
+        row->schema()->column(id)->agg_finalize(&cell, mem_pool);
     }
 }
 

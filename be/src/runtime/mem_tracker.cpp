@@ -184,11 +184,6 @@ MemTracker* MemTracker::CreateQueryMemTracker(const TUniqueId& id,
 }
 
 MemTracker::~MemTracker() {
-    DCHECK_EQ(_consumption->current_value(), 0) << _label << "\n"
-        << get_stack_trace() << "\n"
-        << LogUsage("");
-    // TODO chenhao
-    //DCHECK(_closed) << _label;
     delete _reservation_counters.load();
 }
 
