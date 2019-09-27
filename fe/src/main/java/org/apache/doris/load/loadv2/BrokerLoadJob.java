@@ -63,7 +63,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -239,13 +238,11 @@ public class BrokerLoadJob extends LoadJob {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
                 if (loadTask instanceof LoadLoadingTask) {
-                    loadStatistic.numScannedRowsMap.remove(((LoadLoadingTask) loadTask).getLoadId());
+                    loadStatistic.removeLoad(((LoadLoadingTask) loadTask).getLoadId());
                 }
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
-                if (loadTask instanceof LoadLoadingTask) {
-                    loadStatistic.numScannedRowsMap.put(((LoadLoadingTask) loadTask).getLoadId(), new AtomicLong(0));
-                }
+                // load id will be added to loadStatistic when executing this task
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
                 return;
             }
@@ -365,7 +362,7 @@ public class BrokerLoadJob extends LoadJob {
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
                 newLoadingTasks.add(task);
-                loadStatistic.numScannedRowsMap.put(loadId, new AtomicLong(0));
+                // load id will be added to loadStatistic when executing this task
 
                 // save all related tables and rollups in transaction state
                 TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);

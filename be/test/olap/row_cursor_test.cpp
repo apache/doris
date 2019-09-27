@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema.h"
 #include "olap/row.h"
@@ -470,7 +471,8 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    init_row_with_others(&row, left, arena.get());
+    ObjectPool agg_object_pool;
+    init_row_with_others(&row, left, arena.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -528,7 +530,8 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    init_row_with_others(&row, left, arena.get());
+    ObjectPool agg_object_pool;
+    init_row_with_others(&row, left, arena.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);

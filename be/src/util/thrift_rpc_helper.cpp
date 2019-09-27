@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 
 #include <sstream>
 
@@ -24,6 +24,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>
 
+#include "common/status.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/runtime_state.h"
@@ -36,27 +37,28 @@
 
 namespace doris {
 
-ExecEnv* FrontendHelper::_s_exec_env;
-
 using apache::thrift::protocol::TProtocol;
 using apache::thrift::protocol::TBinaryProtocol;
 using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TTransport;
 using apache::thrift::transport::TBufferedTransport;
 
-void FrontendHelper::setup(ExecEnv* exec_env) {
+ExecEnv* ThriftRpcHelper::_s_exec_env;
+
+void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;
 }
 
-Status FrontendHelper::rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (FrontendServiceConnection&)> callback,
-        int timeout_ms) {
+template<typename T>
+Status ThriftRpcHelper::rpc(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<T>&)> callback,
+    int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
     Status status;
-    FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), address, timeout_ms, &status);
+    ClientConnection<T> client(
+            _s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
         LOG(WARNING) << "Connect frontent failed, address=" << address
             << ", status=" << status.get_error_msg();
@@ -85,6 +87,34 @@ Status FrontendHelper::rpc(
     }
     return Status::OK();
 }
+
+template
+Status ThriftRpcHelper::rpc<FrontendServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
+    int timeout_ms);
+
+template
+Status ThriftRpcHelper::rpc<BackendServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<BackendServiceClient>&)> callback,
+    int timeout_ms);
+
+template
+Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<TPaloBrokerServiceClient>&)> callback,
+    int timeout_ms);
+
+template
+Status ThriftRpcHelper::rpc<TExtDataSourceServiceClient>(
+    const std::string& ip,
+    const int32_t port,
+    std::function<void (ClientConnection<TExtDataSourceServiceClient>&)> callback,
+    int timeout_ms);
 
 }
 

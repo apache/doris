@@ -777,7 +777,7 @@ struct HllVal : public StringVal {
 
     void init(FunctionContext* ctx);
 
-    void agg_parse_and_cal(const HllVal &other);
+    void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
 
     void agg_merge(const HllVal &other);
 };

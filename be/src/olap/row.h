@@ -107,10 +107,10 @@ int index_compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
 // function will first initialize destination column and then update with source column
 // value.
 template<typename DstRowType, typename SrcRowType>
-void init_row_with_others(DstRowType* dst, const SrcRowType& src, Arena* arena) {
+void init_row_with_others(DstRowType* dst, const SrcRowType& src, Arena* arena, ObjectPool* agg_pool) {
     for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
-        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), arena);
+        dst->schema()->column(cid)->agg_init(&dst_cell, src.cell(cid), arena, agg_pool);
     }
 }
 

@@ -345,7 +345,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
+OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -360,12 +360,12 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, Arena* arena, bool* 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
+OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
     }
-    init_row_with_others(row_cursor, *_next_key, arena);
+    init_row_with_others(row_cursor, *_next_key, arena, agg_pool);
     int64_t merged_count = 0;
     do {
         auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -389,11 +389,15 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, Arena* arena, bool* 
         ++merged_count;
     } while (true);
     _merged_rows += merged_count;
-    agg_finalize_row(_value_cids, row_cursor, arena);
+    // For agg query, we don't need finalize agg object and directly pass agg object to agg node
+    if (_need_agg_finalize) {
+        agg_finalize_row(_value_cids, row_cursor, arena);
+    }
+
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, Arena* arena, bool* eof) {
+OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
@@ -403,7 +407,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, Arena* arena, boo
         }
     
         cur_delete_flag = _next_delete_flag;
-        init_row_with_others(row_cursor, *_next_key, arena);
+        init_row_with_others(row_cursor, *_next_key, arena, agg_pool);
 
         int64_t merged_count = 0;
         while (NULL != _next_key) {
@@ -564,6 +568,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
     OLAPStatus res = OLAP_SUCCESS;
     _aggregation = read_params.aggregation;
+    _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _version = read_params.version;

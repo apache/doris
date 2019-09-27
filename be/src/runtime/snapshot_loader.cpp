@@ -35,7 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
 #include "util/file_utils.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -917,7 +917,7 @@ Status SnapshotLoader::_report_every(
     request.__set_total_num(total_num);
     TStatus report_st;
 
-    Status rpcStatus = FrontendHelper::rpc(
+    Status rpcStatus = ThriftRpcHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &report_st] (FrontendServiceConnection& client) {
             client->snapshotLoaderReport(report_st, request);

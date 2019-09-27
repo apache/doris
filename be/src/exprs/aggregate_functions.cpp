@@ -1191,7 +1191,7 @@ void AggregateFunctions::hll_union_agg_update(FunctionContext* ctx,
     }
     DCHECK(!dst->is_null);
 
-    dst->agg_parse_and_cal(src);
+    dst->agg_parse_and_cal(ctx, src);
     return ;
 }
 
