@@ -104,9 +104,6 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
             LOG(WARNING) << "request scroll search failure[" 
                          << "http status" << status
                          << ", response: " << (response.empty() ? "empty response" : response);
-            if (status == 404) {
-                    return Status::InternalError("No search context found for " + _scroll_id);
-                }
             return Status::InternalError("request scroll search failure: " + (response.empty() ? "empty response" : response));        
         }
     }
@@ -125,11 +122,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         return Status::OK();
     }
 
-    if (scroll_parser->get_size() < _batch_size) {
-        _eos = true;
-    } else {
-        _eos = false;
-    }
+    _eos = scroll_parser->get_size() < _batch_size;
 
     *scan_eos = false;
     return Status::OK();
