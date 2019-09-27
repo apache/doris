@@ -33,7 +33,7 @@ public:
 
     virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
 
-    virtual void close() override;
+    virtual Status close() override;
 
 private:
     std::string _path;
