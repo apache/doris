@@ -68,11 +68,12 @@ Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* writte
     return Status::OK();
 }
 
-void LocalFileWriter::close() {
+Status LocalFileWriter::close() {
     if (_fp != nullptr) {
         fclose(_fp);
         _fp = nullptr;
     }
+    return Status::OK();
 }
 
 } // end namespace doris

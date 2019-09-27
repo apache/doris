@@ -182,9 +182,9 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
     return Status::OK();
 }
 
-void BrokerWriter::close() {
+Status BrokerWriter::close() {
     if (_is_closed) {
-        return;
+        return Status::OK();
     }
     TBrokerCloseWriterRequest request;
 
@@ -204,7 +204,7 @@ void BrokerWriter::close() {
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
-            return;
+            return status;
         }
 
         try {
@@ -216,26 +216,31 @@ void BrokerWriter::close() {
             if (!status.ok()) {
                 LOG(WARNING) << "Reopen broker writer failed. broker=" << broker_addr
                     << ", status=" << status.get_error_msg();
-                return;
+                return status;
             }
             client->closeWriter(response, request);
         }
     } catch (apache::thrift::TException& e) {
-        LOG(WARNING) << "Close broker writer failed, broker:" << broker_addr
+        std::stringstream ss;
+        ss << "Close broker writer failed, broker:" << broker_addr
             << " msg:" << e.what();
-        return;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker close writer response: "
             << apache::thrift::ThriftDebugString(response).c_str();
 
     if (response.statusCode != TBrokerOperationStatusCode::OK) {
-        LOG(WARNING) << "Close broker writer failed, broker:" << broker_addr
+        std::stringstream ss;
+        ss << "Close broker writer failed, broker:" << broker_addr
             << " msg:" << response.message;
-        return;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
 
     _is_closed = true;
+    return Status::OK();
 }
 
 } // end namespace doris

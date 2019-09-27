@@ -48,9 +48,7 @@ public:
 
     virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
 
-    virtual void close() override;
-
-    bool is_closed() { return _is_closed; }
+    virtual Status close() override;
 
 private:
     ExecEnv* _env;
