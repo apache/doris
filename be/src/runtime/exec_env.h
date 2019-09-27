@@ -97,6 +97,11 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
     ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() { return _extdatasource_client_cache; }
+
+    // using template to simplify client cache management
+    template<typename T>
+    ClientCache<T>* get_client_cache() { return nullptr; }
+
     MemTracker* process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
@@ -177,6 +182,16 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
 };
+
+
+template <>
+inline ClientCache<BackendServiceClient>* ExecEnv::get_client_cache<BackendServiceClient>() { return _backend_client_cache; }
+template <>
+inline ClientCache<FrontendServiceClient>* ExecEnv::get_client_cache<FrontendServiceClient>() { return _frontend_client_cache; }
+template <>
+inline ClientCache<TPaloBrokerServiceClient>* ExecEnv::get_client_cache<TPaloBrokerServiceClient>() { return _broker_client_cache; }
+template <>
+inline ClientCache<TExtDataSourceServiceClient>* ExecEnv::get_client_cache<TExtDataSourceServiceClient>() { return _extdatasource_client_cache; }
 
 }
 

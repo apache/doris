@@ -78,7 +78,7 @@ set(UTIL_FILES
   aes_util.cpp
   string_util.cpp
   md5.cpp
-  frontend_helper.cpp
+  thrift_rpc_helper.cpp
   faststring.cc
   slice.cpp
 )
