@@ -126,8 +126,8 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, Arena* arena, ObjectPool* agg_pool, bool *eof) {
-        return (this->*_next_row_func)(row_cursor, arena, agg_pool, eof);
+    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool *eof) {
+        return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
     }
 
     uint64_t merged_rows() const {
@@ -201,9 +201,9 @@ private:
 
     OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
 
     TabletSharedPtr tablet() { return _tablet; }
 
@@ -234,7 +234,7 @@ private:
 
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, Arena* arena, ObjectPool* agg_pool, bool* eof) = nullptr;
+    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) = nullptr;
 
     bool _aggregation;
     // for agg query, we don't need to finalize when scan agg object data
