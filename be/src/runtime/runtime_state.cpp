@@ -264,6 +264,11 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     return Status::OK();
 }
 
+Status RuntimeState::init_instance_mem_tracker() {
+    _instance_mem_tracker.reset(new MemTracker(-1));
+    return Status::OK();
+}
+
 Status RuntimeState::init_buffer_poolstate() {
   ExecEnv* exec_env = ExecEnv::GetInstance();
   int64_t mem_limit = _query_mem_tracker->lowest_limit();
