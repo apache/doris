@@ -61,7 +61,7 @@ public class RoutineLoadManager implements Writable {
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
-    // stream load job meta
+    // routine load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 

@@ -159,6 +159,12 @@ public:
     // Collect all scan node types.
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
+    // When the agg node is the scan node direct parent,
+    // we directly return agg object from scan node to agg node,
+    // and don't serialize the agg object.
+    // This improve is cautious, we ensure the correctness firstly.
+    void try_do_aggregate_serde_improve();
+
     typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
     // Evaluate exprs over row.  Returns true if all exprs return true.
     // TODO: This doesn't use the vector<Expr*> signature because I haven't figured

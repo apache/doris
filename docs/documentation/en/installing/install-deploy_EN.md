@@ -69,7 +69,7 @@ Doris instances communicate directly over the network. The following table shows
 | BE | be_port | 9060 | FE - > BE | BE for receiving requests from FE|
 | BE | be\_rpc_port | 9070 | BE < - > BE | port used by RPC between BE | BE|
 | BE | webserver\_port | 8040 | BE <--> BE | BE|
-| BE | heartbeat\_service_port | 9050 | FE - > BE | BE on the heart beat service port (thrift), users receive heartbeat from FE|
+| BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
 | FE | http_port* | 8030 | FE < - > FE, HTTP server port on user | FE|
 | FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE|

@@ -112,7 +112,7 @@ public:
                     end_search_result.AddMember("_scroll_id", scroll_id_value, allocator);
 
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
-                    outer_hits.AddMember("total", 10, allocator);
+                    outer_hits.AddMember("total", 0, allocator);
                     end_search_result.AddMember("hits", outer_hits, allocator);
                     rapidjson::StringBuffer buffer;  
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -130,7 +130,7 @@ public:
                     search_result.AddMember("_scroll_id", scroll_id_value, allocator);
 
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
-                    outer_hits.AddMember("total", 10, allocator);
+                    outer_hits.AddMember("total", 1, allocator);
                     rapidjson::Value inner_hits(rapidjson::kArrayType);
                     rapidjson::Value source_docuement(rapidjson::kObjectType);
                     source_docuement.AddMember("id", start, allocator);
@@ -225,11 +225,12 @@ TEST_F(MockESServerTest, workflow) {
     props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates);
     ESScanReader reader(target, props);
     auto st = reader.open();
-    // ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok());
     bool eos = false;
     std::unique_ptr<ScrollParser> parser = nullptr;
     while(!eos){
         st = reader.get_next(&eos, parser);
+        ASSERT_TRUE(st.ok());
         if(eos) {
             break;
         }

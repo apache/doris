@@ -215,8 +215,27 @@
         NULL值：\N
 
 ## example
+    1. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。指定group.id和client.id，并且自动默认消费所有分区，且从末尾（OFFSET_END）开始订阅
 
-    1. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。导入任务为严格模式。
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100)
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "property.group.id" = "xxx",
+            "property.client.id" = "xxx"
+        );
+
+    2. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。导入任务为严格模式。
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),
@@ -237,7 +256,7 @@
             "kafka_offsets" = "101,0,0,200"
         );
 
-    2. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式，时区为 Africa/Abidjan
+    3. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式，时区为 Africa/Abidjan
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),

@@ -173,6 +173,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     VLOG(1) << "scan_nodes.size()=" << scan_nodes.size();
     VLOG(1) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
+    _plan->try_do_aggregate_serde_improve();
+
     for (int i = 0; i < scan_nodes.size(); ++i) {
         ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
         const std::vector<TScanRangeParams>& scan_ranges =

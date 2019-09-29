@@ -28,16 +28,8 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_in
     options.data_page_size = 0;
     _page_builder.reset(new BinaryPlainPageBuilder(options));
     _field.reset(FieldFactory::create_by_type(_type_info->type()));
-    _zone_map.min_value = _arena.Allocate(_type_info->size());
-    _zone_map.max_value = _arena.Allocate(_type_info->size());
-
-    if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR) {
-        _max_varchar_value = _arena.Allocate(OLAP_STRING_MAX_LENGTH);
-        memset(_max_varchar_value, 0xFF, OLAP_STRING_MAX_LENGTH);
-    } else if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
-        _max_char_value = _arena.Allocate(OLAP_CHAR_MAX_LENGTH);
-        memset(_max_char_value, 0xFF, OLAP_CHAR_MAX_LENGTH);
-    }
+    _zone_map.min_value = _field->get_type_value_with_arena(&_arena);
+    _zone_map.max_value = _field->get_type_value_with_arena(&_arena);
 
     _reset_zone_map();
 }
@@ -46,10 +38,10 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
     if (vals != nullptr) {
         for (int i = 0; i < count; ++i) {
             if (_field->compare(_zone_map.min_value, (char *)vals) > 0) {
-                _field->deep_copy_content(_zone_map.min_value, (const char *)vals, &_arena);
+                _field->direct_copy_content(_zone_map.min_value, (const char *)vals);
             }
             if (_field->compare(_zone_map.max_value, (char *)vals) < 0) {
-                _field->deep_copy_content(_zone_map.max_value, (const char *)vals, &_arena);
+                _field->direct_copy_content(_zone_map.max_value, (const char *)vals);
             }
             vals += _type_info->size();
             if (!_zone_map.has_not_null) {
@@ -86,18 +78,7 @@ Status ColumnZoneMapBuilder::flush() {
 }
 
 void ColumnZoneMapBuilder::_reset_zone_map() {
-    // we should allocate max varchar length and set to max for min value
-    if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR) {
-        Slice *min_slice = (Slice *)_zone_map.min_value;
-        min_slice->data = _max_varchar_value;
-        min_slice->size = OLAP_STRING_MAX_LENGTH;
-    } else if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
-        Slice *min_value = (Slice *)_zone_map.min_value;
-        min_value->data = _max_char_value;
-        min_value->size = OLAP_CHAR_MAX_LENGTH;
-    } else {
-        _field->set_to_max(_zone_map.min_value);
-    }
+    _field->set_to_max(_zone_map.min_value);
     _field->set_to_min(_zone_map.max_value);
     _zone_map.has_null = false;
     _zone_map.has_not_null = false;

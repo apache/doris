@@ -59,8 +59,8 @@ struct FlushResult {
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
-    std::atomic_int64_t flush_time_ns = {0};
-    std::atomic_int64_t flush_count= {0};
+    std::atomic<std::int64_t> flush_time_ns = {0};
+    std::atomic<std::int64_t> flush_count= {0};
 };
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 

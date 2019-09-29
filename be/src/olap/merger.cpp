@@ -45,13 +45,16 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
                  "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
     row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
     // The following procedure would last for long time, half of one day, etc.
     int64_t output_rows = 0;
     while (true) {
-        Arena arena;
+        ObjectPool objectPool;
         bool eof = false;
         // Read one row into row_cursor
-        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, &arena, &eof),
+        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, mem_pool.get(), &objectPool, &eof),
                           "failed to read next row when merging rowsets of tablet " + tablet->full_name());
         if (eof) {
             break;
@@ -59,6 +62,9 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
         RETURN_NOT_OK_LOG(dst_rowset_writer->add_row(row_cursor),
                           "failed to write row when merging rowsets of tablet " + tablet->full_name());
         output_rows++;
+        // the memory allocate by mem pool has been copied,
+        // so we should release memory immediately
+        mem_pool->clear();
     }
 
     if (stats_output != nullptr) {

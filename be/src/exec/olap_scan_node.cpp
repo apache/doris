@@ -150,7 +150,6 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _rows_pushed_cond_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
-
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == NULL) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -696,7 +695,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
             OlapScanner* scanner = new OlapScanner(
-                state, this, _olap_scan_node.is_preaggregation, *scan_range, scanner_ranges);
+                state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
             _scanner_pool->add(scanner);
             _olap_scanners.push_back(scanner);
         }

@@ -1190,8 +1190,8 @@ public class GlobalTransactionMgr {
         return infos;
     }
 
-    public List<List<Comparable>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
-        List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
+    public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
+        List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -1199,24 +1199,25 @@ public class GlobalTransactionMgr {
                 throw new AnalysisException("Database[" + dbId + "] does not exist");
             }
 
+            // get transaction order by txn id desc limit 'limit'
             idToTransactionState.values().stream()
                     .filter(t -> (t.getDbId() == dbId && (running ? !t.getTransactionStatus().isFinalStatus()
-                            : t.getTransactionStatus().isFinalStatus())))
+                            : t.getTransactionStatus().isFinalStatus()))).sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
-                        List<Comparable> info = new ArrayList<Comparable>();
-                        info.add(t.getTransactionId());
+                        List<String> info = new ArrayList<String>();
+                        info.add(String.valueOf(t.getTransactionId()));
                         info.add(t.getLabel());
                         info.add(t.getCoordinator());
-                        info.add(t.getTransactionStatus());
-                        info.add(t.getSourceType());
+                        info.add(t.getTransactionStatus().name());
+                        info.add(t.getSourceType().name());
                         info.add(TimeUtils.longToTimeString(t.getPrepareTime()));
                         info.add(TimeUtils.longToTimeString(t.getCommitTime()));
                         info.add(TimeUtils.longToTimeString(t.getFinishTime()));
                         info.add(t.getReason());
-                        info.add(t.getErrorReplicas().size());
-                        info.add(t.getCallbackId());
-                        info.add(t.getTimeoutMs());
+                        info.add(String.valueOf(t.getErrorReplicas().size()));
+                        info.add(String.valueOf(t.getCallbackId()));
+                        info.add(String.valueOf(t.getTimeoutMs()));
                         infos.add(info);
                     });
         } finally {
@@ -1225,13 +1226,13 @@ public class GlobalTransactionMgr {
         return infos;
     }
     
-    public List<List<Comparable>> getTableTransInfo(long tid) throws AnalysisException {
+    public List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
-            TransactionState transactionState = idToTransactionState.get(tid);
+            TransactionState transactionState = idToTransactionState.get(txnId);
             if (null == transactionState) {
-                throw new AnalysisException("Transaction[" + tid + "] does not exist.");
+                throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
             }
 
             for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {

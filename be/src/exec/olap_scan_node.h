@@ -58,7 +58,9 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
-
+    inline void set_no_agg_finalize() {
+        _need_agg_finalize = false;
+    }
 protected:
     typedef struct {
         Tuple* tuple;
@@ -241,6 +243,8 @@ private:
     int64_t _buffered_bytes;
     int64_t _running_thread;
     EvalConjunctsFn _eval_conjuncts_fn;
+
+    bool _need_agg_finalize = true;
 
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;
