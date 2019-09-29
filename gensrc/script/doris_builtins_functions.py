@@ -587,8 +587,8 @@ visible_functions = [
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['empty_hll'], 'VARCHAR', [],
-        '_ZN5doris12HllFunctions9empty_hllEPN9doris_udf15FunctionContextE'],
+    [['hll_empty'], 'VARCHAR', [],
+        '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE'],
 
     #bitmap function
 
