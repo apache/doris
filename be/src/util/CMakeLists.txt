@@ -82,6 +82,7 @@ set(UTIL_FILES
   faststring.cc
   slice.cpp
   frame_of_reference_coding.cpp
+  uuid_generator.cpp
 )
 
 if (WITH_MYSQL)

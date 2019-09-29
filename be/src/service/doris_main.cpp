@@ -154,7 +154,9 @@ int main(int argc, char** argv) {
     // options
     doris::EngineOptions options;
     options.store_paths = paths;
-    options.backend_uid = doris::UniqueId();
+    doris::UniqueId tmp_uid;
+    tmp_uid.gen_uid();
+    options.backend_uid = tmp_uid;
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {

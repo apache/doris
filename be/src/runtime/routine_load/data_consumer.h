@@ -40,6 +40,7 @@ public:
         _init(false),
         _cancelled(false),
         _last_visit_time(0) {
+        _id.gen_uid();
     }
 
     virtual ~DataConsumer() {

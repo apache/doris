@@ -32,7 +32,10 @@ public:
 
     DataConsumerGroup():
         _thread_pool(3, 10),
-        _counter(0) {}
+        _counter(0) {
+        // not gen uid in default constructor, should gen explictly
+        _grp_id.gen_uid();
+    }
 
     virtual ~DataConsumerGroup() {
         _consumers.clear();

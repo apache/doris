@@ -30,6 +30,7 @@
 #include "gen_cpp/types.pb.h"  // for PUniqueId
 // #include "util/debug_util.h"
 #include "util/hash_util.hpp"
+#include "util/uuid_generator.h"
 
 namespace doris {
 
@@ -77,6 +78,13 @@ struct UniqueId {
         from_hex(&hi, hi_str);
         from_hex(&lo, lo_str);
     }
+
+    void gen_uid() {
+        auto uuid = UUIDGenerator::instance()->next_uuid();
+        memcpy(&hi, uuid.data, sizeof(int64_t));
+        memcpy(&lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
+    }
+
     ~UniqueId() noexcept { }
 
     std::string to_string() const {

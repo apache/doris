@@ -84,6 +84,7 @@ public:
         _exec_env(exec_env),
         _refs(0) {
         start_nanos = MonotonicNanos();
+        id.gen_uid();
     }
 
     ~StreamLoadContext() {
