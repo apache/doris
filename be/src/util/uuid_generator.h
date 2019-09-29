@@ -17,32 +17,33 @@
 
 #pragma once
 
-#include <ostream>
 #include <mutex>
+#include <ostream>
 #include <string>
 
 #include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include "util/spinlock.h"
 
 namespace doris {
 
 class UUIDGenerator {
 public:
     boost::uuids::uuid next_uuid() {
-        std::lock_guard<std::mutex> lock(_uuid_gen_lock);
+        std::lock_guard<SpinLock> lock(_uuid_gen_lock);
         return _boost_uuid_generator();
     }
 
-    static UUIDGenerator* instance();
+    static UUIDGenerator* instance() {
+        static UUIDGenerator generator;
+        return &generator;
+    }
 
 private:
     boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
-
-    static UUIDGenerator* _s_instance;
-    static std::mutex _mlock;
-    std::mutex _uuid_gen_lock;
+    SpinLock _uuid_gen_lock;
 };
 
 }

@@ -22,9 +22,6 @@
 #include <string>
 
 #include <boost/functional/hash.hpp>
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp>
-#include <boost/uuid/uuid_io.hpp>
 
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 #include "gen_cpp/types.pb.h"  // for PUniqueId
@@ -72,6 +69,7 @@ struct UniqueId {
         from_hex(&lo, lo_str);
     }
 
+    // currently, the implementation is uuid, but it may change in the future
     static UniqueId gen_uid() {
         UniqueId uid(0, 0);
         auto uuid = UUIDGenerator::instance()->next_uuid();
