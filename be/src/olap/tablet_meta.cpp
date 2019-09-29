@@ -202,9 +202,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
                      << " , meta_file=" << file_path;
         return res;
     }
-    TabletUid tmp_tablet_uid;
-    tmp_tablet_uid.gen_uid();
-    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = tmp_tablet_uid.to_proto();
+    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(file_path, tmp_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet meta pb to " 

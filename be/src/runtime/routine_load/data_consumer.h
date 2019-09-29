@@ -39,8 +39,8 @@ public:
         _has_grp(false),
         _init(false),
         _cancelled(false),
-        _last_visit_time(0) {
-        _id.gen_uid();
+        _last_visit_time(0),
+        _id(UniqueId::gen_uid()) {
     }
 
     virtual ~DataConsumer() {
@@ -69,7 +69,7 @@ public:
     
 protected:
     UniqueId _id;
-    UniqueId _grp_id;
+    UniqueId _grp_id {0, 0};
     bool _has_grp;
 
     // lock to protect the following bools

@@ -82,9 +82,9 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) :
         _exec_env(exec_env),
-        _refs(0) {
+        _refs(0),
+        id(UniqueId::gen_uid()) {
         start_nanos = MonotonicNanos();
-        id.gen_uid();
     }
 
     ~StreamLoadContext() {

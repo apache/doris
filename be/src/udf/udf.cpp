@@ -246,7 +246,6 @@ const char* FunctionContext::user() const {
 
 FunctionContext::UniqueId FunctionContext::query_id() const {
     UniqueId id;
-    id.gen_uid();
 #if DORIS_UDF_SDK_BUILD
     id.hi = id.lo = 0;
 #else

@@ -25,12 +25,8 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
-#include "gen_cpp/Types_types.h"  // for TUniqueId
-#include "gen_cpp/types.pb.h"  // for PUniqueId
-// #include "util/debug_util.h"
-#include "util/hash_util.hpp"
-
 namespace doris {
+
 class UUIDGenerator {
 public:
     static boost::uuids::uuid next_uuid() {

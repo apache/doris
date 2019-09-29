@@ -61,10 +61,8 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
 
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
-    UniqueId backend_uid;
-    backend_uid.gen_uid();
-    UniqueId backend_uid2;
-    backend_uid2.gen_uid();
+    UniqueId backend_uid = UniqueId::gen_uid();
+    UniqueId backend_uid2 = UniqueId::gen_uid();
     ASSERT_TRUE(backend_uid != backend_uid2);
     UniqueRowsetIdGenerator id_generator(backend_uid);
     UniqueRowsetIdGenerator id_generator2(backend_uid2);

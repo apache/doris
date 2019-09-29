@@ -64,13 +64,6 @@ struct UniqueId {
     int64_t hi;
     int64_t lo;
 
-    // !!!! Not modify this method, it is very important. it will generate a random uid
-    // it need modify it contact yiguolei
-    UniqueId() {
-        auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
-        memcpy(&hi, uuid.data, sizeof(int64_t));
-        memcpy(&lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
-    }
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) { }
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) { }
     UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) { }
@@ -79,10 +72,11 @@ struct UniqueId {
         from_hex(&lo, lo_str);
     }
 
-    void gen_uid() {
+    static UniqueId gen_uid() {
+        UniqueId uid(0, 0);
         auto uuid = UUIDGenerator::instance()->next_uuid();
-        memcpy(&hi, uuid.data, sizeof(int64_t));
-        memcpy(&lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
+        memcpy(&uid.hi, uuid.data, sizeof(int64_t));
+        memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
     }
 
     ~UniqueId() noexcept { }

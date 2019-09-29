@@ -30,8 +30,7 @@ public:
 
 TEST_F(UidUtilTest, UniqueId) {
     {
-        UniqueId id;
-        id.gen_uid();
+        UniqueId id = UniqueId::gen_uid();
         std::string hex_str = id.to_string();
         ASSERT_STRNE("0000000000000000-0000000000000000", hex_str.c_str());
     }
