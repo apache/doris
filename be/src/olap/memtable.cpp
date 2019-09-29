@@ -38,8 +38,10 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
       _row_comparator(_schema),
       _rowset_writer(rowset_writer) {
     _schema_size = _schema->schema_size();
-    _tuple_buf = _arena.Allocate(_schema_size);
-    _skip_list = new Table(_row_comparator, &_arena);
+    _tracker.reset(new MemTracker(config::write_buffer_size * 2));
+    _mem_pool.reset(new MemPool(_tracker.get()));
+    _tuple_buf = _mem_pool->allocate(_schema_size);
+    _skip_list = new Table(_row_comparator, _mem_pool.get());
 }
 
 MemTable::~MemTable() {
@@ -56,7 +58,7 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
 }
 
 size_t MemTable::memory_usage() {
-    return _arena.MemoryUsage();
+    return _mem_pool->mem_tracker()->consumption();
 }
 
 void MemTable::insert(Tuple* tuple) {
@@ -68,13 +70,13 @@ void MemTable::insert(Tuple* tuple) {
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(&cell, (const char *)value, is_null, _skip_list->arena());
+        _schema->column(i)->consume(&cell, (const char *)value, is_null, _mem_pool.get(), &_agg_object_pool);
     }
 
     bool overwritten = false;
-    _skip_list->Insert(_tuple_buf, &overwritten, _keys_type);
+    _skip_list->Insert((char*)_tuple_buf, &overwritten, _keys_type);
     if (!overwritten) {
-        _tuple_buf = _arena.Allocate(_schema_size);
+        _tuple_buf = _mem_pool->allocate(_schema_size);
     }
 }
 
@@ -86,7 +88,7 @@ OLAPStatus MemTable::flush() {
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             char* row = (char*)it.key();
             ContiguousRow dst_row(_schema, row);
-            agg_finalize_row(&dst_row, _skip_list->arena());
+            agg_finalize_row(&dst_row, _mem_pool.get());
             RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
         }
         RETURN_NOT_OK(_rowset_writer->flush());

@@ -268,7 +268,28 @@ FROM data_source
 
 ## example
 
-1. Create a Kafka routine load task named test1 for the example_tbl of example_db. The load task is in strict mode.
+1. Create a Kafka routine load task named test1 for the example_tbl of example_db. Specify group.id and client.id, and automatically consume all partitions by default, with subscriptions starting at the end (OFFSET_END)
+    ```
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100)
+    PROPERTIES
+    (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false"
+    )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "property.group.id" = "xxx",
+        "property.client.id" = "xxx"
+    );
+    ```
+
+2. Create a Kafka routine load task named test1 for the example_tbl of example_db. The load task is in strict mode.
 
     ```
     CREATE ROUTINE LOAD example_db.test1 ON example_tbl
@@ -291,7 +312,7 @@ FROM data_source
     );
     ```
 
-2. load data from Kafka clusters via SSL authentication. Also set the client.id parameter. The load task is in non-strict mode and the time zone is Africa/Abidjan
+3. load data from Kafka clusters via SSL authentication. Also set the client.id parameter. The load task is in non-strict mode and the time zone is Africa/Abidjan
 
     ```
     CREATE ROUTINE LOAD example_db.test1 ON example_tbl

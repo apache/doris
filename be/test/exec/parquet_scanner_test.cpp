@@ -462,23 +462,22 @@ TEST_F(ParquetSannerTest, normal) {
     MemTracker tracker;
     // Get batch
     RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), &tracker);
-    std::cout << time(NULL) << std::endl;
     bool eof = false;
     for (int i = 0; i < 14; i++) {
         status = scan_node.get_next(&_runtime_state, &batch, &eof);
+        ASSERT_TRUE(status.ok());
         ASSERT_EQ(2048, batch.num_rows());
-        //ASSERT_EQ(1000, batch.num_rows());
         ASSERT_FALSE(eof);
         batch.reset();
     }
 
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
+    ASSERT_TRUE(status.ok());
     ASSERT_EQ(1328, batch.num_rows());
-    //ASSERT_EQ(1000, batch.num_rows());
     ASSERT_FALSE(eof);
     batch.reset();
-    std::cout << time(NULL) << std::endl;
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
+    ASSERT_TRUE(status.ok());
     ASSERT_EQ(0, batch.num_rows());
     ASSERT_TRUE(eof);
 
@@ -493,12 +492,6 @@ TEST_F(ParquetSannerTest, normal) {
 }
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

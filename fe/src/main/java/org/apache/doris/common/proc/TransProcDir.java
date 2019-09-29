@@ -19,14 +19,11 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class TransProcDir implements ProcDirInterface {
@@ -60,17 +57,8 @@ public class TransProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId, state.equals("running"), MAX_SHOW_ENTRIES);
-        // order by transactionId, desc
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(true, 0);
-        Collections.sort(infos, comparator);
-        for (List<Comparable> info : infos) {
-            List<String> row = new ArrayList<String>(info.size());
-            for (Comparable comparable : info) {
-                row.add(comparable.toString());
-            }
-            result.addRow(row);
-        }
+        List<List<String>> infos = transactionMgr.getDbTransInfo(dbId, state.equals("running"), MAX_SHOW_ENTRIES);
+        result.setRows(infos);
         return result;
     }
 

@@ -64,10 +64,15 @@ void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
         dst_hll->update(hash_value);
     }
 }
+
 void HllFunctions::hll_merge(FunctionContext*, const StringVal &src, StringVal* dst) {
-    HyperLogLog src_hll((uint8_t*)src.ptr);
     auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst->ptr);
-    dst_hll->merge(src_hll);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        dst_hll->merge(*reinterpret_cast<HyperLogLog*>(src.ptr));
+    } else {
+        dst_hll->merge(HyperLogLog(src.ptr));
+    }
 }
 
 BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal &src) {

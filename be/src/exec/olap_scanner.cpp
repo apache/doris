@@ -43,6 +43,7 @@ OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
+        bool need_agg_finalize,
         const TPaloScanRange& scan_range,
         const std::vector<OlapScanRange*>& key_ranges)
             : _runtime_state(runtime_state),
@@ -52,6 +53,7 @@ OlapScanner::OlapScanner(
             _string_slots(parent->_string_slots),
             _is_open(false),
             _aggregation(aggregation),
+            _need_agg_finalize(need_agg_finalize),
             _tuple_idx(parent->_tuple_idx),
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
@@ -213,6 +215,11 @@ Status OlapScanner::_init_params(
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
 
+    // If a agg node is this scan node direct parent
+    // we will not call agg object finalize method in scan node,
+    // to avoid the unnecessary SerDe and improve query performance
+    _params.need_agg_finalize = _need_agg_finalize;
+
     return Status::OK();
 }
 
@@ -252,7 +259,9 @@ Status OlapScanner::get_batch(
         state->batch_size() * _tuple_desc->byte_size());
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
-    std::unique_ptr<Arena> arena(new Arena());
+
+    std::unique_ptr<MemTracker> tracker(new MemTracker(state->fragment_mem_tracker()->limit()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
@@ -264,7 +273,7 @@ Status OlapScanner::get_batch(
                 break;
             }
             // Read one row from reader
-            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, arena.get(), eof);
+            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 return Status::InternalError("Internal Error: read storage fail.");
             }
@@ -330,9 +339,9 @@ Status OlapScanner::get_batch(
                     }
                 }
 
-                // the memory allocate by arena has been copied,
+                // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately
-                arena.reset(new Arena());
+                mem_pool->clear();
 
                 if (VLOG_ROW_IS_ON) {
                     VLOG_ROW << "OlapScanner output row: " << Tuple::to_string(tuple, *_tuple_desc);
