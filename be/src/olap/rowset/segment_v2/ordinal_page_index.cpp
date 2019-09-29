@@ -26,7 +26,9 @@ OrdinalPageIndex::~OrdinalPageIndex() {
 }
 
 Status OrdinalPageIndex::load() {
-    DCHECK_GE(_data.size, _header_size()) << "block size must greate than header";
+    if (UNLIKELY(_data.size < _header_size())) {
+        return Status::Corruption("block size must greate than header");
+    }
     const uint8_t* ptr = (const uint8_t*)_data.data;
     const uint8_t* limit = (const uint8_t*)_data.data + _data.size;
 
