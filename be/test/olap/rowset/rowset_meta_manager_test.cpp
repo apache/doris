@@ -51,7 +51,7 @@ public:
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
         options.store_paths = paths;
-        options.backend_uid = doris::UniqueId();
+        options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
@@ -83,7 +83,7 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TabletUid _tablet_uid;
+    TabletUid _tablet_uid {0, 0};
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
