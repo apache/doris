@@ -148,12 +148,10 @@ public:
     // memory allocation.
     template<typename DstCellType, typename SrcCellType>
     void direct_copy(DstCellType* dst, const SrcCellType& src) const {
-        if (_is_nullable) {
-            bool is_null = src.is_null();
-            dst->set_is_null(is_null);
-            if (is_null) {
-                return;
-            }
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }
@@ -165,12 +163,10 @@ public:
     void deep_copy(DstCellType* dst,
                    const SrcCellType& src,
                    MemPool* pool) const {
-        if (_is_nullable) {
-            bool is_null = src.is_null();
-            dst->set_is_null(is_null);
-            if (is_null) {
-                return;
-            }
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
@@ -179,12 +175,10 @@ public:
     void deep_copy(DstCellType* dst,
                    const SrcCellType& src,
                    Arena* arena) const {
-        if (_is_nullable) {
-            bool is_null = src.is_null();
-            dst->set_is_null(is_null);
-            if (is_null) {
-                return;
-            }
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
         }
         _type_info->deep_copy_with_arena(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
     }
@@ -217,7 +211,7 @@ public:
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
-    inline std::string to_string(char* src) const {
+    inline std::string to_string(const char* src) const {
         return _type_info->to_string(src);
     }
 

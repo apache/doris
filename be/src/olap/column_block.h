@@ -47,7 +47,9 @@ public:
         return is_nullable() && BitmapTest(_null_bitmap, idx);
     }
     void set_is_null(size_t idx, bool is_null) const {
-        return BitmapChange(_null_bitmap, idx, is_null);
+        if (is_nullable()) {
+            BitmapChange(_null_bitmap, idx, is_null);
+        }
     }
 
     ColumnBlockCell cell(size_t idx) const;
