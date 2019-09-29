@@ -1336,7 +1336,7 @@ OLAPStatus TabletManager::_create_tablet_meta(
 
     LOG(INFO) << "next_unique_id:" << next_unique_id;
     // it is a new tablet meta obviously, should generate a new tablet id
-    TabletUid tablet_uid;
+    TabletUid  tablet_uid = TabletUid::gen_uid();
     res = TabletMeta::create(request.table_id, request.partition_id,
                        request.tablet_id, request.tablet_schema.schema_hash,
                        shard_id, request.tablet_schema,

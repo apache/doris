@@ -39,11 +39,10 @@ struct RowsetWriterContext {
         data_dir(nullptr),
         version(Version(0, 0)),
         version_hash(0),
-        txn_id(0) {
+        txn_id(0),
+        tablet_uid(0, 0) {
         load_id.set_hi(0);
         load_id.set_lo(0);
-        tablet_uid.hi = 0;
-        tablet_uid.lo = 0;
     }
     RowsetId rowset_id;
     int64_t tablet_id;

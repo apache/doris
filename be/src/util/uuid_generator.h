@@ -17,28 +17,33 @@
 
 #pragma once
 
+#include <mutex>
+#include <ostream>
 #include <string>
-#include <vector>
 
-#include "olap/olap_define.h"
-#include "util/uid_util.h"
+#include <boost/functional/hash.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include "util/spinlock.h"
 
 namespace doris {
 
-struct StorePath {
-    StorePath() : capacity_bytes(-1) { }
-    StorePath(const std::string& path_, int64_t capacity_bytes_)
-        : path(path_), capacity_bytes(capacity_bytes_) { }
-    std::string path;
-    int64_t capacity_bytes;
-};
+class UUIDGenerator {
+public:
+    boost::uuids::uuid next_uuid() {
+        std::lock_guard<SpinLock> lock(_uuid_gen_lock);
+        return _boost_uuid_generator();
+    }
 
-OLAPStatus parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
+    static UUIDGenerator* instance() {
+        static UUIDGenerator generator;
+        return &generator;
+    }
 
-struct EngineOptions {
-    // list paths that tablet will be put into.
-    std::vector<StorePath> store_paths;
-    UniqueId backend_uid {0, 0};
+private:
+    boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
+    SpinLock _uuid_gen_lock;
 };
 
 }

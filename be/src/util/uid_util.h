@@ -22,14 +22,12 @@
 #include <string>
 
 #include <boost/functional/hash.hpp>
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp>
-#include <boost/uuid/uuid_io.hpp>
 
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 #include "gen_cpp/types.pb.h"  // for PUniqueId
 // #include "util/debug_util.h"
 #include "util/hash_util.hpp"
+#include "util/uuid_generator.h"
 
 namespace doris {
 
@@ -63,13 +61,6 @@ struct UniqueId {
     int64_t hi;
     int64_t lo;
 
-    // !!!! Not modify this method, it is very important. it will generate a random uid
-    // it need modify it contact yiguolei
-    UniqueId() {
-        auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
-        memcpy(&hi, uuid.data, sizeof(int64_t));
-        memcpy(&lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
-    }
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) { }
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) { }
     UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) { }
@@ -77,6 +68,16 @@ struct UniqueId {
         from_hex(&hi, hi_str);
         from_hex(&lo, lo_str);
     }
+
+    // currently, the implementation is uuid, but it may change in the future
+    static UniqueId gen_uid() {
+        UniqueId uid(0, 0);
+        auto uuid = UUIDGenerator::instance()->next_uuid();
+        memcpy(&uid.hi, uuid.data, sizeof(int64_t));
+        memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
+        return uid;
+    }
+
     ~UniqueId() noexcept { }
 
     std::string to_string() const {

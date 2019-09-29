@@ -48,7 +48,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
 
     std::stringstream ss;
     ss << BackendOptions::get_localhost() << "_";
-    std::string group_id = ss.str() + UniqueId().to_string();
+    std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
     LOG(INFO) << "init kafka consumer with group id: " << group_id;
 
     std::string errstr;
