@@ -28,8 +28,8 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_in
     options.data_page_size = 0;
     _page_builder.reset(new BinaryPlainPageBuilder(options));
     _field.reset(FieldFactory::create_by_type(_type_info->type()));
-    _zone_map.min_value = _field->get_type_value_with_arena(&_arena);
-    _zone_map.max_value = _field->get_type_value_with_arena(&_arena);
+    _zone_map.min_value = _field->allocate_value_from_arena(&_arena);
+    _zone_map.max_value = _field->allocate_value_from_arena(&_arena);
 
     _reset_zone_map();
 }

@@ -57,7 +57,7 @@ public:
 
     inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-    inline char* get_type_value_with_arena(Arena* arena) const { return _type_info->get_type_value_with_arena(arena); }
+    inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
         _agg_info->update(dest, src, mem_pool);
