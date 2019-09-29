@@ -824,7 +824,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             TCondition condition;
             condition.__set_column_name("1");
             condition.__set_condition_op("<");
-            std::vector<std::string> vals = {"-1"};
+            std::vector<std::string> vals = {"-2"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
