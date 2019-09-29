@@ -409,7 +409,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
-        auto* hll = new HyperLogLog((const uint8_t*) src_slice->data);
+        auto* hll = new HyperLogLog(*src_slice);
         dst_slice->data = reinterpret_cast<char*>(hll);
 
         mem_pool->mem_tracker()->consume(sizeof(HyperLogLog));
@@ -426,7 +426,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         // fixme(kks): trick here, need improve
         if (mem_pool == nullptr) { // for query
-            HyperLogLog src_hll((const uint8_t*)src_slice->data);
+            HyperLogLog src_hll(*src_slice);
             dst_hll->merge(src_hll);
         } else {   // for stream load
             auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
@@ -439,7 +439,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
         auto *hll = reinterpret_cast<HyperLogLog*>(slice->data);
 
-        slice->data = (char*)mem_pool->allocate(HLL_COLUMN_DEFAULT_LEN);
+        slice->data = (char*)mem_pool->allocate(hll->max_serialized_size());
         slice->size = hll->serialize((uint8_t*)slice->data);
     }
 };

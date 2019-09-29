@@ -19,6 +19,7 @@
 
 #include "exprs/anyval_util.h"
 #include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -29,17 +30,14 @@ void HllFunctions::init() {
 }
 
 StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
-    std::string buf;
+    HyperLogLog hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
-        HyperLogLog hll(hash_value);
-        buf.resize(HLL_SINGLE_VALUE_SIZE);
-        hll.serialize((uint8_t*)buf.c_str());
-    } else {
-        HyperLogLog hll;
-        buf.resize(HLL_EMPTY_SIZE);
-        hll.serialize((uint8_t*)buf.c_str());
+        hll.update(hash_value);
     }
+    std::string buf;
+    buf.resize(hll.max_serialized_size());
+    buf.resize(hll.serialize((uint8_t*)buf.c_str()));
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
@@ -48,7 +46,7 @@ void HllFunctions::hll_init(FunctionContext *, StringVal* dst) {
     dst->len = sizeof(HyperLogLog);
     dst->ptr = (uint8_t*)new HyperLogLog();
 }
-StringVal HllFunctions::empty_hll(FunctionContext* ctx) {
+StringVal HllFunctions::hll_empty(FunctionContext* ctx) {
     return AnyValUtil::from_string_temp(ctx, HyperLogLog::empty());
 }
 
@@ -65,13 +63,13 @@ void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
     }
 }
 
-void HllFunctions::hll_merge(FunctionContext*, const StringVal &src, StringVal* dst) {
+void HllFunctions::hll_merge(FunctionContext*, const StringVal& src, StringVal* dst) {
     auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
         dst_hll->merge(*reinterpret_cast<HyperLogLog*>(src.ptr));
     } else {
-        dst_hll->merge(HyperLogLog(src.ptr));
+        dst_hll->merge(HyperLogLog(Slice(src.ptr, src.len)));
     }
 }
 
@@ -94,7 +92,7 @@ BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& i
 
 StringVal HllFunctions::hll_serialize(FunctionContext *ctx, const StringVal &src) {
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
-    StringVal result(ctx, HLL_COLUMN_DEFAULT_LEN);
+    StringVal result(ctx, src_hll->max_serialized_size());
     int size = src_hll->serialize((uint8_t*)result.ptr);
     result.resize(ctx, size);
     delete src_hll;

@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -34,13 +35,36 @@ static uint64_t hash(uint64_t value) {
 
 TEST_F(TestHll, Normal) {
     uint8_t buf[HLL_REGISTERS_COUNT + 1];
+
+    // empty
+    {
+        Slice str((char*)buf, 0);
+        ASSERT_FALSE(HyperLogLog::is_valid(str));
+    }
+    // check unknown type
+    {
+        buf[0] = 60;
+        Slice str((char*)buf, 1);
+        ASSERT_FALSE(HyperLogLog::is_valid(str));
+    }
+
     // empty
     {
         HyperLogLog empty_hll;
         int len = empty_hll.serialize(buf);
         ASSERT_EQ(1, len);
-        HyperLogLog test_hll(buf);
+        HyperLogLog test_hll(Slice((char*)buf, len));
         ASSERT_EQ(0, test_hll.estimate_cardinality());
+
+        // check serialize
+        {
+            Slice str((char*)buf, len);
+            ASSERT_TRUE(HyperLogLog::is_valid(str));
+        }
+        {
+            Slice str((char*)buf, len + 1);
+            ASSERT_FALSE(HyperLogLog::is_valid(str));
+        }
     }
     // explicit [0. 100)
     HyperLogLog explicit_hll;
@@ -51,7 +75,17 @@ TEST_F(TestHll, Normal) {
         int len = explicit_hll.serialize(buf);
         ASSERT_EQ(1 + 1 + 100 * 8, len);
 
-        HyperLogLog test_hll(buf);
+        // check serialize
+        {
+            Slice str((char*)buf, len);
+            ASSERT_TRUE(HyperLogLog::is_valid(str));
+        }
+        {
+            Slice str((char*)buf, 1);
+            ASSERT_FALSE(HyperLogLog::is_valid(str));
+        }
+
+        HyperLogLog test_hll(Slice((char*)buf, len));
         test_hll.update(hash(0));
         {
             HyperLogLog other_hll;
@@ -71,7 +105,17 @@ TEST_F(TestHll, Normal) {
         int len = sparse_hll.serialize(buf);
         ASSERT_TRUE(len < HLL_REGISTERS_COUNT + 1);
 
-        HyperLogLog test_hll(buf);
+        // check serialize
+        {
+            Slice str((char*)buf, len);
+            ASSERT_TRUE(HyperLogLog::is_valid(str));
+        }
+        {
+            Slice str((char*)buf, 1 + 3);
+            ASSERT_FALSE(HyperLogLog::is_valid(str));
+        }
+
+        HyperLogLog test_hll(Slice((char*)buf, len));
         test_hll.update(hash(1024));
         {
             HyperLogLog other_hll;
@@ -94,7 +138,17 @@ TEST_F(TestHll, Normal) {
         int len = full_hll.serialize(buf);
         ASSERT_EQ(HLL_REGISTERS_COUNT + 1, len);
 
-        HyperLogLog test_hll(buf);
+        // check serialize
+        {
+            Slice str((char*)buf, len);
+            ASSERT_TRUE(HyperLogLog::is_valid(str));
+        }
+        {
+            Slice str((char*)buf, len + 1);
+            ASSERT_FALSE(HyperLogLog::is_valid(str));
+        }
+
+        HyperLogLog test_hll(Slice((char*)buf, len));
         auto cardinality = test_hll.estimate_cardinality();
         ASSERT_EQ(full_hll.estimate_cardinality(), cardinality);
         // 2% error rate
@@ -135,6 +189,18 @@ TEST_F(TestHll, Normal) {
         // merge full
         new_sparse_hll.merge(full_hll);
         ASSERT_TRUE(new_sparse_hll.estimate_cardinality() > full_hll.estimate_cardinality());
+    }
+}
+
+TEST_F(TestHll, InvalidPtr) {
+    {
+        HyperLogLog hll(Slice((char*)nullptr, 0));
+        ASSERT_EQ(0, hll.estimate_cardinality());
+    }
+    {
+        uint8_t buf[64] = {60};
+        HyperLogLog hll(Slice(buf, 1));
+        ASSERT_EQ(0, hll.estimate_cardinality());
     }
 }
 
