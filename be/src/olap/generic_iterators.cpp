@@ -210,7 +210,7 @@ public:
     Status next_batch(RowBlockV2* block) override;
 
     const Schema& schema() const override {
-        return *_schema.get();
+        return *_schema;
     }
 private:
     std::vector<RowwiseIterator*> _origin_iters;
