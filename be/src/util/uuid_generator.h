@@ -34,6 +34,7 @@ namespace doris {
 class UUIDGenerator {
 public:
     static boost::uuids::uuid next_uuid() {
+        std::lock_guard<std::mutex> lock(_uuid_gen_lock);
         return _boost_uuid_generator();
     }
 
@@ -44,6 +45,7 @@ private:
 
     static UUIDGenerator* _s_instance;
     static std::mutex _mlock;
+    std::mutex _uuid_gen_lock;
 };
 
 }
