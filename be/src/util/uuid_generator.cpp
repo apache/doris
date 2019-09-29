@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/uuid_generator.cpp"
+#include "util/uuid_generator.h"
 
 namespace doris {
 
 
-UUIDGenerator* SnapshotManager::_s_instance = nullptr;
+UUIDGenerator* UUIDGenerator::_s_instance = nullptr;
 std::mutex UUIDGenerator::_mlock;
 
 UUIDGenerator* UUIDGenerator::instance() {
     if (_s_instance == nullptr) {
         std::lock_guard<std::mutex> lock(_mlock);
         if (_s_instance == nullptr) {
-            _s_instance = new SnapshotManager();
+            _s_instance = new UUIDGenerator();
         }
     }
     return _s_instance;

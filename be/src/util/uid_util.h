@@ -77,6 +77,7 @@ struct UniqueId {
         auto uuid = UUIDGenerator::instance()->next_uuid();
         memcpy(&uid.hi, uuid.data, sizeof(int64_t));
         memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
+        return uid;
     }
 
     ~UniqueId() noexcept { }

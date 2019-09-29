@@ -18,6 +18,7 @@
 #pragma once
 
 #include <ostream>
+#include <mutex>
 #include <string>
 
 #include <boost/functional/hash.hpp>
@@ -29,12 +30,12 @@ namespace doris {
 
 class UUIDGenerator {
 public:
-    static boost::uuids::uuid next_uuid() {
+    boost::uuids::uuid next_uuid() {
         std::lock_guard<std::mutex> lock(_uuid_gen_lock);
         return _boost_uuid_generator();
     }
 
-    UUIDGenerator* instance();
+    static UUIDGenerator* instance();
 
 private:
     boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
