@@ -81,6 +81,7 @@ class MessageBodySink;
 class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) :
+        id(UniqueId::gen_uid()),
         _exec_env(exec_env),
         _refs(0) {
         start_nanos = MonotonicNanos();

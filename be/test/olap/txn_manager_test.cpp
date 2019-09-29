@@ -98,7 +98,7 @@ public:
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
         options.store_paths = paths;
-        options.backend_uid = doris::UniqueId();
+        options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
@@ -166,7 +166,7 @@ private:
     TTransactionId transaction_id = 111;
     TTabletId tablet_id = 222;
     SchemaHash schema_hash = 333;
-    TabletUid _tablet_uid;
+    TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     std::unique_ptr<TabletSchema> _schema;
     RowsetSharedPtr _alpha_rowset;
