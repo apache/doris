@@ -21,6 +21,7 @@
 #include <map>
 
 #include "common/logging.h"
+#include "runtime/string_value.h"
 #include "util/coding.h"
 
 using std::map;
@@ -30,9 +31,11 @@ using std::stringstream;
 
 namespace doris {
 
-// TODO(zc): we should check if src is valid, it maybe corrupted
-HyperLogLog::HyperLogLog(const uint8_t* src) {
-    deserialize(src);
+HyperLogLog::HyperLogLog(const Slice& src) {
+    // When deserialize return false, we make this object a empty
+    if (!deserialize(src)) {
+        _type = HLL_DATA_EMPTY;
+    }
 }
 
 // Convert explicit values to register format, and clear explicit values.
@@ -137,11 +140,27 @@ void HyperLogLog::merge(const HyperLogLog& other) {
     }
 }
 
-int HyperLogLog::serialize(uint8_t* dest) {
-    uint8_t* ptr = dest;
+size_t HyperLogLog::max_serialized_size() const {
     switch (_type) {
-    case HLL_DATA_EMPTY: {
-        *ptr++ = _type;
+    case HLL_DATA_EMPTY:
+    default:
+        return 1;
+    case HLL_DATA_EXPLICIT:
+        return 2 + _hash_set.size() * 8;
+    case HLL_DATA_SPRASE:
+    case HLL_DATA_FULL:
+        return 1 + HLL_REGISTERS_COUNT;
+    }
+}
+
+size_t HyperLogLog::serialize(uint8_t* dst) const {
+    uint8_t* ptr = dst;
+    switch (_type) {
+    case HLL_DATA_EMPTY:
+    default: {
+        // When the _type is unknown, which may not happen, we encode it as
+        // Empty HyperLogLog object.
+        *ptr++ = HLL_DATA_EMPTY;
         break;
     }
     case HLL_DATA_EXPLICIT: {
@@ -191,14 +210,65 @@ int HyperLogLog::serialize(uint8_t* dest) {
         break;
     }
     }
-    return ptr - dest;
+    return ptr - dst;
+}
+
+bool HyperLogLog::is_valid(const Slice& slice) {
+    if (slice.size < 1) {
+        return false;
+    }
+    const uint8_t* ptr = (uint8_t*)slice.data;
+    const uint8_t* end = (uint8_t*)slice.data + slice.size;
+    auto type = (HllDataType)*ptr++;
+    switch (type) {
+    case HLL_DATA_EMPTY:
+        break;
+    case HLL_DATA_EXPLICIT: {
+        if ((ptr + 1) > end) {
+            return false;
+        }
+        uint8_t num_explicits = *ptr++;
+        ptr += num_explicits * 8;
+        break;
+    }
+    case HLL_DATA_SPRASE: {
+        if ((ptr + 4) > end) {
+            return false;
+        }
+        uint32_t num_registers = decode_fixed32_le(ptr);
+        ptr += 4 + 3 * num_registers;
+        break;
+    }
+    case HLL_DATA_FULL: {
+        ptr += HLL_REGISTERS_COUNT;
+        break;
+    }
+    default:
+        return false;
+    }
+    return ptr == end;
 }
 
 // TODO(zc): check input string's length
-bool HyperLogLog::deserialize(const uint8_t* ptr) {
+bool HyperLogLog::deserialize(const Slice& slice) {
     // can be called only when type is empty
     DCHECK(_type == HLL_DATA_EMPTY);
 
+    // NOTE(zc): Don't remove this check unless you known what
+    // you are doing. Because of history bug, we ingest some
+    // invalid HLL data in storge, which ptr is nullptr.
+    // we must handle this case to avoid process crash.
+    // This bug is in release 0.10, I think we can remove this
+    // in release 0.12 or later.
+    if (slice.data == nullptr || slice.size <= 0) {
+        return false;
+    }
+    // check if input length is valid
+    if (!is_valid(slice)) {
+        return false;
+    }
+
+    const uint8_t* ptr = (uint8_t*)slice.data;
     // first byte : type
     _type = (HllDataType)*ptr++;
     switch (_type) {
@@ -238,12 +308,14 @@ bool HyperLogLog::deserialize(const uint8_t* ptr) {
             break;
         }
         default:
+            // revert type to EMPTY
+            _type = HLL_DATA_EMPTY;
             return false;
     }
     return true;
 }
 
-int64_t HyperLogLog::estimate_cardinality() {
+int64_t HyperLogLog::estimate_cardinality() const {
     if (_type == HLL_DATA_EMPTY) {
         return 0;
     }

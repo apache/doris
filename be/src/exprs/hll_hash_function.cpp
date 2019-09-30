@@ -27,17 +27,14 @@ void HllHashFunctions::init() {
 }
 
 StringVal HllHashFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
-    std::string buf;
+    HyperLogLog hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
-        HyperLogLog hll(hash_value);
-        buf.resize(HLL_SINGLE_VALUE_SIZE);
-        hll.serialize((uint8_t*)buf.c_str());
-    } else {
-        HyperLogLog hll;
-        buf.resize(HLL_EMPTY_SIZE);
-        hll.serialize((uint8_t*)buf.c_str());
+        hll.update(hash_value);
     }
+    std::string buf;
+    buf.resize(hll.max_serialized_size());
+    buf.resize(hll.serialize((uint8_t*)buf.data()));
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 

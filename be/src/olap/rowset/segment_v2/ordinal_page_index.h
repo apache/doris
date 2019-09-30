@@ -139,8 +139,8 @@ inline bool OrdinalPageIndexIterator::valid() const {
 }
 
 inline void OrdinalPageIndexIterator::next() {
-    _cur_idx++;
     DCHECK_LT(_cur_idx, _index->_num_pages);
+    _cur_idx++;
 }
 
 inline rowid_t OrdinalPageIndexIterator::rowid() const {

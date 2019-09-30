@@ -85,10 +85,10 @@ private:
     std::unique_ptr<BinaryPlainPageBuilder> _dict_builder;
 
     EncodingTypePB _encoding_type;
-    struct HashOfSlice {                                                                                                                                              
+    struct HashOfSlice {
         size_t operator()(const Slice& slice) const {
             return HashStringThoroughly(slice.data, slice.size);
-        }   
+        }
     };
     // query for dict item -> dict id
     std::unordered_map<Slice, uint32_t, HashOfSlice> _dictionary;

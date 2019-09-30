@@ -129,7 +129,7 @@ public:
         total_size += s.size;
         results.emplace_back(s);
         page_builder.release();
-        page_builder.reset();
+
         page_start_ids.push_back(count);
 
         Slice dict_slice;

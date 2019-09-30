@@ -17,21 +17,33 @@
 
 #pragma once
 
+#include <mutex>
+#include <ostream>
+#include <string>
+
+#include <boost/functional/hash.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include "util/spinlock.h"
+
 namespace doris {
-namespace segment_v2 {
 
-class BinaryPlainPageDecoder;
+class UUIDGenerator {
+public:
+    boost::uuids::uuid next_uuid() {
+        std::lock_guard<SpinLock> lock(_uuid_gen_lock);
+        return _boost_uuid_generator();
+    }
 
-static const size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
+    static UUIDGenerator* instance() {
+        static UUIDGenerator generator;
+        return &generator;
+    }
 
-struct PageBuilderOptions {
-    size_t data_page_size = DEFAULT_PAGE_SIZE;
-
-    size_t dict_page_size = DEFAULT_PAGE_SIZE;
+private:
+    boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
+    SpinLock _uuid_gen_lock;
 };
 
-struct PageDecoderOptions {
-};
-
-} // namespace segment_v2
-} // namespace doris
+}

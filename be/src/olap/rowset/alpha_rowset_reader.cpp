@@ -167,7 +167,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
 
     size_t ordinal = 0;
     while (ordinal < _merge_ctxs.size()) {
-        MergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
+        AlphaMergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
         if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
             OLAPStatus status = _pull_next_block(merge_ctx);
             if (status == OLAP_ERR_DATA_EOF) {
@@ -194,7 +194,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetReader::_pull_next_block(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_next_block(AlphaMergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     if (OLAP_UNLIKELY(merge_ctx->first_read_symbol)) {
         if (_key_range_size > 0) {
@@ -220,7 +220,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_block(MergeContext* merge_ctx) {
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_pull_first_block(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
@@ -310,7 +310,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                     << new_column_data->version().first << ", " << new_column_data->version().second;
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
-        MergeContext merge_ctx;
+        AlphaMergeContext merge_ctx;
         merge_ctx.column_data = std::move(new_column_data);
         _merge_ctxs.emplace_back(std::move(merge_ctx));
     }

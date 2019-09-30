@@ -129,7 +129,6 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
-    DCHECK(_finished) << "get dictionary page when the builder is not finished";
     _dictionary.clear();
     _dict_builder->reset();
     size_t add_count = 1;
@@ -198,7 +197,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         *n = 0;
         return Status::OK();
     }
-    Slice *out = reinterpret_cast<Slice *>(dst->data());
+    Slice* out = reinterpret_cast<Slice*>(dst->data());
     _code_buf.resize((*n) * sizeof(int32_t));
 
     // copy the codewords into a temporary buffer first
@@ -209,10 +208,10 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {
-        int32_t codeword = *reinterpret_cast<int32_t *>(&_code_buf[i * sizeof(int32_t)]);
+        int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
-        char *destination = dst->column_block()->arena()->Allocate(element.size);
+        char* destination = dst->column_block()->arena()->Allocate(element.size);
         if (destination == nullptr) {
             return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
         }
