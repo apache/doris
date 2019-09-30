@@ -211,7 +211,7 @@ public:
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
-    inline std::string to_string(char* src) const {
+    inline std::string to_string(const char* src) const {
         return _type_info->to_string(src);
     }
 

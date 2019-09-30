@@ -214,7 +214,7 @@ private:
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
-        const uint8_t *p = reinterpret_cast<const uint8_t *>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
         return decode_fixed32_le(p);
     }
 

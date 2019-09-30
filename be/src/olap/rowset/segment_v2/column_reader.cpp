@@ -455,7 +455,9 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
     } else {
         for (int i = 0; i < *n; ++i) {
             memcpy(dst->mutable_cell_ptr(i), _mem_value.data(), _value_size);
-            dst->set_is_null(i, false);
+            if (dst->is_nullable()) {
+                dst->set_is_null(i, false);
+            }
         }
     }
     return Status::OK();

@@ -134,7 +134,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_1->set_is_key(true);
     column_1->set_length(4);
     column_1->set_index_length(4);
-    column_1->set_is_nullable(true);
+    column_1->set_is_nullable(false);
     column_1->set_is_bf_column(false);
 
     ColumnPB* column_2 = tablet_schema_pb.add_column();
@@ -143,9 +143,8 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_2->set_type("VARCHAR");
     column_2->set_length(20);
     column_2->set_index_length(20);
-    column_2->set_is_nullable(true);
     column_2->set_is_key(true);
-    column_2->set_is_nullable(true);
+    column_2->set_is_nullable(false);
     column_2->set_is_bf_column(false);
     
     ColumnPB* column_3 = tablet_schema_pb.add_column();
@@ -219,13 +218,18 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     ASSERT_EQ(OLAP_SUCCESS, res);
     
     int32_t field_0 = 10;
+    row.set_not_null(0);
     row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
     Slice field_1("well");
+    row.set_not_null(1);
     row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
     int32_t field_2 = 100;
+    row.set_not_null(2);
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
-    _alpha_rowset_writer->add_row(row);
-    _alpha_rowset_writer->flush();
+    res = _alpha_rowset_writer->add_row(row);
+    ASSERT_EQ(OLAP_SUCCESS, res);
+    res = _alpha_rowset_writer->flush();
+    ASSERT_EQ(OLAP_SUCCESS, res);
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
@@ -261,14 +265,6 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
 }  // namespace doris
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    int ret = RUN_ALL_TESTS();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
+    return RUN_ALL_TESTS();
 }
