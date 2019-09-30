@@ -431,6 +431,10 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
 
+    // lazy init dict_encoding'dict for three reasons
+    // 1. a column use dictionary encoding still has non-dict-encoded data pages are seeked,load dict when necessary
+    // 2. ColumnReader which is owned by Segment and Rowset can being alive even when there is no query,it should retain memory as small as possible.
+    // 3. Iterators of the same column won't repeat load the dict page because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
         BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
         if (binary_dict_page_decoder->is_dict_encoding()) {
