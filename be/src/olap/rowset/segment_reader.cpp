@@ -731,31 +731,6 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
     return OLAP_SUCCESS;
 }
 
-int32_t SegmentReader::_get_index_position(ColumnEncodingMessage::Kind encoding_kind,
-        std::string type,
-        StreamInfoMessage::Kind stream_kind,
-        bool is_compressed,
-        bool has_null) {
-    if (stream_kind == StreamInfoMessage::PRESENT) {
-        return 0;
-    }
-
-    int32_t compressionValue = 1;
-    int32_t base = has_null ? (BITFIELD_POSITIONS + compressionValue) : 0;
-    // TODO. 將column的type轉換爲int類型
-    std::string type_copy = type;
-    transform(type_copy.begin(), type_copy.end(), type_copy.begin(), toupper);
-
-    if (type == "VARCHAR" || type == "HLL" ||  type == "CHAR") {
-        if (encoding_kind == ColumnEncodingMessage::DIRECT &&
-                stream_kind != StreamInfoMessage::DATA) {
-            return base + BYTE_STREAM_POSITIONS + compressionValue;
-        }
-    }
-
-    return base;
-}
-
 OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
     int64_t stream_offset = _header_length;
     uint64_t stream_length = 0;

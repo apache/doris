@@ -17,7 +17,6 @@
 
 #include "olap/stream_index_common.h"
 
-#include "olap/stream_index_common.h"
 #include "olap/field.h"
 #include "olap/wrapper_field.h"
 
