@@ -50,8 +50,11 @@ static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
-// the max length supported for string type
+// the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
+
+//the max length supported for char type
+static const uint16_t OLAP_CHAR_MAX_LENGTH = 255;
 
 static const int32_t PREFERRED_SNAPSHOT_VERSION = 3;
 

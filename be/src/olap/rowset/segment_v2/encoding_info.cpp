@@ -20,6 +20,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -63,6 +64,18 @@ struct TypeEncodingTraits<type, RLE> {
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
         *decoder = new RlePageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template<FieldType type>
+struct TypeEncodingTraits<type, DICT_ENCODING> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new BinaryDictPageBuilder(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new BinaryDictPageDecoder(data, opts);
         return Status::OK();
     }
 };
@@ -122,6 +135,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();

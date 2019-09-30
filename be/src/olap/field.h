@@ -57,6 +57,7 @@ public:
 
     inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
         _agg_info->update(dest, src, mem_pool);
@@ -197,6 +198,10 @@ public:
     // copy filed content from src to dest without nullbyte
     inline void deep_copy_content(char* dest, const char* src, Arena* arena) const {
         _type_info->deep_copy_with_arena(dest, src, arena);
+    }
+
+    inline void direct_copy_content(char* dest, const char* src) const {
+        _type_info->direct_copy(dest, src);
     }
 
     // Copy srouce content to destination in index format.
