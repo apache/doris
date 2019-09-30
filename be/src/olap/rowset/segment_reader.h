@@ -186,20 +186,6 @@ private:
     // 加载索引，将需要的列的索引读入内存
     OLAPStatus _load_index(bool is_using_cache);
 
-    // 根据列类型返回stream偏移在索引的position数组的哪个位置。在有过滤条件时，
-    // 需要根据这个偏移来确认实际读取的stream段偏移和长度。
-    // @param  encoding_kind 字符串的编码方式，字典还是直接编码
-    // @param  type          列类型
-    // @param  stream_kind   流类型
-    // @param  is_compressed 是否压缩
-    // @param  has_null      是否含有空值
-    // @return               返回索引位置
-    int32_t _get_index_position(ColumnEncodingMessage::Kind encoding_kind,
-            std::string type,
-            StreamInfoMessage::Kind stream_kind,
-            bool is_compressed,
-            bool has_null);
-
     // 读出所有列，完整的流，（这里只是创建stream，在orc file里因为没有mmap因
     // 此意味着实际的数据读取， 而在这里并没有实际的读，只是圈出来需要的范围）
     OLAPStatus _read_all_data_streams(size_t* buffer_size);
