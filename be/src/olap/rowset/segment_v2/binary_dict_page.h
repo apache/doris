@@ -116,11 +116,15 @@ public:
         return _data_page_decoder->current_index();
     }
 
+    bool is_dict_encoding() const;
+
+    void set_dict_decoder(PageDecoder* dict_decoder);
+
 private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder* _dict_decoder;
+    const BinaryPlainPageDecoder* _dict_decoder = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
     faststring _code_buf;

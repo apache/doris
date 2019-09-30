@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
+#include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 
 namespace doris {
 
@@ -84,6 +85,8 @@ public:
     // delete_conditions is a vector of delete predicate of different version
     void get_row_ranges_by_zone_map(CondColumn* cond_column,
             const std::vector<CondColumn*>& delete_conditions, RowRanges* row_ranges);
+
+    PagePointer get_dict_page_pointer() const;
 
 private:
     Status _init_ordinal_index();
@@ -188,6 +191,12 @@ private:
     //    If new seek is issued, the _page will be reset.
     // 3. When _page is null, it means that this reader can not be read.
     std::unique_ptr<ParsedPage> _page;
+
+    // keep dict page decoder
+    std::unique_ptr<PageDecoder> _dict_decoder;
+
+    // keep dict page handle to avoid released
+    PageHandle _dict_page_handle;
 
     // page iterator used to get next page when current page is finished.
     // This value will be reset when a new seek is issued
