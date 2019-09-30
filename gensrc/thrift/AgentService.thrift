@@ -30,6 +30,7 @@ struct TColumn {
     5: optional bool is_allow_null
     6: optional string default_value
     7: optional bool is_bloom_filter_column
+    8: optional bool is_invert_index_column
 }
 
 struct TTabletSchema {

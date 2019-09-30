@@ -2928,6 +2928,7 @@ public class Catalog {
                     dataProperty.getStorageMedium(),
                     singlePartitionDesc.getReplicationNum(),
                     versionInfo, bfColumns, olapTable.getBfFpp(),
+                    olapTable.getInvertedIndexColumns(),
                     tabletIdSet, isRestore);
 
             // check again
@@ -3215,6 +3216,7 @@ public class Catalog {
                                                  Pair<Long, Long> versionInfo,
                                                  Set<String> bfColumns,
                                                  double bfFpp,
+                                                 Set<String> invertedIndexColumns,
                                                  Set<Long> tabletIdSet,
                                                  boolean isRestore) throws DdlException {
         // create base index first.
@@ -3278,6 +3280,7 @@ public class Catalog {
                                 keysType,
                                 storageType, storageMedium,
                                 schema, bfColumns, bfFpp,
+                                invertedIndexColumns,
                                 countDownLatch);
                         batchTask.addTask(task);
                         // add to AgentTaskQueue for handling finish report.
@@ -3416,6 +3419,17 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
+        // analyze inverted index columns
+        Set<String> invertIdxColumns = null;
+        try {
+            invertIdxColumns = PropertyAnalyzer.analyzeInvertedIndex(properties, baseSchema);
+            if (invertIdxColumns != null && !invertIdxColumns.isEmpty()) {
+                olapTable.setInvertedIndexColumns(invertIdxColumns);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
@@ -3509,7 +3523,7 @@ public class Catalog {
                         distributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicationNum(partitionId),
-                        versionInfo, bfColumns, bfFpp,
+                        versionInfo, bfColumns, bfFpp, olapTable.getInvertedIndexColumns(),
                         tabletIdSet, isRestore);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -3540,7 +3554,7 @@ public class Catalog {
                             keysType, distributionInfo,
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
-                            versionInfo, bfColumns, bfFpp,
+                            versionInfo, bfColumns, bfFpp, olapTable.getInvertedIndexColumns(),
                             tabletIdSet, isRestore);
                     olapTable.addPartition(partition);
                 }
@@ -3850,6 +3864,13 @@ public class Catalog {
             if (colocateTable != null) {
                 sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
                 sb.append(colocateTable).append("\"");
+            }
+
+            // 6. inverted index
+            Set<String> invertedIdxCols = olapTable.getInvertedIndexColumns();
+            if (invertedIdxCols != null) {
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS).append("\" = \"");
+                sb.append(Joiner.on(", ").join(invertedIdxCols)).append("\"");
             }
 
             sb.append("\n)");
@@ -5944,6 +5965,7 @@ public class Catalog {
                         null /* version info */,
                         copiedTbl.getCopiedBfColumns(),
                         copiedTbl.getBfFpp(),
+                        copiedTbl.getInvertedIndexColumns(),
                         tabletIdSet,
                         false /* not restore */);
                 newPartitions.add(newPartition);

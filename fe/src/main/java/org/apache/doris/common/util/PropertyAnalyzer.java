@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.base.Splitter;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -41,10 +42,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class PropertyAnalyzer {
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
+    private static final Splitter COMMA_SPLITTER = Splitter.on(COMMA_SEPARATOR).omitEmptyStrings().trimResults();
 
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
@@ -60,7 +64,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
-    
+
+    public static final String PROPERTIES_INVERTED_INDEX_COLUMNS = "inverted_index_columns";
+
     public static final String PROPERTIES_KUDU_MASTER_ADDRS = "kudu_master_addrs";
 
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
@@ -370,5 +376,39 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    public static Set<String> analyzeInvertedIndex(Map<String, String> properties,
+                                                   List<Column> columns) throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_INVERTED_INDEX_COLUMNS)) {
+            return null;
+        }
+        String idxColsStr = properties.get(PROPERTIES_INVERTED_INDEX_COLUMNS);
+        properties.remove(PROPERTIES_INVERTED_INDEX_COLUMNS);
+        if (Strings.isNullOrEmpty(idxColsStr)) {
+            return null;
+        }
+        Set<String> resultCols = Sets.newHashSet();
+        Map<String, Column> columnMap = columns.stream()
+                .collect(Collectors.toMap(col -> col.getName().toLowerCase(), Function.identity()));
+
+        List<String> idxCols = COMMA_SPLITTER.splitToList(idxColsStr.toLowerCase());
+        for (String idxCol : idxCols) {
+            if (columnMap.containsKey(idxCol)) {
+                Column column = columnMap.get(idxCol);
+                if (column.isKey()) {
+                    throw new AnalysisException("Inverted index only used in columns of value," +
+                            " invalid column: " + idxCol);
+                }
+                if (resultCols.contains(column.getName())) {
+                    throw new AnalysisException("Reduplicated reverted index column: " + idxCol);
+                }
+                resultCols.add(column.getName());
+            } else {
+                throw new AnalysisException("Reverted index column does not exist in table. " +
+                        "invalid column: " + idxCol);
+            }
+        }
+        return resultCols;
     }
 }

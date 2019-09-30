@@ -151,6 +151,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
             column->set_is_bf_column(tcolumn.is_bloom_filter_column);
             has_bf_columns = true;
         }
+
+        if (tcolumn.__isset.is_invert_index_column) {
+            column->set_is_invert_index_column(tcolumn.is_invert_index_column);
+        }
     }
 
     schema->set_next_column_unique_id(next_unique_id);

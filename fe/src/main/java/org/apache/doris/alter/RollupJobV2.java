@@ -187,7 +187,8 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupShortKeyColumnCount, rollupSchemaHash,
                                 Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                 rollupKeysType, TStorageType.COLUMN, storageMedium,
-                                rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch);
+                                rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(),
+                                tbl.getInvertedIndexColumns(), countDownLatch);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
 
                         batchTask.addTask(createReplicaTask);

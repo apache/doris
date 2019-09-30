@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
@@ -114,6 +115,8 @@ public class OlapTable extends Table {
     private double bfFpp;
 
     private String colocateGroup;
+
+    private Set<String> invertedIndexColumns;
     
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
@@ -170,6 +173,8 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+
+        this.invertedIndexColumns = null;
     }
 
     public void setBaseIndexId(long baseIndexId) {
@@ -232,6 +237,14 @@ public class OlapTable extends Table {
     public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
         Preconditions.checkState(newStorageType == TStorageType.COLUMN);
         indexIdToStorageType.put(indexId, newStorageType);
+    }
+
+    public void setInvertedIndexColumns(Set<String> invertedIndexColumns) {
+        this.invertedIndexColumns = invertedIndexColumns;
+    }
+
+    public Set<String> getInvertedIndexColumns() {
+        return ImmutableSet.copyOf(invertedIndexColumns);
     }
 
     // rebuild the full schema of table
@@ -715,6 +728,13 @@ public class OlapTable extends Table {
                 LOG.debug("signature. bf fpp: {}", bfFpp);
             }
 
+            if (invertedIndexColumns != null && !invertedIndexColumns.isEmpty()) {
+                for (String idxCol : invertedIndexColumns) {
+                    adler32.update(idxCol.getBytes());
+                    LOG.debug("signature. inverted index column: {}", idxCol);
+                }
+            }
+
             // partition type
             adler32.update(partitionInfo.getType().name().getBytes(charsetName));
             LOG.debug("signature. partition type: {}", partitionInfo.getType().name());
@@ -844,6 +864,17 @@ public class OlapTable extends Table {
             Text.writeString(out, colocateGroup);
         }
 
+        // inverted index columns
+        if (invertedIndexColumns == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            out.writeInt(invertedIndexColumns.size());
+            for (String idxCol : invertedIndexColumns) {
+                Text.writeString(out, idxCol);
+            }
+        }
+
         out.writeLong(baseIndexId);
     }
 
@@ -930,6 +961,16 @@ public class OlapTable extends Table {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             if (in.readBoolean()) {
                 colocateGroup = Text.readString(in);
+            }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
+            if (in.readBoolean()) {
+                int idxSize = in.readInt();
+                invertedIndexColumns = Sets.newHashSet();
+                for (int i = 0; i < idxSize; i++) {
+                    invertedIndexColumns.add(Text.readString(in));
+                }
             }
         }
 

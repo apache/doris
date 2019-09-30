@@ -56,6 +56,8 @@ public class CreateReplicaTask extends AgentTask {
     private Set<String> bfColumns;
     private double bfFpp;
 
+    private Set<String> invertedIndexColumns;
+
     // used for synchronous process
     private MarkedCountDownLatch<Long, Long> latch;
 
@@ -69,7 +71,8 @@ public class CreateReplicaTask extends AgentTask {
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch) {
+                             Set<String> bfColumns, double bfFpp, Set<String> invertedIndexColumns,
+                             MarkedCountDownLatch<Long, Long> latch) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -86,6 +89,8 @@ public class CreateReplicaTask extends AgentTask {
 
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+
+        this.invertedIndexColumns = invertedIndexColumns;
 
         this.latch = latch;
     }
@@ -136,6 +141,11 @@ public class CreateReplicaTask extends AgentTask {
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 tColumn.setIs_bloom_filter_column(true);
+            }
+
+            // is inverted index column
+            if (invertedIndexColumns != null && invertedIndexColumns.contains(column.getName())) {
+                tColumn.setIs_invert_index_column(true);
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.

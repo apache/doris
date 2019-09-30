@@ -45,6 +45,7 @@ public:
     bool has_reference_column() const { return _has_referenced_column; }
     int32_t referenced_column_id() const { return _referenced_column_id; }
     std::string referenced_column() const { return _referenced_column; }
+    bool is_invert_index_column() const { return _is_invert_index_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
@@ -80,6 +81,8 @@ private:
     bool _has_referenced_column;
     int32_t _referenced_column_id;
     std::string _referenced_column;
+
+    bool _is_invert_index_column;
 };
 
 class TabletSchema {

@@ -284,6 +284,11 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
+    if (column.has_is_invert_index_column()) {
+        _is_invert_index_column = column.is_invert_index_column();
+    } else {
+        _is_invert_index_column = false;
+    }
     return OLAP_SUCCESS;
 }
 
@@ -308,6 +313,10 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_aggregation(get_string_by_aggregation_type(_aggregation));
     if (_has_referenced_column) {
         column->set_referenced_column_id(_referenced_column_id);
+    }
+
+    if (_is_invert_index_column) {
+        column->set_is_invert_index_column(_is_invert_index_column);
     }
     return OLAP_SUCCESS;
 }

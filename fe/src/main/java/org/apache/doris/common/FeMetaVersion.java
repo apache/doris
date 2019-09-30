@@ -136,4 +136,6 @@ public final class FeMetaVersion {
     public static final int VERSION_62 = 62;
     // for table comment
     public static final int VERSION_63 = 63;
+    // inverted index for segment v2
+    public static final int VERSION_64 = 64;
 }
