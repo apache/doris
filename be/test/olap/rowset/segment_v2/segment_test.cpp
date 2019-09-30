@@ -606,6 +606,247 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     }
 }
 
+void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena* _arena, size_t _length = 0) {
+    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+        char* src_value = &std::to_string(src)[0];
+        int src_len = strlen(src_value);
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = _length;
+        dest_slice->data = _arena->Allocate(dest_slice->size);
+        memcpy(dest_slice->data, src_value, src_len);
+        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+        char* src_value = &std::to_string(src)[0];
+        int src_len = strlen(src_value);
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = _arena->Allocate(src_len);
+        std::memcpy(dest_slice->data, src_value, src_len);
+    } else {
+        *(int*)target = src;
+    }
+}
+
+TEST_F(SegmentReaderWriterTest, TestStringDict) {
+    size_t num_rows_per_block = 10;
+    Arena _arena;
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 2;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_char_key(1));
+    tablet_schema->_cols.push_back(create_char_key(2));
+    tablet_schema->_cols.push_back(create_varchar_key(3));
+    tablet_schema->_cols.push_back(create_varchar_key(4));
+
+    //    segment write
+    std::string dname = "./ut_dir/segment_test";
+    FileUtils::create_dir(dname);
+
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+
+    std::string fname = dname + "/string_case";
+
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    // convert int to string
+    for (int i = 0; i < 4096; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[j]._length);
+        }
+        Status status = writer.append_row(row);
+        ASSERT_TRUE(status.ok());
+    }
+
+    uint64_t file_size = 0;
+    st = writer.finalize(&file_size);
+    ASSERT_TRUE(st.ok());
+
+    {
+        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
+        st = segment->open();
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(4096, segment->num_rows());
+        Schema schema(*tablet_schema);
+
+        // scan all rows
+        {
+            StorageReadOptions read_opts;
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            int left = 4096;
+            int rowid = 0;
+
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
+
+                        Slice expect;
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        ASSERT_EQ(expect.to_string(), actual->to_string());
+                    }
+                }
+                rowid += rows_read;
+            }
+        }
+
+        // test seek, key
+        {
+            // lower bound
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+            lower_bound->init(*tablet_schema, 1);
+            {
+                auto cell = lower_bound->cell(0);
+                cell.set_not_null();
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, 40970, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+            }
+
+            StorageReadOptions read_opts;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 100);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
+        // test seek, key (-2, -1)
+        {
+            // lower bound
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+            lower_bound->init(*tablet_schema, 1);
+            {
+                auto cell = lower_bound->cell(0);
+                cell.set_not_null();
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -2, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+            }
+
+            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
+            upper_bound->init(*tablet_schema, 1);
+            {
+                auto cell = upper_bound->cell(0);
+                cell.set_not_null();
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -1, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+            }
+
+            StorageReadOptions read_opts;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 100);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
+        // test char zone_map query hit;should read whole page
+        {
+            TCondition condition;
+            condition.__set_column_name("1");
+            condition.__set_condition_op(">");
+            std::vector<std::string> vals = {"100"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+            int left = 4 * 1024;
+            int rowid = 0;
+
+            while (left > 0)  {
+                int rows_read = left > 1024 ? 1024 : left;
+                block.clear();
+                st = iter->next_batch(&block);
+                ASSERT_TRUE(st.ok());
+                ASSERT_EQ(rows_read, block.num_rows());
+                left -= rows_read;
+
+                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                    auto cid = block.schema()->column_ids()[j];
+                    auto column_block = block.column_block(j);
+                    for (int i = 0; i < rows_read; ++i) {
+                        int rid = rowid + i;
+                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+
+                        const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
+                        Slice expect;
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        ASSERT_EQ(expect.to_string(), actual->to_string()) << "rid:" << rid << ", i:" << i;;
+                    }
+                }
+                rowid += rows_read;
+            }
+            ASSERT_EQ(4 * 1024, rowid);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
+        // test char zone_map query miss;col < -1
+        {
+            TCondition condition;
+            condition.__set_column_name("1");
+            condition.__set_condition_op("<");
+            std::vector<std::string> vals = {"-2"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            StorageReadOptions read_opts;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+
+            RowBlockV2 block(schema, 1024);
+
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+
+    }
+
+    FileUtils::remove_all(dname);
+}
+
 }
 }
 

@@ -31,7 +31,6 @@ struct PageBuilderOptions {
 };
 
 struct PageDecoderOptions {
-    BinaryPlainPageDecoder* dict_decoder = nullptr;
 };
 
 } // namespace segment_v2

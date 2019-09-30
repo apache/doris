@@ -32,6 +32,7 @@
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 
 namespace doris {
 namespace segment_v2 {
@@ -166,6 +167,10 @@ void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
     std::vector<uint32_t> page_indexes;
     _get_filtered_pages(cond_column, delete_conditions, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
+}
+
+PagePointer ColumnReader::get_dict_page_pointer() const {
+    return _meta.dict_page();
 }
 
 void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
@@ -425,6 +430,24 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     PageDecoderOptions options;
     RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
+
+    // lazy init dict_encoding'dict for three reasons
+    // 1. a column use dictionary encoding still has non-dict-encoded data pages are seeked,load dict when necessary
+    // 2. ColumnReader which is owned by Segment and Rowset can being alive even when there is no query,it should retain memory as small as possible.
+    // 3. Iterators of the same column won't repeat load the dict page because of page cache.
+    if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
+        BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
+        if (binary_dict_page_decoder->is_dict_encoding()) {
+            if (_dict_decoder == nullptr) {
+                PagePointer pp = _reader->get_dict_page_pointer();
+                RETURN_IF_ERROR(_reader->read_page(pp, &_dict_page_handle));
+
+                _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
+                RETURN_IF_ERROR(_dict_decoder->init());
+            }
+            binary_dict_page_decoder->set_dict_decoder(_dict_decoder.get());
+        }
+    }
 
     page->offset_in_page = 0;
 

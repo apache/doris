@@ -62,8 +62,9 @@ public:
 
         // decode
         PageDecoderOptions decoder_options;
-        decoder_options.dict_decoder = dict_page_decoder.get();
         BinaryDictPageDecoder page_decoder(s, decoder_options);
+        page_decoder.set_dict_decoder(dict_page_decoder.get());
+
         status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(slices.size(), page_decoder.count());
@@ -154,9 +155,9 @@ public:
 
             // decode
             PageDecoderOptions decoder_options;
-            decoder_options.dict_decoder = dict_page_decoder.get();
             BinaryDictPageDecoder page_decoder(results[slice_index], decoder_options);
             status = page_decoder.init();
+            page_decoder.set_dict_decoder(dict_page_decoder.get());
             ASSERT_TRUE(status.ok());
 
             //check values

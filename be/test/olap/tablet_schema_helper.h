@@ -55,4 +55,28 @@ TabletColumn create_int_value(
     return column;
 }
 
+TabletColumn create_char_key(int32_t id, bool is_nullable = true) {
+    TabletColumn column;
+    column._unique_id = id;
+    column._col_name = std::to_string(id);
+    column._type = OLAP_FIELD_TYPE_CHAR;
+    column._is_key = true;
+    column._is_nullable = is_nullable;
+    column._length = 8;
+    column._index_length = 1;
+    return column;
+}
+
+TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
+    TabletColumn column;
+    column._unique_id = id;
+    column._col_name = std::to_string(id);
+    column._type = OLAP_FIELD_TYPE_VARCHAR;
+    column._is_key = true;
+    column._is_nullable = is_nullable;
+    column._length = 4;
+    column._index_length = 4;
+    return column;
+}
+
 }

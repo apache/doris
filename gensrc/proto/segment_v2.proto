@@ -95,7 +95,7 @@ message ColumnMetaPB {
     optional PagePointerPB zone_map_page = 8;
 
     // // dictionary page for DICT_ENCODING
-    // optional PagePointerPB dict_page = 2;
+    optional PagePointerPB dict_page = 9;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;

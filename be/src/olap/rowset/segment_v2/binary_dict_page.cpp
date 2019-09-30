@@ -102,7 +102,7 @@ Slice BinaryDictPageBuilder::finish() {
     Slice data_slice = _data_page_builder->finish();
     _buffer.append(data_slice.data, data_slice.size);
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return Slice(_buffer.data(), _buffer.size());
+    return Slice(_buffer);
 }
 
 void BinaryDictPageBuilder::reset() {
@@ -147,7 +147,6 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
     _data(data),
     _options(options),
     _data_page_decoder(nullptr),
-    _dict_decoder(options.dict_decoder),
     _parsed(false),
     _encoding_type(UNKNOWN_ENCODING) { }
 
@@ -161,7 +160,6 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
-        DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
@@ -180,12 +178,21 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
 
+bool BinaryDictPageDecoder::is_dict_encoding() const {
+    return _encoding_type == DICT_ENCODING;
+}
+
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder){
+    _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
+};
+
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
         return _data_page_decoder->next_batch(n, dst);
     }
     // dictionary encoding
     DCHECK(_parsed);
+    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
     if (PREDICT_FALSE(*n == 0)) {
         *n = 0;
         return Status::OK();

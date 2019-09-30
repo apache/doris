@@ -73,7 +73,6 @@ private:
     std::unique_ptr<Field> _field;
     // memory will be managed by arena
     ZoneMap _zone_map;
-    char* _max_string_value;
     Arena _arena;
 };
 
