@@ -127,7 +127,6 @@ OLAPStatus ColumnDataWriter::write(const RowType& row) {
     // copy input row to row block
     _row_block->get_row(_row_index, &_cursor);
     copy_row(&_cursor, row, _row_block->mem_pool());
-
     next(row);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
