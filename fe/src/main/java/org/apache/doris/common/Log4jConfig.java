@@ -28,7 +28,6 @@ import org.apache.logging.log4j.core.lookup.StrSubstitutor;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.util.Map;
 
 // 
@@ -161,8 +160,6 @@ public class Log4jConfig extends XmlConfiguration {
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
 
-        PrintStream out = new PrintStream("./test.out");
-        System.setOut(out);
         System.out.println("=====");
         System.out.println(newXmlConfTemplate);
         System.out.println("=====");
