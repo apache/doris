@@ -139,7 +139,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_UNKNOWN = 21,       // UNKNOW Type
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
-    OLAP_FIELD_TYPE_BOOL = 24
+    OLAP_FIELD_TYPE_BOOL = 24,
+    OLAP_FIELD_TYPE_OBJECT = 25
 };
 
 // 定义Field支持的所有聚集方法

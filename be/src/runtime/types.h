@@ -175,7 +175,7 @@ struct TypeDescriptor {
     void to_protobuf(PTypeDesc* ptype) const;
 
     inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL;
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT;
     }
 
     inline bool is_date_type() const {
@@ -187,7 +187,7 @@ struct TypeDescriptor {
     }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR;
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
     }
 
     inline bool is_complex_type() const {
@@ -205,6 +205,7 @@ struct TypeDescriptor {
         case TYPE_MAP:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             return 0;
 
         case TYPE_NULL:
@@ -245,6 +246,7 @@ struct TypeDescriptor {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             return sizeof(StringValue);
 
         case TYPE_NULL:

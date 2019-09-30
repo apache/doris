@@ -87,10 +87,6 @@ public class SlotRef extends Expr {
         return new SlotRef(this);
     }
 
-    public boolean isHllType() {
-        return this.type == Type.HLL;
-    }
-
     public SlotDescriptor getDesc() {
         Preconditions.checkState(isAnalyzed);
         Preconditions.checkNotNull(desc);

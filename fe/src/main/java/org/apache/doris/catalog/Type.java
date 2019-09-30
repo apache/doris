@@ -76,6 +76,7 @@ public abstract class Type {
     public static final ScalarType VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType HLL = ScalarType.createHllType();
     public static final ScalarType CHAR = (ScalarType) ScalarType.createCharType(-1);
+    public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
 
     private static ArrayList<ScalarType> integerTypes;
     private static ArrayList<ScalarType> numericTypes;
@@ -112,6 +113,7 @@ public abstract class Type {
         supportedTypes.add(DOUBLE);
         supportedTypes.add(VARCHAR);
         supportedTypes.add(HLL);
+        supportedTypes.add(BITMAP);
         supportedTypes.add(CHAR);
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
@@ -189,6 +191,10 @@ public abstract class Type {
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
+    }
+
+    public boolean isBitmapType() {
+        return isScalarType(PrimitiveType.BITMAP);
     }
 
     public boolean isScalarType() {
@@ -330,41 +336,6 @@ public abstract class Type {
         return false;
     }
 
-//    /**
-//     * Gets the ColumnType from the given FieldSchema by using Impala's SqlParser.
-//     * Returns null if the FieldSchema could not be parsed.
-//     * The type can either be:
-//     *   - Supported by Impala, in which case the type is returned.
-//     *   - A type Impala understands but is not yet implemented (e.g. date), the type is
-//     *     returned but type.IsSupported() returns false.
-//     *   - A type Impala can't understand at all in which case null is returned.
-//     */
-//    public static Type parseColumnType(String typeStr) {
-//        // Wrap the type string in a CREATE TABLE stmt and use Impala's Parser
-//        // to get the ColumnType.
-//        // Pick a table name that can't be used.
-//        String stmt = String.format("CREATE TABLE $DUMMY ($DUMMY %s)", typeStr);
-//        SqlScanner input = new SqlScanner(new StringReader(stmt));
-//        SqlParser parser = new SqlParser(input);
-//        CreateTableStmt createTableStmt;
-//        try {
-//            Object o = parser.parse().value;
-//            if (!(o instanceof CreateTableStmt)) {
-//                // Should never get here.
-//                throw new IllegalStateException("Couldn't parse create table stmt.");
-//            }
-//            createTableStmt = (CreateTableStmt) o;
-//            if (createTableStmt.getColumnDefs().isEmpty()) {
-//                // Should never get here.
-//                throw new IllegalStateException("Invalid create table stmt.");
-//            }
-//        } catch (Exception e) {
-//            return null;
-//        }
-//        TypeDef typeDef = createTableStmt.getColumnDefs().get(0).getTypeDef();
-//        return typeDef.getType();
-//    }
-
     /**
      * Returns true if t1 can be implicitly cast to t2 according to Impala's casting rules.
      * Implicit casts are always allowed when no loss of precision would result (i.e. every
@@ -483,6 +454,8 @@ public abstract class Type {
                 return Type.VARCHAR;
             case HLL:
                 return Type.HLL;
+            case BITMAP:
+                return Type.BITMAP;
             default:
                 return null;
         }
@@ -752,6 +725,7 @@ public abstract class Type {
         compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[BOOLEAN.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // TINYINT
         compatibilityMatrix[TINYINT.ordinal()][SMALLINT.ordinal()] = PrimitiveType.SMALLINT;
@@ -769,6 +743,7 @@ public abstract class Type {
         compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[TINYINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // SMALLINT
         compatibilityMatrix[SMALLINT.ordinal()][INT.ordinal()] = PrimitiveType.INT;
@@ -785,6 +760,7 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[SMALLINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // INT
         compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;    
@@ -804,6 +780,7 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[INT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // BIGINT 
         // 64 bit integer does not fit in mantissa of double or float.
@@ -824,6 +801,7 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;        
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[BIGINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // LARGEINT
         compatibilityMatrix[LARGEINT.ordinal()][FLOAT.ordinal()] = PrimitiveType.DOUBLE;
@@ -836,6 +814,7 @@ public abstract class Type {
         compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[LARGEINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // FLOAT
         compatibilityMatrix[FLOAT.ordinal()][DOUBLE.ordinal()] = PrimitiveType.DOUBLE;
@@ -847,6 +826,7 @@ public abstract class Type {
         compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[FLOAT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DOUBLE
         compatibilityMatrix[DOUBLE.ordinal()][DATE.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -857,6 +837,7 @@ public abstract class Type {
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[DOUBLE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATE
         compatibilityMatrix[DATE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIME;
@@ -866,6 +847,7 @@ public abstract class Type {
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DATE.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATETIME
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -874,6 +856,7 @@ public abstract class Type {
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DATETIME.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATETIME.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
  
         // We can convert some but not all string values to timestamps.
         // CHAR
@@ -882,24 +865,32 @@ public abstract class Type {
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[CHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // VARCHAR
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[VARCHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DECIMAL
         compatibilityMatrix[DECIMAL.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DECIMAL.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMAL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DECIMALV2 
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // HLL
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[HLL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+
+        // BITMAP
+        compatibilityMatrix[BITMAP.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // Check all of the necessary entries that should be filled.
         // ignore binary
@@ -939,6 +930,7 @@ public abstract class Type {
             case CHAR:
             case VARCHAR:
             case HLL:
+            case BITMAP:
                 return VARCHAR;
             case DECIMAL:
                 return DECIMAL;

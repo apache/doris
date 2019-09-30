@@ -409,6 +409,9 @@ public class InsertStmt extends DdlStmt {
                 if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
                 }
+                if (col.getType().isBitmapType() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" object column " + col.getName() + " mush in insert into columns");
+                }
             }
         }
 

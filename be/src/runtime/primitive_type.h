@@ -56,6 +56,7 @@ enum PrimitiveType {
     TYPE_DECIMALV2,  /* 20 */
 
     TYPE_TIME, /* 21 */
+    TYPE_OBJECT,
 };
 
 inline bool is_enumeration_type(PrimitiveType type) {
@@ -99,6 +100,7 @@ inline bool is_enumeration_type(PrimitiveType type) {
 // Returns the byte size of 'type'  Returns 0 for variable length types.
 inline int get_byte_size(PrimitiveType type) {
     switch (type) {
+    case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
         return 0;
@@ -139,6 +141,7 @@ inline int get_byte_size(PrimitiveType type) {
 
 inline int get_real_byte_size(PrimitiveType type) {
     switch (type) {
+    case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
         return 0;
@@ -181,6 +184,7 @@ inline int get_real_byte_size(PrimitiveType type) {
 // Returns the byte size of type when in a tuple
 inline int get_slot_size(PrimitiveType type) {
     switch (type) {
+    case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -225,9 +229,19 @@ inline int get_slot_size(PrimitiveType type) {
 }
 
 inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
-    if (lhs == TYPE_CHAR || lhs == TYPE_VARCHAR || lhs == TYPE_HLL) {
+    if (lhs == TYPE_VARCHAR) {
+        return  rhs == TYPE_CHAR || rhs == TYPE_VARCHAR
+                || rhs == TYPE_HLL || rhs == TYPE_OBJECT;
+    }
+
+    if (lhs == TYPE_OBJECT) {
+        return rhs == TYPE_VARCHAR || rhs == TYPE_OBJECT;
+    }
+
+    if (lhs == TYPE_CHAR || lhs == TYPE_HLL) {
         return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL;
     }
+
     return lhs == rhs;
 }
 

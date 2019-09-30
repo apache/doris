@@ -327,6 +327,7 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
         *reinterpret_cast<StringVal*>(dst) = _children[child_idx]->get_string_val(ctx, row);
         break;
     case TYPE_DECIMAL:
@@ -373,6 +374,7 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
         return AnyValUtil::equals(type, *reinterpret_cast<const StringVal*>(v1),
                                   *reinterpret_cast<const StringVal*>(v2));
     case TYPE_DECIMAL:
