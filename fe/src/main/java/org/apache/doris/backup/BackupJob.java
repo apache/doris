@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -35,6 +36,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
@@ -49,7 +51,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,7 +68,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -93,8 +93,8 @@ public class BackupJob extends AbstractJob {
     private long snapshotFinishedTime = -1;
     private long snapshopUploadFinishedTime = -1;
 
-    // save all tablets which tasks are not finished.
-    private Set<Long> unfinishedTaskIds = Sets.newConcurrentHashSet();
+    // save task id map to the backend it be executed
+    private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
     private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
@@ -152,9 +152,9 @@ public class BackupJob extends AbstractJob {
         Preconditions.checkState(request.isSetSnapshot_files());
         // snapshot path does not contains last 'tablet_id' and 'schema_hash' dir
         // eg:
-        //      /path/to/your/be/data/snapshot/20180410102311.0/
+        //      /path/to/your/be/data/snapshot/20180410102311.0.86400/
         // Full path will look like:
-        //      /path/to/your/be/data/snapshot/20180410102311.0/10006/352781111/
+        //      /path/to/your/be/data/snapshot/20180410102311.0.86400/10006/352781111/
         SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
                 task.getSchemaHash(), request.getSnapshot_path(),
@@ -162,12 +162,12 @@ public class BackupJob extends AbstractJob {
         
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
-        boolean res = unfinishedTaskIds.remove(task.getTabletId());
+        Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                  info, unfinishedTaskIds.size(), res, this);
+                info, unfinishedTaskIds.size(), (oldValue != null), this);
 
-        return res;
+        return oldValue != null;
     }
 
     public synchronized boolean finishSnapshotUploadTask(UploadTask task, TFinishTaskRequest request) {
@@ -219,11 +219,11 @@ public class BackupJob extends AbstractJob {
         }
 
         taskProgress.remove(task.getSignature());
-        boolean res = unfinishedTaskIds.remove(task.getSignature());
+        Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                  unfinishedTaskIds.size(), res, this);
-        return res;
+                unfinishedTaskIds.size(), (oldValue != null), this);
+        return oldValue != null;
     }
 
     @Override
@@ -385,7 +385,7 @@ public class BackupJob extends AbstractJob {
                 for (Partition partition : partitions) {
                     long visibleVersion = partition.getVisibleVersion();
                     long visibleVersionHash = partition.getVisibleVersionHash();
-                    List<MaterializedIndex> indexes = partition.getMaterializedIndices();
+                    List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
                     for (MaterializedIndex index : indexes) {
                         int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
                         List<Tablet> tablets = index.getTablets();
@@ -404,7 +404,7 @@ public class BackupJob extends AbstractJob {
                                     visibleVersion, visibleVersionHash,
                                     schemaHash, timeoutMs, false /* not restore task */);
                             batchTask.addTask(task);
-                            unfinishedTaskIds.add(tablet.getId());
+                            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                         }
                     }
 
@@ -418,7 +418,8 @@ public class BackupJob extends AbstractJob {
             for (TableRef tableRef : tableRefs) {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true);
+                // only copy visible indexes
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;
@@ -502,7 +503,7 @@ public class BackupJob extends AbstractJob {
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0), repo.getStorage().getProperties());
                 batchTask.addTask(task);
-                unfinishedTaskIds.add(signature);
+                unfinishedTaskIds.put(signature, beId);
             }
         }
 
@@ -583,12 +584,32 @@ public class BackupJob extends AbstractJob {
         // meta info and job info has been saved to local file, this can be cleaned to reduce log size
         backupMeta = null;
         jobInfo = null;
+
+        // release all snapshots before clearing the snapshotInfos.
+        releaseSnapshots();
+
         snapshotInfos.clear();
 
         // log
         catalog.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
+    }
+
+    private void releaseSnapshots() {
+        if (snapshotInfos.isEmpty()) {
+            return;
+        }
+        // we do not care about the release snapshot tasks' success or failure,
+        // the GC thread on BE will sweep the snapshot, finally.
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
+                    info.getTabletId(), info.getPath());
+            batchTask.addTask(releaseTask);
+        }
+        AgentTaskExecutor.submit(batchTask);
+        LOG.info("send {} release snapshot tasks, job: {}", snapshotInfos.size(), this);
     }
 
     private void uploadMetaAndJobInfoFile() {
@@ -657,13 +678,13 @@ public class BackupJob extends AbstractJob {
         switch (state) {
             case SNAPSHOTING:
                 // remove all snapshot tasks in AgentTaskQueue
-                for (Long taskId : unfinishedTaskIds) {
+                for (Long taskId : unfinishedTaskIds.keySet()) {
                     AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, taskId);
                 }
                 break;
             case UPLOADING:
                 // remove all upload tasks in AgentTaskQueue
-                for (Long taskId : unfinishedTaskIds) {
+                for (Long taskId : unfinishedTaskIds.keySet()) {
                     AgentTaskQueue.removeTaskOfType(TTaskType.UPLOAD, taskId);
                 }
                 break;
@@ -683,6 +704,8 @@ public class BackupJob extends AbstractJob {
                 LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
             }
         }
+
+        releaseSnapshots();
 
         BackupJobState curState = state;
         finishedTime = System.currentTimeMillis();
@@ -704,7 +727,7 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedTaskIds));
+        info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
                 e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
                         Collectors.toList())));

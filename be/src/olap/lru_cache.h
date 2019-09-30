@@ -9,11 +9,13 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -190,6 +192,10 @@ namespace doris {
             // REQUIRES: handle must have been returned by a method on *this.
             virtual void* value(Handle* handle) = 0;
 
+            // Return the value in Slice format encapsulated in the given handle
+            // returned by a successful lookup()
+            virtual Slice value_slice(Handle* handle) = 0;
+
             // If the cache contains entry for key, erase it.  Note that the
             // underlying entry will be kept around until all existing handles
             // to it have been released.
@@ -214,10 +220,6 @@ namespace doris {
             virtual void get_cache_status(rapidjson::Document* document) = 0;
 
         private:
-            void _lru_remove(Handle* e);
-            void _lru_append(Handle* e);
-            void _unref(Handle* e);
-
             DISALLOW_COPY_AND_ASSIGN(Cache);
     };
 
@@ -245,11 +247,17 @@ namespace doris {
                 return CacheKey(key_data, key_length);
             }
         }
+
+        void free() {
+            (*deleter)(key(), value);
+            ::free(this);
+        }
+
     } LRUHandle;
 
-    // We provide our own simple hash table since it removes a whole bunch
+    // We provide our own simple hash tablet since it removes a whole bunch
     // of porting hacks and is also faster than some of the built-in hash
-    // table implementations in some of the compiler/runtime combinations
+    // tablet implementations in some of the compiler/runtime combinations
     // we have tested.  E.g., readrandom speeds up by ~5% over the g++
     // 4.4.3's builtin hashtable.
 
@@ -270,7 +278,7 @@ namespace doris {
             LRUHandle* remove(const CacheKey& key, uint32_t hash);
 
         private:
-            // The table consists of an array of buckets where each bucket is
+            // The tablet consists of an array of buckets where each bucket is
             // a linked list of cache entries that hash into the bucket.
             uint32_t _length;
             uint32_t _elems;
@@ -322,9 +330,8 @@ namespace doris {
         private:
             void _lru_remove(LRUHandle* e);
             void _lru_append(LRUHandle* list, LRUHandle* e);
-            void _ref(LRUHandle* e);
-            void _unref(LRUHandle* e);
-            bool _finish_erase(LRUHandle* e);
+            bool _unref(LRUHandle* e);
+            void _evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted);
 
             // Initialized before use.
             size_t _capacity;
@@ -338,10 +345,6 @@ namespace doris {
             // lru.prev is newest entry, lru.next is oldest entry.
             // Entries have refs==1 and in_cache==true.
             LRUHandle _lru;
-
-            // Dummy head of in-use list.
-            // Entries are in use by clients, and have refs >= 2 and in_cache==true.
-            LRUHandle _in_use;
 
             HandleTable _table;
 
@@ -366,6 +369,7 @@ namespace doris {
             virtual void release(Handle* handle);
             virtual void erase(const CacheKey& key);
             virtual void* value(Handle* handle);
+            Slice value_slice(Handle* handle) override;
             virtual uint64_t new_id();
             virtual void prune();
             virtual size_t get_memory_usage();

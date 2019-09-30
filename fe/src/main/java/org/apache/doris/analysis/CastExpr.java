@@ -103,8 +103,8 @@ public class CastExpr extends Expr {
                 if (fromType.isStringType() && toType.isBoolean()) {
                     continue;
                 }
-                // Disable casting from boolean/timestamp to decimal
-                if ((fromType.isBoolean() || fromType.isDateType()) && 
+                // Disable casting from boolean to decimal
+                if (fromType.isBoolean() &&
                         (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
                     continue;
                 }
@@ -114,7 +114,11 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
-                if (toType.isDecimal() || fromType.isDecimal()) beClass = "DecimalOperators";
+                if (toType.isDecimal() || fromType.isDecimal()) {
+                    beClass = "DecimalOperators";
+                } else if (fromType.isTime()) {
+                    beClass = "TimeOperators";
+                }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
@@ -250,7 +254,8 @@ public class CastExpr extends Expr {
 
     @Override
     public Expr getResultValue() throws AnalysisException {
-        final Expr value = children.get(0).getResultValue();
+        recursiveResetChildrenResult();
+        final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;
         }
@@ -266,6 +271,8 @@ public class CastExpr extends Expr {
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
+        Preconditions.checkArgument(!(value instanceof NullLiteral)
+            && !type.isNull());
         if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {

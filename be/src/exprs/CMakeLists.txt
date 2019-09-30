@@ -37,6 +37,7 @@ add_library(Exprs
   conditional_functions_ir.cpp
   decimal_operators.cpp
   decimalv2_operators.cpp
+  time_operators.cpp
   es_functions.cpp
   literal.cpp
   expr.cpp
@@ -63,10 +64,5 @@ add_library(Exprs
   hll_hash_function.cpp
   agg_fn.cc
   new_agg_fn_evaluator.cc
-)
-#ADD_BE_TEST(json_function_test)
-#ADD_BE_TEST(binary_predicate_test)
-#ADD_BE_TEST(in_predicate_test)
-#ADD_BE_TEST(expr-test)
-#ADD_BE_TEST(hybird_set_test)
-#ADD_BE_TEST(in-predicate-test)
+  bitmap_function.cpp
+  hll_function.cpp)

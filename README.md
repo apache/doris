@@ -1,7 +1,8 @@
 # Apache Doris (incubating)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It is open-sourced by Baidu. 
+Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
+Its orignal name was Palo, developed in Baidu. After donating it to Apache Software Foundation, it was renamed Doris.
 
 ## 1. License
 
@@ -44,6 +45,15 @@ $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
 apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
+> NOTE: You may have to use different images to compile from source.
+> 
+> | image version | commit id | release version |
+> |---|---|---|
+> | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+> | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+
+
+
 
 #### Step2: Run the Docker image 
 
@@ -113,11 +123,16 @@ sh build.sh
 
 After successfully building, it will install binary files in the directory `output/`.
 
-## 5. Reporting Issues
+## 5. Licence Notice
+
+License of some of third-party dependencies are not compatible with Apache 2.0 License. So you may have to disable
+some features of Doris to be complied with Apache 2.0 License. Details can be found in `thirdparty/LICENSE.txt`
+
+## 6. Reporting Issues
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 6. Links
+## 7. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>

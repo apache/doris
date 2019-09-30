@@ -346,6 +346,7 @@ public class Repository implements Writable {
             BackupMeta backupMeta = BackupMeta.fromFile(localMetaFile.getAbsolutePath(), metaVersion);
             backupMetas.add(backupMeta);
         } catch (IOException e) {
+            LOG.warn("failed to read backup meta from file", e);
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "
                     + localMetaFile.getAbsolutePath() + ", msg: " + e.getMessage());
         } finally {
@@ -388,6 +389,9 @@ public class Repository implements Writable {
         // rename tmp file with checksum named file
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
         st = storage.rename(tmpRemotePath, finalRemotePath);
+        if (!st.ok()) {
+            return st;
+        }
         LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);
         return st;
     }

@@ -31,9 +31,7 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class MultiUnload extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-    private static final String SUB_LABEL_KEY = "label";
+    private static final String SUB_LABEL_KEY = "sub_label";
 
     private ExecuteEnv execEnv;
 
@@ -45,11 +43,11 @@ public class MultiUnload extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiUnload action = new MultiUnload(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_unload", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_unload", action);
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {

@@ -18,30 +18,22 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
 #define DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
 
-#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "exprs/anyval_util.h"
-#include "runtime/datetime_value.h"
 
 namespace doris {
 
 class Expr;
-class OpcodeRegistry;
 class TupleRow;
 
+// todo(kks): for backward compatibility, we should remove this class
+//            when doris 0.12 release
 class HllHashFunctions {
 public:
     static void init();
-    static StringVal hll_hash(doris_udf::FunctionContext* ctx, 
-                              const doris_udf::StringVal& dest_base);
-    static BigIntVal hll_cardinality(doris_udf::FunctionContext* ctx,
-                                     const doris_udf::HllVal& dest_base);
-    static StringVal create_string_result(doris_udf::FunctionContext* ctx, 
-                                          const StringVal& str, const bool is_null);
-
-    static const int HLL_INIT_EXPLICT_SET_SIZE;
-    static const int HLL_EMPTY_SET_SIZE;
+    static StringVal hll_hash(FunctionContext* ctx, const StringVal& dest_base);
+    static BigIntVal hll_cardinality(FunctionContext* ctx, const HllVal& dest_base);
 };
 }
 

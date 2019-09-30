@@ -23,6 +23,7 @@
 #include "common/compiler_util.h"
 #include "util/cpu_info.h"
 #include "gutil/bits.h"
+#include "gutil/port.h"
 
 namespace doris {
 
@@ -337,6 +338,29 @@ public:
   static inline int64_t RoundUpToPowerOf2(int64_t value, int64_t factor) {
     DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
     return (value + (factor - 1)) & ~(factor - 1);
+  }
+
+  // Returns the ceil of value/divisor
+  static inline int Ceil(int value, int divisor) {
+    return value / divisor + (value % divisor != 0);
+  }
+
+  // Returns the 'num_bits' least-significant bits of 'v'.
+  static inline uint64_t TrailingBits(uint64_t v, int num_bits) {
+    if (PREDICT_FALSE(num_bits == 0)) return 0;
+    if (PREDICT_FALSE(num_bits >= 64)) return v;
+    int n = 64 - num_bits;
+    return (v << n) >> n;
+  }
+
+  static inline uint64_t ShiftLeftZeroOnOverflow(uint64_t v, int num_bits) {
+    if (PREDICT_FALSE(num_bits >= 64)) return 0;
+    return v << num_bits;
+  }
+
+  static inline uint64_t ShiftRightZeroOnOverflow(uint64_t v, int num_bits) {
+    if (PREDICT_FALSE(num_bits >= 64)) return 0;
+    return v >> num_bits;
   }
 };
 

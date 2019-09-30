@@ -25,16 +25,14 @@ import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
 public enum AggregateType {
     SUM("SUM"),
     MIN("MIN"),
     MAX("MAX"),
     REPLACE("REPLACE"),
     HLL_UNION("HLL_UNION"),
-    NONE("NONE");
+    NONE("NONE"),
+    BITMAP_UNION("BITMAP_UNION");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
@@ -65,6 +63,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.CHAR);
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
         compatibilityMap.put(MIN, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -79,6 +79,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.CHAR);
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -87,6 +89,10 @@ public enum AggregateType {
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
+
+        primitiveTypeList.clear();
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
+        compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
     
         compatibilityMap.put(NONE, EnumSet.allOf(PrimitiveType.class));
     }
@@ -127,6 +133,8 @@ public enum AggregateType {
                 return TAggregationType.NONE;
             case HLL_UNION:
                 return TAggregationType.HLL_UNION;
+            case BITMAP_UNION:
+                return TAggregationType.BITMAP_UNION;
             default:
                 return null;
         }

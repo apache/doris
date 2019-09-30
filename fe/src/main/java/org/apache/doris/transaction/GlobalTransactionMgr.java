@@ -17,11 +17,10 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -33,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -43,6 +43,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Joiner;
@@ -106,22 +107,22 @@ public class GlobalTransactionMgr {
 
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
             long timeoutSecond) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1, timeoutSecond);
+        return beginTransaction(dbId, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
     /**
      * the app could specify the transaction id
      * 
-     * timestamp is used to judge that whether the request is a internal retry request
-     * if label already exist, and timestamp are equal, we return the exist tid, and consider this 'begin'
+     * requestId is used to judge that whether the request is a internal retry request
+     * if label already exist, and requestId are equal, we return the exist tid, and consider this 'begin'
      * as success.
-     * timestamp == -1 is for compatibility
+     * requestId == null is for compatibility
      *
      * @param coordinator
      * @throws BeginTransactionException
      * @throws IllegalTransactionParameterException
      */
-    public long beginTransaction(long dbId, String label, long timestamp,
+    public long beginTransaction(long dbId, String label, TUniqueId requestId,
             String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
@@ -129,10 +130,10 @@ public class GlobalTransactionMgr {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
         
-        if (timeoutSecond > Config.max_stream_load_timeout_second ||
-                timeoutSecond < Config.min_stream_load_timeout_second) {
+        if (timeoutSecond > Config.max_load_timeout_second ||
+                timeoutSecond < Config.min_load_timeout_second) {
             throw new AnalysisException("Invalid timeout. Timeout should between "
-                    + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
+                    + Config.min_load_timeout_second + " and " + Config.max_load_timeout_second
                     + " seconds");
         }
         
@@ -143,15 +144,16 @@ public class GlobalTransactionMgr {
             FeNameFormat.checkLabel(label);
             Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
             if (txnLabels != null && txnLabels.containsKey(label)) {
+                TransactionState existTxn = getTransactionState(txnLabels.get(label));
                 // check timestamp
-                if (timestamp != -1) {
-                    TransactionState existTxn = getTransactionState(txnLabels.get(label));
+                if (requestId != null) {
                     if (existTxn != null && existTxn.getTransactionStatus() == TransactionStatus.PREPARE
-                            && existTxn.getTimestamp() == timestamp) {
+                            && existTxn.getRequsetId() != null && existTxn.getRequsetId().equals(requestId)) {
+                        // this may be a retry request for same job, just return existing txn id.
                         return txnLabels.get(label);
                     }
                 }
-                throw new LabelAlreadyUsedException(label);
+                throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
             }
             if (runningTxnNums.get(dbId) != null
                     && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
@@ -160,7 +162,7 @@ public class GlobalTransactionMgr {
             }
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
-            TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
+            TransactionState transactionState = new TransactionState(dbId, tid, label, requestId, sourceType,
                     coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
@@ -241,12 +243,8 @@ public class GlobalTransactionMgr {
         }
         
         LOG.debug("try to commit transaction: {}", transactionId);
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
-            throw new TransactionCommitFailedException("all partitions have no load data");
-        }
-        
         // 1. check status
-        // the caller method already own db lock, we not obtain db lock here
+        // the caller method already own db lock, we do not obtain db lock here
         Database db = catalog.getDb(dbId);
         if (null == db) {
             throw new MetaNotFoundException("could not find db [" + dbId + "]");
@@ -254,8 +252,10 @@ public class GlobalTransactionMgr {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionCommitFailedException(transactionState.getReason());
+            throw new TransactionCommitFailedException(
+                    transactionState == null ? "transaction not found" : transactionState.getReason());
         }
+
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             return;
         }
@@ -263,6 +263,10 @@ public class GlobalTransactionMgr {
             return;
         }
         
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+        }
+
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
@@ -273,19 +277,29 @@ public class GlobalTransactionMgr {
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
         // 2. validate potential exists problem: db->table->partition
         // guarantee exist exception during a transaction
-        // if table or partition is dropped during load, the job is fail
-        // if index is dropped, it does not matter
+        // if index is dropped, it does not matter.
+        // if table or partition is dropped during load, just ignore that tablet,
+        // because we should allow dropping rollup or partition during load
         for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
             long tabletId = tabletCommitInfo.getTabletId();
             long tableId = tabletInvertedIndex.getTableId(tabletId);
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
-                throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
+                // this can happen when tableId == -1 (tablet being dropping)
+                // or table really not exist.
+                continue;
+            }
+
+            if (tbl.getState() == OlapTableState.RESTORE) {
+                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
+                        + "Can not load into it");
             }
 
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
             if (tbl.getPartition(partitionId) == null) {
-                throw new MetaNotFoundException("could not find partition for tablet [" + tabletId + "]");
+                // this can happen when partitionId == -1 (tablet being dropping)
+                // or partition really not exist.
+                continue;
             }
 
             if (!tableToPartition.containsKey(tableId)) {
@@ -298,6 +312,11 @@ public class GlobalTransactionMgr {
             tabletToBackends.get(tabletId).add(tabletCommitInfo.getBackendId());
         }
         
+        if (tableToPartition.isEmpty()) {
+            // table or all partitions are being dropped
+            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+        }
+
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
@@ -309,22 +328,38 @@ public class GlobalTransactionMgr {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
                 }
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partition.getId());
+
+                List<MaterializedIndex> allIndices = null;
+                if (transactionState.getLoadedTblIndexes().isEmpty()) {
+                    allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                } else {
+                    allIndices = Lists.newArrayList();
+                    for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
+                        MaterializedIndex index = partition.getIndex(indexId);
+                        if (index != null) {
+                            allIndices.add(index);
+                        }
+                    }
                 }
-                // the rolling up index should also be taken care
-                // if the rollup index failed during load, then set its last failed version
-                // if rollup task finished, it should compare version and last failed version,
-                // if version < last failed version, then the replica is failed
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
+
+                if (table.getState() == OlapTableState.ROLLUP || table.getState() == OlapTableState.SCHEMA_CHANGE) {
+                    /*
+                     * This is just a optimization that do our best to not let publish version tasks
+                     * timeout if table is under rollup or schema change. Because with a short
+                     * timeout, a replica's publish version task is more likely to fail. And if
+                     * quorum replicas of a tablet fail to publish, the alter job will fail.
+                     * 
+                     * If the table is not under rollup or schema change, the failure of a replica's
+                     * publish version task has a minor effect because the replica can be repaired
+                     * by tablet repair process very soon. But the tablet repair process will not
+                     * repair rollup replicas.
+                     * 
+                     * This a kind of best-effort-optimization, if FE restart after commit and
+                     * before publish, this 'prolong' information will be lost.
+                     */
+                    transactionState.prolongPublishTimeout();
                 }
-                MaterializedIndex baseIndex = partition.getBaseIndex();
+
                 int quorumReplicaNum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
@@ -333,12 +368,14 @@ public class GlobalTransactionMgr {
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
                         Set<Long> commitBackends = tabletToBackends.get(tabletId);
+                        // save the error replica ids for current tablet
+                        // this param is used for log
+                        Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
-                                                                                   + tabletId + "], backend ["
-                                                                                   + tabletBackend + "]");
+                                        + tabletId + "], backend [" + tabletBackend + "]");
                             }
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet, the commit backends maybe null
                             // if the commit backends is null, set all replicas as error replicas
@@ -348,29 +385,24 @@ public class GlobalTransactionMgr {
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
                                     ++successReplicaNum;
-                                } else {
-                                    // if this error replica is a base replica and it is under rollup
-                                    // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                    // should remove here, because the error replicas not contains this base replica,
-                                    // but it has errors in the past
-                                    if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                        LOG.info("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]",
-                                                 replica, rollupJob);
-                                        rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                           tabletId, replica.getId(), replica.getBackendId());
-                                    }
                                 }
                             } else {
+                                errorBackendIdsForTablet.add(tabletBackend);
                                 errorReplicaIds.add(replica.getId());
                                 // not remove rollup task here, because the commit maybe failed
                                 // remove rollup task when commit successfully
                             }
                         }
-                        if (index.getState() != IndexState.ROLLUP && successReplicaNum < quorumReplicaNum) {
-                            // not throw exception here, wait the upper application retry
-                            LOG.info("Index [{}] success replica num is {} < quorum replica num {}",
-                                     index, successReplicaNum, quorumReplicaNum);
-                            return;
+
+                        if (successReplicaNum < quorumReplicaNum) {
+                            LOG.warn("Failed to commit txn [{}]. "
+                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
+                                             + "while error backends {}",
+                                     transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum,
+                                     Joiner.on(",").join(errorBackendIdsForTablet));
+                            throw new TabletQuorumFailedException(transactionId, tablet.getId(),
+                                                                  successReplicaNum, quorumReplicaNum,
+                                                                  errorBackendIdsForTablet);
                         }
                     }
                 }
@@ -480,8 +512,7 @@ public class GlobalTransactionMgr {
         boolean txnOperated = false;
         writeLock();
         try {
-            unprotectAbortTransaction(transactionId, reason);
-            txnOperated = true;
+            txnOperated = unprotectAbortTransaction(transactionId, reason);
         } finally {
             writeUnlock();
             transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
@@ -621,19 +652,21 @@ public class GlobalTransactionMgr {
                         continue;
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
-                    MaterializedIndex baseIndex = partition.getBaseIndex();
-                    MaterializedIndex rollingUpIndex = null;
-                    RollupJob rollupJob = null;
-                    if (table.getState() == OlapTableState.ROLLUP) {
-                        rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                        rollingUpIndex = rollupJob.getRollupIndex(partitionId);
+
+                    List<MaterializedIndex> allIndices = null;
+                    if (transactionState.getLoadedTblIndexes().isEmpty()) {
+                        allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                    } else {
+                        allIndices = Lists.newArrayList();
+                        for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
+                            MaterializedIndex index = partition.getIndex(indexId);
+                            if (index != null) {
+                                allIndices.add(index);
+                            }
+                        }
                     }
-                    List<MaterializedIndex> allInices = new ArrayList<>();
-                    allInices.addAll(partition.getMaterializedIndices());
-                    if (rollingUpIndex != null) {
-                        allInices.add(rollingUpIndex);
-                    }
-                    for (MaterializedIndex index : allInices) {
+
+                    for (MaterializedIndex index : allIndices) {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
@@ -643,7 +676,7 @@ public class GlobalTransactionMgr {
                                     // it is healthy in the past and does not have error in current load
                                     
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(),
-                                                                    partition.getVisibleVersionHash())) {
+                                            partition.getVisibleVersionHash(), true)) {
                                         // during rollup, the rollup replica's last failed version < 0,
                                         // it may be treated as a normal replica.
                                         // the replica is not failed during commit or publish
@@ -672,7 +705,7 @@ public class GlobalTransactionMgr {
                                                                   partitionCommitInfo.getVersion(), partitionCommitInfo.getVersionHash());
                                         LOG.warn("transaction state {} has error, the replica [{}] not appeared in error replica list "
                                                          + " and its version not equal to partition commit version or commit version - 1"
-                                                         + " if its not a upgrate stage, its a fatal error. ");
+                                                         + " if its not a upgrate stage, its a fatal error. ", transactionState, replica);
                                     }
                                 } else if (replica.getVersion() == partitionCommitInfo.getVersion()
                                         && replica.getVersionHash() == partitionCommitInfo.getVersionHash()) {
@@ -681,17 +714,9 @@ public class GlobalTransactionMgr {
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 }
-                                if (replica.getLastFailedVersion() > 0) {
-                                    // if this error replica is a base replica and it is under rollup
-                                    // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                    if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                        LOG.info("base replica [{}] has errors during load, remove rollup task on related replica", replica);
-                                        rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                           tablet.getId(), replica.getId(), replica.getBackendId());
-                                    }
-                                }
                             }
-                            if (index.getState() != IndexState.ROLLUP && healthReplicaNum < quorumReplicaNum) {
+
+                            if (healthReplicaNum < quorumReplicaNum) {
                                 LOG.info("publish version failed for transaction {} on tablet {},  with only {} replicas less than quorum {}",
                                          transactionState, tablet, healthReplicaNum, quorumReplicaNum);
                                 hasError = true;
@@ -733,8 +758,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.info("txn is still running: {}, checking end txn id: {}",
-                            entry.getValue(), endTransactionId);
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
@@ -788,6 +813,7 @@ public class GlobalTransactionMgr {
         }
 
         // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
+        List<TransactionState> abortedTxns = Lists.newArrayList();
         writeLock();
         try {
             List<Long> transactionsToDelete = Lists.newArrayList();
@@ -814,6 +840,7 @@ public class GlobalTransactionMgr {
                             transactionState.setFinishTime(System.currentTimeMillis());
                             transactionState.setReason("transaction is timeout and is cancelled automatically");
                             unprotectUpsertTransactionState(transactionState);
+                            abortedTxns.add(transactionState);
                         }
                     }
                 }
@@ -826,10 +853,19 @@ public class GlobalTransactionMgr {
         } finally {
             writeUnlock();
         }
+
+        for (TransactionState abortedTxn : abortedTxns) {
+            try {
+                abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
+            } catch (UserException e) {
+                // just print a log, it does not matter.
+                LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);
+            }
+        }
     }
     
     private boolean checkTxnHasRelatedJob(TransactionState txnState, Map<Long, Set<Long>> dbIdToTxnIds) {
-        // TODO: put checkTxnHasRelaredJob into Load
+        // TODO: put checkTxnHasRelatedJob into Load
         Set<Long> txnIds = dbIdToTxnIds.get(txnState.getDbId());
         if (txnIds == null) {
             // We can't find the related load job of this database.
@@ -919,14 +955,14 @@ public class GlobalTransactionMgr {
         }
     }
 
-    private void unprotectAbortTransaction(long transactionId, String reason)
+    private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            return;
+            return false;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -939,6 +975,7 @@ public class GlobalTransactionMgr {
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
         }
+        return true;
     }
     
     // for replay idToTransactionState
@@ -984,18 +1021,7 @@ public class GlobalTransactionMgr {
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 Partition partition = table.getPartition(partitionId);
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                MaterializedIndex baseIndex = partition.getBaseIndex();
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partition.getId());
-                }
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
-                }
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
@@ -1005,14 +1031,6 @@ public class GlobalTransactionMgr {
                                 // should get from transaction state
                                 replica.updateLastFailedVersion(partitionCommitInfo.getVersion(),
                                                                 partitionCommitInfo.getVersionHash());
-                                // if this error replica is a base replica and it is under rollup
-                                // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                if (index.getId() == baseIndex.getId() && rollupJob != null) {
-                                    LOG.debug("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]",
-                                              replica, rollupJob);
-                                    rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                       tablet.getId(), replica.getId(), replica.getBackendId());
-                                }
                             }
                         }
                     }
@@ -1040,18 +1058,7 @@ public class GlobalTransactionMgr {
                 long newCommitVersion = partitionCommitInfo.getVersion();
                 long newCommitVersionHash = partitionCommitInfo.getVersionHash();
                 Partition partition = table.getPartition(partitionId);
-                MaterializedIndex baseIndex = partition.getBaseIndex();
-                MaterializedIndex rollingUpIndex = null;
-                RollupJob rollupJob = null;
-                if (table.getState() == OlapTableState.ROLLUP) {
-                    rollupJob = (RollupJob) catalog.getRollupHandler().getAlterJob(tableId);
-                    rollingUpIndex = rollupJob.getRollupIndex(partitionId);
-                }
-                List<MaterializedIndex> allIndices = new ArrayList<>();
-                allIndices.addAll(partition.getMaterializedIndices());
-                if (rollingUpIndex != null) {
-                    allIndices.add(rollingUpIndex);
-                }
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -1067,7 +1074,7 @@ public class GlobalTransactionMgr {
                                     newVersion = replica.getVersion();
                                     newVersionHash = replica.getVersionHash();
                                 } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(),
-                                                                        partition.getVisibleVersionHash())) {
+                                        partition.getVisibleVersionHash(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example, A,B,C 3 replica
                                     // A,B 's version is 10, C's version is 10 but C' 10 is abnormal should be rollback
@@ -1096,15 +1103,6 @@ public class GlobalTransactionMgr {
                                 }
                             }
                             replica.updateVersionInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, lastSucessVersion, lastSuccessVersionHash);
-                            // if this error replica is a base replica and it is under rollup
-                            // then remove the rollup task and rollup job will remove the rollup replica automatically
-                            if (index.getId() == baseIndex.getId()
-                                    && replica.getLastFailedVersion() > 0
-                                    && rollupJob != null) {
-                                LOG.debug("base replica [{}] has errors during load, remove rollup task on related replica", replica);
-                                rollupJob.removeReplicaRelatedTask(partition.getId(),
-                                                                   tablet.getId(), replica.getId(), replica.getBackendId());
-                            }
                         }
                     }
                 } // end for indices
@@ -1192,8 +1190,8 @@ public class GlobalTransactionMgr {
         return infos;
     }
 
-    public List<List<Comparable>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
-        List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
+    public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
+        List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -1201,24 +1199,25 @@ public class GlobalTransactionMgr {
                 throw new AnalysisException("Database[" + dbId + "] does not exist");
             }
 
+            // get transaction order by txn id desc limit 'limit'
             idToTransactionState.values().stream()
                     .filter(t -> (t.getDbId() == dbId && (running ? !t.getTransactionStatus().isFinalStatus()
-                            : t.getTransactionStatus().isFinalStatus())))
+                            : t.getTransactionStatus().isFinalStatus()))).sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
-                        List<Comparable> info = new ArrayList<Comparable>();
-                        info.add(t.getTransactionId());
+                        List<String> info = new ArrayList<String>();
+                        info.add(String.valueOf(t.getTransactionId()));
                         info.add(t.getLabel());
                         info.add(t.getCoordinator());
-                        info.add(t.getTransactionStatus());
-                        info.add(t.getSourceType());
+                        info.add(t.getTransactionStatus().name());
+                        info.add(t.getSourceType().name());
                         info.add(TimeUtils.longToTimeString(t.getPrepareTime()));
                         info.add(TimeUtils.longToTimeString(t.getCommitTime()));
                         info.add(TimeUtils.longToTimeString(t.getFinishTime()));
                         info.add(t.getReason());
-                        info.add(t.getErrorReplicas().size());
-                        info.add(t.getCallbackId());
-                        info.add(t.getTimeoutMs());
+                        info.add(String.valueOf(t.getErrorReplicas().size()));
+                        info.add(String.valueOf(t.getCallbackId()));
+                        info.add(String.valueOf(t.getTimeoutMs()));
                         infos.add(info);
                     });
         } finally {
@@ -1227,13 +1226,13 @@ public class GlobalTransactionMgr {
         return infos;
     }
     
-    public List<List<Comparable>> getTableTransInfo(long tid) throws AnalysisException {
+    public List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
-            TransactionState transactionState = idToTransactionState.get(tid);
+            TransactionState transactionState = idToTransactionState.get(txnId);
             if (null == transactionState) {
-                throw new AnalysisException("Transaction[" + tid + "] does not exist.");
+                throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
             }
 
             for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {
@@ -1280,7 +1279,7 @@ public class GlobalTransactionMgr {
     public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
     }
-    
+
     // this two function used to read snapshot or write snapshot
     public void write(DataOutput out) throws IOException {
         int numTransactions = idToTransactionState.size();

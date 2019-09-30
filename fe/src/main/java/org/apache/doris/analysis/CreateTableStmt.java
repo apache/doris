@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -63,6 +65,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private String engineName;
+    private String comment;
 
     private static Set<String> engineNames;
 
@@ -96,7 +99,8 @@ public class CreateTableStmt extends DdlStmt {
                            PartitionDesc partitionDesc,
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
-                           Map<String, String> extProperties) {
+                           Map<String, String> extProperties,
+                           String comment) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -116,6 +120,7 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
+        this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
     }
@@ -182,6 +187,10 @@ public class CreateTableStmt extends DdlStmt {
         tableName = new TableName(tableName.getDb(), newTableName);
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
@@ -246,6 +255,7 @@ public class CreateTableStmt extends DdlStmt {
 
         int rowLengthBytes = 0;
         boolean hasHll = false;
+        boolean hasBitmap = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             if (engineName.equals("kudu")) {
@@ -261,6 +271,14 @@ public class CreateTableStmt extends DdlStmt {
                             "please specify the aggregation type HLL_UNION");
                 }
                 hasHll = true;
+            }
+
+
+            if (columnDef.getAggregateType() == BITMAP_UNION) {
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("Key column can't has the BITMAP_UNION aggregation type");
+                }
+                hasBitmap = true;
             }
 
             if (!columnSet.add(columnDef.getName())) {
@@ -279,6 +297,10 @@ public class CreateTableStmt extends DdlStmt {
             throw new AnalysisException("HLL must be used in AGG_KEYS");
         }
 
+        if (hasBitmap && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+            throw new AnalysisException("BITMAP_UNION must be used in AGG_KEYS");
+        }
+
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
@@ -287,10 +309,6 @@ public class CreateTableStmt extends DdlStmt {
                 }
 
                 RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
-                if (rangePartitionDesc.getPartitionColNames().size() != 1) {
-                    throw new AnalysisException("Only allow partitioned by one column");
-                }
-
                 rangePartitionDesc.analyze(columnDefs, properties);
             }
 
@@ -399,6 +417,10 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
             sb.append(new PrintableMap<String, String>(extProperties, " = ", true, true, true));
             sb.append(")");
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
         }
 
         return sb.toString();

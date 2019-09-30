@@ -31,9 +31,6 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class GetStreamLoadState extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     public GetStreamLoadState(ActionController controller) {
         super(controller);
     }
@@ -45,7 +42,7 @@ public class GetStreamLoadState extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
 
         if (redirectToMaster(request, response)) {

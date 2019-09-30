@@ -1,22 +1,19 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- *
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package org.apache.doris.load.routineload;
 
@@ -27,6 +24,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -34,12 +32,10 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -48,6 +44,8 @@ import java_cup.runtime.Symbol;
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 
 public class RoutineLoadJobTest {
@@ -62,8 +60,6 @@ public class RoutineLoadJobTest {
     CreateRoutineLoadStmt createRoutineLoadStmt;
     @Mocked
     Symbol symbol;
-    @Mocked
-    KafkaConsumer kafkaConsumer;
 
     @Test
     public void testAfterAbortedReasonOffsetOutOfRange(@Injectable TransactionState transactionState,
@@ -213,14 +209,18 @@ public class RoutineLoadJobTest {
                 result = database;
                 database.getTable(anyLong);
                 result = table;
-                kafkaConsumer.partitionsFor(anyString, (Duration) any);
-                result = partitionInfoList;
-                partitionInfo.partition();
-                result = 1;
             }
         };
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
+                    Map<String, String> convertedCustomProperties) throws UserException {
+                return Lists.newArrayList(1, 2, 3);
+            }
+        };
+
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         routineLoadJob.update();

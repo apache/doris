@@ -22,6 +22,7 @@ include "Status.thrift"
 include "Types.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
+include "DorisExternalService.thrift"
 
 struct TPullLoadSubTaskInfo {
     1: required Types.TUniqueId id
@@ -67,6 +68,7 @@ struct TKafkaLoadInfo {
     1: required string brokers;
     2: required string topic;
     3: required map<i32, i64> partition_begin_offset;
+    4: optional map<string, string> properties;
 }
 
 struct TRoutineLoadTask {
@@ -83,6 +85,23 @@ struct TRoutineLoadTask {
     11: optional i64 max_batch_size
     12: optional TKafkaLoadInfo kafka_load_info
     13: optional PaloInternalService.TExecPlanFragmentParams params
+}
+
+struct TKafkaMetaProxyRequest {
+    1: optional TKafkaLoadInfo kafka_info
+}
+
+struct TKafkaMetaProxyResult {
+    1: optional list<i32> partition_ids
+}
+
+struct TProxyRequest {
+    1: optional TKafkaMetaProxyRequest kafka_meta_request;
+}
+
+struct TProxyResult {
+    1: required Status.TStatus status;
+    2: optional TKafkaMetaProxyResult kafka_meta_result;
 }
 
 service BackendService {
@@ -143,4 +162,14 @@ service BackendService {
     TTabletStatResult get_tablet_stat();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
+
+    // doris will build  a scan context for this session, context_id returned if success
+    DorisExternalService.TScanOpenResult open_scanner(1: DorisExternalService.TScanOpenParams params);
+
+    // return the batch_size of data
+    DorisExternalService.TScanBatchResult get_next(1: DorisExternalService.TScanNextBatchParams params);
+
+    // release the context resource associated with the context_id
+    DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
+
 }

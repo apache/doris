@@ -19,3 +19,4 @@
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/common")
 
 ADD_BE_TEST(resource_tls_test)
+ADD_BE_TEST(status_test)

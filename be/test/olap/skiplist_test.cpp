@@ -23,7 +23,8 @@
 #include <gtest/gtest.h>
 #include "olap/schema.h"
 #include "olap/utils.h"
-#include "util/arena.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/hash_util.hpp"
 #include "util/random.h"
 #include "util/thread_pool.hpp"
@@ -48,9 +49,11 @@ struct TestComparator {
 class SkipTest : public testing::Test {};
 
 TEST_F(SkipTest, Empty) {
-    Arena arena;
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
     TestComparator cmp;
-    SkipList<Key, TestComparator> list(cmp, &arena);
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get());
     ASSERT_TRUE(!list.Contains(10));
 
     SkipList<Key, TestComparator>::Iterator iter(&list);
@@ -64,13 +67,15 @@ TEST_F(SkipTest, Empty) {
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
     const int N = 2000;
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
-    Arena arena;
     TestComparator cmp;
-    SkipList<Key, TestComparator> list(cmp, &arena);
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get());
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
         if (keys.insert(key).second) {
@@ -222,14 +227,18 @@ private:
     // Current state of the test
     State _current;
 
-    Arena _arena;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemPool> _mem_pool;
 
     // SkipList is not protected by _mu.  We just use a single writer
     // thread to modify it.
     SkipList<Key, TestComparator> _list;
 
 public:
-    ConcurrentTest() : _list(TestComparator(), &_arena) {}
+    ConcurrentTest():
+        _mem_tracker(new MemTracker(-1)),
+        _mem_pool(new MemPool(_mem_tracker.get())),
+        _list(TestComparator(), _mem_pool.get()){}
 
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {

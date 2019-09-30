@@ -18,7 +18,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 

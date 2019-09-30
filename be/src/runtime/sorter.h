@@ -35,12 +35,12 @@ public:
     }
 
     virtual Status prepare(RuntimeState* state) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // Add data to be sorted.
     virtual Status add_batch(RowBatch* batch) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // call when all data be added
@@ -51,7 +51,7 @@ public:
     virtual Status get_next(RowBatch* batch, bool* eos) = 0;
 
     virtual Status close(RuntimeState* state) {
-        return Status::OK;
+        return Status::OK();
     }
 };
 

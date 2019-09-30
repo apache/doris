@@ -293,23 +293,23 @@ Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
     // { "term": { "dv": "2" } }
     if (!scratch_document.HasParseError()) {
         if (!scratch_document.IsObject()) {
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must be a object");
+            return Status::InvalidArgument("esquery must be a object");
         }
         rapidjson::SizeType object_count = scratch_document.MemberCount();
         if (object_count != 1) {
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must only one root");
+            return Status::InvalidArgument("esquery must only one root");
         }
         // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
         rapidjson::Value::ConstMemberIterator first = scratch_document.MemberBegin();
         query_key.CopyFrom(first->name, allocator);
         if (!query_key.IsString()) {
             // if we found one key, then end loop as QueryDSL only support one `query` root
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery root key must be string");
+            return Status::InvalidArgument("esquery root key must be string");
         }
     } else {
-        return Status(TStatusCode::ES_REQUEST_ERROR, "malformed esquery json");
+        return Status::InvalidArgument("malformed esquery json");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result) {

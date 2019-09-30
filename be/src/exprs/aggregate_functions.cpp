@@ -27,6 +27,7 @@
 #include "runtime/datetime_value.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybird_set.h"
+#include "util/tdigest.h"
 #include "util/debug_util.h"
 
 // TODO: this file should be cross compiled and then all of the builtin
@@ -229,6 +230,79 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
     AvgState* avg = reinterpret_cast<AvgState*>(dst->ptr);
     avg->sum += src.val;
     ++avg->count;
+}
+
+struct PercentileApproxState {
+public:
+    PercentileApproxState() : digest(new TDigest()){
+    }
+    ~PercentileApproxState() {
+        delete digest;
+    }
+    
+    TDigest *digest = nullptr;
+    double targetQuantile = -1.0;
+};
+
+void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(PercentileApproxState);
+    dst->ptr = (uint8_t*) new PercentileApproxState();
+};
+
+template<typename T>
+void AggregateFunctions::percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(PercentileApproxState), dst->len);
+
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
+    percentile->digest->add(src.val);
+    percentile->targetQuantile = quantile.val;
+}
+
+StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
+    uint32_t serialized_size = percentile->digest->serialized_size();
+    StringVal result(ctx, sizeof(double) + serialized_size);
+    memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
+    percentile->digest->serialize(result.ptr + sizeof(double));
+
+    delete percentile;
+    return result;
+}
+
+void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(PercentileApproxState), dst->len);
+
+    double quantile;
+    memcpy(&quantile, src.ptr, sizeof(double));
+
+    PercentileApproxState *src_percentile = new PercentileApproxState();
+    src_percentile->targetQuantile = quantile;
+    src_percentile->digest->unserialize(src.ptr + sizeof(double));
+
+    PercentileApproxState* dst_percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
+    dst_percentile->digest->merge(src_percentile->digest);
+    dst_percentile->targetQuantile = quantile;
+
+    delete src_percentile;
+}
+
+DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState *>(src.ptr);
+    double quantile = percentile->targetQuantile;
+    double result = percentile->digest->quantile(quantile);
+
+    delete percentile;
+    return DoubleVal(result);
 }
 
 void AggregateFunctions::decimal_avg_update(FunctionContext* ctx,
@@ -1073,14 +1147,11 @@ void AggregateFunctions::hll_update(FunctionContext* ctx, const T& src, StringVa
     }
 
     DCHECK(!dst->is_null);
-    DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
+    DCHECK_EQ(dst->len, HLL_REGISTERS_COUNT);
     uint64_t hash_value = AnyValUtil::hash64_murmur(src, HashUtil::MURMUR_SEED);
 
     if (hash_value != 0) {
-        // Use the lower bits to index into the number of streams and then
-        // find the first 1 bit after the index bits.
         int idx = hash_value % dst->len;
-        // uint8_t first_one_bit = __buiHLL_LENltin_ctzl(hash_value >> HLL_PRECISION) + 1;
         uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
         dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);
     }
@@ -1108,7 +1179,6 @@ StringVal AggregateFunctions::hll_finalize(FunctionContext* ctx, const StringVal
     memcpy(result_str.ptr, out_str.c_str(), result_str.len);
     return result_str;
 }
-
     
 void AggregateFunctions::hll_union_agg_init(FunctionContext* ctx, HllVal* dst) {
     dst->init(ctx);
@@ -1120,8 +1190,8 @@ void AggregateFunctions::hll_union_agg_update(FunctionContext* ctx,
         return;
     }
     DCHECK(!dst->is_null);
-    
-    dst->agg_parse_and_cal(src);
+
+    dst->agg_parse_and_cal(ctx, src);
     return ;
 }
 
@@ -1130,7 +1200,7 @@ void AggregateFunctions::hll_union_agg_merge(FunctionContext* ctx, const HllVal&
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, HLL_COLUMN_DEFAULT_LEN);
     DCHECK_EQ(src.len, HLL_COLUMN_DEFAULT_LEN);
-     
+
     dst->agg_merge(src);
 }
 
@@ -2714,4 +2784,7 @@ template void AggregateFunctions::offset_fn_update<DecimalVal>(
 template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
     FunctionContext*, const DecimalV2Val& src, const BigIntVal&, const DecimalV2Val&,
     DecimalV2Val* dst);
+
+template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
+    FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 }

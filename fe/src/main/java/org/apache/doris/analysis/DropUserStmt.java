@@ -46,10 +46,9 @@ public class DropUserStmt extends DdlStmt {
             throw new AnalysisException("Can not drop user with specified host: " + userIdent.getHost());
         }
 
-        // check authenticate
+        // only user with GLOBAL level's GRANT_PRIV can drop user.
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "DROP USER");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP USER");
         }
     }
 

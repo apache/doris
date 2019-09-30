@@ -17,6 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -25,12 +29,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.rewrite.ExprRewriter;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,7 +88,8 @@ public class TableRef implements ParseNode, Writable {
     protected List<String> usingColNames;
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
-    
+    private ArrayList<String> commonHints; //The Hints is set by user
+    private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
     
@@ -137,6 +136,10 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, List<String> partitions) {
+        this(name, alias, partitions, null);
+    }
+
+    public TableRef(TableName name, String alias, List<String> partitions, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
             aliases_ = new String[] { alias };
@@ -145,9 +148,9 @@ public class TableRef implements ParseNode, Writable {
             hasExplicitAlias_ = false;
         }
         this.partitions = partitions;
+        this.commonHints = commonHints;
         isAnalyzed = false;
     }
-
     // Only used to clone
     // this will reset all the 'analyzed' stuff
     protected TableRef(TableRef other) {
@@ -163,6 +166,7 @@ public class TableRef implements ParseNode, Writable {
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitions =
                 (other.partitions != null) ? Lists.newArrayList(other.partitions) : null;
+        commonHints = other.commonHints;
 
         usingColNames =
                 (other.usingColNames != null) ? Lists.newArrayList(other.usingColNames) : null;
@@ -301,6 +305,10 @@ public class TableRef implements ParseNode, Writable {
         return isPartitionJoin;
     }
 
+    public boolean isForcePreAggOpened() {
+        return isForcePreAggOpened;
+    }
+
     public void setSortHints(ArrayList<String> hints) {
         this.sortHints = hints;
     }
@@ -338,6 +346,22 @@ public class TableRef implements ParseNode, Writable {
                 isPartitionJoin = true;
             } else {
                 throw new AnalysisException("JOIN hint not recognized: " + hint);
+            }
+        }
+    }
+
+    /**
+     * Parse PreAgg hints.
+     */
+    protected void analyzeHints() throws AnalysisException {
+        if (commonHints == null || commonHints.isEmpty()) {
+            return;
+        }
+        // Currently only 'PREAGGOPEN' is supported
+        for (String hint : commonHints) {
+            if (hint.toUpperCase().equals("PREAGGOPEN")) {
+                isForcePreAggOpened = true;
+                break;
             }
         }
     }

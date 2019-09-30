@@ -31,9 +31,6 @@ import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class MultiCommit extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiCommit(ActionController controller, ExecuteEnv execEnv) {
@@ -44,11 +41,11 @@ public class MultiCommit extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiCommit action = new MultiCommit(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_commit", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_commit", action);
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {

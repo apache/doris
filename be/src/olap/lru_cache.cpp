@@ -123,7 +123,6 @@ bool HandleTable::_resize() {
 
     LRUHandle** new_list = new(std::nothrow) LRUHandle*[new_length];
 
-    // assert(new_list);
     if (NULL == new_list) {
         LOG(FATAL) << "failed to malloc new hash list. new_length=" << new_length;
         return false;
@@ -147,7 +146,6 @@ bool HandleTable::_resize() {
         }
     }
 
-    //assert(_elems == count);
     if (_elems != count) {
         delete [] new_list;
         LOG(FATAL) << "_elems not match new count. elems=" << _elems
@@ -166,51 +164,22 @@ LRUCache::LRUCache() : _usage(0), _last_id(0), _lookup_count(0),
         // Make empty circular linked list
         _lru.next = &_lru;
         _lru.prev = &_lru;
-        _in_use.next = &_in_use;
-        _in_use.prev = &_in_use;
     }
 
-LRUCache::~LRUCache() {
-    assert(_in_use.next == &_in_use);  // Error if caller has an unreleased handle
-    for (LRUHandle* e = _lru.next; e != &_lru;) {
-        LRUHandle* next = e->next;
-        assert(e->in_cache);
-        e->in_cache = false;
-        assert(e->refs == 1);  // Invariant of _lru list.
-        _unref(e);
-        e = next;
-    }
+LRUCache::~LRUCache() { 
+    prune();
 }
 
-void LRUCache::_ref(LRUHandle* e) {
-    if (e->refs == 1 && e->in_cache) {  // If on _lru list, move to _in_use list.
-        _lru_remove(e);
-        _lru_append(&_in_use, e);
-    }
-    e->refs++;
-}
-
-void LRUCache::_unref(LRUHandle* e) {
-    // assert(e->refs > 0);
-    if (e->refs <= 0) {
-        LOG(FATAL) << "e->refs > 0, i do not know why, anyway, is something wrong."
-                   << "e->refs=" << e->refs;
-        return;
-    }
+bool LRUCache::_unref(LRUHandle* e) {
+    DCHECK(e->refs > 0);
     e->refs--;
-    if (e->refs == 0) { // Deallocate.
-        assert(!e->in_cache);
-        (*e->deleter)(e->key(), e->value);
-        free(e);
-    } else if (e->in_cache && e->refs == 1) {  // No longer in use; move to lru_ list.
-        _lru_remove(e);
-        _lru_append(&_lru, e);
-    }
+    return e->refs == 0;
 }
 
 void LRUCache::_lru_remove(LRUHandle* e) {
     e->next->prev = e->prev;
     e->prev->next = e->next;
+    e->prev = e->next = nullptr;
 }
 
 void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
@@ -225,87 +194,160 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     MutexLock l(&_mutex);
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
-
-    if (e != NULL) {
+    if (e != nullptr) {
+        // we get it from _table, so in_cache must be true
+        DCHECK(e->in_cache);
+        if (e->refs == 1) {
+            // only in LRU free list, remove it from list
+            _lru_remove(e);
+        }
+        e->refs++;
         ++_hit_count;
-        _ref(e);
     }
-
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
 void LRUCache::release(Cache::Handle* handle) {
-    MutexLock l(&_mutex);
-    _unref(reinterpret_cast<LRUHandle*>(handle));
+    if (handle == nullptr) {
+        return;
+    }
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
+    bool last_ref = false;
+    {
+        MutexLock l(&_mutex);
+        last_ref = _unref(e);
+        if (last_ref) {
+            _usage -= e->charge;
+        } else if (e->in_cache && e->refs == 1) {
+            // only exists in cache
+            if (_usage > _capacity) {
+                // take this opportunity and remove the item
+                _table.remove(e->key(), e->hash);
+                e->in_cache = false;
+                _unref(e);
+                _usage -= e->charge;
+                last_ref = true;
+            } else {
+                // put it to LRU free list
+                _lru_append(&_lru, e);
+            }
+        }
+    }
+
+    // free handle out of mutex
+    if (last_ref) {
+        e->free();
+    }
+}
+
+void LRUCache::_evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted) {
+    while (_usage + charge > _capacity && _lru.next != &_lru) {
+        LRUHandle* old = _lru.next;
+        DCHECK(old->in_cache);
+        DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
+        _lru_remove(old);
+        _table.remove(old->key(), old->hash);
+        old->in_cache = false;
+        _unref(old);
+        _usage -= old->charge;
+        deleted->push_back(old);
+    }
 }
 
 Cache::Handle* LRUCache::insert(
         const CacheKey& key, uint32_t hash, void* value, size_t charge,
         void (*deleter)(const CacheKey& key, void* value)) {
-    MutexLock l(&_mutex);
 
     LRUHandle* e = reinterpret_cast<LRUHandle*>(
-            malloc(sizeof(LRUHandle)-1 + key.size()));
+            malloc(sizeof(LRUHandle) - 1 + key.size()));
     e->value = value;
     e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
     e->hash = hash;
-    e->in_cache = false;
-    e->refs = 1;  // for the returned handle.
+    e->refs = 2;  // one for the returned handle, one for LRUCache.
+    e->next = e->prev = nullptr;
+    e->in_cache = true;
     memcpy(e->key_data, key.data(), key.size());
 
-    if (_capacity > 0) {
-        e->refs++;  // for the cache's reference.
-        e->in_cache = true;
-        _lru_append(&_in_use, e);
-        _usage += charge;
-        _finish_erase(_table.insert(e));
-    } // else don't cache.  (Tests use capacity_==0 to turn off caching.)
+    std::vector<LRUHandle*> last_ref_list;
+    {
+        MutexLock l(&_mutex);
 
-    while (_usage > _capacity && _lru.next != &_lru) {
-        LRUHandle* old = _lru.next;
-        assert(old->refs == 1);
-        bool erased = _finish_erase(_table.remove(old->key(), old->hash));
-        if (!erased) {  // to avoid unused variable when compiled NDEBUG
-            assert(erased);
+        // Free the space following strict LRU policy until enough space
+        // is freed or the lru list is empty
+        _evict_from_lru(charge, &last_ref_list);
+
+        // insert into the cache
+        // note that the cache might get larger than its capacity if not enough
+        // space was freed
+        auto old = _table.insert(e);
+        _usage += charge;
+        if (old != nullptr) {
+            old->in_cache = false;
+            if (_unref(old)) {
+                _usage -= old->charge;
+                // old is on LRU because it's in cache and its reference count
+                // was just 1 (Unref returned 0)
+                _lru_remove(old);
+                last_ref_list.push_back(old);
+            }
         }
+    }
+
+    // we free the entries here outside of mutex for
+    // performance reasons
+    for (auto entry : last_ref_list) {
+        entry->free();
     }
 
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
-// If e != NULL, finish removing *e from the cache; it has already been removed
-// from the hash table.  Return whether e != NULL.  Requires mutex_ held.
-bool LRUCache::_finish_erase(LRUHandle* e) {
-    if (e != NULL) {
-        assert(e->in_cache);
-        _lru_remove(e);
-        e->in_cache = false;
-        _usage -= e->charge;
-        _unref(e);
-    }
-    return e != NULL;
-}
-
 void LRUCache::erase(const CacheKey& key, uint32_t hash) {
-    MutexLock l(&_mutex);
-    _finish_erase(_table.remove(key, hash));
+    LRUHandle* e = nullptr;
+    bool last_ref = false;
+    {
+        MutexLock l(&_mutex);
+        e = _table.remove(key, hash);
+        if (e != nullptr) {
+            last_ref = _unref(e);
+            if (last_ref) {
+                _usage -= e->charge;
+                if (e->in_cache) {
+                    // locate in free list
+                    _lru_remove(e);
+                }
+            }
+            e->in_cache = false;
+        }
+    }
+    // free handle out of mutex, when last_ref is true, e must not be nullptr
+    if (last_ref) {
+        e->free();
+    }
 }
 
 int LRUCache::prune() {
-    MutexLock l(&_mutex);
-    int num_prune = 0;
-    while (_lru.next != &_lru) {
-        LRUHandle* e = _lru.next;
-        assert(e->refs == 1);
-        bool erased = _finish_erase(_table.remove(e->key(), e->hash));
-        if (!erased) {  // to avoid unused variable when compiled NDEBUG
-            assert(erased);
+    std::vector<LRUHandle*> last_ref_list;
+    {
+        MutexLock l(&_mutex);
+        while (_lru.next != &_lru) {
+            LRUHandle* old = _lru.next;
+            DCHECK(old->in_cache);
+            DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
+            _lru_remove(old);
+            _table.remove(old->key(), old->hash);
+            old->in_cache = false;
+            _unref(old);
+            _usage -= old->charge;
+            last_ref_list.push_back(old);
         }
-        num_prune++;
     }
-    return num_prune;
+    for (auto entry : last_ref_list) {
+        entry->free();
+    }
+    return last_ref_list.size();
 }
 
 inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
@@ -353,6 +395,11 @@ void* ShardedLRUCache::value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
 }
 
+Slice ShardedLRUCache::value_slice(Handle* handle) {
+    auto lru_handle = reinterpret_cast<LRUHandle*>(handle);
+    return Slice((char*)lru_handle->value, lru_handle->charge);
+}
+
 uint64_t ShardedLRUCache::new_id() {
     MutexLock l(&_id_mutex);
     return ++(_last_id);
@@ -363,7 +410,6 @@ void ShardedLRUCache::prune() {
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s].prune();
     }
-    LOG(INFO) << "prune file descriptor:" <<  num_prune;
 }
 
 size_t ShardedLRUCache::get_memory_usage() {

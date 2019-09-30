@@ -21,7 +21,7 @@ import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -51,10 +51,12 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -292,6 +294,10 @@ public class LoadChecker extends Daemon {
         
         long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
                                                     : Config.load_straggler_wait_second * 1000;
+        Set<Long> unfinisheTablets = Sets.newHashSet();
+        unfinisheTablets.addAll(jobTotalTablets);
+        unfinisheTablets.removeAll(job.getQuorumTablets());
+        job.setUnfinishedTablets(unfinisheTablets);
         if (job.getQuorumTablets().containsAll(jobTotalTablets)) {
             // commit the job to transaction manager and not care about the result
             // if could not commit successfully and commit again until job is timeout
@@ -328,6 +334,8 @@ public class LoadChecker extends Daemon {
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
             globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+        } catch (TabletQuorumFailedException e) {
+            // wait the upper application retry
         } catch (UserException e) {
             LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
                     transactionState.getTransactionId(), job, e);
@@ -387,19 +395,25 @@ public class LoadChecker extends Daemon {
                     
                     short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
                     // check all indices (base + roll up (not include ROLLUP state index))
-                    List<MaterializedIndex> indices = partition.getMaterializedIndices();
+                    List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
                         long indexId = index.getId();
-                        // if index is in rollup, then not load into it, be will automatically convert the data
-                        if (index.getState() == IndexState.ROLLUP) {
-                            LOG.error("skip table under rollup[{}]", indexId);
-                            continue;
-                        }
+                        
                         // 1. the load job's etl is started before rollup finished
                         // 2. rollup job comes into finishing state, add rollup index to catalog
                         // 3. load job's etl finished, begin to load
                         // 4. load will send data to new rollup index, but could not get schema hash, load will failed
+                        /*
+                         * new:
+                         * 1. load job is started before alter table, and etl task does not contains new indexes
+                         * 2. just send push tasks to indexes which it contains, ignore others
+                         */
                         if (!tableLoadInfo.containsIndex(indexId)) {
+                            if (rollupJob == null) {
+                                // new process, just continue
+                                continue;
+                            }
+                            
                             if (rollupJob.getRollupIndexId() == indexId) {
                                 continue;
                             } else {
@@ -443,8 +457,6 @@ public class LoadChecker extends Daemon {
                             TPushType type = TPushType.LOAD;
                             if (job.isSyncDeleteJob()) {
                                 type = TPushType.DELETE;
-                            } else if (job.getDeleteFlag()) {
-                                type = TPushType.LOAD_DELETE;
                             }
                             
                             // add task to batchTask

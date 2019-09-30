@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <mysql/mysql.h>
+
+#define __DorisMysql MYSQL
+#define __DorisMysqlRes MYSQL_RES
 #include "mysql_scanner.h"
 
 
@@ -45,13 +49,13 @@ MysqlScanner::~MysqlScanner() {
 Status MysqlScanner::open() {
     if (_is_open) {
         LOG(INFO) << "this scanner already opened";
-        return Status::OK;
+        return Status::OK();
     }
 
     _my_conn = mysql_init(NULL);
 
     if (NULL == _my_conn) {
-        return Status("mysql init failed.");
+        return Status::InternalError("mysql init failed.");
     }
 
     VLOG(1) << "MysqlScanner::Connect";
@@ -67,17 +71,17 @@ Status MysqlScanner::open() {
     }
 
     if (mysql_set_character_set(_my_conn, "utf8")) {
-        return Status("mysql set character set failed.");
+        return Status::InternalError("mysql set character set failed.");
     }
 
     _is_open = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MysqlScanner::query(const std::string& query) {
     if (!_is_open) {
-        return Status("Query before open.");
+        return Status::InternalError("Query before open.");
     }
 
     int sql_result = mysql_query(_my_conn, query.c_str());
@@ -103,13 +107,13 @@ Status MysqlScanner::query(const std::string& query) {
 
     _field_num = mysql_num_fields(_my_result);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MysqlScanner::query(const std::string& table, const std::vector<std::string>& fields,
                            const std::vector<std::string>& filters) {
     if (!_is_open) {
-        return Status("Query before open.");
+        return Status::InternalError("Query before open.");
     }
 
     _sql_str = "SELECT";
@@ -141,22 +145,22 @@ Status MysqlScanner::query(const std::string& table, const std::vector<std::stri
 
 Status MysqlScanner::get_next_row(char** *buf, unsigned long** lengths, bool* eos) {
     if (!_is_open) {
-        return Status("GetNextRow before open.");
+        return Status::InternalError("GetNextRow before open.");
     }
 
     if (NULL == buf || NULL == lengths || NULL == eos) {
-        return Status("input parameter invalid.");
+        return Status::InternalError("input parameter invalid.");
     }
 
     if (NULL == _my_result) {
-        return Status("get next row before query.");
+        return Status::InternalError("get next row before query.");
     }
 
     *buf = mysql_fetch_row(_my_result);
 
     if (NULL == *buf) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     *lengths = mysql_fetch_lengths(_my_result);
@@ -167,7 +171,14 @@ Status MysqlScanner::get_next_row(char** *buf, unsigned long** lengths, bool* eo
 
     *eos = false;
 
-    return Status::OK;
+    return Status::OK();
+}
+
+Status MysqlScanner::_error_status(const std::string& prefix) {
+	std::stringstream msg;
+	msg << prefix << " Err: " << mysql_error(_my_conn);
+	LOG(INFO) << msg.str();
+	return Status::InternalError(msg.str());
 }
 
 }

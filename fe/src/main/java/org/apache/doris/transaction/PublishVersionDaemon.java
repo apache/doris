@@ -40,7 +40,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class PublishVersionDaemon extends Daemon {
     
@@ -54,7 +53,7 @@ public class PublishVersionDaemon extends Daemon {
         try {
             publishVersion();
         } catch (Throwable t) {
-            LOG.error("errors while publish version to all backends, {}", t);
+            LOG.error("errors while publish version to all backends", t);
         }
     }
     
@@ -108,9 +107,10 @@ public class PublishVersionDaemon extends Daemon {
             }
 
             for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId, 
-                                                                 transactionState.getTransactionId(), 
-                                                                 partitionVersionInfos);
+                PublishVersionTask task = new PublishVersionTask(backendId,
+                        transactionState.getTransactionId(),
+                        transactionState.getDbId(),
+                        partitionVersionInfos);
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
                 AgentTaskQueue.addTask(task);
@@ -118,6 +118,7 @@ public class PublishVersionDaemon extends Daemon {
                 transactionState.addPublishVersionTask(backendId, task);
             }
             transactionState.setHasSendTask(true);
+            LOG.info("send publish tasks for transaction: {}", transactionState.getTransactionId());
         }
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
@@ -132,7 +133,7 @@ public class PublishVersionDaemon extends Daemon {
                 continue;
             }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
-            Set<Replica> transErrorReplicas = Sets.newHashSet();
+            Set<Long> publishErrorReplicaIds = Sets.newHashSet();
             List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
                 if (publishVersionTask.isFinished()) {
@@ -144,8 +145,18 @@ public class PublishVersionDaemon extends Daemon {
                     } else {
                         for (long tabletId : errorTablets) {
                             // tablet inverted index also contains rollingup index
+                            // if tablet meta not contains the tablet, skip this tablet because this tablet is dropped
+                            // from fe
+                            if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
+                                continue;
+                            }
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
-                            transErrorReplicas.add(replica);
+                            if (replica != null) {
+                                publishErrorReplicaIds.add(replica.getId());
+                            } else {
+                                LOG.info("could not find related replica with tabletid={}, backendid={}", 
+                                        tabletId, publishVersionTask.getBackendId());
+                            }
                         }
                     }
                 } else {
@@ -176,7 +187,12 @@ public class PublishVersionDaemon extends Daemon {
                             if (errorPartitionIds.contains(partitionId)) {
                                 Replica replica = tabletInvertedIndex.getReplica(tabletId,
                                                                                  unfinishedTask.getBackendId());
-                                transErrorReplicas.add(replica);
+                                if (replica != null) {
+                                    publishErrorReplicaIds.add(replica.getId());
+                                } else {
+                                    LOG.info("could not find related replica with tabletid={}, backendid={}", 
+                                            tabletId, unfinishedTask.getBackendId());
+                                }
                             }
                         }
                     }
@@ -190,14 +206,13 @@ public class PublishVersionDaemon extends Daemon {
             }
             
             if (shouldFinishTxn) {
-                Set<Long> allErrorReplicas = transErrorReplicas.stream().map(v -> v.getId()).collect(Collectors.toSet());
-                globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), allErrorReplicas);
+                globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
                     LOG.debug("publish version for transation {} failed, has {} error replicas during publish", 
-                            transactionState, transErrorReplicas.size());
+                            transactionState, publishErrorReplicaIds.size());
                 }
             }
 

@@ -36,7 +36,7 @@ export DORIS_HOME=${ROOT}
 . ${DORIS_HOME}/env.sh
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     echo "Thirdparty libraries need to be build ..."
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
@@ -48,15 +48,21 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     --be       build Backend
-     --fe       build Frontend
-     --clean    clean and build target
-     
+     --be               build Backend
+     --fe               build Frontend
+     --clean            clean and build target
+     --with-mysql       enable MySQL support(default)
+     --without-mysql    disable MySQL support
+     --with-lzo         enable LZO compress support(default)
+     --without-lzo      disable LZO compress  support
+
   Eg.
-    $0                      build Backend and Frontend without clean
-    $0 --be                 build Backend without clean
-    $0 --fe --clean         clean and build Frontend
-    $0 --fe --be --clean    clean and build both Frontend and Backend
+    $0                                      build Backend and Frontend without clean
+    $0 --be                                 build Backend without clean
+    $0 --be --without-mysql                 build Backend with MySQL disable
+    $0 --be --without-mysql --without-lzo   build Backend with both MySQL and LZO disable
+    $0 --fe --clean                         clean and build Frontend
+    $0 --fe --be --clean                    clean and build both Frontend and Backend
   "
   exit 1
 }
@@ -64,9 +70,15 @@ Usage: $0 <options>
 OPTS=$(getopt \
   -n $0 \
   -o '' \
+  -o 'h' \
   -l 'be' \
   -l 'fe' \
   -l 'clean' \
+  -l 'with-mysql' \
+  -l 'without-mysql' \
+  -l 'with-lzo' \
+  -l 'without-lzo' \
+  -l 'help' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -79,6 +91,9 @@ BUILD_BE=
 BUILD_FE=
 CLEAN=
 RUN_UT=
+WITH_MYSQL=ON
+WITH_LZO=ON
+HELP=0
 if [ $# == 1 ] ; then
     # defuat
     BUILD_BE=1
@@ -90,16 +105,27 @@ else
     BUILD_FE=0
     CLEAN=0
     RUN_UT=0
-    while true; do 
+    while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
+            --with-mysql) WITH_MYSQL=ON; shift ;;
+            --without-mysql) WITH_MYSQL=OFF; shift ;;
+            --with-lzo) WITH_LZO=ON; shift ;;
+            --without-lzo) WITH_LZO=OFF; shift ;;
+            -h) HELP=1; shift ;;
+            --help) HELP=1; shift ;;
             --) shift ;  break ;;
             *) ehco "Internal error" ; exit 1 ;;
         esac
     done
+fi
+
+if [[ ${HELP} -eq 1 ]]; then
+    usage
+    exit
 fi
 
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 ]; then
@@ -108,10 +134,12 @@ if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 ]; then
 fi
 
 echo "Get params:
-    BUILD_BE -- $BUILD_BE
-    BUILD_FE -- $BUILD_FE
-    CLEAN    -- $CLEAN
-    RUN_UT   -- $RUN_UT
+    BUILD_BE    -- $BUILD_BE
+    BUILD_FE    -- $BUILD_FE
+    CLEAN       -- $CLEAN
+    RUN_UT      -- $RUN_UT
+    WITH_MYSQL  -- $WITH_MYSQL
+    WITH_LZO    -- $WITH_LZO
 "
 
 # Clean and build generated code
@@ -119,7 +147,7 @@ echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
-fi 
+fi
 make
 cd ${DORIS_HOME}
 
@@ -132,7 +160,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
-    cmake ../
+    cmake -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}
@@ -173,11 +201,14 @@ if [ ${BUILD_FE} -eq 1 ]; then
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
     install -d ${DORIS_OUTPUT}/be/bin ${DORIS_OUTPUT}/be/conf \
-               ${DORIS_OUTPUT}/be/lib/
+               ${DORIS_OUTPUT}/be/lib/ \
+               ${DORIS_OUTPUT}/udf/lib ${DORIS_OUTPUT}/udf/include
 
-    cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/ 
+    cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
+    cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
 fi
 
 echo "***************************************"

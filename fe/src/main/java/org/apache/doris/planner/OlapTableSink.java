@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -31,8 +32,10 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -53,7 +56,9 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
@@ -76,11 +81,6 @@ public class OlapTableSink extends DataSink {
 
     // set after init called
     private TDataSink tDataSink;
-
-    public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor) {
-        this.dstTable = dstTable;
-        this.tupleDescriptor = tupleDescriptor;
-    }
 
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, String partitions) {
         this.dstTable = dstTable;
@@ -116,6 +116,10 @@ public class OlapTableSink extends DataSink {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
             }
         }
+    }
+
+    public void updateLoadId(TUniqueId newLoadId) {
+        tDataSink.getOlap_table_sink().setLoad_id(newLoadId);
     }
 
     // must called after tupleDescriptor is computed
@@ -175,8 +179,9 @@ public class OlapTableSink extends DataSink {
         for (Map.Entry<Long, List<Column>> pair : table.getIndexIdToSchema().entrySet()) {
             List<String> columns = Lists.newArrayList();
             columns.addAll(pair.getValue().stream().map(Column::getName).collect(Collectors.toList()));
-            schemaParam.addToIndexes(new TOlapTableIndexSchema(pair.getKey(), columns,
-                    table.getSchemaHashByIndexId(pair.getKey())));
+            TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
+                    table.getSchemaHashByIndexId(pair.getKey()));
+            schemaParam.addToIndexes(indexSchema);
         }
         return schemaParam;
     }
@@ -213,12 +218,11 @@ public class OlapTableSink extends DataSink {
         switch (partType) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-                // range partition's only has one column
-                Preconditions.checkArgument(rangePartitionInfo.getPartitionColumns().size() == 1,
-                        "number columns of range partition is not 1, number_columns="
-                                + rangePartitionInfo.getPartitionColumns().size());
-                partitionParam.setPartition_column(rangePartitionInfo.getPartitionColumns().get(0).getName());
+                for (Column partCol : rangePartitionInfo.getPartitionColumns()) {
+                    partitionParam.addToPartition_columns(partCol.getName());
+                }
 
+                int partColNum = rangePartitionInfo.getPartitionColumns().size();
                 DistributionInfo selectedDistInfo = null;
                 for (Partition partition : table.getPartitions()) {
                     if (partitionSet != null && !partitionSet.contains(partition.getName())) {
@@ -227,13 +231,20 @@ public class OlapTableSink extends DataSink {
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
                     Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
+                    // set start keys
                     if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
-                        tPartition.setStart_key(range.lowerEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
+                        for (int i = 0; i < partColNum; i++) {
+                            tPartition.addToStart_keys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                        }
                     }
+                    // set end keys
                     if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
-                        tPartition.setEnd_key(range.upperEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
+                        for (int i = 0; i < partColNum; i++) {
+                            tPartition.addToEnd_keys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                        }
                     }
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNum_buckets(index.getTablets().size());
@@ -263,7 +274,7 @@ public class OlapTableSink extends DataSink {
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
                 // No lowerBound and upperBound for this range
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNum_buckets(index.getTablets().size());
@@ -282,19 +293,29 @@ public class OlapTableSink extends DataSink {
 
     private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
+        // BE id -> path hash
+        Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Partition partition : table.getPartitions()) {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    List<Long> beIds = tablet.getNormalReplicaBackendIds();
-                    if (beIds.size() < quorum) {
-                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + beIds.size());
+                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                    if (bePathsMap.keySet().size() < quorum) {
+                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
                     }
-                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), beIds));
+                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    allBePathsMap.putAll(bePathsMap);
                 }
             }
+        }
+        
+        // check if disk capacity reach limit
+        // this is for load process, so use high water mark to check
+        Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
+        if (!st.ok()) {
+            throw new DdlException(st.getErrorMsg());
         }
         return locationParam;
     }

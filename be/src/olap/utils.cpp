@@ -29,8 +29,12 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <lz4/lz4.h>
+
+#ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
 #include <lzo/lzo1x.h>
+#endif
+
 #include <stdarg.h>
 
 #include "common/logging.h"
@@ -171,83 +175,6 @@ using std::vector;
     } while (0)
 
 namespace doris {
-__thread char OLAPNoticeLog::_buf[BUF_SIZE]; // buffer instance
-__thread int OLAPNoticeLog::_len = 0;        // len instance
-
-void OLAPNoticeLog::push(const char *key, const char *fmt, ...) {
-    int size_left = BUF_SIZE - _len;
-
-    va_list args;
-    va_start(args, fmt);
-
-    int len = snprintf(_buf + _len, size_left, " %s:", key);
-    _len = len >= size_left ? BUF_SIZE - 1 : _len + len;
-    if (len < size_left) {
-        size_left = BUF_SIZE - _len;
-        len = vsnprintf(_buf + _len, size_left, fmt, args);
-
-        //如果len>=BUF_SIZE, 说明有截断，但返回的长度是期望的长度
-        _len = len >= size_left ? BUF_SIZE - 1 : _len + len;
-    }
-
-    va_end(args);
-}
-
-void OLAPNoticeLog::log(const char *msg) {
-    // do nothing
-}
-
-__thread uint64_t OLAPNoticeInfo::_seek_count = 0;
-__thread uint64_t OLAPNoticeInfo::_seek_time_us = 0;
-__thread uint64_t OLAPNoticeInfo::_scan_rows = 0;
-__thread uint64_t OLAPNoticeInfo::_filter_rows = 0;
-
-void OLAPNoticeInfo::add_seek_count() {
-    ++_seek_count;
-}
-
-void OLAPNoticeInfo::add_scan_rows(uint64_t rows) {
-    _scan_rows += rows;
-}
-
-void OLAPNoticeInfo::add_filter_rows(uint64_t rows) {
-    _filter_rows += rows;
-}
-
-void OLAPNoticeInfo::add_seek_time_us(uint64_t time_us) {
-    _seek_time_us += time_us;
-}
-
-uint64_t OLAPNoticeInfo::seek_count() {
-    return _seek_count;
-}
-
-uint64_t OLAPNoticeInfo::seek_time_us() {
-    return _seek_time_us;
-}
-
-uint64_t OLAPNoticeInfo::avg_seek_time_us() {
-    if (0 == _seek_count) {
-        return 0;
-    }
-
-    return _seek_time_us / _seek_count;
-}
-
-uint64_t OLAPNoticeInfo::scan_rows() {
-    return _scan_rows;
-}
-
-uint64_t OLAPNoticeInfo::filter_rows() {
-    return _filter_rows;
-}
-
-void OLAPNoticeInfo::clear() {
-    _seek_count = 0;
-    _seek_time_us = 0;
-    _scan_rows = 0;
-    _filter_rows = 0;
-}
 
 OLAPStatus olap_compress(const char* src_buf,
                      size_t src_len,
@@ -266,6 +193,8 @@ OLAPStatus olap_compress(const char* src_buf,
 
     *written_len = dest_len;
     switch (compression_type) {
+
+#ifdef DORIS_WITH_LZO
     case OLAP_COMP_TRANSPORT: {
         // A small buffer(hundreds of bytes) for LZO1X
         unsigned char mem[LZO1X_1_MEM_COMPRESS];
@@ -318,6 +247,8 @@ OLAPStatus olap_compress(const char* src_buf,
         }
         break;
     }
+#endif
+
     case OLAP_COMP_LZ4: {
         // int lz4_res = LZ4_compress_limitedOutput(src_buf, dest_buf, src_len, dest_len);
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
@@ -355,6 +286,8 @@ OLAPStatus olap_decompress(const char* src_buf,
 
     *written_len = dest_len;
     switch (compression_type) {
+
+#ifdef DORIS_WITH_LZO
     case OLAP_COMP_TRANSPORT: {
         int lzo_res = lzo1x_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf),
                                             src_len,
@@ -403,6 +336,8 @@ OLAPStatus olap_decompress(const char* src_buf,
         }
         break;
     }
+#endif
+
     case OLAP_COMP_LZ4: {
         int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
@@ -419,6 +354,7 @@ OLAPStatus olap_decompress(const char* src_buf,
         break;
     }
     default: 
+        LOG(FATAL) << "unknown compress kind. kind=" << compression_type;
         break;
     }
     return OLAP_SUCCESS;
@@ -1286,10 +1222,8 @@ bool check_dir_existed(const string& path) {
 
     try {
         if (boost::filesystem::exists(p)) {
-            VLOG(3) << "dir already existed. [path='" << path << "']";
             return true;
         } else {
-            VLOG(3) << "dir does not existed. [path='" << path << "']";
             return false;
         }
     } catch (...) {
@@ -1399,7 +1333,8 @@ OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     return OLAP_SUCCESS;
 }
 
-void remove_files(const vector<string>& files) {
+OLAPStatus remove_files(const vector<string>& files) {
+    OLAPStatus res = OLAP_SUCCESS;
     for (const string& file : files) {
         boost::filesystem::path file_path(file);
 
@@ -1409,11 +1344,13 @@ void remove_files(const vector<string>& files) {
             } else {
                 OLAP_LOG_WARNING("failed to remove file. [file=%s errno=%d]",
                                  file.c_str(), Errno::no());
+                res = OLAP_ERR_IO_ERROR;
             }
         } catch (...) {
         // do nothing
         }
     }
+    return res;
 }
 
 // failed when there are files or dirs under thr dir
@@ -1422,7 +1359,6 @@ OLAPStatus remove_dir(const string& path) {
 
     try {
         if (boost::filesystem::remove(p)) {
-            VLOG(3) << "success to del dir. [path='" << path << "']";
             return OLAP_SUCCESS;
         }
     } catch (...) {
@@ -1458,7 +1394,6 @@ OLAPStatus remove_all_dir(const string& path) {
 
     try {
         if (boost::filesystem::remove_all(p)) {
-            VLOG(3) << "success to del all dir. [path='" << path << "']";
             return OLAP_SUCCESS;
         }
     } catch (...) {
@@ -1514,17 +1449,15 @@ OLAPStatus dir_walk(const string& root,
         // 检查找到的目录项是文件还是目录
         string tmp_ent = root + '/' + direntp->d_name;
         if (lstat(tmp_ent.c_str(), &stat_data) < 0) {
-            OLAP_LOG_WARNING("lstat error.");
+            LOG(WARNING) << "lstat error.";
             continue;
         }
 
         if (S_ISDIR(stat_data.st_mode)) {
-            VLOG(3) << "find dir. d_name=" << direntp->d_name;
             if (NULL != dirs) {
                 dirs->insert(direntp->d_name);
             }
         } else {
-            VLOG(3) << "find file. d_name=" << direntp->d_name;
             if (NULL != files) {
                 files->insert(direntp->d_name);
             }

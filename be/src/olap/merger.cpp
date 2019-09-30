@@ -20,109 +20,62 @@
 #include <memory>
 #include <vector>
 
-#include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/segment_group.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
-
-using std::list;
-using std::string;
-using std::unique_ptr;
-using std::vector;
 
 namespace doris {
 
-Merger::Merger(OLAPTablePtr table, SegmentGroup* segment_group, ReaderType type) : 
-        _table(table),
-        _segment_group(segment_group),
-        _reader_type(type),
-        _row_count(0) {}
-
-OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
-                         uint64_t* merged_rows, uint64_t* filted_rows) {
-    // Create and initiate reader for scanning and multi-merging specified
-    // OLAPDatas.
+OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
+                                 ReaderType reader_type,
+                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 RowsetWriter* dst_rowset_writer,
+                                 Merger::Statistics* stats_output) {
     Reader reader;
     ReaderParams reader_params;
-    reader_params.olap_table = _table;
-    reader_params.reader_type = _reader_type;
-    reader_params.olap_data_arr = olap_data_arr;
+    reader_params.tablet = tablet;
+    reader_params.reader_type = reader_type;
+    reader_params.rs_readers = src_rowset_readers;
+    reader_params.version = dst_rowset_writer->version();
+    RETURN_NOT_OK(reader.init(reader_params));
 
-    if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = _segment_group->version();
-    }
-
-    if (OLAP_SUCCESS != reader.init(reader_params)) {
-        OLAP_LOG_WARNING("fail to initiate reader. [table='%s']",
-                _table->full_name().c_str());
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    // create and initiate writer for generating new index and data files.
-    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _segment_group, false));
-
-    if (NULL == writer) {
-        OLAP_LOG_WARNING("fail to allocate writer.");
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-
-    bool has_error = false;
     RowCursor row_cursor;
+    RETURN_NOT_OK_LOG(row_cursor.init(tablet->tablet_schema()),
+                 "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
+    row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
-    if (OLAP_SUCCESS != row_cursor.init(_table->tablet_schema())) {
-        OLAP_LOG_WARNING("fail to init row cursor.");
-        has_error = true;
-    }
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
-    bool eof = false;
     // The following procedure would last for long time, half of one day, etc.
-    while (!has_error) {
-        // Attach row cursor to the memory position of the row block being
-        // written in writer.
-        if (OLAP_SUCCESS != writer->attached_by(&row_cursor)) {
-            OLAP_LOG_WARNING("attach row failed. [table='%s']",
-                    _table->full_name().c_str());
-            has_error = true;
-            break;
-        }
-        row_cursor.allocate_memory_for_string_type(_table->tablet_schema(), writer->mem_pool());
-
+    int64_t output_rows = 0;
+    while (true) {
+        ObjectPool objectPool;
+        bool eof = false;
         // Read one row into row_cursor
-        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
-        if (OLAP_SUCCESS == res && eof) {
-            VLOG(3) << "reader read to the end.";
-            break;
-        } else if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("reader read failed.");
-            has_error = true;
+        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, mem_pool.get(), &objectPool, &eof),
+                          "failed to read next row when merging rowsets of tablet " + tablet->full_name());
+        if (eof) {
             break;
         }
-
-        // Goto next row position in the row block being written
-        writer->next(row_cursor);
-        ++_row_count;
+        RETURN_NOT_OK_LOG(dst_rowset_writer->add_row(row_cursor),
+                          "failed to write row when merging rowsets of tablet " + tablet->full_name());
+        output_rows++;
+        // the memory allocate by mem pool has been copied,
+        // so we should release memory immediately
+        mem_pool->clear();
     }
 
-    if (has_error) {
-        LOG(WARNING) << "compaction failed.";
-        return OLAP_ERR_OTHER_ERROR;
+    if (stats_output != nullptr) {
+        stats_output->output_rows = output_rows;
+        stats_output->merged_rows = reader.merged_rows();
+        stats_output->filtered_rows = reader.filtered_rows();
     }
 
-    if (OLAP_SUCCESS != writer->finalize()) {
-        OLAP_LOG_WARNING("fail to finalize writer. [table='%s']",
-                _table->full_name().c_str());
-        has_error = true;
-    }
-
-    if (!has_error) {
-        *merged_rows = reader.merged_rows();
-        *filted_rows = reader.filted_rows();
-    }
-
-    return has_error ? OLAP_ERR_OTHER_ERROR : OLAP_SUCCESS;
+    RETURN_NOT_OK_LOG(dst_rowset_writer->flush(),
+                 "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

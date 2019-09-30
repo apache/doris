@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 
 import org.easymock.EasyMock;
@@ -57,12 +58,17 @@ public class BackendTest {
 
     private Catalog catalog;
 
+    private SystemInfoService systemInfoService;
+
     @Before
     public void setUp() {
+        systemInfoService = new SystemInfoService();
+
         catalog = AccessTestUtil.fetchAdminCatalog();
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
+        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
         PowerMock.replay(Catalog.class);
 
         backend = new Backend(backendId, host, heartbeatPort);

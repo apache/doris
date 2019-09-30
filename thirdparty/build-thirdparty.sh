@@ -173,7 +173,7 @@ build_openssl() {
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
     ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared linux-x86_64
-    make -j$PARALLEL && make install
+    make && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
         cp $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
@@ -321,7 +321,8 @@ build_snappy() {
 
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
-    $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    CFLAGS="-O3" CXXFLAGS="-O3" $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On \
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
@@ -489,7 +490,7 @@ build_brpc() {
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DBRPC_WITH_GLOG=ON -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DBRPC_WITH_GLOG=ON -DWITH_GLOG=ON -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" \
     -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc \
     -DProtobuf_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
@@ -520,7 +521,7 @@ build_librdkafka() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-ssl --disable-sasl
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-sasl
     make -j$PARALLEL && make install
 }
 
@@ -536,6 +537,7 @@ build_arrow() {
 
     cmake -DARROW_PARQUET=ON -DARROW_IPC=OFF -DARROW_BUILD_SHARED=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
     -Dgflags_ROOT=$TP_INSTALL_DIR/ \
     -DSnappy_ROOT=$TP_INSTALL_DIR/ \
@@ -556,6 +558,80 @@ build_arrow() {
     fi
     cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
     cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
+}
+
+# s2
+build_s2() {
+    check_if_source_exist $S2_SOURCE
+    cd $TP_SOURCE_DIR/s2geometry-0.9.0
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
+    -DWITH_GFLAGS=ON \
+    -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
+    -DWITH_GLOG=ON \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    make -j$PARALLEL && make install
+}
+
+# bitshuffle
+build_bitshuffle() {
+    check_if_source_exist $BITSHUFFLE_SOURCE
+    cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
+    PREFIX=$TP_INSTALL_DIR
+    arches="default avx2"
+    to_link=""
+    for arch in $arches ; do
+        arch_flag=""
+        if [ "$arch" == "avx2" ]; then
+            arch_flag="-mavx2"
+        fi
+        tmp_obj=bitshuffle_${arch}_tmp.o
+        dst_obj=bitshuffle_${arch}.o
+        ${CC:-gcc} $EXTRA_CFLAGS $arch_flag -std=c99 -I$PREFIX/include/lz4/ -O3 -DNDEBUG -fPIC -c \
+            "src/bitshuffle_core.c" \
+            "src/bitshuffle.c" \
+            "src/iochain.c"
+        # Merge the object files together to produce a combined .o file.
+        ld -r -o $tmp_obj bitshuffle_core.o bitshuffle.o iochain.o
+        # For the AVX2 symbols, suffix them.
+        if [ "$arch" == "avx2" ]; then
+            # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
+            nm --defined-only --extern-only $tmp_obj | while read addr type sym ; do
+              echo ${sym} ${sym}_${arch}
+            done > renames.txt
+            objcopy --redefine-syms=renames.txt $tmp_obj $dst_obj
+        else
+            mv $tmp_obj $dst_obj
+        fi  
+        to_link="$to_link $dst_obj"
+    done
+    rm -f libbitshuffle.a
+    ar rs libbitshuffle.a $to_link
+    mkdir -p $PREFIX/include/bitshuffle
+    cp libbitshuffle.a $PREFIX/lib/
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle.h $PREFIX/include/bitshuffle/bitshuffle.h
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle_core.h $PREFIX/include/bitshuffle/bitshuffle_core.h
+}
+
+# croaring bitmap
+build_croaringbitmap() {
+    check_if_source_exist $CROARINGBITMAP_SOURCE
+    cd $TP_SOURCE_DIR/CRoaring-0.2.60
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    $CMAKE_CMD -v -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DENABLE_ROARING_TESTS=OFF \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    make -j$PARALLEL && make install
 }
 
 build_llvm
@@ -582,6 +658,8 @@ build_brpc
 build_rocksdb
 build_librdkafka
 build_arrow
+build_s2
+build_bitshuffle
+build_croaringbitmap
 
 echo "Finihsed to build all thirdparties"
-

@@ -68,15 +68,15 @@ public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id,
                  const TQueryOptions& query_options,
-                 const std::string& now, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env);
+        const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const std::string& now);
+    RuntimeState(const TQueryGlobals& query_globals);
 
     // Empty d'tor to avoid issues with scoped_ptr.
     ~RuntimeState();
@@ -84,7 +84,7 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id,
                 const TQueryOptions& query_options,
-                const std::string& now, ExecEnv* exec_env);
+                const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Set up four-level hierarchy of mem trackers: process, query, fragment instance.
     // The instance tracker is tied to our profile.
@@ -92,6 +92,9 @@ public:
     // will add a fourth level when they are initialized.
     // This function also initializes a user function mem tracker (in the fourth level).
     Status init_mem_trackers(const TUniqueId& query_id);
+
+    // for ut only
+    Status init_instance_mem_tracker();
 
     /// Called from Init() to set up buffer reservations and the file group.
     Status init_buffer_poolstate();
@@ -136,8 +139,11 @@ public:
     int num_scanner_threads() const {
         return _query_options.num_scanner_threads;
     }
-    const DateTimeValue* now() const {
-        return _now.get();
+    int64_t timestamp_ms() const {
+        return _timestamp_ms;
+    }
+    const std::string& timezone() const {
+        return _timezone;
     }
     const std::string& user() const {
         return _user;
@@ -294,12 +300,10 @@ public:
     // Sets _process_status with err_msg if no error has been set yet.
     void set_process_status(const std::string& err_msg) {
         boost::lock_guard<boost::mutex> l(_process_status_lock);
-
         if (!_process_status.ok()) {
             return;
         }
-
-        _process_status = Status(err_msg);
+        _process_status = Status::InternalError(err_msg);
     }
 
     void set_process_status(const Status& status) {
@@ -333,7 +337,7 @@ public:
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
     // or a mem limit was exceeded). Exec nodes should check this periodically so execution
     // doesn't continue if the query terminates abnormally.
-    Status check_query_state();
+    Status check_query_state(const std::string& msg);
 
     std::vector<std::string>& output_files() {
         return _output_files;
@@ -429,6 +433,10 @@ public:
 
     void update_num_rows_load_total(int64_t num_rows) {
         _num_rows_load_total.fetch_add(num_rows);
+    }
+
+    void set_num_rows_load_total(int64_t num_rows) {
+        _num_rows_load_total.store(num_rows);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -534,9 +542,10 @@ private:
 
     // Username of user that is executing the query to which this RuntimeState belongs.
     std::string _user;
-    // Query-global timestamp, e.g., for implementing now().
-    // Use pointer to avoid inclusion of timestampvalue.h and avoid clang issues.
-    boost::scoped_ptr<DateTimeValue> _now;
+
+    //Query-global timestamp_ms
+    int64_t _timestamp_ms;
+    std::string _timezone;
 
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;
@@ -643,7 +652,7 @@ private:
 
 #define RETURN_IF_CANCELLED(state) \
   do { \
-    if (UNLIKELY((state)->is_cancelled())) return Status::CANCELLED; \
+    if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
   } while (false)
 
 }

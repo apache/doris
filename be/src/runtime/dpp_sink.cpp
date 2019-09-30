@@ -86,6 +86,24 @@ static void update_sum(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
     }
 }
 
+template<>
+void update_sum<int128_t>(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
+    void* slot = ref->get_slot(agg_row);
+    bool agg_row_null = ref->is_null_bit_set(agg_row);
+    void* value = SlotRef::get_value(ref, row);
+    if (!agg_row_null && value != NULL) {
+        int128_t l_val, r_val;
+        memcpy(&l_val, slot, sizeof(int128_t));
+        memcpy(&r_val, value, sizeof(int128_t));
+        l_val += r_val;
+        memcpy(slot, &l_val, sizeof(int128_t));
+    } else if (agg_row_null && value != NULL) {
+        memcpy(slot, value, sizeof(int128_t));
+        Tuple* agg_tuple = ref->get_tuple(agg_row);
+        agg_tuple->set_not_null(ref->null_indicator_offset());
+    }
+}
+
 // Do nothing, just used to fill vector
 static void fake_update(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
     // Assert maybe good!
@@ -274,13 +292,13 @@ Status Translator::create_sorter(RuntimeState* state) {
     QSorter* sorter = _obj_pool->add(new QSorter(_row_desc, _rollup_schema.keys(), state));
     RETURN_IF_ERROR(sorter->prepare(state));
     _sorter = sorter;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::create_comparetor(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_rollup_schema.keys(), state, &_last_row_expr_ctxs));
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_rollup_schema.keys(), state, &_cur_row_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 void Translator::format_output_path(RuntimeState* state) {
@@ -311,31 +329,31 @@ Status Translator::create_writer(RuntimeState* state) {
                 S_IRWXU | S_IRWXU) != OLAP_SUCCESS) {
         std::stringstream ss;
         ss << "open file failed; [file=" << _output_path << "]";
-        return Status("open file failed.");
+        return Status::InternalError("open file failed.");
     }
 
     // 3. Create writer
     _writer = _obj_pool->add(new DppWriter(1, _output_row_expr_ctxs, fh));
     RETURN_IF_ERROR(_writer->open());
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::create_value_updaters() {
     if (_rollup_schema.values().size() != _rollup_schema.value_ops().size()) {
-        return Status("size of values and value_ops are not equal.");
+        return Status::InternalError("size of values and value_ops are not equal.");
     }
 
     int num_values = _rollup_schema.values().size();
 
     std::string keys_type = _rollup_schema.keys_type();
     if ("DUP_KEYS" == keys_type) {
-        return Status::OK;
+        return Status::OK();
     } else if ("UNIQUE_KEYS" == keys_type) {
         for (int i = 0; i < num_values; ++i) {
             _value_updaters.push_back(fake_update);
         }
-        return Status::OK;
+        return Status::OK();
     }
 
     for (int i = 0; i < num_values; ++i) {
@@ -495,7 +513,7 @@ Status Translator::create_value_updaters() {
                 _value_updaters.push_back(update_min<DateTimeValue>);
                 break;
             case TAggregationType::SUM:
-                return Status("Unsupport sum operation on date/datetime column.");
+                return Status::InternalError("Unsupport sum operation on date/datetime column.");
             default:
                 // replace
                 _value_updaters.push_back(fake_update);
@@ -509,7 +527,7 @@ Status Translator::create_value_updaters() {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
-                return Status("Unsupport max/min/sum operation on char/varchar column.");
+                return Status::InternalError("Unsupport max/min/sum operation on char/varchar column.");
             default:
                 // Only replace has meaning
                 _value_updaters.push_back(fake_update);
@@ -526,7 +544,7 @@ Status Translator::create_value_updaters() {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
-                return Status("Unsupport max/min/sum operation on hll column.");
+                return Status::InternalError("Unsupport max/min/sum operation on hll column.");
             default:
                  _value_updaters.push_back(fake_update);
                  break;
@@ -537,13 +555,13 @@ Status Translator::create_value_updaters() {
             std::stringstream ss;
             ss << "Unsupported column type(" << _rollup_schema.values()[i]->root()->type() << ")";
             // No operation, just pusb back a fake update
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
             break;
         }
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::create_profile(RuntimeState* state) {
@@ -557,7 +575,7 @@ Status Translator::create_profile(RuntimeState* state) {
     _sort_timer = ADD_TIMER(_profile, "sort time");
     _agg_timer = ADD_TIMER(_profile, "aggregate time");
     _writer_timer = ADD_TIMER(_profile, "write to file time");
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::prepare(RuntimeState* state) {
@@ -578,7 +596,7 @@ Status Translator::prepare(RuntimeState* state) {
     _batch_to_write.reset(
             new RowBatch(_row_desc, state->batch_size(), state->instance_mem_tracker()));
     if (_batch_to_write.get() == nullptr) {
-        return Status("No memory to allocate RowBatch.");
+        return Status::InternalError("No memory to allocate RowBatch.");
     }
 
     // 5. prepare value updater
@@ -592,7 +610,7 @@ Status Translator::prepare(RuntimeState* state) {
     }   
     _hll_merge.prepare(hll_column_count, 
                         ((QSorter*)_sorter)->get_mem_pool());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::add_batch(RowBatch* batch) {
@@ -760,13 +778,13 @@ Status Translator::process_one_row(TupleRow* row) {
         std::stringstream ss;
         ss << "row is nullptr.";
         LOG(ERROR) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     // first row
     // Just deep copy, and don't reuse its data.
     if (!_batch_to_write->in_flight()) {
         copy_row(row);
-        return Status::OK;
+        return Status::OK();
     }
 
     int row_idx = _batch_to_write->add_row();
@@ -776,7 +794,7 @@ Status Translator::process_one_row(TupleRow* row) {
         if (eq_tuple_row(last_row, row)) {
             // Just merge to last row and return
             update_row(last_row, row);
-            return Status::OK;
+            return Status::OK();
         }
     }
     _hll_merge.finalize_one_merge(last_row, 
@@ -795,7 +813,7 @@ Status Translator::process_one_row(TupleRow* row) {
     // deep copy the new row
     copy_row(row);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::process(RuntimeState* state) {
@@ -841,7 +859,7 @@ Status Translator::process(RuntimeState* state) {
     }
 
     // Output last row
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Translator::close(RuntimeState* state) {
@@ -853,12 +871,12 @@ Status Translator::close(RuntimeState* state) {
     Expr::close(_output_row_expr_ctxs, state);
     _batch_to_write.reset();
     _hll_merge.close();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DppSink::init(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), "Dpp sink"));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DppSink::get_or_create_translator(
@@ -869,7 +887,7 @@ Status DppSink::get_or_create_translator(
     auto iter = _translator_map.find(tablet_desc);
     if (iter != _translator_map.end()) {
         *trans_vec = &iter->second;
-        return Status::OK;
+        return Status::OK();
     }
     // new one
     _translator_map.insert(std::make_pair(tablet_desc, std::vector<Translator*>()));
@@ -884,7 +902,7 @@ Status DppSink::get_or_create_translator(
         (*trans_vec)->push_back(translator);
     }
     _translator_count += (*trans_vec)->size();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DppSink::add_batch(
@@ -900,7 +918,7 @@ Status DppSink::add_batch(
         RETURN_IF_ERROR(trans->add_batch(batch));
     }
     // add this batch to appoint translator
-    return Status::OK;
+    return Status::OK();
 }
 
 void DppSink::process(RuntimeState* state, Translator* trans, CountDownLatch* latch) {

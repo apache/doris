@@ -17,8 +17,13 @@
 
 package org.apache.doris.rewrite;
 
+import static org.junit.Assert.fail;
+
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -28,14 +33,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.util.TimeZone;
-
-import static org.junit.Assert.fail;
-
-/*
- * Author: Chenmingyu
- * Date: Mar 13, 2019
- */
+import java.util.Locale;
 
 public class FEFunctionsTest {
 
@@ -45,31 +43,75 @@ public class FEFunctionsTest {
     @Test
     public void unixtimestampTest() {
         try {
-            IntLiteral timestamp = FEFunctions.unix_timestamp(new DateLiteral("2018-01-01", Type.DATE));
+            IntLiteral timestamp = FEFunctions.unixTimestamp(new DateLiteral("2018-01-01", Type.DATE));
             Assert.assertEquals(1514736000, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 08:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 00:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1969-01-01 00:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("2038-01-19 03:14:07", Type.DATETIME));
+            // CST time zone
+            Assert.assertEquals(Integer.MAX_VALUE - 8 * 3600, timestamp.getValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
+            Assert.fail();
         }
     }
 
     @Test
+    public void dateDiffTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.dateDiff(new DateLiteral("2010-11-30 23:59:59", Type.DATETIME), new DateLiteral("2010-12-31", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(-31);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.dateDiff(new DateLiteral("2010-11-30 23:59:50", Type.DATETIME), new DateLiteral("2010-12-30 23:59:59", Type.DATETIME));
+        expectedResult = new IntLiteral(-30);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+    
+    @Test
     public void dateAddTest() throws AnalysisException {
-        DateLiteral actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(1));
+        DateLiteral actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+    
+    @Test
+    public void addDateTest() throws AnalysisException {
+        DateLiteral actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        Assert.assertEquals(expectedResult, actualResult);
+
+    }
+    
+    @Test
+    public void daysAddTest() throws AnalysisException {
+        DateLiteral actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
         DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(-1));
+        actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
         expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
-
+    
     @Test
     public void fromUnixTimeTest() throws AnalysisException {
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
         StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000), new StringLiteral("yyyy-MM-dd"));
+        actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000), new StringLiteral("%Y-%m-%d"));
         expectedResult = new StringLiteral("1970-01-02");
         Assert.assertEquals(expectedResult, actualResult);
 
@@ -88,12 +130,7 @@ public class FEFunctionsTest {
     @Test
     public void dateFormatUtilTest() {
         try {
-            Assert.assertEquals("19670102,196701,196701,0101", FEFunctions.dateFormat(new DateLiteral("1967-01-02 13:04:05", Type.DATETIME), new StringLiteral("%Y%m%d,%X%V,%x%v,%U%u")).getStringValue());
-            Assert.assertEquals("19960105,199553,199601,0001", FEFunctions.dateFormat(new DateLiteral("1996-01-05 13:04:05", Type.DATETIME), new StringLiteral("%Y%m%d,%X%V,%x%v,%U%u")).getStringValue());
-
-            Assert.assertEquals("2017-01-01,01,00", FEFunctions.dateFormat(new DateLiteral("2017-01-01 13:04:05", Type.DATETIME), new StringLiteral("%Y-%m-%d,%U,%u")).getStringValue());
-            Assert.assertEquals("201753,201752,5352", FEFunctions.dateFormat(new DateLiteral("2017-12-31 13:04:05", Type.DATETIME),new StringLiteral("%X%V,%x%v,%U%u")).getStringValue());
-
+            Locale.setDefault(Locale.ENGLISH);
             DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIME);
             Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
             Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
@@ -116,7 +153,6 @@ public class FEFunctionsTest {
             Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate, new StringLiteral("%T")).getStringValue());
             Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
             Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
-            Assert.assertEquals("2", FEFunctions.dateFormat(testDate, new StringLiteral("%w")).getStringValue());
             Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
             Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
             Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
@@ -124,7 +160,6 @@ public class FEFunctionsTest {
             Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
             Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
             Assert.assertEquals("2001 02" ,FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
-            Assert.assertEquals("9th" ,FEFunctions.dateFormat(testDate, new StringLiteral("%D")).getStringValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
@@ -132,8 +167,6 @@ public class FEFunctionsTest {
 
     @Test
     public void dateParseTest() {
-        TimeZone tz = TimeZone.getTimeZone("Asia/Shanghai");
-        TimeZone.setDefault(tz);
         try {
             Assert.assertEquals("2013-05-10", FEFunctions.dateParse(new StringLiteral("2013,05,10"), new StringLiteral("%Y,%m,%d")).getStringValue());
             Assert.assertEquals("2013-05-17 00:35:10", FEFunctions.dateParse(new StringLiteral("2013-05-17 12:35:10"), new StringLiteral("%Y-%m-%d %h:%i:%s")).getStringValue());
@@ -188,5 +221,300 @@ public class FEFunctionsTest {
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(), "%X not supported in date format string");
         }
+    }
+
+    @Test
+    public void dateSubTest() throws AnalysisException {
+        DateLiteral actualResult = FEFunctions.dateSub(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-07", Type.DATE);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.dateSub(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-09", Type.DATE);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void yearTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.year(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(2018, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.year(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(1970, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+    @Test
+    public void monthTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.month(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(8, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.month(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(1, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void dayTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.day(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(8, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.day(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(2, Type.INT);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void castToIntTest() throws AnalysisException {
+        IntLiteral actualResult =  FEFunctions.castToInt(new StringLiteral("2019"));
+        IntLiteral expectedResult = new IntLiteral(2019);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.castToInt(new StringLiteral("-1970"));
+        expectedResult = new IntLiteral(-1970);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void floorTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.floor(new FloatLiteral(3.3));
+        IntLiteral expectedResult = new IntLiteral(3);
+        Assert.assertEquals(expectedResult, actualResult);
+
+
+        actualResult = FEFunctions.floor(new FloatLiteral(-3.3));
+        expectedResult = new IntLiteral(-4);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void addIntTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.addInt(new IntLiteral(1234), new IntLiteral(4321));
+        IntLiteral expectedResult = new IntLiteral(5555);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addInt(new IntLiteral(-1111), new IntLiteral(3333));
+        expectedResult = new IntLiteral(2222);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void addDoubleTest() throws AnalysisException {
+        FloatLiteral actualResult = FEFunctions.addDouble(new FloatLiteral(1.1), new FloatLiteral(1.1));
+        FloatLiteral expectedResult = new FloatLiteral(2.2);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addDouble(new FloatLiteral(-1.1), new FloatLiteral(1.1));
+        expectedResult = new FloatLiteral(0.0);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void addDecimalTest() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.addDecimal(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
+        DecimalLiteral expectedResult = new DecimalLiteral("5.5");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addDecimal(new DecimalLiteral("-2.2"), new DecimalLiteral("3.3"));
+        expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void addDecimalV2Test() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.addDecimalV2(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
+        DecimalLiteral expectedResult = new DecimalLiteral("5.5");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addDecimalV2(new DecimalLiteral("-2.2"), new DecimalLiteral("3.3"));
+        expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void addBigIntTest() throws AnalysisException {
+        LargeIntLiteral actualResult = FEFunctions.addBigInt(new LargeIntLiteral("170141183460469231731687303715884105727"), new LargeIntLiteral("-170141183460469231731687303715884105728"));
+        LargeIntLiteral expectedResult = new LargeIntLiteral("-1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.addBigInt(new LargeIntLiteral("10"), new LargeIntLiteral("-1"));
+        expectedResult = new LargeIntLiteral("9");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void subtractIntTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.subtractInt(new IntLiteral(5555), new IntLiteral(4321));
+        IntLiteral expectedResult = new IntLiteral(1234);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.subtractInt(new IntLiteral(-3333), new IntLiteral(1111));
+        expectedResult = new IntLiteral(-4444);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void subtractDoubleTest() throws AnalysisException {
+        FloatLiteral actualResult = FEFunctions.subtractDouble(new FloatLiteral(1.1), new FloatLiteral(1.1));
+        FloatLiteral expectedResult = new FloatLiteral(0.0);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.subtractDouble(new FloatLiteral(-1.1), new FloatLiteral(1.1));
+        expectedResult = new FloatLiteral(-2.2);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void subtractDecimalTest() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.subtractDecimal(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
+        DecimalLiteral expectedResult = new DecimalLiteral("-1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.subtractDecimal(new DecimalLiteral("5.5"), new DecimalLiteral("3.3"));
+        expectedResult = new DecimalLiteral("2.2");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void subtractDecimalV2Test() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.subtractDecimalV2(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
+        DecimalLiteral expectedResult = new DecimalLiteral("-1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.subtractDecimalV2(new DecimalLiteral("5.5"), new DecimalLiteral("3.3"));
+        expectedResult = new DecimalLiteral("2.2");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void subtractBigIntTest() throws AnalysisException {
+        LargeIntLiteral actualResult = FEFunctions.subtractBigInt(new LargeIntLiteral("170141183460469231731687303715884105727"), new LargeIntLiteral("170141183460469231731687303715884105728"));
+        LargeIntLiteral expectedResult = new LargeIntLiteral("-1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.subtractBigInt(new LargeIntLiteral("10"), new LargeIntLiteral("-1"));
+        expectedResult = new LargeIntLiteral("11");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void multiplyIntTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.multiplyInt(new IntLiteral(100), new IntLiteral(2));
+        IntLiteral expectedResult = new IntLiteral(200);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyInt(new IntLiteral(-100), new IntLiteral(1));
+        expectedResult = new IntLiteral(-100);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyInt(new IntLiteral(-100), new IntLiteral(-2));
+        expectedResult = new IntLiteral(200);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void multiplyDoubleTest() throws AnalysisException {
+        FloatLiteral actualResult = FEFunctions.multiplyDouble(new FloatLiteral(-1.1), new FloatLiteral(1.0));
+        FloatLiteral expectedResult = new FloatLiteral(-1.1);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDouble(new FloatLiteral(-1.1), new FloatLiteral(-10.0));
+        expectedResult = new FloatLiteral(11.0);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDouble(new FloatLiteral(-1.1), new FloatLiteral(1.1));
+        expectedResult = new FloatLiteral(-1.2100000000000002);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void multiplyDecimalTest() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
+        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
+        expectedResult = new DecimalLiteral("11.0");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-1.1"));
+        expectedResult = new DecimalLiteral("1.21");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+
+    @Test
+    public void multiplyDecimalV2Test() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.multiplyDecimalV2(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
+        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDecimalV2(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
+        expectedResult = new DecimalLiteral("11.0");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyDecimalV2(new DecimalLiteral("-1.1"), new DecimalLiteral("-1.1"));
+        expectedResult = new DecimalLiteral("1.21");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void multiplyBigIntTest() throws AnalysisException {
+        LargeIntLiteral actualResult = FEFunctions.multiplyBigInt(new LargeIntLiteral("-170141183460469231731687303715884105727"), new LargeIntLiteral("1"));
+        LargeIntLiteral expectedResult = new LargeIntLiteral("-170141183460469231731687303715884105727");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.multiplyBigInt(new LargeIntLiteral("-10"), new LargeIntLiteral("-1"));
+        expectedResult = new LargeIntLiteral("10");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void divideDoubleTest() throws AnalysisException {
+        FloatLiteral actualResult = FEFunctions.divideDouble(new FloatLiteral(-1.1), new FloatLiteral(1.0));
+        FloatLiteral expectedResult = new FloatLiteral(-1.1);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.divideDouble(new FloatLiteral(-1.1), new FloatLiteral(-10.0));
+        expectedResult = new FloatLiteral(0.11000000000000001);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.divideDouble(new FloatLiteral(-1.1), new FloatLiteral(1.1));
+        expectedResult = new FloatLiteral(-1.0);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void divideDecimalTest() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.divideDecimal(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
+        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.divideDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
+        expectedResult = new DecimalLiteral("0.11");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void divideDecimalV2Test() throws AnalysisException {
+        DecimalLiteral actualResult = FEFunctions.divideDecimalV2(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
+        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.divideDecimalV2(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
+        expectedResult = new DecimalLiteral("0.11");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void timeDiffTest() throws AnalysisException {
+        DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIME);
+        Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
+        Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
+        Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
     }
 }

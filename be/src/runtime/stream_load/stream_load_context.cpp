@@ -43,6 +43,8 @@ std::string StreamLoadContext::to_json() const {
         break;
     case TStatusCode::LABEL_ALREADY_EXISTS:
         writer.String("Label Already Exists");
+        writer.Key("ExistingJobStatus");
+        writer.String(existing_job_status.c_str());
         break;
     default:
         writer.String("Fail");
@@ -75,6 +77,49 @@ std::string StreamLoadContext::to_json() const {
     writer.EndObject();
     return s.GetString();
 }
+
+/* 
+ * The old mini load result format is as followes:
+ * (which defined in src/util/json_util.cpp)
+ *
+ * {
+ *      "status" : "Success"("Fail"),
+ *      "msg"    : "xxxx"
+ * }
+ *
+ */
+std::string StreamLoadContext::to_json_for_mini_load() const {
+    rapidjson::StringBuffer s;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
+    writer.StartObject();
+
+    // status
+    bool show_ok = true;
+    writer.Key("status");
+    switch (status.code()) {
+    case TStatusCode::OK:
+        writer.String("Success");
+        break;
+    case TStatusCode::PUBLISH_TIMEOUT:
+        // treat PUBLISH_TIMEOUT as OK in mini load
+        writer.String("Success");
+        break;
+    default:
+        writer.String("Fail");
+        show_ok = false;
+        break;
+    }
+    // msg
+    writer.Key("msg");
+    if (status.ok() || show_ok) {
+        writer.String("OK");
+    } else {
+        writer.String(status.get_error_msg().c_str());
+    }
+    writer.EndObject();
+    return s.GetString();
+}
+
 
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;

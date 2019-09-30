@@ -111,9 +111,14 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_batch(PRowBatch* batch, bool eos = false);
 
-    // Flush buffered rows and close channel.
-    // Returns error status if any of the preceding rpcs failed, OK otherwise.
+    // Flush buffered rows and close channel. This function don't wait the response
+    // of close operation, client should call close_wait() to finish channel's close.
+    // We split one close operation into two phases in order to make multiple channels
+    // can run parallel.
     void close(RuntimeState* state);
+
+    // Get close wait's response, to finish channel close operation.
+    void close_wait(RuntimeState* state);
 
     int64_t num_data_bytes_sent() const {
         return _num_data_bytes_sent;
@@ -130,9 +135,9 @@ private:
         if (cntl->Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
                 << ", error_text=" << cntl->ErrorText();
-            return Status(TStatusCode::THRIFT_RPC_ERROR, "failed to send batch");
+            return Status::ThriftRpcError("failed to send batch");
         }
-        return Status::OK;
+        return Status::OK();
     }
 
 
@@ -183,7 +188,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
             ", maybe version is not compatible.";
-        return Status("no brpc destination");
+        return Status::InternalError("no brpc destination");
     }
 
     // initialize brpc request
@@ -198,7 +203,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
 
     _need_close = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
@@ -228,7 +233,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     if (batch != nullptr) {
         _brpc_request.release_row_batch();
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::Channel::add_row(TupleRow* row) {
@@ -256,7 +261,7 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
     }
 
     _batch->commit_last_row();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::Channel::send_current_batch(bool eos) {
@@ -268,12 +273,12 @@ Status DataStreamSender::Channel::send_current_batch(bool eos) {
     }
     _batch->reset();
     RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::Channel::close_internal() {
     if (!_need_close) {
-        return Status::OK;
+        return Status::OK();
     }
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
@@ -283,13 +288,19 @@ Status DataStreamSender::Channel::close_internal() {
     } else {
         RETURN_IF_ERROR(send_batch(nullptr, true));
     }
-    RETURN_IF_ERROR(_wait_last_brpc());
-    _need_close = false;
-    return Status::OK;
+    // Don't wait for the last packet to finish, left it to close_wait.
+    return Status::OK();
 }
 
 void DataStreamSender::Channel::close(RuntimeState* state) {
     state->log_error(close_internal().get_error_msg());
+}
+
+void DataStreamSender::Channel::close_wait(RuntimeState* state) {
+    if (_need_close) {
+        state->log_error(_wait_last_brpc().get_error_msg());
+        _need_close = false;
+    }
     _batch.reset();
 }
 
@@ -350,7 +361,7 @@ Status DataStreamSender::init(const TDataSink& tsink) {
         // Partition infos
         int num_parts = t_stream_sink.output_partition.partition_infos.size();
         if (num_parts == 0) {
-            return Status("Empty partition info.");
+            return Status::InternalError("Empty partition info.");
         }
         for (int i = 0; i < num_parts; ++i) {
             PartitionInfo* info = _pool->add(new PartitionInfo());
@@ -363,7 +374,7 @@ Status DataStreamSender::init(const TDataSink& tsink) {
     } else {
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::prepare(RuntimeState* state) {
@@ -413,7 +424,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_channels[i]->init(state));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 DataStreamSender::~DataStreamSender() {
@@ -428,7 +439,7 @@ Status DataStreamSender::open(RuntimeState* state) {
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
@@ -486,7 +497,7 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
         COUNTER_UPDATE(_ignore_rows, ignore_rows);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int DataStreamSender::binary_find_partition(const PartRangeKey& key) const {
@@ -513,7 +524,7 @@ Status DataStreamSender::find_partition(
         RuntimeState* state, TupleRow* row, PartitionInfo** info, bool* ignore) {
     if (_partition_expr_ctxs.size() == 0) {
         *info = _partition_infos[0];
-        return Status::OK;
+        return Status::OK();
     } else {
         *ignore = false;
         // use binary search to get the right partition.
@@ -537,17 +548,17 @@ Status DataStreamSender::find_partition(
                 ctx->print_value(row, &error_log);
                 LOG(INFO) << error_log.str();
                 *ignore = true;
-                return Status::OK;
+                return Status::OK();
             } else {
                 std::stringstream error_log;
                 error_log << "there is no corresponding partition for this key: ";
                 ctx->print_value(row, &error_log);
-                return Status(error_log.str());
+                return Status::InternalError(error_log.str());
             }
         }
         *info = _partition_infos[part_index];
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::process_distribute(
@@ -570,7 +581,7 @@ Status DataStreamSender::process_distribute(
     int64_t part_id = part->id();
     *code = RawValue::get_hash_value_fvn(&part_id, TypeDescriptor(TYPE_BIGINT), hash_val);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::compute_range_part_code(
@@ -582,24 +593,29 @@ Status DataStreamSender::compute_range_part_code(
     PartitionInfo* part = nullptr;
     RETURN_IF_ERROR(find_partition(state, row, &part, ignore));
     if (*ignore) {
-        return Status::OK;
+        return Status::OK();
     }
     // process distribute
     RETURN_IF_ERROR(process_distribute(state, row, part, hash_value));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
+    // make all channels close parallel
     for (int i = 0; i < _channels.size(); ++i) {
         _channels[i]->close(state);
+    }
+    // wait all channels to finish
+    for (int i = 0; i < _channels.size(); ++i) {
+        _channels[i]->close_wait(state);
     }
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->close(state));
     }
     Expr::close(_partition_expr_ctxs, state);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template<typename T>
@@ -621,7 +637,7 @@ Status DataStreamSender::serialize_batch(RowBatch* src, T* dest, int num_receive
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int64_t DataStreamSender::get_num_data_bytes_sent() const {

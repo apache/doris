@@ -102,7 +102,7 @@ Status BrokerWriter::open() {
         std::stringstream ss;
         ss << "Open broker writer failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker open writer response: "
@@ -113,17 +113,17 @@ Status BrokerWriter::open() {
         ss << "Open broker writer failed, broker:" << broker_addr
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _fd = response.fd;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len) {
     if (buf_len == 0) {
         *written_len = 0;
-        return Status::OK;
+        return Status::OK();
     }
 
     const TNetworkAddress& broker_addr = _addresses[_addr_idx];
@@ -156,13 +156,13 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             std::stringstream ss;
             ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
             LOG(WARNING) << ss.str();
-            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
+            return Status::ThriftRpcError(ss.str());
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
+        return Status::ThriftRpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker pwrite response: "
@@ -173,18 +173,18 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
         ss << "Fail to write to broker, broker:" << broker_addr
             << " msg:" << response.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     *written_len = buf_len;
     _cur_offset += buf_len;
 
-    return Status::OK;
+    return Status::OK();
 }
 
-void BrokerWriter::close() {
+Status BrokerWriter::close() {
     if (_is_closed) {
-        return;
+        return Status::OK();
     }
     TBrokerCloseWriterRequest request;
 
@@ -198,40 +198,49 @@ void BrokerWriter::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        // use 20 second because close may take longer in remote storage, sometimes.
+        // TODO(cmy): optimize this if necessary.
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 20000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
-            return;
+            return status;
         }
 
         try {
             client->closeWriter(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
+            LOG(WARNING) << "Close broker writer failed. broker=" << broker_addr
+                << ", status=" << status.get_error_msg();
             status = client.reopen();
             if (!status.ok()) {
-                LOG(WARNING) << "Close broker writer failed. broker=" << broker_addr
+                LOG(WARNING) << "Reopen broker writer failed. broker=" << broker_addr
                     << ", status=" << status.get_error_msg();
-                return;
+                return status;
             }
             client->closeWriter(response, request);
         }
     } catch (apache::thrift::TException& e) {
-        LOG(WARNING) << "Close broker writer failed, broker:" << broker_addr
+        std::stringstream ss;
+        ss << "Close broker writer failed, broker:" << broker_addr
             << " msg:" << e.what();
-        return;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker close writer response: "
             << apache::thrift::ThriftDebugString(response).c_str();
 
     if (response.statusCode != TBrokerOperationStatusCode::OK) {
-        LOG(WARNING) << "Close broker writer failed, broker:" << broker_addr
+        std::stringstream ss;
+        ss << "Close broker writer failed, broker:" << broker_addr
             << " msg:" << response.message;
-        return;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
 
     _is_closed = true;
+    return Status::OK();
 }
 
 } // end namespace doris

@@ -60,12 +60,12 @@ void LogKuduMessage(kudu::client::KuduLogSeverity severity, const char* filename
   do { \
     kudu::Status _s = (expr); \
     if (UNLIKELY(!_s.ok())) {                                      \
-      return Status(_s.ToString()); \
+      return Status::InternalError(_s.ToString()); \
     } \
   } while (0)
 
 
- // 63: return Status(strings::Substitute("$0: $1", prepend, _s.ToString()));
+ // 63: return Status::InternalError("strings::Substitute("$0: $1", prepend, _s.ToString()));
 
 } /// namespace impala
 #endif

@@ -46,6 +46,8 @@ public:
     // the current hash/seed value.
     // This should only be called if SSE is supported.
     // This is ~4x faster than Fnv/Boost Hash.
+    // NOTE: DO NOT use this method for checksum! This does not generate the standard CRC32 checksum!
+    //       For checksum, use CRC-32C algorithm from crc32c.h
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
@@ -270,7 +272,6 @@ public:
 #endif
 
     }
-
 };
 
 }

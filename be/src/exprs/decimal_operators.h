@@ -41,6 +41,7 @@ public:
     static DecimalVal cast_to_decimal_val(FunctionContext*, const LargeIntVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const FloatVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const DoubleVal&);
+    static DecimalVal cast_to_decimal_val(FunctionContext*, const DateTimeVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const StringVal&);
 
     static BooleanVal cast_to_boolean_val(FunctionContext*, const DecimalVal&);

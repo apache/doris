@@ -47,7 +47,7 @@ Status ResultSink::prepare_exprs(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::prepare(
             _output_expr_ctxs, state, _row_desc, _expr_mem_tracker.get()));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultSink::prepare(RuntimeState* state) {
@@ -65,7 +65,7 @@ Status ResultSink::prepare(RuntimeState* state) {
     _writer.reset(new(std::nothrow) ResultWriter(_sender.get(), _output_expr_ctxs));
     RETURN_IF_ERROR(_writer->init(state));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultSink::open(RuntimeState* state) {
@@ -78,7 +78,7 @@ Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
 
 Status ResultSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
-        return Status::OK;
+        return Status::OK();
     }
     // close sender, this is normal path end
     if (_sender) {
@@ -89,7 +89,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 void ResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {

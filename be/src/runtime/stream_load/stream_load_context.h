@@ -43,7 +43,8 @@ public:
     KafkaLoadInfo(const TKafkaLoadInfo& t_info):
         brokers(t_info.brokers),
         topic(t_info.topic),
-        begin_offset(t_info.partition_begin_offset) {
+        begin_offset(t_info.partition_begin_offset),
+        properties(t_info.properties) {
 
         for (auto& p : t_info.partition_begin_offset) {
             cmt_offset[p.first] = p.second -1;
@@ -71,6 +72,8 @@ public:
     std::map<int32_t, int64_t> begin_offset;
     // partiton -> commit offset, inclusive.
     std::map<int32_t, int64_t> cmt_offset;
+    //custom kafka property key -> value
+    std::map<std::string, std::string> properties;
 };
 
 class MessageBodySink;
@@ -78,6 +81,7 @@ class MessageBodySink;
 class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) :
+        id(UniqueId::gen_uid()),
         _exec_env(exec_env),
         _refs(0) {
         start_nanos = MonotonicNanos();
@@ -98,6 +102,9 @@ public:
     }
 
     std::string to_json() const;
+    // the old mini load result format is not same as stream load.
+    // add this function for compatible with old mini load result format.
+    std::string to_json_for_mini_load() const;
 
     // return the brief info of this context.
     // also print the load source info if detail is set to true
@@ -123,7 +130,10 @@ public:
     std::string db;
     std::string table;
     std::string label;
-
+    // optional
+    std::string sub_label;
+    double max_filter_ratio = 0.0;
+    int32_t timeout_second = -1;
     AuthInfo auth;
 
     // the following members control the max progress of a consuming
@@ -147,7 +157,7 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
 
     TStreamLoadPutResult put_result;
-    double max_filter_ratio = 0.0;
+
     std::vector<TTabletCommitInfo> commit_infos;
 
     std::promise<Status> promise;
@@ -163,12 +173,19 @@ public:
     int64_t start_nanos = 0;
     int64_t load_cost_nanos = 0;
     std::string error_url = "";
+    // if label already be used, set existing job's status here
+    // should be RUNNING or FINISHED
+    std::string existing_job_status = "";
 
     KafkaLoadInfo* kafka_info = nullptr;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.
     int64_t consumer_id;
+
+public:
+    ExecEnv* exec_env() { return _exec_env; }
+
 private:
     ExecEnv* _exec_env;
     std::atomic<int> _refs;

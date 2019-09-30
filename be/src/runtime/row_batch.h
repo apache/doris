@@ -179,7 +179,7 @@ public:
     // string data).
     int total_byte_size();
 
-    TupleRow* get_row(int row_idx) {
+    TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != NULL);
         DCHECK_GE(row_idx, 0);
         //DCHECK_LT(row_idx, _num_rows + (_has_in_flight_row ? 1 : 0));
@@ -244,6 +244,9 @@ public:
     }
     MemPool* tuple_data_pool() {
         return _tuple_data_pool.get();
+    }
+    ObjectPool* agg_object_pool() {
+        return _agg_object_pool.get();
     }
     int num_io_buffers() const {
         return _io_buffers.size();
@@ -322,6 +325,7 @@ public:
 
     // Transfer ownership of resources to dest.  This includes tuple data in mem
     // pool and io buffers.
+    // we firstly update dest resource, and then reset current resource
     void transfer_resource_ownership(RowBatch* dest);
 
     void copy_row(TupleRow* src, TupleRow* dest) {
@@ -384,14 +388,6 @@ public:
     int num_buffers() const { 
         return _buffers.size(); 
     }
-    // Swaps all of the row batch state with 'other'.  This is used for scan nodes
-    // which produce RowBatches asynchronously.  Typically, an ExecNode is handed
-    // a row batch to populate (pull model) but ScanNodes have multiple threads
-    // which push row batches.  This function is used to swap the pushed row batch
-    // contents with the row batch that's passed from the caller.
-    // TODO: this is wasteful and makes a copy that's unnecessary.  Think about cleaning
-    // this up.
-    void swap(RowBatch* other);
 
     const RowDescriptor& row_desc() const {
         return _row_desc;
@@ -410,7 +406,7 @@ public:
     /// Allocates a buffer large enough for the fixed-length portion of 'capacity_' rows in
     /// this batch from 'tuple_data_pool_'. 'capacity_' is reduced if the allocation would
     /// exceed FIXED_LEN_BUFFER_LIMIT. Always returns enough space for at least one row.
-    /// Returns Status::MEM_LIMIT_EXCEEDED and sets 'buffer' to NULL if a memory limit would
+    /// Returns Status::MemoryLimitExceeded("Memory limit exceeded") and sets 'buffer' to NULL if a memory limit would
     /// have been exceeded. 'state' is used to log the error.
     /// On success, sets 'buffer_size' to the size in bytes and 'buffer' to the buffer.
     Status resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* buffer_size,
@@ -483,6 +479,9 @@ private:
 
     // holding (some of the) data referenced by rows
     boost::scoped_ptr<MemPool> _tuple_data_pool;
+
+    // holding some complex agg object data (bitmap, hll)
+    std::unique_ptr<ObjectPool> _agg_object_pool;
 
     // IO buffers current owned by this row batch. Ownership of IO buffers transfer
     // between row batches. Any IO buffer will be owned by at most one row batch

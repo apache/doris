@@ -43,8 +43,13 @@ TEST(FileSystemUtil, CreateDirectory) {
     // Test error cases by removing write permissions on root dir to prevent
     // creation/deletion of subdirs
     chmod(dir.string().c_str(), 0);
-    EXPECT_FALSE(FileSystemUtil::create_directory(subdir1.string()).ok());
-    EXPECT_FALSE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    if (getuid() == 0) {// User root
+        EXPECT_TRUE(FileSystemUtil::create_directory(subdir1.string()).ok());
+        EXPECT_TRUE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    } else {// User other
+        EXPECT_FALSE(FileSystemUtil::create_directory(subdir1.string()).ok());
+        EXPECT_FALSE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    }
     // Test success cases by adding write permissions back
     chmod(dir.string().c_str(), S_IRWXU);
     EXPECT_TRUE(FileSystemUtil::create_directory(subdir1.string()).ok());

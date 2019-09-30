@@ -145,15 +145,9 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
             insertStmt.prepareExpressions();
-            if (insertStmt.getOlapTuple() != null && !insertStmt.isStreaming()) {
-                singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);
-                singleNodePlan.init(analyzer);
-                resultExprs = insertStmt.getResultExprs();
-            }
         }
 
         // TODO chenhao16 , no used materialization work

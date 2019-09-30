@@ -18,12 +18,11 @@
 package org.apache.doris.journal;
 
 import org.apache.doris.alter.AlterJob;
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
-import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -32,6 +31,7 @@ import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.AsyncDeleteJob;
@@ -42,11 +42,9 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.Checkpoint;
-import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
-import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -194,17 +192,6 @@ public class JournalEntity implements Writable {
                 data = new TableInfo();
                 break;
             }
-            case OperationType.OP_BACKUP_START:
-            case OperationType.OP_BACKUP_FINISH_SNAPSHOT:
-            case OperationType.OP_BACKUP_FINISH: {
-                data = new BackupJob_D();
-                break;
-            }
-            case OperationType.OP_RESTORE_START:
-            case OperationType.OP_RESTORE_FINISH: {
-                data = new RestoreJob_D();
-                break;
-            }
             case OperationType.OP_BACKUP_JOB: {
                 data = BackupJob.read(in);
                 needRead = false;
@@ -243,10 +230,6 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
-            case OperationType.OP_CLONE_DONE: {
-                data = new CloneInfo();
-                break;
-            }
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
             case OperationType.OP_DELETE_REPLICA:
@@ -269,14 +252,6 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
-                break;
-            }
-            case OperationType.OP_ALTER_ACCESS_RESOURCE: {
-                data = new UserProperty();
-                break;
-            }
-            case OperationType.OP_DROP_USER: {
-                data = new Text();
                 break;
             }
             case OperationType.OP_NEW_DROP_USER: {
@@ -321,10 +296,6 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_CLUSTER: {
-                data = new ClusterInfo();
-                break;
-            }
-            case OperationType.OP_UPDATE_CLUSTER: {
                 data = new ClusterInfo();
                 break;
             }
@@ -385,7 +356,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_COLOCATE_ADD_TABLE:
             case OperationType.OP_COLOCATE_REMOVE_TABLE:
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
-            case OperationType.OP_COLOCATE_MARK_BALANCING:
+            case OperationType.OP_COLOCATE_MARK_UNSTABLE:
             case OperationType.OP_COLOCATE_MARK_STABLE: {
                 data = new ColocatePersistInfo();
                 break;
@@ -432,6 +403,22 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_END_LOAD_JOB: {
                 data = LoadJobFinalOperation.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_CREATE_SMALL_FILE:
+            case OperationType.OP_DROP_SMALL_FILE: {
+                data = SmallFile.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ALTER_JOB_V2: {
+                data = AlterJobV2.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
+                data = TableInfo.read(in);
                 needRead = false;
                 break;
             }

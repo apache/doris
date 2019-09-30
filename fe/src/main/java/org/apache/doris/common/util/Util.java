@@ -66,6 +66,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
     }
     
     private static class CmdWorker extends Thread {
@@ -390,6 +391,20 @@ public class Util {
         }
 
         return result;
+    }
+
+    public static boolean getBooleanPropertyOrDefault(String valStr, boolean defaultVal, String hintMsg)
+            throws AnalysisException {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+
+        try {
+            boolean result = Boolean.valueOf(valStr);
+            return result;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(hintMsg);
+        }
     }
 }
 

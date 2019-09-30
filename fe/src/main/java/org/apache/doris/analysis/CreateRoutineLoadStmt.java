@@ -22,11 +22,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -94,6 +96,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
+    public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -104,6 +107,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(LoadStmt.STRICT_MODE)
+            .add(LoadStmt.TIMEZONE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -130,12 +135,17 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private boolean strictMode = true;
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
     // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+
+    //custom kafka property map<key, value>
+    private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
     private static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     private static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
@@ -194,6 +204,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxBatchSizeBytes;
     }
 
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
     }
@@ -206,6 +224,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return kafkaPartitionOffsets;
     }
 
+    public Map<String, String> getCustomKafkaProperties() {
+        return customKafkaProperties;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -214,7 +236,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, name);
         // check load properties include column separator etc.
-        checkLoadProperties(analyzer);
+        checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -230,7 +252,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
     }
 
-    public void checkLoadProperties(Analyzer analyzer) throws UserException {
+    public void checkLoadProperties() throws UserException {
         if (loadPropertyList == null) {
             return;
         }
@@ -272,8 +294,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 partitionNames);
     }
 
-    private void checkJobProperties() throws AnalysisException {
-        Optional<String> optional = jobProperties.keySet().parallelStream().filter(
+    private void checkJobProperties() throws UserException {
+        Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
@@ -298,6 +320,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+                                                      RoutineLoadJob.DEFAULT_STRICT_MODE,
+                                                      LoadStmt.STRICT_MODE + " should be a boolean");
+
+        if (ConnectContext.get() != null) {
+            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+        }
+        timezone = jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone);
+        TimeUtils.checkTimeZoneValid(timezone);
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
@@ -317,8 +349,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkKafkaProperties() throws AnalysisException {
-        Optional<String> optional = dataSourceProperties.keySet().parallelStream()
-                .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity)).findFirst();
+        Optional<String> optional = dataSourceProperties.keySet().stream()
+                .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity))
+                .filter(entity -> !entity.startsWith("property.")).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka custom property");
         }
@@ -393,6 +426,19 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     }
                 }
             }
+        }
+        // check custom kafka property
+        for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
+            if (dataSourceProperty.getKey().startsWith("property.")) {
+                String propertyKey = dataSourceProperty.getKey();
+                String propertyValue = dataSourceProperty.getValue();
+                String propertyValueArr[] = propertyKey.split("\\.");
+                if (propertyValueArr.length < 2) {
+                    throw new AnalysisException("kafka property value could not be a empty string");
+                }
+                customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+            }
+            //can be extended in the future which other prefix
         }
     }
 

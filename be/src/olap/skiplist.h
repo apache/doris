@@ -31,12 +31,11 @@
 
 #include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "util/arena.h"
+#include "runtime/mem_pool.h"
 #include "util/random.h"
+#include "olap/row.h"
 
 namespace doris {
-
-class Arena;
 
 template<typename Key, class Comparator>
 class SkipList {
@@ -47,7 +46,7 @@ public:
     // Create a new SkipList object that will use "cmp" for comparing keys,
     // and will allocate memory using "*arena".  Objects allocated in the arena
     // must remain allocated for the lifetime of the skiplist object.
-    explicit SkipList(Comparator cmp, Arena* arena);
+    explicit SkipList(Comparator cmp, MemPool* mem_pool);
 
     // Insert key into the list.
     // REQUIRES: nothing that compares equal to key is currently in the list.
@@ -101,7 +100,7 @@ private:
 
     // Immutable after construction
     Comparator const compare_;
-    Arena* const arena_;    // Arena used for allocations of nodes
+    MemPool* const _mem_pool;    // MemPool used for allocations of nodes
 
     Node* const head_;
 
@@ -183,7 +182,7 @@ struct SkipList<Key,Comparator>::Node {
 template<typename Key, class Comparator>
 typename SkipList<Key,Comparator>::Node*
 SkipList<Key,Comparator>::NewNode(const Key& key, int height) {
-    char* mem = arena_->AllocateAligned(
+    char* mem = (char*)_mem_pool->allocate(
             sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
     return new (mem) Node(key);
 }
@@ -323,9 +322,9 @@ SkipList<Key,Comparator>::FindLast() const {
 }
 
 template<typename Key, class Comparator>
-SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
+SkipList<Key,Comparator>::SkipList(Comparator cmp, MemPool* mem_pool)
     : compare_(cmp),
-    arena_(arena),
+    _mem_pool(mem_pool),
     head_(NewNode(0 /* any key will do */, kMaxHeight)),
     max_height_(1),
     rnd_(0xdeadbeef) {
@@ -336,7 +335,9 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
 
 template<typename Key, class Comparator>
 void SkipList<Key, Comparator>::Aggregate(const Key& k1, const Key& k2) {
-    compare_._schema->aggregate(k1, k2, arena_);
+    ContiguousRow dst_row(compare_._schema, k1);
+    ContiguousRow src_row(compare_._schema, k2);
+    agg_update_row(&dst_row, src_row, _mem_pool);
 }
 
 template<typename Key, class Comparator>

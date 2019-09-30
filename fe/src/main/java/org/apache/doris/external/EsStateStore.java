@@ -56,7 +56,6 @@ import okhttp3.Route;
 
 /**
  * it is used to call es api to get shard allocation state
- * @author yiguolei
  *
  */
 public class EsStateStore extends Daemon {
@@ -103,7 +102,7 @@ public class EsStateStore extends Daemon {
                 }
                 esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
-                LOG.error("errors while load table {} state from es", esTable.getName());
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
             }
         }
     }

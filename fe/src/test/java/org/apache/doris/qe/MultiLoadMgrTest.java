@@ -17,38 +17,22 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
+import mockit.Mocked;
+
+
 public class MultiLoadMgrTest {
+    @Mocked
     private Catalog catalog;
-
-    @Before
-    public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
-
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
-    }
 
     @Test
     public void testStartNormal() throws DdlException {

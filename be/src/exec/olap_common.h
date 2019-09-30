@@ -22,6 +22,7 @@
 #include <boost/lexical_cast.hpp>
 #include <map>
 #include <string>
+#include <sstream>
 #include <stdint.h>
 
 #include "common/logging.h"
@@ -187,7 +188,7 @@ public:
     template<class T>
     Status extend_scan_key(ColumnValueRange<T>& range);
 
-    Status get_key_range(std::vector<OlapScanRange>* key_range);
+    Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
     bool has_range_value() {
         return _has_range_value;
@@ -199,16 +200,18 @@ public:
         _end_scan_keys.clear();
     }
 
-    void debug() {
+    std::string debug_string() {
+        std::stringstream ss;
         DCHECK(_begin_scan_keys.size() == _end_scan_keys.size());
-        VLOG(1) << "ScanKeys:";
+        ss << "ScanKeys:";
 
         for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-            VLOG(1) << "ScanKey=" << (_begin_include ? "[" : "(")
-                    << _begin_scan_keys[i] << " : "
-                    << _end_scan_keys[i]
-                    << (_end_include ? "]" : ")");
+            ss << "ScanKey=" << (_begin_include ? "[" : "(")
+                << _begin_scan_keys[i] << " : "
+                << _end_scan_keys[i]
+                << (_end_include ? "]" : ")");
         }
+        return ss.str();
     }
 
     size_t size() {
@@ -256,49 +259,6 @@ typedef boost::variant <
         ColumnValueRange<DecimalValue>,
         ColumnValueRange<DecimalV2Value> > ColumnValueRangeType;
 
-class DorisScanRange {
-public:
-    DorisScanRange(const TPaloScanRange& doris_scan_range)
-        : _scan_range(doris_scan_range)  {
-    }
-
-    Status init();
-
-    const TPaloScanRange& scan_range() {
-        return _scan_range;
-    }
-
-    /**
-     * @brief return -1 if column is not partition column
-     *        return 0 if column's value range has NO intersection with partition column
-     *        return 1 if column's value range has intersection with partition column
-     **/
-    int has_intersection(const std::string column_name, ColumnValueRangeType& value_range);
-
-    class IsEmptyValueRangeVisitor : public boost::static_visitor<bool> {
-    public:
-        template<class T>
-        bool operator()(T& v) {
-            return v.is_empty_value_range();
-        }
-    };
-
-    class HasIntersectionVisitor : public boost::static_visitor<bool> {
-    public:
-        template<class T, class P>
-        bool operator()(T& , P&) {
-            return false;
-        }
-        template<class T>
-        bool operator()(T& v1, T& v2) {
-            return v1.has_intersection(v2);
-        }
-    };
-private:
-    const TPaloScanRange _scan_range;
-    std::map<std::string, ColumnValueRangeType > _partition_column_range;
-};
-
 template<class T>
 ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {
 }
@@ -318,11 +278,11 @@ ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, 
 template<class T>
 Status ColumnValueRange<T>::add_fixed_value(T value) {
     if (INVALID_TYPE == _column_type) {
-        return Status("AddFixedValue failed, Invalid type");
+        return Status::InternalError("AddFixedValue failed, Invalid type");
     }
 
     _fixed_values.insert(value);
-    return Status::OK;
+    return Status::OK();
 }
 
 template<class T>
@@ -434,7 +394,7 @@ void ColumnValueRange<T>::convert_to_range_value() {
 template<class T>
 Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
     if (INVALID_TYPE == _column_type) {
-        return Status("AddRange failed, Invalid type");
+        return Status::InternalError("AddRange failed, Invalid type");
     }
 
     if (is_fixed_value_range()) {
@@ -468,7 +428,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
 
         default: {
-            return Status("AddRangefail! Unsupport SQLFilterOp.");
+            return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
         }
         }
 
@@ -515,7 +475,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
             }
 
             default: {
-                return Status("AddRangefail! Unsupport SQLFilterOp.");
+                return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
             }
             }
         }
@@ -529,7 +489,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template<class T>
@@ -662,12 +622,12 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     if (range.is_empty_value_range()) {
         _begin_scan_keys.clear();
         _end_scan_keys.clear();
-        return Status::OK;
+        return Status::OK();
     }
 
     // 2. stop extend ScanKey when it's already extend a range value
     if (_has_range_value) {
-        return Status::OK;
+        return Status::OK();
     }
 
     //if a column doesn't have any predicate, we will try converting the range to fixed values
@@ -680,7 +640,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
-                return Status::OK;
+                return Status::OK();
             }
         }
     } else {
@@ -791,7 +751,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
         _end_include = range.is_end_include();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }  // namespace doris

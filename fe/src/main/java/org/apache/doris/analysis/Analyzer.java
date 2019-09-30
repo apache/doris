@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
@@ -138,6 +139,8 @@ public class Analyzer {
     private TupleId visibleSemiJoinedTupleId_ = null;
     // for some situation that udf is not allowed.
     private boolean isUDFAllowed = true;
+    // timezone specified for some operation, such as broker load
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     
     public void setIsSubquery() {
         isSubquery = true;
@@ -150,6 +153,8 @@ public class Analyzer {
     
     public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
+    public void setTimezone(String timezone) { this.timezone = timezone; }
+    public String getTimezone() { return timezone; }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
@@ -712,12 +717,22 @@ public class Analyzer {
         globalState.semiJoinedTupleIds.put(tid, rhsRef);
     }
 
+    public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleId);
+    }
 
-    /**
-     * Register all conjuncts in a list of predicates as Where clause conjuncts.
-     */
-    public void registerConjuncts(List<Expr> l) throws AnalysisException {
-        registerConjuncts(l, null);
+    public void registerConjuncts(List<Expr> l, TupleId tupleId) throws AnalysisException {
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        tupleIds.add(tupleId);
+        registerConjuncts(l, tupleIds);
+    }
+
+    public void registerConjunct(Expr e, List<TupleId> tupleIds) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleIds);
     }
 
     // register all conjuncts and handle constant conjuncts with ids
@@ -1015,19 +1030,6 @@ public class Analyzer {
             if (isOuterJoined(tid)) return true;
         }
         return false;
-    }
-
-    /**
-     * Return slot descriptor corresponding to column referenced in the context
-     * of tupleDesc, or null if no such reference exists.
-     */
-    public SlotDescriptor getColumnSlot(TupleDescriptor tupleDesc, Column col) {
-        for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-            if (slotDesc.getColumn() == col) {
-                return slotDesc;
-            }
-        }
-        return null;
     }
 
     public DescriptorTable getDescTbl() {

@@ -30,11 +30,6 @@ import java.util.Iterator;
 import java.util.Map;
 
 /*
- * Author: Chenmingyu
- * Date: Jan 28, 2019
- */
-
-/*
  * SimpleCoreMetricVisitor only show some core metrics of FE, with format:
  *      name type value
  * eg:

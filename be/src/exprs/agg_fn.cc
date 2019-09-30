@@ -88,7 +88,7 @@ Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
     DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
     stringstream ss;
     ss << "Function " << _fn.name.function_name << " is not implemented.";
-    return Status(ss.str());
+    return Status::InternalError(ss.str());
   }
 
   RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
@@ -128,7 +128,7 @@ Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
             _fn.hdfs_location, _fn.checksum,
             &finalize_fn_, &_cache_entry));
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
@@ -140,7 +140,7 @@ Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
   //TODO chenhao
   DCHECK_EQ(texpr_node.node_type, TExprNodeType::AGG_EXPR);
   if (!texpr_node.__isset.fn) {
-    return Status("Function not set in thrift AGGREGATE_EXPR node");
+    return Status::InternalError("Function not set in thrift AGGREGATE_EXPR node");
   }
   AggFn* new_agg_fn =
       pool->add(new AggFn(texpr_node, intermediate_slot_desc, output_slot_desc));
@@ -155,7 +155,7 @@ Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
     input_expr->assign_fn_ctx_idx(&fn_ctx_idx);
   }
   *agg_fn = new_agg_fn;
-  return Status::OK;
+  return Status::OK();
 }
 
 FunctionContext::TypeDesc AggFn::GetIntermediateTypeDesc() const {
@@ -185,10 +185,10 @@ FunctionContext::TypeDesc AggFn::GetOutputTypeDesc() const {
 //    codegen->InlineConstFnAttrs(GetOutputTypeDesc(), arg_type_descs_, *uda_fn);
 //    *uda_fn = codegen->FinalizeFunction(*uda_fn);
 //    if (*uda_fn == nullptr) {
-//      return Status(TErrorCode::UDF_VERIFY_FAILED, symbol, fn_.hdfs_location);
+//      return Status::InternalError(TErrorCode::UDF_VERIFY_FAILED, symbol, fn_.hdfs_location);
 //    }
 //  }
-//  return Status::OK;
+//  return Status::OK();
 //}
 
 void AggFn::Close() {

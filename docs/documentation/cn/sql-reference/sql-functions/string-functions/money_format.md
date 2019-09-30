@@ -1,14 +1,13 @@
 # money_format
-
-## Syntax
+## description
+### Syntax
 
 VARCHAR money_format(Number)
 
-## Description
 
 将数字按照货币格式输出，整数部分每隔3位用逗号分隔，小数部分保留2位
 
-## Examples
+## example
 
 ```
 mysql> select money_format(17014116);
@@ -32,3 +31,5 @@ mysql> select money_format(1123.4);
 | 1,123.40             |
 +----------------------+
 ```
+##keyword
+MONEY_FORMAT,MONEY,FORMAT

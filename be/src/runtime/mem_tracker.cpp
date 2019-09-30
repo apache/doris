@@ -24,6 +24,7 @@
 //#include <boost/shared_ptr.hpp>
 //include <boost/weak_ptr.hpp>
 
+#include "exec/exec_node.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -32,6 +33,7 @@
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
+#include "util/stack_util.h"
 
 //using std::shared_ptr;
 //using std::weak_ptr;
@@ -182,11 +184,6 @@ MemTracker* MemTracker::CreateQueryMemTracker(const TUniqueId& id,
 }
 
 MemTracker::~MemTracker() {
-    DCHECK_EQ(_consumption->current_value(), 0) << _label << "\n"
-        << get_stack_trace() << "\n"
-        << LogUsage("");
-    // TODO chenhao
-    //DCHECK(_closed) << _label;
     delete _reservation_counters.load();
 }
 
@@ -319,9 +316,7 @@ Status MemTracker::MemLimitExceeded(RuntimeState* state, const std::string& deta
     // }
     // ss << tracker_to_log->LogUsage();
     // Status status = Status::MemLimitExceeded(ss.str());
-    Status status = Status::MEM_LIMIT_EXCEEDED;
-    if (state != nullptr) state->log_error(status.get_error_msg());
-    return status;
+    LIMIT_EXCEEDED(this, state, ss.str());
 }
 
 void MemTracker::AddGcFunction(GcFunction f) {

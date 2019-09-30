@@ -95,7 +95,7 @@ public class ColumnTypeTest {
 
     @Test(expected = AnalysisException.class)
     public void testCharInvalid() throws AnalysisException {
-        TypeDef type = TypeDef.createVarchar(0);
+        TypeDef type = TypeDef.createVarchar(-1);
         type.analyze(null);
         Assert.fail("No Exception throws");
     }

@@ -48,9 +48,6 @@ import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
-/**
- * Created by zhaochun on 14-9-22.
- */
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
 
@@ -256,6 +253,7 @@ public class PaloFe {
             pid.deleteOnExit();
 
             String name = ManagementFactory.getRuntimeMXBean().getName();
+            file.setLength(0);
             file.write(name.split("@")[0].getBytes(Charsets.UTF_8));
 
             return true;

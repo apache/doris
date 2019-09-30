@@ -38,8 +38,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -268,7 +268,7 @@ public class SystemHandler extends AlterHandler {
 
             // if the space we needed is larger than the current available capacity * 0.85,
             // we refuse this decommission operation.
-            if (totalNeededCapacityB > totalAvailableCapacityB * Config.storage_high_watermark_usage_percent) {
+            if (totalNeededCapacityB > totalAvailableCapacityB * (Config.storage_high_watermark_usage_percent / 100.0)) {
                 throw new DdlException("No available capacity for decommission in cluster: " + clusterName
                         + ", needed: " + totalNeededCapacityB + ", available: " + totalAvailableCapacityB
                         + ", threshold: " + Config.storage_high_watermark_usage_percent);

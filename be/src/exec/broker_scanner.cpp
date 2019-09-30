@@ -34,18 +34,16 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
+#include "util/simdutf8check.h"
 
 namespace doris {
 
 BrokerScanner::BrokerScanner(RuntimeState* state,
                              RuntimeProfile* profile,
-                             const TBrokerScanRangeParams& params, 
+                             const TBrokerScanRangeParams& params,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
-                             BrokerScanCounter* counter) : 
-        _state(state),
-        _profile(profile),
-        _params(params),
+                             ScannerCounter* counter) : BaseScanner(state, profile, params, counter),
         _ranges(ranges),
         _broker_addresses(broker_addresses),
         // _splittable(params.splittable),
@@ -57,104 +55,25 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         _next_range(0),
         _cur_line_reader_eof(false),
         _scanner_eof(false),
-        _skip_next_line(false),
-        _src_tuple(nullptr),
-        _src_tuple_row(nullptr),
-#if BE_TEST
-        _mem_tracker(new MemTracker()),
-        _mem_pool(_mem_tracker.get()),
-#else 
-        _mem_tracker(new MemTracker(-1, "Broker Scanner", state->instance_mem_tracker())),
-        _mem_pool(_state->instance_mem_tracker()),
-#endif
-        _dest_tuple_desc(nullptr),
-        _counter(counter),
-        _rows_read_counter(nullptr),
-        _read_timer(nullptr),
-        _materialize_timer(nullptr) {
+        _skip_next_line(false) {
 }
 
 BrokerScanner::~BrokerScanner() {
     close();
 }
 
-Status BrokerScanner::init_expr_ctxes() {
-    // Constcut _src_slot_descs
-    const TupleDescriptor* src_tuple_desc = 
-        _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
-    if (src_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
-        return Status(ss.str());
-    }
-
-    std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
-    for (auto slot_desc : src_tuple_desc->slots()) {
-        src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
-    }
-    for (auto slot_id : _params.src_slot_ids) {
-        auto it = src_slot_desc_map.find(slot_id);
-        if (it == std::end(src_slot_desc_map)) {
-            std::stringstream ss;
-            ss << "Unknown source slot descriptor, slot_id=" << slot_id;
-            return Status(ss.str());
-        }
-        _src_slot_descs.emplace_back(it->second);
-    }
-    // Construct source tuple and tuple row
-    _src_tuple = (Tuple*) _mem_pool.allocate(src_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*) _mem_pool.allocate(sizeof(Tuple*));
-    _src_tuple_row->set_tuple(0, _src_tuple);
-    _row_desc.reset(new RowDescriptor(_state->desc_tbl(), 
-                                      std::vector<TupleId>({_params.src_tuple_id}), 
-                                      std::vector<bool>({false})));
-
-    // Construct dest slots information
-    _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
-    if (_dest_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown dest tuple descriptor, tuple_id=" << _params.dest_tuple_id;
-        return Status(ss.str());
-    }
-
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        auto it = _params.expr_of_dest_slot.find(slot_desc->id());
-        if (it == std::end(_params.expr_of_dest_slot)) {
-            std::stringstream ss;
-            ss << "No expr for dest slot, id=" << slot_desc->id() 
-                << ", name=" << slot_desc->col_name();
-            return Status(ss.str());
-        }
-        ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker.get()));
-        RETURN_IF_ERROR(ctx->open(_state));
-        _dest_expr_ctx.emplace_back(ctx);
-    }
-
-    return Status::OK;
-}
-
 Status BrokerScanner::open() {
-    RETURN_IF_ERROR(init_expr_ctxes());
+    RETURN_IF_ERROR(BaseScanner::open());// base default function
     _text_converter.reset(new(std::nothrow) TextConverter('\\'));
     if (_text_converter == nullptr) {
-        return Status("No memory error.");
+        return Status::InternalError("No memory error.");
     }
-
-    _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
-
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    // Get one line 
+    // Get one line
     while (!_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
@@ -178,7 +97,6 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            _counter->num_rows_total++;
             if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
                 break;
             }
@@ -189,20 +107,20 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     } else {
         *eof = false;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanner::open_next_reader() {
     if (_next_range >= _ranges.size()) {
         _scanner_eof = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(open_file_reader());
     RETURN_IF_ERROR(open_line_reader());
     _next_range++;
-    
-    return Status::OK;
+
+    return Status::OK();
 }
 
 Status BrokerScanner::open_file_reader() {
@@ -239,7 +157,7 @@ Status BrokerScanner::open_file_reader() {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
             VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
-            return Status("unknown stream load id");
+            return Status::InternalError("unknown stream load id");
         }
         _cur_file_reader = _stream_load_pipe.get();
         break;
@@ -247,10 +165,10 @@ Status BrokerScanner::open_file_reader() {
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << range.file_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
@@ -279,13 +197,13 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     default: {
         std::stringstream ss;
         ss << "Unknown format type, type=" << type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
     RETURN_IF_ERROR(Decompressor::create_decompressor(
             compress_type, &_cur_decompressor));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanner::open_line_reader() {
@@ -305,7 +223,7 @@ Status BrokerScanner::open_line_reader() {
         if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
             std::stringstream ss;
             ss << "For now we do not support split compressed file";
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         size += 1;
         _skip_next_line = true;
@@ -332,13 +250,13 @@ Status BrokerScanner::open_line_reader() {
     default: {
         std::stringstream ss;
         ss << "Unknown format type, type=" << range.format_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
 
     _cur_line_reader_eof = false;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BrokerScanner::close() {
@@ -361,7 +279,6 @@ void BrokerScanner::close() {
             _cur_file_reader = nullptr;
         }
     }
-    Expr::close(_dest_expr_ctx, _state);
 }
 
 void BrokerScanner::split_line(
@@ -461,67 +378,9 @@ bool BrokerScanner::check_decimal_input(
 }
 
 bool is_null(const Slice& slice) {
-    return slice.size == 2 && 
-        slice.data[0] == '\\' && 
+    return slice.size == 2 &&
+        slice.data[0] == '\\' &&
         slice.data[1] == 'N';
-}
-
-// Writes a slot in _tuple from an value containing text data.
-bool BrokerScanner::write_slot(
-        const std::string& column_name, const TColumnType& column_type,
-        const Slice& value, const SlotDescriptor* slot,
-        Tuple* tuple, MemPool* tuple_pool,
-        std::stringstream* error_msg) {
-
-    if (value.size == 0 && !slot->type().is_string_type()) {
-        (*error_msg) << "the length of input should not be 0. "
-                << "column_name: " << column_name << "; "
-                << "type: " << slot->type();
-        return false;
-    }
-
-    char* value_to_convert = value.data;
-    size_t value_to_convert_length = value.size;
-
-    // Fill all the spaces if it is 'TYPE_CHAR' type
-    if (slot->type().is_string_type()) {
-        int char_len = column_type.len;
-        if (value.size > char_len) {
-            (*error_msg) << "the length of input is too long than schema. "
-                    << "column_name: " << column_name << "; "
-                    << "input_str: [" << value.to_string() << "] "
-                    << "type: " << slot->type() << "; "
-                    << "schema length: " << char_len << "; "
-                    << "actual length: " << value.size << "; ";
-            return false;
-        }
-        if (slot->type().type == TYPE_CHAR && value.size < char_len) {
-            if (!is_null(value)) {
-                fill_fix_length_string(
-                        value, tuple_pool,
-                        &value_to_convert, char_len);
-                value_to_convert_length = char_len;
-            }
-        }
-    } else if (slot->type().is_decimal_type()) {
-        bool is_success = check_decimal_input(
-            value, column_type.precision, column_type.scale, error_msg);
-        if (is_success == false) {
-            return false;
-        }
-    }
-
-    if (!_text_converter->write_slot(
-            slot, tuple, value_to_convert, value_to_convert_length,
-            true, false, tuple_pool)) {
-        (*error_msg) << "convert csv string to "
-            << slot->type() << " failed. "
-            << "column_name: " << column_name << "; "
-            << "input_str: [" << value.to_string() << "]; ";
-        return false;
-    }
-
-    return true;
 }
 
 // Convert one row to this tuple
@@ -536,12 +395,25 @@ bool BrokerScanner::convert_one_row(
 
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
+
+    if (!validate_utf8_fast(line.data, line.size)) {
+        std::stringstream error_msg;
+        error_msg << "data is not encoded by UTF-8";
+        _state->append_error_msg_to_file(std::string(line.data, line.size),
+                                         error_msg.str());
+        _counter->num_rows_filtered++;
+        return false;
+    }
+
     std::vector<Slice> values;
     {
         split_line(line, &values);
     }
 
-    if (values.size() < _src_slot_descs.size()) {
+    // range of current file
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
+    const std::vector<std::string>& columns_from_path = range.columns_from_path;
+    if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -550,7 +422,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() > _src_slot_descs.size()) {
+    } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
@@ -575,35 +447,8 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         str_slot->len = value.size;
     }
 
-    return true;
-}
+    fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
 
-bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool) {
-    int ctx_idx = 0;
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-
-        ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
-        void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
-            if (slot_desc->is_nullable()) {
-                dest_tuple->set_null(slot_desc->null_indicator_offset());
-                continue;
-            } else {
-                std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is null";
-                _state->append_error_msg_to_file(
-                    std::string(line.data, line.size), error_msg.str());
-                _counter->num_rows_filtered++;
-                return false;
-            }
-        }
-        dest_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
-        RawValue::write(value, slot, slot_desc->type(), mem_pool);
-    }
     return true;
 }
 

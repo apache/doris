@@ -25,7 +25,9 @@
 #include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/exec_node.h"
 #include "exprs/expr.h"
+#include "exprs/timezone_db.h"
 #include "runtime/buffered_block_mgr.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_util.h"
@@ -40,7 +42,7 @@
 #include "util/disk_info.h"
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
-#include "util/mysql_load_error_hub.h"
+#include "util/load_error_hub.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 
@@ -50,7 +52,7 @@ namespace doris {
 RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env) :
+        const TQueryGlobals& query_globals, ExecEnv* exec_env) :
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
@@ -68,14 +70,14 @@ RuntimeState::RuntimeState(
             _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_instance_id, query_options, now, exec_env);
+    Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env) :
+        const TQueryGlobals& query_globals, ExecEnv* exec_env) :
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
@@ -95,19 +97,32 @@ RuntimeState::RuntimeState(
             _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_params.params.fragment_instance_id, query_options, now, exec_env);
+    Status status = init(fragment_params.params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
-RuntimeState::RuntimeState(const std::string& now)
+RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
     : _obj_pool(new ObjectPool()),
       _data_stream_recvrs_pool(new ObjectPool()),
       _unreported_error_idx(0),
       _profile(_obj_pool.get(), "<unnamed>"),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    _now.reset(new DateTimeValue());
-    _now->from_date_str(now.c_str(), now.size());
+    if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+    } else if (!query_globals.now_string.empty()) {
+        _timezone = TimezoneDatabase::default_time_zone;
+        DateTimeValue dt;
+        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        int64_t timestamp;
+        dt.unix_timestamp(&timestamp, _timezone);
+        _timestamp_ms = timestamp * 1000;
+    } else {
+        //Unit test may set into here
+        _timezone = TimezoneDatabase::default_time_zone;
+        _timestamp_ms = 0;
+    }
 }
 
 RuntimeState::~RuntimeState() {
@@ -161,11 +176,24 @@ RuntimeState::~RuntimeState() {
 
 Status RuntimeState::init(
     const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-    const std::string& now, ExecEnv* exec_env) {
+    const TQueryGlobals&  query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
-    _now.reset(new DateTimeValue());
-    _now->from_date_str(now.c_str(), now.size());
+    if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+    } else if (!query_globals.now_string.empty()) {
+        _timezone = TimezoneDatabase::default_time_zone;
+        DateTimeValue dt;
+        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        int64_t timestamp;
+        dt.unix_timestamp(&timestamp, _timezone);
+        _timestamp_ms = timestamp * 1000;
+    } else {
+        //Unit test may set into here
+        _timezone = TimezoneDatabase::default_time_zone;
+        _timestamp_ms = 0;
+    }
     _exec_env = exec_env;
 
     if (!query_options.disable_codegen) {
@@ -192,7 +220,7 @@ Status RuntimeState::init(
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
@@ -233,7 +261,12 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             std::numeric_limits<int64_t>::max());
     } 
 
-    return Status::OK;
+    return Status::OK();
+}
+
+Status RuntimeState::init_instance_mem_tracker() {
+    _instance_mem_tracker.reset(new MemTracker(-1));
+    return Status::OK();
 }
 
 Status RuntimeState::init_buffer_poolstate() {
@@ -258,7 +291,7 @@ Status RuntimeState::init_buffer_poolstate() {
   _buffer_reservation->InitChildTracker(
       NULL, exec_env->buffer_reservation(), _query_mem_tracker.get(), max_reservation);
   
-  return Status::OK;
+  return Status::OK();
 }
 
 Status RuntimeState::create_block_mgr() {
@@ -274,7 +307,7 @@ Status RuntimeState::create_block_mgr() {
     RETURN_IF_ERROR(BufferedBlockMgr2::create(this, _query_mem_tracker.get(),
             runtime_profile(), _exec_env->tmp_file_mgr(),
             block_mgr_limit, _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RuntimeState::create_codegen() {
@@ -282,7 +315,7 @@ Status RuntimeState::create_codegen() {
             _obj_pool.get(), print_id(fragment_instance_id()), &_codegen));
     _codegen->enable_optimizations(true);
     _profile.add_child(_codegen->runtime_profile(), true, NULL);
-    return Status::OK;
+    return Status::OK();
 }
 
 bool RuntimeState::error_log_is_empty() {
@@ -331,10 +364,10 @@ Status RuntimeState::set_mem_limit_exceeded(
     {
         boost::lock_guard<boost::mutex> l(_process_status_lock);
         if (_process_status.ok()) {
-            _process_status = Status::MEM_LIMIT_EXCEEDED;
-            if (msg != NULL) {
-                // _process_status.MergeStatus(*msg);
-                _process_status.add_error_msg(*msg);
+            if (msg != nullptr) {
+                _process_status = Status::MemoryLimitExceeded(*msg);
+            } else {
+                _process_status = Status::MemoryLimitExceeded("Memory limit exceeded");
             }
         } else {
             return _process_status;
@@ -369,12 +402,10 @@ Status RuntimeState::set_mem_limit_exceeded(
     return _process_status;
 }
 
-Status RuntimeState::check_query_state() {
+Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
-    // cases where we use Status::CANCELLED to indicate that the limit was reached.
-    if (_instance_mem_tracker->any_limit_exceeded()) {
-        return set_mem_limit_exceeded();
-    }
+    // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
+    RETURN_IF_LIMIT_EXCEEDED(this, msg);
     return query_status();
 }
 
@@ -383,7 +414,7 @@ const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_load_dir() {
     if (!_load_dir.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(
             _db_name, _import_label, &_load_dir));
@@ -409,11 +440,11 @@ Status RuntimeState::create_error_log_file() {
         std::stringstream error_msg;
         error_msg << "Fail to open error file: [" << _error_log_file_path << "].";
         LOG(WARNING) << error_msg.str();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     VLOG_ROW << "create error log file: " << _error_log_file_path;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void RuntimeState::append_error_msg_to_file(
@@ -488,7 +519,7 @@ Status RuntimeState::get_codegen(LlvmCodeGen** codegen, bool initialize) {
         RETURN_IF_ERROR(create_codegen());
     }
     *codegen = _codegen.get();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RuntimeState::get_codegen(LlvmCodeGen** codegen) {
@@ -498,7 +529,7 @@ Status RuntimeState::get_codegen(LlvmCodeGen** codegen) {
 // TODO chenhao , check scratch_limit, disable_spilling and file_group
 // before spillng
 Status RuntimeState::StartSpilling(MemTracker* mem_tracker) {
-    return Status("Mem limit exceeded.");
+    return Status::InternalError("Mem limit exceeded.");
 }
 } // end namespace doris
 

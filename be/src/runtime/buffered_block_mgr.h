@@ -90,7 +90,7 @@ public:
         }
 
         Status delete_block() {
-            return Status::OK;
+            return Status::OK();
         }
 
         // Debug helper method to print the state of a block.

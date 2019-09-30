@@ -57,6 +57,9 @@ public abstract class RoutineLoadTaskInfo {
     // the be id of this task
     protected long beId = -1L;
 
+    // last time this task being scheduled by RoutineLoadTaskScheduler
+    protected long lastScheduledTime = -1;
+
     public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName) {
         this.id = id;
         this.jobId = jobId;
@@ -113,13 +116,21 @@ public abstract class RoutineLoadTaskInfo {
         return executeStartTimeMs > 0;
     }
 
+    public long getLastScheduledTime() {
+        return lastScheduledTime;
+    }
+
+    public void setLastScheduledTime(long lastScheduledTime) {
+        this.lastScheduledTime = lastScheduledTime;
+    }
+
     abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                routineLoadJob.getDbId(), DebugUtil.printId(id), null, "FE: " + FrontendOptions.getLocalHostAddress(),
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                 routineLoadJob.getMaxBatchIntervalS() * 2);
     }

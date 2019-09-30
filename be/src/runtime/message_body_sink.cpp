@@ -38,20 +38,20 @@ Status MessageBodyFileSink::open() {
         char errmsg[64];
         LOG(WARNING) << "fail to open file, file=" << _path
             << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status("fail to open file");
+        return Status::InternalError("fail to open file");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MessageBodyFileSink::append(const char* data, size_t size) {
     auto written = ::write(_fd, data, size);
     if (written == size) {
-        return Status::OK;
+        return Status::OK();
     }
     char errmsg[64];
     LOG(WARNING) << "fail to write, file=" << _path
         << ", error=" << strerror_r(errno, errmsg, 64);
-    return Status("fail to write file");
+    return Status::InternalError("fail to write file");
 }
 
 Status MessageBodyFileSink::finish() {
@@ -61,10 +61,10 @@ Status MessageBodyFileSink::finish() {
         LOG(WARNING) << "fail to write, file=" << _path
             << ", error=" << strerror_r(errno, errmsg, 64);
         _fd = -1;
-        return Status("fail to close file");
+        return Status::InternalError("fail to close file");
     }
     _fd = -1;
-    return Status::OK;
+    return Status::OK();
 }
 
 void MessageBodyFileSink::cancel() {

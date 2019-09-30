@@ -29,9 +29,10 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "util/descriptor_helper.h"
+#include "runtime/descriptor_helper.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -39,9 +40,10 @@ std::unordered_map<int64_t, int> _k_tablet_recorder;
 OLAPStatus open_status;
 OLAPStatus add_status;
 OLAPStatus close_status;
+int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req) : _req(*req) {
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _req(*req) {
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -55,7 +57,7 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
-    *writer = new DeltaWriter(req);
+    *writer = new DeltaWriter(req, nullptr);
     return open_status;
 }
 
@@ -68,7 +70,11 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     return add_status;
 }
 
-OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+OLAPStatus DeltaWriter::close() {
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     return close_status;
 }
 
@@ -223,7 +229,7 @@ TEST_F(TabletWriterMgrTest, normal) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -387,7 +393,7 @@ TEST_F(TabletWriterMgrTest, add_failed) {
         row_batch.serialize(request.mutable_row_batch());
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -476,9 +482,11 @@ TEST_F(TabletWriterMgrTest, close_failed) {
         row_batch.serialize(request.mutable_row_batch());
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        // even if delta close failed, the return status is still ok, but tablet_vec is empty
+        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(tablet_vec.empty());
     }
 }
 
@@ -561,7 +569,7 @@ TEST_F(TabletWriterMgrTest, unknown_tablet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -646,10 +654,10 @@ TEST_F(TabletWriterMgrTest, duplicate_packet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec1;
-        auto st = mgr.add_batch(request, &tablet_vec1);
+        auto st = mgr.add_batch(request, &tablet_vec1, &wait_lock_time_ns);
         ASSERT_TRUE(st.ok());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec2;
-        st = mgr.add_batch(request, &tablet_vec2);
+        st = mgr.add_batch(request, &tablet_vec2, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -662,7 +670,7 @@ TEST_F(TabletWriterMgrTest, duplicate_packet) {
         request.set_eos(true);
         request.set_packet_seq(0);
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec);
+        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }

@@ -17,7 +17,6 @@
 
 #include "runtime/decimal_value.h"
 
-#include <mysql/mysql.h>
 #include <algorithm>
 #include <iostream>
 #include <utility>

@@ -49,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -82,7 +83,6 @@ public class LoadJob implements Writable {
     long timestamp;
     private int timeoutSecond;
     private double maxFilterRatio;
-    private boolean deleteFlag;
     private JobState state;
 
     private BrokerDesc brokerDesc;
@@ -111,6 +111,7 @@ public class LoadJob implements Writable {
     private Map<Long, TabletLoadInfo> idToTabletLoadInfo;
     private Set<Long> quorumTablets;
     private Set<Long> fullTablets;
+    private List<Long> unfinishedTablets;
     private Set<PushTask> pushTasks;
     private Map<Long, ReplicaPersistInfo> replicaPersistInfos;
     
@@ -146,7 +147,6 @@ public class LoadJob implements Writable {
         this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = DEFAULT_TIMEOUT_S;
-        this.deleteFlag = true;
         this.state = JobState.LOADING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -169,6 +169,7 @@ public class LoadJob implements Writable {
         this.idToTabletLoadInfo = Maps.newHashMap();;
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
+        this.unfinishedTablets = new ArrayList<>();
         this.pushTasks = new HashSet<PushTask>();
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
@@ -197,7 +198,6 @@ public class LoadJob implements Writable {
         this.timestamp = -1;
         this.timeoutSecond = timeoutSecond;
         this.maxFilterRatio = maxFilterRatio;
-        this.deleteFlag = false;
         this.state = JobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -213,6 +213,7 @@ public class LoadJob implements Writable {
         this.idToTabletLoadInfo = null;
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
+        this.unfinishedTablets = new ArrayList<>();
         this.pushTasks = new HashSet<PushTask>();
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
@@ -279,14 +280,6 @@ public class LoadJob implements Writable {
 
     public double getMaxFilterRatio() {
         return maxFilterRatio;
-    }
-    
-    public void setDeleteFlag(boolean deleteFlag) {
-        this.deleteFlag = deleteFlag;
-    }
-
-    public boolean getDeleteFlag() {
-        return deleteFlag;
     }
 
     public JobState getState() {
@@ -575,6 +568,11 @@ public class LoadJob implements Writable {
         return fullTablets;
     }
     
+    public void setUnfinishedTablets(Set<Long> unfinisheTablets) {
+        this.unfinishedTablets.clear();
+        this.unfinishedTablets.addAll(unfinisheTablets);
+    }
+    
     public void addPushTask(PushTask pushTask) {
         pushTasks.add(pushTask);
     }
@@ -630,22 +628,22 @@ public class LoadJob implements Writable {
     }
     
     public long getDeleteJobTimeout() {
-        long timeout = Math.max(idToTabletLoadInfo.size() 
-                * Config.tablet_delete_timeout_second * 1000L,
-                60000L);
-        timeout = Math.min(timeout, 300000L);
-        return timeout;
+        // timeout is between 30 seconds to 5 min
+        long timeout = Math.max(idToTabletLoadInfo.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
+        return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
     }
     
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
-                + ", maxFilterRatio=" + maxFilterRatio + ", deleteFlag=" + deleteFlag + ", state=" + state
+                + ", maxFilterRatio=" + maxFilterRatio + ", state=" + state
                 + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
                 + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId 
-                + ", quorumFinishTimeMs=" + quorumFinishTimeMs +"]";
+                + ", quorumFinishTimeMs=" + quorumFinishTimeMs 
+                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]" 
+                + "]";
     }
 
     public void clearRedundantInfoForHistoryJob() {
@@ -697,7 +695,7 @@ public class LoadJob implements Writable {
         out.writeLong(timestamp);
         out.writeInt(timeoutSecond);
         out.writeDouble(maxFilterRatio);
-        out.writeBoolean(deleteFlag);
+        out.writeBoolean(true); // delete flag, does not use anymore
         Text.writeString(out, state.name());
         out.writeInt(progress);
         out.writeLong(createTimeMs);
@@ -844,7 +842,7 @@ public class LoadJob implements Writable {
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
         
-        deleteFlag = false;
+        boolean deleteFlag = false;
         if (version >= FeMetaVersion.VERSION_30) {
             deleteFlag = in.readBoolean();
         }

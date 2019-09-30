@@ -17,6 +17,8 @@
 
 package org.apache.doris.service;
 
+import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
+
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -34,6 +36,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -62,6 +65,7 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -73,6 +77,8 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMiniLoadBeginRequest;
+import org.apache.doris.thrift.TMiniLoadBeginResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -311,7 +317,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
-        return QeProcessorImpl.INSTANCE.reportExecStatus(params);
+        return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
     }
 
     @Override
@@ -329,6 +335,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.fetchResource();
     }
 
+    @Deprecated
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
         LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
@@ -356,7 +363,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                if (Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
+                if (Catalog.getInstance().getLoadManager().createLoadJobV1FromRequest(request)) {
                     try {
                         // generate mini load audit log
                         logMiniLoadStmt(request);
@@ -470,6 +477,56 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
+        LOG.info("receive mini load begin request. label: {}, user: {}, ip: {}",
+                 request.getLabel(), request.getUser(), request.getUser_ip());
+
+        TMiniLoadBeginResult result = new TMiniLoadBeginResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            String cluster = SystemInfoService.DEFAULT_CLUSTER;
+            if (request.isSetCluster()) {
+                cluster = request.cluster;
+            }
+            // step1: check password and privs
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                                  request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+            // step2: check label and record metadata in load manager
+            if (request.isSetSub_label()) {
+                // TODO(ml): multi mini load
+            } else {
+                // add load metadata in loadManager
+                result.setTxn_id(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromMiniLoad(request));
+            }
+            return result;
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.addToError_msgs(e.getMessage());
+            return result;
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+    }
+
+    @Override
+    public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
+        TStatus status = new TStatus(TStatusCode.OK);
+        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
+        switch (request.getFunction_name()){
+            case "STREAMING_MINI_LOAD":
+                break;
+            default:
+                status.setStatus_code(NOT_IMPLEMENTED_ERROR);
+                break;
+        }
+        return result;
+    }
+
+    @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
         if (clientAddr != null) {
@@ -551,6 +608,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
+            result.setJob_status(e.getJobStatus());
         } catch (UserException e) {
             LOG.warn("failed to begin: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
@@ -590,10 +648,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // begin
-        long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
+                db.getId(), request.getLabel(), request.getRequest_id(), "BE: " + clientIp,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 
@@ -705,8 +762,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
+        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
+                 request.getDb(), request.getTbl(), request.getTxnId(), DebugUtil.printId(request.getLoadId()),
+                 clientAddr);
         LOG.debug("stream load put request: {}", request);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
@@ -733,7 +791,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
         if (db == null) {
@@ -753,8 +811,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!(table instanceof OlapTable)) {
                 throw new UserException("load table type is not OlapTable, type=" + table.getClass());
             }
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, StreamLoadTask.fromTStreamLoadPutRequest(request));
-            return planner.plan();
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
+            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(request.getTxnId());
+            if (txnState == null) {
+                throw new UserException("txn does not exist: " + request.getTxnId());
+            }
+            txnState.addTableIndexes((OlapTable) table);
+            
+            return plan;
         } finally {
             db.readUnlock();
         }

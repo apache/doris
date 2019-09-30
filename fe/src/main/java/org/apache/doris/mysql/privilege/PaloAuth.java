@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -254,12 +255,16 @@ public class PaloAuth implements Writable {
         return checkDbPriv(ctx.getRemoteIP(), qualifiedDb, ctx.getQualifiedUser(), wanted);
     }
 
+    /*
+     * Check if 'user'@'host' on 'db' has 'wanted' priv.
+     * If the given db is null, which means it will no check if database name is matched.
+     */
     public boolean checkDbPriv(String host, String db, String user, PrivPredicate wanted) {
         if (!Config.enable_auth_check) {
             return true;
         }
-        if (wanted.getPrivs().containsNodeOrGrantPriv()) {
-            LOG.debug("should be check NODE or GRANT priv in Global level. host: {}, user: {}, db: {}",
+        if (wanted.getPrivs().containsNodePriv()) {
+            LOG.debug("should not check NODE priv in Database level. host: {}, user: {}, db: {}",
                       host, user, db);
             return false;
         }
@@ -271,7 +276,7 @@ public class PaloAuth implements Writable {
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (wanted == PrivPredicate.SHOW && checkTblWithDb(host, db, user)) {
+        if (db != null && wanted == PrivPredicate.SHOW && checkTblWithDb(host, db, user)) {
             return true;
         }
 
@@ -301,8 +306,8 @@ public class PaloAuth implements Writable {
         if (!Config.enable_auth_check) {
             return true;
         }
-        if (wanted.getPrivs().containsNodeOrGrantPriv()) {
-            LOG.debug("should be check NODE or GRANT priv in Db level. host: {}, user: {}, db: {}",
+        if (wanted.getPrivs().containsNodePriv()) {
+            LOG.debug("should check NODE priv in GLOBAL level. host: {}, user: {}, db: {}",
                       host, user, db);
             return false;
         }
@@ -315,6 +320,57 @@ public class PaloAuth implements Writable {
         }
 
         LOG.debug("failed to get wanted privs: {}, ganted: {}", wanted, savedPrivs);
+        return false;
+    }
+
+    public boolean checkPrivByAuthInfo(ConnectContext ctx, AuthorizationInfo authInfo, PrivPredicate wanted) {
+        if (authInfo == null) {
+            return false;
+        }
+        if (authInfo.getDbName() == null) {
+            return false;
+        }
+        if (authInfo.getTableNameList() == null || authInfo.getTableNameList().isEmpty()) {
+            return checkDbPriv(ctx, authInfo.getDbName(), wanted);
+        }
+        for (String tblName : authInfo.getTableNameList()) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), authInfo.getDbName(),
+                                                                    tblName, wanted)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /*
+     * Check if current user has certain privilege.
+     * This method will check the given privilege levels
+     */
+    public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
+        return checkHasPrivInternal(ctx.getRemoteIP(), ctx.getQualifiedUser(), priv, levels);
+    }
+
+    private boolean checkHasPrivInternal(String host, String user, PrivPredicate priv, PrivLevel... levels) {
+        for (PrivLevel privLevel : levels) {
+            switch (privLevel) {
+            case GLOBAL:
+                if (userPrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
+            case DATABASE:
+                if (dbPrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
+                break;
+            case TABLE:
+                if (tablePrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
+                break;
+            default:
+                break;
+            }
+        }
         return false;
     }
 

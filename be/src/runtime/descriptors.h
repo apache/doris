@@ -433,6 +433,7 @@ public:
     // standard copy c'tor, made explicit here
     RowDescriptor(const RowDescriptor& desc) :
             _tuple_desc_map(desc._tuple_desc_map),
+            _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
             _tuple_idx_map(desc._tuple_idx_map),
             _has_varlen_slots(desc._has_varlen_slots) {
         _num_null_slots = 0;

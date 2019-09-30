@@ -36,7 +36,7 @@ Status DataConsumerPool::get_consumer(
             (*iter)->reset();
             *ret = *iter;
             iter = _pool.erase(iter);
-            return Status::OK; 
+            return Status::OK(); 
         } else {
             ++iter;
         }
@@ -50,8 +50,8 @@ Status DataConsumerPool::get_consumer(
             break;
         default:
             std::stringstream ss;
-            ss << "unknown routine load task type: " << ctx->load_type;
-            return Status(ss.str());
+            ss << "PAUSE: unknown routine load task type: " << ctx->load_type;
+            return Status::InternalError(ss.str());
     }
     
     // init the consumer
@@ -59,14 +59,14 @@ Status DataConsumerPool::get_consumer(
 
     VLOG(3) << "create new data consumer: " << consumer->id();
     *ret = consumer;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataConsumerPool::get_consumer_grp(
         StreamLoadContext* ctx,
         std::shared_ptr<DataConsumerGroup>* ret) {
     if (ctx->load_src_type != TLoadSourceType::KAFKA) {
-        return Status("Currently nly support consumer group for Kafka data source");
+        return Status::InternalError("PAUSE: Currently only support consumer group for Kafka data source");
     }
     DCHECK(ctx->kafka_info);
 
@@ -84,7 +84,7 @@ Status DataConsumerPool::get_consumer_grp(
     LOG(INFO) << "get consumer group " << grp->grp_id() << " with "
             << consumer_num << " consumers";
     *ret = grp;
-    return Status::OK; 
+    return Status::OK(); 
 }
 
 void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
@@ -124,7 +124,7 @@ Status DataConsumerPool::start_bg_worker() {
             }
         });
     _clean_idle_consumer_thread.detach();
-    return Status::OK;
+    return Status::OK();
 }
 
 void DataConsumerPool::_clean_idle_consumer_bg() {

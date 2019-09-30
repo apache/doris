@@ -202,6 +202,14 @@
 
 --------------------------------------------------------------------------------
 
+be/src/common/status.* : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
 be/src/gutil/atomicops-internals-x86.h : Apache 2.0 License
 
 Copyright 2003 Google Inc.
@@ -220,7 +228,7 @@ Copyright 2007 Google Inc.
 
 --------------------------------------------------------------------------------
 
-be/src/gutil/utf: licensed under the following terms:
+be/src/gutil/utf/*: licensed under the following terms:
 
   UTF-8 Library
 
@@ -359,6 +367,29 @@ Parts of be/src/runtime/string_search.hpp: Python Software License V2
 
 --------------------------------------------------------------------------------
 
+be/src/env (some portions): 3-clause BSD
+
+Some portions of this module are derived from code from RocksDB
+( https://github.com/facebook/rocksdb ). RocksDB is dual-licensed
+ under both the GPLv2 and Apache 2.0 License. We select Apache 2.0
+License.
+
+--------------------------------------------------------------------------------
+
+be/src/util/coding.*: this code is licensed under both GPLv2 and Apache 2.0 License.
+                      Doris chooses Apache 2.0 License.
+
+  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+  This source code is licensed under both the GPLv2 (found in the
+  COPYING file in the root directory) and Apache 2.0 License
+  (found in the LICENSE.Apache file in the root directory).
+  
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
 be/src/olap/lru_cache.h : BSD-style license
 
   Copyright (c) 2011 The LevelDB Authors. All rights reserved.
@@ -454,6 +485,32 @@ webroot/static/jquery.js : MIT license
   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
   OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
   OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+Sizzle in webroot/static/jquery.js : MIT license
+
+  Copyright 2013 jQuery Foundation and other contributors
+  http://jquery.com/
+  
+  Permission is hereby granted, free of charge, to any person obtaining
+  a copy of this software and associated documentation files (the
+  "Software"), to deal in the Software without restriction, including
+  without limitation the rights to use, copy, modify, merge, publish,
+  distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to
+  the following conditions:
+  
+  The above copyright notice and this permission notice shall be
+  included in all copies or substantial portions of the Software.
+  
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 --------------------------------------------------------------------------------
 

@@ -21,9 +21,6 @@
 #include <boost/cstdint.hpp>
 #include <string.h>
 
-#include "common/logging.h"
-#include "olap/hll.h"
-
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
 // object serves as the interface object between the UDF/UDA and the doris process.
@@ -129,7 +126,12 @@ public:
 
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
+    // Note: when you set error for the UDFs used in Data Load, you should
+    // ensure the function return value is null.
     void set_error(const char* error_msg);
+
+    // when you reused this FunctionContext, you maybe need clear the error status and message.
+    void clear_error_msg();
 
     // Adds a warning that is returned to the user. This can include things like
     // overflow or other recoverable error conditions.
@@ -623,6 +625,8 @@ struct StringVal : public AnyVal {
     // Creates a StringVal, which memory is avaliable when this funciont context is used next time
     static StringVal create_temp_string_val(FunctionContext* ctx, int len);
 
+    bool resize(FunctionContext* context, int len);
+
     bool operator==(const StringVal& other) const {
         if (is_null != other.is_null) {
             return false;
@@ -766,12 +770,14 @@ struct LargeIntVal : public AnyVal {
     }
 };
 
+// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
+//            when doris 0.12 release
 struct HllVal : public StringVal {
     HllVal() : StringVal() { }
 
     void init(FunctionContext* ctx);
 
-    void agg_parse_and_cal(const HllVal &other);
+    void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
 
     void agg_merge(const HllVal &other);
 };

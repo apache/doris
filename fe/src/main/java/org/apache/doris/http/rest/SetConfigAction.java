@@ -58,7 +58,7 @@ public class SetConfigAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
         Map<String, List<String>> configs = request.getAllParameters();
@@ -93,6 +93,7 @@ public class SetConfigAction extends RestBaseAction {
             try {
                 ConfigBase.setConfigField(f, confVals.get(0));
             } catch (Exception e) {
+                LOG.warn("failed to set config {}:{}", confKey, confVals.get(0),  e);
                 continue;
             }
 

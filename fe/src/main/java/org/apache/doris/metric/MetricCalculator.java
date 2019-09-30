@@ -20,11 +20,6 @@ package org.apache.doris.metric;
 import java.util.TimerTask;
 
 /*
- * Author: Chenmingyu
- * Date: Jan 30, 2019
- */
-
-/*
  * MetricCalculator will collect and calculate some certain metrics at a fix rate,
  * such QPS, and save the result for users to get.
  */

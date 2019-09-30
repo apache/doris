@@ -23,46 +23,81 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
+#include "util/hash_util.hpp"
+#include "util/uid_util.h"
+
+#define LOW_56_BITS 0x00ffffffffffffff
 
 namespace doris {
+
+static const int64_t MAX_ROWSET_ID = 1L << 56;
 
 typedef int32_t SchemaHash;
 typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
+typedef UniqueId TabletUid;
+
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2
+};
+
+struct DataDirInfo {
+    DataDirInfo():
+            capacity(1),
+            available(0),
+            data_used_capacity(0),
+            is_used(false) { }
+
+    std::string path;
+    int64_t path_hash;
+    int64_t capacity;                  // 总空间，单位字节
+    int64_t available;                 // 可用空间，单位字节
+    int64_t data_used_capacity;
+    bool is_used;                       // 是否可用标识
+    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
+};
+
 struct TabletInfo {
     TabletInfo(
             TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash) :
+            TSchemaHash in_schema_hash, 
+            UniqueId in_uid) :
             tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash) {}
+            schema_hash(in_schema_hash),
+            tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else {
+        } else if (schema_hash != right.schema_hash) {
             return schema_hash < right.schema_hash;
+        } else {
+            return tablet_uid < right.tablet_uid;
         }
     }
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "." << tablet_id
-           << "." << schema_hash;
+        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
+    UniqueId tablet_uid;
 };
 
 enum RangeCondition {
@@ -103,7 +138,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_MAP = 20,           // Map
     OLAP_FIELD_TYPE_UNKNOWN = 21,       // UNKNOW Type
     OLAP_FIELD_TYPE_NONE = 22,
-    OLAP_FIELD_TYPE_HLL = 23
+    OLAP_FIELD_TYPE_HLL = 23,
+    OLAP_FIELD_TYPE_BOOL = 24
 };
 
 // 定义Field支持的所有聚集方法
@@ -117,7 +153,8 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_MAX = 3,
     OLAP_FIELD_AGGREGATION_REPLACE = 4,
     OLAP_FIELD_AGGREGATION_HLL_UNION = 5,
-    OLAP_FIELD_AGGREGATION_UNKNOWN = 6
+    OLAP_FIELD_AGGREGATION_UNKNOWN = 6,
+    OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7
 };
 
 // 压缩算法类型
@@ -125,27 +162,6 @@ enum OLAPCompressionType {
     OLAP_COMP_TRANSPORT = 1,    // 用于网络传输的压缩算法，压缩率低，cpu开销低
     OLAP_COMP_STORAGE = 2,      // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
     OLAP_COMP_LZ4 = 3,          // 用于储存的压缩算法，压缩率低，cpu开销低
-};
-
-// hll数据存储格式,优化存储结构减少多余空间的占用
-enum HllDataType {
-    HLL_DATA_EMPTY = 0,      // 用于记录空的hll集合
-    HLL_DATA_EXPLICIT,    // 直接存储hash后结果的集合类型
-    HLL_DATA_SPRASE,     // 记录register不为空的集合类型
-    HLL_DATA_FULL,        // 记录完整的hll集合
-    HLL_DATA_NONE
-};
-
-enum AlterTabletType {
-    ALTER_TABLET_SCHEMA_CHANGE = 1,           // add/drop/alter column
-    ALTER_TABLET_CREATE_ROLLUP_TABLE= 2,           // split one table to several sub tables
-};
-
-enum AlterTableStatus {
-    ALTER_TABLE_WAITING = 0,
-    ALTER_TABLE_RUNNING = 1,
-    ALTER_TABLE_FINISHED = 2,
-    ALTER_TABLE_FAILED = 3,
 };
 
 enum PushType {
@@ -167,47 +183,26 @@ enum ReaderType {
 typedef std::pair<int64_t, int64_t> Version;
 typedef std::vector<Version> Versions;
 
+
+// used for hash-struct of hash_map<Version, Rowset*>.
+struct HashOfVersion {
+    size_t operator()(const Version& version) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&version.first, sizeof(version.first), seed);
+        seed = HashUtil::hash64(&version.second, sizeof(version.second), seed);
+        return seed;
+    }
+};
+
 // It is used to represent Graph vertex.
 struct Vertex {
-    int value;
-    std::list<int>* edges;
+    int64_t value;
+    std::list<int64_t>* edges;
 };
 
 class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
-struct SegmentGroupEntity {
-    SegmentGroupEntity(int32_t segment_group_id, int32_t num_segments,
-                int64_t num_rows, size_t data_size, size_t index_size,
-                bool empty, const std::vector<KeyRange>* column_statistics)
-        : segment_group_id(segment_group_id), num_segments(num_segments), num_rows(num_rows),
-          data_size(data_size), index_size(index_size), empty(empty)
-    {
-        if (column_statistics != nullptr) {
-            key_ranges = *column_statistics;
-        }
-    }
-
-    int32_t segment_group_id;
-    int32_t num_segments;
-    int64_t num_rows;
-    size_t data_size;
-    size_t index_size;
-    bool empty;
-    std::vector<KeyRange> key_ranges;
-};
-
-struct VersionEntity {
-    VersionEntity(Version v, VersionHash version_hash)
-        : version(v), version_hash(version_hash) { }
-    void add_segment_group_entity(const SegmentGroupEntity& segment_group_entity) {
-        segment_group_vec.push_back(segment_group_entity);
-    }
-
-    Version version;
-    VersionHash version_hash;
-    std::vector<SegmentGroupEntity> segment_group_vec;
-};
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -241,6 +236,85 @@ typedef uint32_t ColumnId;
 typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
+
+// 8 bit rowset id version 
+// 56 bit, inc number from 0
+// 128 bit backend uid, it is a uuid bit, id version
+struct RowsetId {
+    int8_t version = 0;
+    int64_t hi = 0;
+    int64_t mi = 0;
+    int64_t lo = 0;
+
+    void init(const std::string& rowset_id_str) {
+        // for new rowsetid its a 48 hex string
+        // if the len < 48, then it is an old format rowset id
+        if (rowset_id_str.length() < 48) {
+            int64_t high = std::stol(rowset_id_str, nullptr, 10);
+            init(1, high, 0, 0);
+        } else {
+            int64_t high = 0;
+            int64_t middle = 0;
+            int64_t low = 0;
+            from_hex(&high, rowset_id_str.substr(0, 16));
+            from_hex(&middle, rowset_id_str.substr(16, 16));
+            from_hex(&low, rowset_id_str.substr(32, 16));
+            init(high >> 56, high & LOW_56_BITS, middle, low);
+        }
+    }
+
+    // to compatiable with old version
+    void init(int64_t rowset_id) {
+        init(1, rowset_id, 0, 0);
+    }
+
+    void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
+        version = id_version;
+        if (high >= MAX_ROWSET_ID) {
+            LOG(FATAL) << "inc rowsetid is too large:" << high;
+        }
+        hi = (id_version << 56) + (high & LOW_56_BITS);
+        mi = middle;
+        lo = low;
+    }
+
+    std::string to_string() const {
+        if (version < 2) {
+            return std::to_string(hi & LOW_56_BITS);
+        } else {
+            char buf[48];
+            to_hex(hi, buf);
+            to_hex(mi, buf + 16);
+            to_hex(lo, buf + 32);
+            return {buf, 48};
+        }
+    }
+
+    // std::unordered_map need this api
+    bool operator==(const RowsetId& rhs) const {
+        return hi == rhs.hi && mi == rhs.mi && lo == rhs.lo;
+    }
+
+    bool operator!=(const RowsetId& rhs) const {
+        return hi != rhs.hi || mi != rhs.mi || lo != rhs.lo;
+    }
+
+    bool operator<(const RowsetId& rhs) const {
+        if (hi != rhs.hi) {
+            return hi < rhs.hi;
+        } else if (mi != rhs.mi) {
+            return mi < rhs.mi;
+        } else {
+            return lo < rhs.lo;
+        }
+    }
+
+    friend std::ostream& operator<<(std::ostream& out, const RowsetId& rowset_id) {
+        out << rowset_id.to_string();
+        return out;
+    }
+
+};
 
 }  // namespace doris
 

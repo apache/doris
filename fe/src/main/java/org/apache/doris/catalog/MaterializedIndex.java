@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,8 +37,21 @@ import java.util.Map.Entry;
 public class MaterializedIndex extends MetaObject implements Writable {
     public enum IndexState {
         NORMAL,
+        @Deprecated
         ROLLUP,
-        SCHEMA_CHANGE
+        @Deprecated
+        SCHEMA_CHANGE,
+        SHADOW; // index in SHADOW state is visible to load process, but invisible to query
+
+        public boolean isVisible() {
+            return this == IndexState.NORMAL || this == IndexState.SCHEMA_CHANGE;
+        }
+    }
+    
+    public enum IndexExtState {
+        ALL,
+        VISIBLE, // index state in NORMAL and SCHEMA_CHANGE
+        SHADOW // index state in SHADOW
     }
 
     private long id;
@@ -158,6 +171,17 @@ public class MaterializedIndex extends MetaObject implements Writable {
             dataSize += tablet.getDataSize(false);
         }
         return dataSize;
+    }
+
+    public int getTabletOrderIdx(long tabletId) {
+        int idx = 0;
+        for (Tablet tablet : tablets) {
+            if (tablet.getId() == tabletId) {
+                return idx;
+            }
+            idx++;
+        }
+        return -1;
     }
 
     @Override

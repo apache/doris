@@ -46,19 +46,20 @@ public class BrokerTable extends Table {
     private static final String PATH = "path";
     private static final String COLUMN_SEPARATOR = "column_separator";
     private static final String LINE_DELIMITER = "line_delimiter";
-
+    private static final String FILE_FORMAT = "format";
     private String brokerName;
     private List<String> paths;
     private String columnSeparator;
     private String lineDelimiter;
-
+    private String fileFormat;
     private Map<String, String> brokerProperties;
 
     public BrokerTable() {
         super(TableType.BROKER);
     }
 
-    public BrokerTable(long id, String name, List<Column> schema, Map<String, String> properties) throws DdlException {
+    public BrokerTable(long id, String name, List<Column> schema, Map<String, String> properties)
+            throws DdlException {
         super(id, name, TableType.BROKER, schema);
         validate(properties);
     }
@@ -103,6 +104,10 @@ public class BrokerTable extends Table {
         return StringEscapeUtils.escapeJava(lineDelimiter);
     }
 
+    public String getFileFormat() {
+        return fileFormat;
+    }
+
     public Map<String, String> getBrokerProperties() {
         return brokerProperties;
     }
@@ -130,7 +135,7 @@ public class BrokerTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of broker table, "
-                    + "they are: broker_name, path, column_delimiter and line_delimiter");
+                    + "they are: broker_name, path, column_delimiter, line_delimiter and format.");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
@@ -178,15 +183,29 @@ public class BrokerTable extends Table {
         }
         copiedProps.remove(LINE_DELIMITER);
 
+        fileFormat = copiedProps.get(FILE_FORMAT);
+        if (fileFormat != null) {
+            fileFormat = fileFormat.toLowerCase();
+            switch (fileFormat) {
+                case "csv":
+                case "parquet":
+                    break;
+                default:
+                    throw new DdlException("Invalid file type: " + copiedProps.toString() + ".Only support csv and parquet.");
+            }
+        }
+
+        copiedProps.remove(FILE_FORMAT);
+
         if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknow properties: " + copiedProps.toString());
+            throw new DdlException("Unknown table properties: " + copiedProps.toString());
         }
     }
 
     public TTableDescriptor toThrift() {
         TBrokerTable tBrokerTable = new TBrokerTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
-                baseSchema.size(), 0, getName(), "");
+                fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setBrokerTable(tBrokerTable);
         return tTableDescriptor;
     }
@@ -202,7 +221,6 @@ public class BrokerTable extends Table {
         }
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
-
         out.writeInt(brokerProperties.size());
         for (Map.Entry<String, String> prop : brokerProperties.entrySet()) {
             Text.writeString(out, prop.getKey());
@@ -222,7 +240,6 @@ public class BrokerTable extends Table {
         }
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
-
         brokerProperties = Maps.newHashMap();
         size = in.readInt();
         for (int i = 0; i < size; i++) {

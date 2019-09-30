@@ -69,7 +69,7 @@ Status SystemAllocator::Allocate(int64_t len, BufferPool::BufferHandle* buffer) 
     RETURN_IF_ERROR(AllocateViaMalloc(len, &buffer_mem));
   }
   buffer->Open(buffer_mem, len, CpuInfo::get_current_core());
-  return Status::OK;
+  return Status::OK();
 }
 
 Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
@@ -82,7 +82,7 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
   uint8_t* mem = reinterpret_cast<uint8_t*>(
       mmap(nullptr, map_len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
   if (mem == MAP_FAILED) {
-    return Status(TStatusCode::BUFFER_ALLOCATION_FAILED);
+    return Status::BufferAllocFailed("mmap failed");
   }
 
   if (use_huge_pages) {
@@ -112,7 +112,7 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
 #endif
   }
   *buffer_mem = mem;
-  return Status::OK;
+  return Status::OK();
 }
 
 Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
@@ -129,7 +129,7 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
   if (rc != 0) {
     std::stringstream ss;
     ss << "posix_memalign() failed to allocate buffer: " << get_str_err_msg();
-    return Status(ss.str());
+    return Status::InternalError(ss.str());
   }
   if (use_huge_pages) {
 #ifdef MADV_HUGEPAGE
@@ -140,7 +140,7 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
     DCHECK(rc == 0) << "madvise(MADV_HUGEPAGE) shouldn't fail" << errno;
 #endif
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void SystemAllocator::Free(BufferPool::BufferHandle&& buffer) {

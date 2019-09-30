@@ -186,7 +186,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
-        return Status::OK;
+        return Status::OK();
     }
     int found_line_delimiter = 0;
     size_t offset = 0;
@@ -243,7 +243,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                     if (!_stream_end) {
                         std::stringstream ss;
                         ss << "Compressed file has been truncated, which is not allowed";
-                        return Status(ss.str());
+                        return Status::InternalError(ss.str());
                     } else {
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished
@@ -314,7 +314,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                        << " input_read_bytes: " << input_read_bytes
                        << " decompressed_len: " << decompressed_len;
                     LOG(WARNING) << ss.str();
-                    return Status(ss.str());
+                    return Status::InternalError(ss.str());
                 }
 
                 if (_more_input_bytes > 0) {
@@ -344,7 +344,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
     // update total read bytes
     _total_read_bytes += *size + found_line_delimiter;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end of namespace

@@ -38,7 +38,7 @@ namespace doris {
 
 class BrokerScannerTest : public testing::Test {
 public:
-    BrokerScannerTest() : _runtime_state("BrokerScannerTest") {
+    BrokerScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _profile = _runtime_state.runtime_profile();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
@@ -67,7 +67,7 @@ private:
     TBrokerScanRangeParams _params;
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
-    BrokerScanCounter _counter;
+    ScannerCounter _counter;
 };
 
 void BrokerScannerTest::init_desc_table() {

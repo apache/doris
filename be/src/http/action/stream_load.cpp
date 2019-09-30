@@ -30,7 +30,7 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -139,7 +139,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body dont't equal with body bytes");
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
@@ -157,7 +157,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     // If put file succeess we need commit this load
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
@@ -202,7 +202,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status("no valid Basic authorization");
+        return Status::InternalError("no valid Basic authorization");
     }
     // check content length
     ctx->body_bytes = 0;
@@ -214,7 +214,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
             std::stringstream ss;
             ss << "body exceed max size, max_body_bytes=" << max_body_bytes;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     } else {
 #ifndef BE_TEST
@@ -232,11 +232,19 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             LOG(WARNING) << "unknown data format." << ctx->brief();
             std::stringstream ss;
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+
+    if (!http_req->header(HTTP_TIMEOUT).empty()) {
+        try {
+            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
+    }
 
     // begin transaction
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
@@ -321,6 +329,24 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
     }
+    if (!http_req->header(HTTP_NEGATIVE).empty()
+            && http_req->header(HTTP_NEGATIVE) == "true") {
+            request.__set_negative(true);
+    } else {
+        request.__set_negative(false);
+    }
+    if (!http_req->header(HTTP_STRICT_MODE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "false")) {
+            request.__set_strictMode(false);
+        } else if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "true")) {
+            request.__set_strictMode(true);
+        } else {
+            return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
+        }
+    }
+    if (!http_req->header(HTTP_TIMEZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -329,7 +355,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
     }
 
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
             [&request, ctx] (FrontendServiceConnection& client) {
             client->streamLoadPut(ctx->put_result, request);
@@ -347,7 +373,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {
-        return Status::OK;
+        return Status::OK();
     }
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
@@ -365,7 +391,7 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     std::stringstream ss;
     ss << prefix << "/" << req->param(HTTP_TABLE_KEY) << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
-    return Status::OK;
+    return Status::OK();
 }
 
 }

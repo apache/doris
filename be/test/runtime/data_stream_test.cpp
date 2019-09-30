@@ -587,7 +587,7 @@ protected:
         }
 
         VLOG_QUERY << "closing sender" << sender_num;
-        info.status = sender.close(&state, Status::OK);
+        info.status = sender.close(&state, Status::OK());
         info.num_bytes_sent = sender.get_num_data_bytes_sent();
 
         batch->reset();

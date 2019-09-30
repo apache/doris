@@ -109,5 +109,31 @@ public final class FeMetaVersion {
     // routine load job
     public static final int VERSION_49 = 49;
     // load job v2 for broker load
-//    public static final int VERSION_50 = 50;
+    public static final int VERSION_50 = 50;
+    // kafka custom properties
+    public static final int VERSION_51 = 51;
+    // small files
+    public static final int VERSION_52 = 52;
+    // Support exec_mem_limit in ExportJob
+    public static final int VERSION_53 = 53;
+    // support strict mode, change timeout to long, and record txn id in load job
+    public static final int VERSION_54 = 54;
+    // modify colocation join
+    public static final int VERSION_55 = 55;
+    // persist auth info in load job
+    public static final int VERSION_56 = 56;
+    // for base index using different id
+    public static final int VERSION_57 = 57;
+    // broker load support function, persist origin stmt in broker load
+    public static final int VERSION_58 = 58;
+    // support strict mode in routine load and stream load
+    public static final int VERSION_59 = 59;
+    // refactor date literal
+    public static final int VERSION_60 = 60;
+    // for alter job v2
+    public static final int VERSION_61 = 61;
+    // add param: doris_shuffle_partitions
+    public static final int VERSION_62 = 62;
+    // for table comment
+    public static final int VERSION_63 = 63;
 }

@@ -117,7 +117,12 @@ public class DescribeStmt extends ShowStmt {
             if (!isAllTables) {
                 // show base table schema only
                 String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/" + table.getId();
+                        + "/";
+                if (table.getType() == TableType.OLAP) {
+                    procString += ((OlapTable) table).getBaseIndexId();
+                } else {
+                    procString += table.getId();
+                }
 
                 node = ProcService.getInstance().open(procString);
                 if (node == null) {
@@ -132,9 +137,9 @@ public class DescribeStmt extends ShowStmt {
 
                     // indices order
                     List<Long> indices = Lists.newArrayList();
-                    indices.add(olapTable.getId());
+                    indices.add(olapTable.getBaseIndexId());
                     for (Long indexId : indexIdToSchema.keySet()) {
-                        if (indexId != olapTable.getId()) {
+                        if (indexId != olapTable.getBaseIndexId()) {
                             indices.add(indexId);
                         }
                     }

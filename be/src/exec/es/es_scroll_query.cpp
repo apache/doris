@@ -96,6 +96,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     es_query_dsl.Accept(writer);
     std::string es_query_dsl_json = buffer.GetString();
+    LOG(INFO) << "Generated ES queryDSL [ " << es_query_dsl_json << " ]";
     return es_query_dsl_json;                
 
 }

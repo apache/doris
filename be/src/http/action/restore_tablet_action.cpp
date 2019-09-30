@@ -31,12 +31,13 @@
 #include "http/http_status.h"
 #include "util/file_utils.h"
 #include "olap/utils.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "util/json_util.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
-#include "olap/store.h"
+#include "olap/storage_engine.h"
+#include "olap/data_dir.h"
 #include "runtime/exec_env.h"
+#include "gutil/strings/substitute.h" // for Substitute
 
 using boost::filesystem::path;
 
@@ -68,7 +69,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     if (tablet_id_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + TABLET_ID + " not specified in url.");
-        return Status(error_msg);
+        return Status::InternalError(error_msg);
     }
 
     // Get schema hash
@@ -76,7 +77,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     if (schema_hash_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + SCHEMA_HASH + " not specified in url.");
-        return Status(error_msg);
+        return Status::InternalError(error_msg);
     }
 
     // valid str format
@@ -84,19 +85,19 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
-    OLAPTablePtr tablet =
-            OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-    if (tablet.get() != nullptr) {
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    if (tablet != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
-        return Status("tablet already exists, can not restore.");
+        return Status::InternalError("tablet already exists, can not restore.");
     }
-    std::string key = std::to_string(tablet_id) + "_" + std::to_string(schema_hash);
+    std::string key = tablet_id_str + "_" + schema_hash_str;
     {
         // check tablet_id + schema_hash already is restoring
         std::lock_guard<std::mutex> l(_tablet_restore_lock);
         if (_tablet_path_map.find(key) != _tablet_path_map.end()) {
             LOG(INFO) << "tablet_id:" << tablet_id << " schema_hash:" << schema_hash << " is restoring.";
-            return Status("tablet is already restoring");
+            return Status::InternalError("tablet is already restoring");
         } else {
             // set key in map and initialize value as ""
             _tablet_path_map[key] = "";
@@ -115,42 +116,33 @@ Status RestoreTabletAction::_reload_tablet(
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = _exec_env->olap_engine()->load_header(shard_path, clone_req);
+    res = _exec_env->storage_engine()->load_header(shard_path, clone_req);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "load header failed. status: " << res
                      << ", signature: " << tablet_id;
         // remove tablet data path in data path
         // path: /roo_path/data/shard/tablet_id
-        std::string tablet_path = shard_path + "/" + std::to_string(tablet_id);
+        std::string tablet_path = strings::Substitute("$0/$1/$2", shard_path, tablet_id, schema_hash);
         LOG(INFO) << "remove tablet_path:" << tablet_path;
         Status s = FileUtils::remove_all(tablet_path);
         if (!s.ok()) {
             LOG(WARNING) << "remove invalid tablet schema hash path:" << tablet_path << " failed";
         }
-        return Status("command executor load header failed");
+        return Status::InternalError("command executor load header failed");
     } else {
-        LOG(INFO) << "load header success. status: " << res
-                  << ", signature: " << tablet_id;
-        // remove tablet data path in trash
-        // path: /root_path/trash/time_label, because only one tablet path under time_label
         std::string trash_tablet_schema_hash_dir = "";
-
         {
             // get tablet path in trash
             std::lock_guard<std::mutex> l(_tablet_restore_lock);
             trash_tablet_schema_hash_dir = _tablet_path_map[key];
         }
+        LOG(INFO) << "load header success. status: " << res
+                  << ", signature: " << tablet_id << ", from trash path:" << trash_tablet_schema_hash_dir
+                  << " to shard path:" << shard_path;
 
-        boost::filesystem::path trash_tablet_schema_hash_path(trash_tablet_schema_hash_dir);
-        boost::filesystem::path time_label_path = trash_tablet_schema_hash_path.parent_path().parent_path();
-        LOG(INFO) << "remove time label path:" << time_label_path.string();
-        Status s = FileUtils::remove_all(time_label_path.string());
-        if (!s.ok()) {
-            LOG(WARNING) << "remove time label path:" << time_label_path.string() << " failed";
-        }
-        return Status::OK;
+        return Status::OK();
     }
-} 
+}
 
 Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, int32_t schema_hash) {
     // get latest tablet path in trash
@@ -159,15 +151,15 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     if (!ret) {
         LOG(WARNING) << "can not find tablet:" << tablet_id
                 << ", schema hash:" << schema_hash;
-        return Status("can find tablet path in trash");
+        return Status::InternalError("can find tablet path in trash");
     }
     LOG(INFO) << "tablet path in trash:" << latest_tablet_path;
     std::string original_header_path = latest_tablet_path + "/" + std::to_string(tablet_id) +".hdr";
-    OLAPHeader header(original_header_path);
-    OLAPStatus load_status = header.load_and_init();
+    TabletMeta tablet_meta;
+    OLAPStatus load_status = tablet_meta.create_from_file(original_header_path);
     if (load_status != OLAP_SUCCESS) {
         LOG(WARNING) << "header load and init error, header path:" << original_header_path;
-        return Status("load header failed");
+        return Status::InternalError("load header failed");
     }
     // latest_tablet_path: /root_path/trash/time_label/tablet_id/schema_hash
     {
@@ -176,46 +168,50 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         _tablet_path_map[key] = latest_tablet_path;
     }
 
-    std::string root_path = OlapStore::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
-    OlapStore* store = OLAPEngine::get_instance()->get_store(root_path);
-    std::string restore_schema_hash_path = store->get_tablet_schema_hash_path_from_header(&header);
+    std::string root_path = DataDir::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
+    DataDir* store = StorageEngine::instance()->get_store(root_path);
+    std::string restore_schema_hash_path = store->get_absolute_tablet_path(&tablet_meta, true);
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {
         LOG(WARNING) << "create tablet path failed:" << restore_schema_hash_path;
         return s;
     }
     // create hard link for files in /root_path/data/shard/tablet_id/schema_hash
-    std::vector<std::string> files;
-    s = FileUtils::scan_dir(latest_tablet_path, &files);
+    s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
-        LOG(WARNING) << "scan dir failed:" << latest_tablet_path;
+        RETURN_IF_ERROR(FileUtils::remove_all(restore_schema_hash_path));
         return s;
     }
-    for (auto& file : files) {
-        std::string from = latest_tablet_path + "/" + file;
-        std::string to = restore_schema_hash_path + "/" + file;
-        int link_ret = link(from.c_str(), to.c_str());
-        if (link_ret != 0) {
-            LOG(WARNING) << "link from:" << from
-                    << " to:" << to  << " failed, link ret:" << link_ret;
-            std::string restore_tablet_path = store->get_tablet_path_from_header(&header);
-            LOG(WARNING) << "remove tablet_path:" << restore_tablet_path;
-            Status s = FileUtils::remove_all(restore_tablet_path);
-            if (!s.ok()) {
-                LOG(WARNING) << "remove invalid tablet path:" << restore_tablet_path << " failed";
-            }
-            return Status("create link path failed");
-        }
-    }
-    std::string restore_shard_path = store->get_shard_path_from_header(std::to_string(header.shard()));
+    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(tablet_meta.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
+}
+
+Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src, const std::string& dst) {
+    std::vector<std::string> files;
+    RETURN_IF_ERROR(FileUtils::scan_dir(src, &files));
+    for (auto& file : files) {
+        std::string from = src + "/" + file;
+        std::string to = dst + "/" + file;
+        if (FileUtils::is_dir(from)) {
+            RETURN_IF_ERROR(FileUtils::create_dir(to));
+            RETURN_IF_ERROR(_create_hard_link_recursive(from, to));
+        } else {
+            int link_ret = link(from.c_str(), to.c_str());
+            if (link_ret != 0) {
+                LOG(WARNING) << "link from:" << from
+                             << " to:" << to << " failed, link ret:" << link_ret;
+                return Status::InternalError("create link path failed");
+            }
+        }
+    }
+    return Status::OK();
 }
 
 bool RestoreTabletAction::_get_latest_tablet_path_from_trash(
         int64_t tablet_id, int32_t schema_hash, std::string* path) {
     std::vector<std::string> tablet_paths;
-    std::vector<OlapStore*> stores = OLAPEngine::get_instance()->get_stores();
+    std::vector<DataDir*> stores = StorageEngine::instance()->get_stores();
     for (auto& store : stores) {
         store->find_tablet_in_trash(tablet_id, &tablet_paths);
     }

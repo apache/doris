@@ -64,7 +64,6 @@ IntCounter DorisMetrics::create_rollup_requests_failed;
 IntCounter DorisMetrics::storage_migrate_requests_total;
 IntCounter DorisMetrics::delete_requests_total;
 IntCounter DorisMetrics::delete_requests_failed;
-IntCounter DorisMetrics::cancel_delete_requests_total;
 IntCounter DorisMetrics::clone_requests_total;
 IntCounter DorisMetrics::clone_requests_failed;
 
@@ -88,12 +87,20 @@ IntCounter DorisMetrics::meta_write_request_duration_us;
 IntCounter DorisMetrics::meta_read_request_total;
 IntCounter DorisMetrics::meta_read_request_duration_us;
 
+IntCounter DorisMetrics::segment_read_total;
+IntCounter DorisMetrics::segment_row_total;
+IntCounter DorisMetrics::segment_rows_by_short_key;
+IntCounter DorisMetrics::segment_rows_read_by_zone_map;
+
 IntCounter DorisMetrics::txn_begin_request_total;
 IntCounter DorisMetrics::txn_commit_request_total;
 IntCounter DorisMetrics::txn_rollback_request_total;
 IntCounter DorisMetrics::txn_exec_plan_total;
 IntCounter DorisMetrics::stream_receive_bytes_total;
 IntCounter DorisMetrics::stream_load_rows_total;
+
+IntCounter DorisMetrics::memtable_flush_total;
+IntCounter DorisMetrics::memtable_flush_duration_us;
 
 // gauges
 IntGauge DorisMetrics::memory_pool_bytes_total;
@@ -139,6 +146,9 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(query_scan_rows);
     REGISTER_DORIS_METRIC(ranges_processed_total);
 
+    REGISTER_DORIS_METRIC(memtable_flush_total);
+    REGISTER_DORIS_METRIC(memtable_flush_duration_us);
+
     // push request
     _metrics->register_metric(
         "push_requests_total", MetricLabels().add("status", "SUCCESS"),
@@ -174,7 +184,6 @@ void DorisMetrics::initialize(
     REGISTER_ENGINE_REQUEST_METRIC(storage_migrate, total, storage_migrate_requests_total);
     REGISTER_ENGINE_REQUEST_METRIC(delete, total, delete_requests_total);
     REGISTER_ENGINE_REQUEST_METRIC(delete, failed, delete_requests_failed);
-    REGISTER_ENGINE_REQUEST_METRIC(cancel_delete, total, cancel_delete_requests_total);
     REGISTER_ENGINE_REQUEST_METRIC(clone, total, clone_requests_total);
     REGISTER_ENGINE_REQUEST_METRIC(clone, failed, clone_requests_failed);
 
@@ -214,6 +223,19 @@ void DorisMetrics::initialize(
     _metrics->register_metric(
         "meta_request_duration", MetricLabels().add("type", "read"),
         &meta_read_request_duration_us);
+
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_total_read_times"),
+        &segment_read_total);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_total_row_num"),
+        &segment_row_total);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_rows_by_short_key"),
+        &segment_rows_by_short_key);
+    _metrics->register_metric(
+        "segment_read", MetricLabels().add("type", "segment_rows_read_by_zone_map"),
+        &segment_rows_read_by_zone_map);
 
     _metrics->register_metric(
         "txn_request", MetricLabels().add("type", "begin"),

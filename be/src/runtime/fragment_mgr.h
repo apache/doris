@@ -23,8 +23,10 @@
 #include <unordered_map>
 #include <functional>
 #include <thread>
+#include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "util/thread_pool.hpp"
@@ -36,6 +38,7 @@ namespace doris {
 class ExecEnv;
 class FragmentExecState;
 class TExecPlanFragmentParams;
+class TUniqueId;
 class PlanFragmentExecutor;
 
 std::string to_load_error_http_path(const std::string& file_name);
@@ -54,13 +57,22 @@ public:
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
-    Status cancel(const TUniqueId& fragment_id);
+    Status cancel(const TUniqueId& fragment_id) {
+        return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
+    }
+
+    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason);
 
     void cancel_worker();
 
     virtual void debug(std::stringstream& ss);
 
     Status trigger_profile_report(const PTriggerProfileReportRequest* request);
+
+    // input: TScanOpenParams fragment_instance_id
+    // output: selected_columns
+    // execute external query, all query info are packed in TScanOpenParams
+    Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
 
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,

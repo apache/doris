@@ -222,7 +222,7 @@ Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
     Value* val = NULL;
     Instruction::CastOps cast_op = codegen->get_cast_op(_children[0]->type(), _type);
     if (cast_op == Instruction::CastOps::CastOpsEnd) {
-        return Status("Unknow type");
+        return Status::InternalError("Unknow type");
     }
     val = builder.CreateCast(cast_op, child_val.get_val(), codegen->get_type(_type), "val");
     builder.CreateBr(ret_block);
@@ -244,18 +244,18 @@ Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
     builder.CreateRet(result.value());
 
     *fn = codegen->finalize_function(*fn);
-    return Status::OK;
+    return Status::OK();
 }
 
 #define CODEGEN_DEFINE(CLASS) \
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
         if (_ir_compute_fn != NULL) { \
             *fn = _ir_compute_fn; \
-            return Status::OK; \
+            return Status::OK(); \
         } \
         RETURN_IF_ERROR(codegen_cast_fn(state, fn)); \
         _ir_compute_fn = *fn; \
-        return Status::OK; \
+        return Status::OK(); \
     }
 
 CODEGEN_DEFINE(CastBooleanExpr);

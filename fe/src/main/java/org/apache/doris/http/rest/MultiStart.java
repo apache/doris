@@ -36,9 +36,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Start multi action
 public class MultiStart extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     private ExecuteEnv execEnv;
 
     public MultiStart(ActionController controller, ExecuteEnv execEnv) {
@@ -49,11 +46,11 @@ public class MultiStart extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiStart action = new MultiStart(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_start", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_start", action);
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {

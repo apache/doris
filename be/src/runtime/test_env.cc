@@ -66,14 +66,14 @@ RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
     TExecPlanFragmentParams plan_params = TExecPlanFragmentParams();
     plan_params.params.query_id.hi = 0;
     plan_params.params.query_id.lo = query_id;
-    return new RuntimeState(plan_params, TQueryOptions(), "", _exec_env.get());
+    return new RuntimeState(plan_params, TQueryOptions(), TQueryGlobals(), _exec_env.get());
 }
 
 Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_size,
         RuntimeState** runtime_state) {
     *runtime_state = create_runtime_state(query_id);
     if (*runtime_state == NULL) {
-        return Status("Unexpected error creating RuntimeState");
+        return Status::InternalError("Unexpected error creating RuntimeState");
     }
 
     shared_ptr<BufferedBlockMgr2> mgr;
@@ -85,7 +85,7 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
     // (*runtime_state)->_block_mgr = mgr;
 
     _query_states.push_back(shared_ptr<RuntimeState>(*runtime_state));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TestEnv::create_query_states(int64_t start_query_id, int num_mgrs,
@@ -97,7 +97,7 @@ Status TestEnv::create_query_states(int64_t start_query_id, int num_mgrs,
                     &runtime_state));
         runtime_states->push_back(runtime_state);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void TestEnv::tear_down_query_states() {

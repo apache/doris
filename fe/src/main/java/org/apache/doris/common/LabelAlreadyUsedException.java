@@ -17,20 +17,44 @@
 
 package org.apache.doris.common;
 
-/*
- * Author: Chenmingyu
- * Date: Jan 16, 2019
- */
+import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Preconditions;
 
 public class LabelAlreadyUsedException extends DdlException {
 
     private static final long serialVersionUID = -6798925248765094813L;
 
+    // status of existing load job
+    // RUNNING or FINISHED
+    private String jobStatus;
+
     public LabelAlreadyUsedException(String label) {
         super("Label [" + label + "] has already been used.");
     }
 
+    public LabelAlreadyUsedException(String label, TransactionStatus txnStatus) {
+        super("Label [" + label + "] has already been used.");
+        switch (txnStatus) {
+        case UNKNOWN:
+        case PREPARE:
+            jobStatus = "RUNNING";
+            break;
+        case COMMITTED:
+        case VISIBLE:
+            jobStatus = "FINISHED";
+            break;
+        default:
+            Preconditions.checkState(false, txnStatus);
+            break;
+        }
+    }
+
     public LabelAlreadyUsedException(String label, String subLabel) {
         super("Sub label [" + subLabel + "] has already been used.");
+    }
+
+    public String getJobStatus() {
+        return jobStatus;
     }
 }

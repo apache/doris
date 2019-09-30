@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.rpc.PUniqueId;
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
 
 import java.io.PrintWriter;

@@ -90,11 +90,11 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
 
     st = loader._replace_tablet_id("1234_2_5_12345_1.dat", 5678, &new_name);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ("5678_2_5_12345_1.dat", new_name);
+    ASSERT_EQ("1234_2_5_12345_1.dat", new_name);
 
     st = loader._replace_tablet_id("1234_2_5_12345_1.idx", 5678, &new_name);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ("5678_2_5_12345_1.idx", new_name);
+    ASSERT_EQ("1234_2_5_12345_1.idx", new_name);
 
     st = loader._replace_tablet_id("1234_2_5_12345_1.xxx", 5678, &new_name);
     ASSERT_FALSE(st.ok());

@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,6 +42,8 @@ public class StringLiteral extends LiteralExpr {
     private String value;
     
     public StringLiteral() {
+        super();
+        type = Type.VARCHAR;
     }
 
     public StringLiteral(String value) {
@@ -66,7 +69,7 @@ public class StringLiteral extends LiteralExpr {
             return 1;
         }
 
-        // compare string with utf-8 byte array, same with DM,BE,OLAPENGINE
+        // compare string with utf-8 byte array, same with DM,BE,StorageEngine
         byte[] thisBytes = null;
         byte[] otherBytes = null;
         try {
@@ -200,6 +203,11 @@ public class StringLiteral extends LiteralExpr {
             } catch (AnalysisException e) {
                 // pass;
             }
+        } else if (targetType.equals(type)) {
+            return this;
+        } else if (targetType.isStringType()) {
+            type = targetType;
+            return this;
         }
         return super.uncheckedCastTo(targetType);
     }

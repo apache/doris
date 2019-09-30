@@ -81,7 +81,7 @@ public class AccessTestUtil {
             Catalog catalog = EasyMock.createMock(Catalog.class);
             EasyMock.expect(catalog.getAuth()).andReturn(fetchAdminAccess()).anyTimes();
             Database db = new Database(50000L, "testCluster:testDb");
-            MaterializedIndex baseIndex = new MaterializedIndex(30000, IndexState.NORMAL);
+            MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
 
             RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
 
@@ -91,6 +91,7 @@ public class AccessTestUtil {
                     KeysType.AGG_KEYS, new SinglePartitionInfo(), distributionInfo);
             table.setIndexSchemaInfo(baseIndex.getId(), "testTbl", baseSchema, 0, 1, (short) 1);
             table.addPartition(partition);
+            table.setBaseIndexId(baseIndex.getId());
             db.createTable(table);
 
             EasyMock.expect(catalog.getDb("testCluster:testDb")).andReturn(db).anyTimes();

@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -25,22 +26,44 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class TransactionState implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TransactionState.class);
     
+    // compare the TransactionState by txn id, desc
+    public static class TxnStateComparator implements Comparator<TransactionState> {
+        @Override
+        public int compare(TransactionState t1, TransactionState t2) {
+            if (t1.getTransactionId() > t2.getTransactionId()) {
+                return -1;
+            } else if (t1.getTransactionId() < t2.getTransactionId()) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    public static final TxnStateComparator TXN_ID_COMPARATOR = new TxnStateComparator();
+
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
@@ -79,7 +102,8 @@ public class TransactionState implements Writable {
     public enum TxnStatusChangeReason {
         DB_DROPPED,
         TIMEOUT,
-        OFFSET_OUT_OF_RANGE;
+        OFFSET_OUT_OF_RANGE,
+        PAUSE;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -104,9 +128,9 @@ public class TransactionState implements Writable {
     private long dbId;
     private long transactionId;
     private String label;
-    // timestamp is used to judge whether a begin request is a internal retry request.
-    // no need to persist it
-    private long timestamp;
+    // requsetId is used to judge whether a begin request is a internal retry request.
+    // no need to persist it.
+    private TUniqueId requsetId;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
     private String coordinator;
@@ -129,16 +153,23 @@ public class TransactionState implements Writable {
     private long callbackId = -1;
     private long timeoutMs = Config.stream_load_default_timeout_second;
 
+    // is set to true, we will double the publish timeout
+    private boolean prolongPublishTimeout = false;
+
     // optional
     private TxnCommitAttachment txnCommitAttachment;
     
+    // this map should be set when load execution begin, so that when the txn commit, it will know
+    // which tables and rollups it loaded.
+    // tbl id -> (index ids)
+    private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
+
     private String errorLogUrl = null;
 
     public TransactionState() {
         this.dbId = -1;
         this.transactionId = -1;
         this.label = "";
-        this.timestamp = -1;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = "";
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -153,12 +184,12 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+    public TransactionState(long dbId, long transactionId, String label, TUniqueId requsetId,
                             LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
-        this.timestamp = timestamp;
+        this.requsetId = requsetId;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = coordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -207,9 +238,9 @@ public class TransactionState implements Writable {
     public boolean hasSendTask() {
         return this.hasSendTask;
     }
-    
-    public long getTimestamp() {
-        return timestamp;
+
+    public TUniqueId getRequsetId() {
+        return requsetId;
     }
 
     public long getTransactionId() {
@@ -400,6 +431,28 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    /*
+     * Add related table indexes to the transaction.
+     * If function should always be called before adding this transaction state to transaction manager,
+     * No other thread will access this state. So no need to lock
+     */
+    public void addTableIndexes(OlapTable table) {
+        Set<Long> indexIds = loadedTblIndexes.get(table.getId());
+        if (indexIds == null) {
+            indexIds = Sets.newHashSet();
+            loadedTblIndexes.put(table.getId(), indexIds);
+        }
+        // always rewrite the index ids
+        indexIds.clear();
+        for (Long indexId : table.getIndexIdToSchema().keySet()) {
+            indexIds.add(indexId);
+        }
+    }
+
+    public Map<Long, Set<Long>> getLoadedTblIndexes() {
+        return loadedTblIndexes;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("TransactionState. ");
@@ -429,13 +482,19 @@ public class TransactionState implements Writable {
     }
     
     public boolean isPublishTimeout() {
-        // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
-        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
-                                      Config.load_straggler_wait_second * 1000);
-        timeoutMillis = Math.max(timeoutMillis, 3000);
+        // the max timeout is Config.publish_version_timeout_second * 2;
+        long timeoutMillis = Config.publish_version_timeout_second * 1000;
+        if (prolongPublishTimeout) {
+            timeoutMillis *= 2;
+        }
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
     
+    public void prolongPublishTimeout() {
+        this.prolongPublishTimeout = true;
+        LOG.info("prolong the timeout of publish version task for transaction: {}", transactionId);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(transactionId);

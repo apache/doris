@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.Load;
@@ -34,7 +35,7 @@ public class LoadProcDir implements ProcDirInterface {
             .add("JobId").add("Label").add("State").add("Progress")
             .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
             .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
-            .add("URL")
+            .add("URL").add("JobDetails")
             .build();
 
     // label and state column index of result
@@ -59,8 +60,12 @@ public class LoadProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
+        // merge load job from load and loadManager
         LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
                                                                              null, false, null);
+        loadJobInfos.addAll(Catalog.getCurrentCatalog().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
+                                                                                             false,
+                                                                                             null));
         int counter = 0;
         Iterator<List<Comparable>> iterator = loadJobInfos.descendingIterator();
         while (iterator.hasNext()) {

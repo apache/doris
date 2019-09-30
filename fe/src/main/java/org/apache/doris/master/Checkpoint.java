@@ -18,16 +18,12 @@
 package org.apache.doris.master;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.monitor.jvm.JvmService;
+import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.MetaCleaner;
 import org.apache.doris.persist.Storage;
@@ -38,10 +34,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryUsage;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -52,12 +47,6 @@ public class Checkpoint extends Daemon {
     private static final int PUT_TIMEOUT_SECOND = 3600;
     private static final int CONNECT_TIMEOUT_SECOND = 1;
     private static final int READ_TIMEOUT_SECOND = 1;
-    private static final int AVERAGE_PARTITION_SIZE = 64;
-    private static final int AVERAGE_INDEX_SIZE = 56;
-    private static final int AVERAGE_TABLET_SIZE = 16;
-    private static final int AVERAGE_REPLICA_SIZE = 56;
-    private static final int AVERAGE_LOADJOB_SIZE = 168;
-    private static final int MAX_MEMORY_USAGE_RATE = 90;
     
     private Catalog catalog;
     private String imageDir;
@@ -76,6 +65,7 @@ public class Checkpoint extends Daemon {
         }
     }
 
+    @Override
     protected void runOneCycle() {
         long imageVersion = 0;
         long checkPointVersion = 0;
@@ -221,67 +211,49 @@ public class Checkpoint extends Daemon {
     
     }
     
+    /*
+     * Check whether can we do the checkpoint due to the memory used percent.
+     */
     private boolean checkMemoryEnoughToDoCheckpoint() {
-        List<String> dbNames = Catalog.getInstance().getDbNames();
-        if (dbNames == null || dbNames.isEmpty()) {
-            return true;
-        }
-        
-        int totalPartitionNum = 0;
-        int totalIndexNum = 0;
-        int totalTabletNum = 0;
-        int totalReplicaNum = 0;
-        long stillNeedMemorySize = 0;
-        
-        for (String name : dbNames) {
-            Database db = Catalog.getInstance().getDb(name);
-            if (db == null) {
-                continue;
-            }
+        long memUsedPercent = getMemoryUsedPercent();
+        LOG.info("get jvm memory used percent: {} %", memUsedPercent);
 
-            db.readLock();
-            try {
-                for (Table table : db.getTables()) {
-                    if (table.getType() != TableType.OLAP) {
-                        continue;
-                    }
-
-                    OlapTable olapTable = (OlapTable) table;
-                    for (Partition partition : olapTable.getPartitions()) {
-                        totalPartitionNum++;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                            totalIndexNum++;
-                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                totalTabletNum++;
-                                int replicaNum = tablet.getReplicas().size();
-                                totalReplicaNum += replicaNum;
-                            } // end for tablets
-                        } // end for indices
-                    } // end for partitions
-                } // end for tables
-            } finally {
-                db.readUnlock();
-            }
-        } // end for dbs
-        
-        int totalLoadJobNum = Catalog.getInstance().getLoadInstance().getLoadJobNumber();
-        stillNeedMemorySize += totalPartitionNum * AVERAGE_PARTITION_SIZE;
-        stillNeedMemorySize += totalIndexNum * AVERAGE_INDEX_SIZE;
-        stillNeedMemorySize += totalTabletNum * AVERAGE_TABLET_SIZE;
-        stillNeedMemorySize += totalReplicaNum * AVERAGE_REPLICA_SIZE;
-        stillNeedMemorySize += totalLoadJobNum * AVERAGE_LOADJOB_SIZE;
-        
-        MemoryUsage memoryUsage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
-        /*
-         *  use memoryUsage.getUsed() * 2 instead of memoryUsage.getUsed() + stillNeedMemorySize?
-         *  stillNeedMemorySize is less than the actual memory needed to do checkpoint 
-         */
-        if (memoryUsage.getMax() * MAX_MEMORY_USAGE_RATE / 100 < memoryUsage.getUsed() + stillNeedMemorySize) {
-            LOG.warn("memory is not enough to do checkpoint. Committed memroy {} Bytes, used memory {} Bytes.",
-                    memoryUsage.getCommitted(), memoryUsage.getUsed());
+        if (memUsedPercent > Config.metadata_checkopoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
+            LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}",
+                    memUsedPercent, Config.metadata_checkopoint_memory_threshold);
             return false;
         }
+       
         return true;
+    }
+
+    /*
+     * Get the used percent of jvm memory pool.
+     * If old mem pool does not found(It probably should not happen), use heap mem usage instead.
+     * heap mem is slightly larger than old mem pool usage.
+     */
+    private long getMemoryUsedPercent() {
+        JvmService jvmService = new JvmService();
+        JvmStats jvmStats = jvmService.stats();
+        Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
+        MemoryPool oldMemPool = null;
+        while (memIter.hasNext()) {
+            MemoryPool memPool = memIter.next();
+            if (memPool.getName().equalsIgnoreCase("old")) {
+                oldMemPool = memPool;
+                break;
+            }
+        }
+        if (oldMemPool != null) {
+            long used = oldMemPool.getUsed().getBytes();
+            long max = oldMemPool.getMax().getBytes();
+            return used * 100 / max;
+        } else {
+            LOG.warn("failed to get jvm old mem pool, use heap usage instead");
+            long used = jvmStats.getMem().getHeapUsed().getBytes();
+            long max = jvmStats.getMem().getHeapMax().getBytes();
+            return used * 100 / max;
+        }
     }
 
 }

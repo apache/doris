@@ -31,6 +31,9 @@ static const std::string HTTP_COLUMN_SEPARATOR = "column_separator";
 static const std::string HTTP_MAX_FILTER_RATIO = "max_filter_ratio";
 static const std::string HTTP_TIMEOUT = "timeout";
 static const std::string HTTP_PARTITIONS = "partitions";
+static const std::string HTTP_NEGATIVE = "negative";
+static const std::string HTTP_STRICT_MODE = "strict_mode";
+static const std::string HTTP_TIMEZONE = "timezone";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 

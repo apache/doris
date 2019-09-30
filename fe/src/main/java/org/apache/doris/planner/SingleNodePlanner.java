@@ -22,12 +22,43 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticInfo;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BaseTableRef;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.TupleIsNullPredicate;
+import org.apache.doris.analysis.UnionStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.*;
+import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.UserException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -177,6 +208,8 @@ public class SingleNodePlanner {
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
+            pushDownPredicates(analyzer, selectStmt);
+
             root = createSelectPlan(selectStmt, analyzer, newDefaultOrderByLimit);
 
             // TODO(zc)
@@ -227,7 +260,7 @@ public class SingleNodePlanner {
             }
             Preconditions.checkState(root.hasValidStats());
             root.init(analyzer);
-            // TODO chenhao16, before merge ValueTransferGraph, force evaluate conjuncts
+            // TODO chenhao, before merge ValueTransferGraph, force evaluate conjuncts
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
@@ -286,13 +319,18 @@ public class SingleNodePlanner {
     private void turnOffPreAgg(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         String turnOffReason = null;
         do {
-            if (null == aggInfo) {
-                turnOffReason = "No AggregateInfo";
+            if (!(root instanceof OlapScanNode)) {
+                turnOffReason = "left-deep Node is not OlapScanNode";
                 break;
             }
 
-            if (!(root instanceof OlapScanNode)) {
-                turnOffReason = "left-deep Node is not OlapScanNode";
+            if (((OlapScanNode)root).getForceOpenPreAgg()) {
+                ((OlapScanNode)root).setIsPreAggregation(true, "");
+                return;
+            }
+
+            if (null == aggInfo) {
+                turnOffReason = "No AggregateInfo";
                 break;
             }
 
@@ -302,7 +340,7 @@ public class SingleNodePlanner {
             if (selectStmt.getTableRefs().size() > 1) {
                 for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
                     final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
-                    // TODO chenhao16 , right out join ?
+                    // TODO chenhao , right out join ?
                     if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
                         turnOffReason = selectStmt.getTableRefs().get(i) +
                                 " joinOp is full outer join or right outer join.";
@@ -363,8 +401,8 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (conjunctSlotIds.contains(slot.getId())) {
-                            turnOffReason = "conjunct on " + slot.getColumn().getName() +
-                                    " which is OlapEngine value column";
+                            turnOffReason = "conjunct on `" + slot.getColumn().getName() +
+                                    "` which is StorageEngine value column";
                             valueColumnValidate = false;
                             break;
                         }
@@ -471,7 +509,7 @@ public class SingleNodePlanner {
                         if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")
                                 && aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
                             returnColumnValidate = false;
-                            turnOffReason = "the type of agg on OlapEngine's Key column should only be MAX or MIN."
+                            turnOffReason = "the type of agg on StorageEngine's Key column should only be MAX or MIN."
                                     + "agg expr: " + aggExpr.toSql();
                             break;
                         }
@@ -502,6 +540,18 @@ public class SingleNodePlanner {
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT)) {
+                        if ((!col.isKey())) {
+                            turnOffReason = "BITMAP_UNION_INT function with non-key column: " + col.getName();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
+                        if (col.getAggregationType() != AggregateType.BITMAP_UNION) {
+                            turnOffReason = "Aggregate Operator not match: BITMAP_UNION <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
@@ -537,7 +587,7 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (groupSlotIds.contains(slot.getId())) {
-                            turnOffReason = "groupExpr contains OlapEngine's Value";
+                            turnOffReason = "groupExpr contains StorageEngine's Value";
                             groupExprValidate = false;
                             break;
                         }
@@ -599,7 +649,7 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
         
-       if (analyzer.hasEmptySpjResultSet()) {
+        if (analyzer.hasEmptySpjResultSet()) {
             final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
@@ -665,8 +715,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createAggregationPlan(SelectStmt selectStmt, Analyzer analyzer,
                                            PlanNode root) throws UserException {
-        // add Having clause
-        root.assignConjuncts(analyzer);
         Preconditions.checkState(selectStmt.getAggInfo() != null);
         // add aggregation, if required
         AggregateInfo aggInfo = selectStmt.getAggInfo();
@@ -809,13 +857,14 @@ public class SingleNodePlanner {
                 if (!isNullPredicate.isSlotRefChildren() || isNullPredicate.isNotNull()) {
                     continue;
                 }
-                if (null == partitionColumnFilter) {
-                    partitionColumnFilter = new PartitionColumnFilter();
-                }
-                // like EQ
+
+                // If we meet a IsNull predicate on partition column, then other predicates are useless
+                // eg: (xxxx) and (col is null), only the IsNull predicate has an effect on partition pruning.
+                partitionColumnFilter = new PartitionColumnFilter();
                 NullLiteral nullLiteral = new NullLiteral();
                 partitionColumnFilter.setLowerBound(nullLiteral, true);
                 partitionColumnFilter.setUpperBound(nullLiteral, true);
+                break;
             }
         }
         LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
@@ -955,14 +1004,6 @@ public class SingleNodePlanner {
         // All conjuncts
         final List<Expr> unassignedConjuncts =
                 analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
-        if (!canMigrateConjuncts(inlineViewRef)) {
-            // mark (fully resolve) slots referenced by unassigned conjuncts as
-            // materialized
-            List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
-                    inlineViewRef.getBaseTblSmap(), analyzer, false);
-            analyzer.materializeSlots(substUnassigned);
-            return;
-        }
 
         // Constant conjuncts
         final List<Expr> unassignedConstantConjuncts = Lists.newArrayList();
@@ -993,17 +1034,21 @@ public class SingleNodePlanner {
                 preds.add(e);
             }
         }
-        unassignedConjuncts.removeAll(preds);
-        // Generate predicates to enforce equivalences among slots of the inline view
-        // tuple. These predicates are also migrated into the inline view.
-        // TODO(zc)
-        // analyzer.createEquivConjuncts(inlineViewRef.getId(), preds);
 
-        // create new predicates against the inline view's unresolved result exprs, not
-        // the resolved result exprs, in order to avoid skipping scopes (and ignoring
-        // limit clauses on the way)
-        final List<Expr> viewPredicates =
-                Expr.substituteList(preds, inlineViewRef.getSmap(), analyzer, false);
+        final List<Expr> pushDownFailedPredicates = Lists.newArrayList();
+        final List<Expr> viewPredicates = getPushDownPredicatesForInlineView(
+                inlineViewRef, preds, analyzer, pushDownFailedPredicates);
+        if (viewPredicates.size() <= 0) {
+            // mark (fully resolve) slots referenced by unassigned conjuncts as
+            // materialized
+            List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
+                    inlineViewRef.getBaseTblSmap(), analyzer, false);
+            analyzer.materializeSlots(substUnassigned);
+            return;
+        }
+        preds.removeAll(pushDownFailedPredicates);
+        unassignedConjuncts.remove(preds);
+        unassignedConjuncts.addAll(pushDownFailedPredicates);
 
         // Remove unregistered predicates that reference the same slot on
         // both sides (e.g. a = a). Such predicates have been generated from slot
@@ -1046,6 +1091,11 @@ public class SingleNodePlanner {
         if (conjuncts.isEmpty()) {
             return;
         }
+
+        if (!canMigrateConjuncts(inlineViewRef)) {
+            return;
+        }
+
         final List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
@@ -1090,11 +1140,87 @@ public class SingleNodePlanner {
         return clones;
     }
 
+   /**
+     * Get predicates can be migrated into an inline view.
+     */
+    private List<Expr> getPushDownPredicatesForInlineView(
+            InlineViewRef inlineViewRef, List<Expr> viewPredicates,
+            Analyzer analyzer, List<Expr> pushDownFailedPredicates) {
+        // TODO chenhao, remove evaluateOrderBy when SubQuery's default limit is removed.
+        final List<Expr> pushDownPredicates = Lists.newArrayList();
+        if (inlineViewRef.getViewStmt().evaluateOrderBy()
+                || inlineViewRef.getViewStmt().hasLimit()
+                || inlineViewRef.getViewStmt().hasOffset()) {
+            return pushDownPredicates;
+        }
+
+        // UnionNode will handle predicates and assigns predicates to it's children.
+        final List<Expr> candicatePredicates =
+                Expr.substituteList(viewPredicates, inlineViewRef.getSmap(), analyzer, false);
+        if (inlineViewRef.getViewStmt() instanceof UnionStmt) {
+            final UnionStmt unionStmt = (UnionStmt)inlineViewRef.getViewStmt();
+            for (int i = 0; i < candicatePredicates.size(); i++) {
+                final Expr predicate = candicatePredicates.get(i);
+                if (predicate.isBound(unionStmt.getTupleId())) {
+                    pushDownPredicates.add(predicate);
+                } else {
+                    pushDownFailedPredicates.add(viewPredicates.get(i));
+                }
+            }
+            return pushDownPredicates;
+        }
+
+        final SelectStmt selectStmt = (SelectStmt)inlineViewRef.getViewStmt();
+        if (selectStmt.hasAnalyticInfo()) {
+            pushDownPredicates.addAll(getWindowsPushDownPredicates(candicatePredicates, viewPredicates,
+                    selectStmt.getAnalyticInfo(), pushDownFailedPredicates));
+        } else {
+            pushDownPredicates.addAll(candicatePredicates);
+        }
+        return pushDownPredicates;
+    }
+
+    /**
+     * Get predicates which can be pushed down past Windows.
+     * @param predicates
+     * @param viewPredicates
+     * @param analyticInfo
+     * @param pushDownFailedPredicates
+     * @return
+     */
+    private List<Expr> getWindowsPushDownPredicates(
+            List<Expr> predicates, List<Expr> viewPredicates,
+            AnalyticInfo analyticInfo, List<Expr> pushDownFailedPredicates) {
+        final List<Expr> pushDownPredicates = Lists.newArrayList();
+        final List<Expr> partitionExprs = analyticInfo.getCommonPartitionExprs();
+        final List<SlotId> partitionByIds = Lists.newArrayList();
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                final SlotRef slotRef = (SlotRef)expr;
+                partitionByIds.add(slotRef.getSlotId());
+            }
+        }
+
+        if (partitionByIds.size() <= 0) {
+            return pushDownPredicates;
+        }
+
+        for (int i = 0; i < predicates.size(); i++) {
+            final Expr predicate = predicates.get(i);
+            if (predicate.isBound(partitionByIds)) {
+                pushDownPredicates.add(predicate);
+            } else {
+                pushDownFailedPredicates.add(viewPredicates.get(i));
+            }
+        }
+        return pushDownPredicates;
+    }
+
     /**
      * Checks if conjuncts can be migrated into an inline view.
      */
     private boolean canMigrateConjuncts(InlineViewRef inlineViewRef) {
-        // TODO chenhao16, remove 'false' when SubQuery's default limit is removed.
+         // TODO chenhao, remove evaluateOrderBy when SubQuery's default limit is removed.
         return inlineViewRef.getViewStmt().evaluateOrderBy() ? false :
                 (!inlineViewRef.getViewStmt().hasLimit()
                 && !inlineViewRef.getViewStmt().hasOffset()
@@ -1111,7 +1237,9 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                scanNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
+                scanNode = olapNode;
                 break;
             case MYSQL:
                 scanNode = new MysqlScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
@@ -1133,7 +1261,7 @@ public class SingleNodePlanner {
             Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
             List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
             for (Column column : tblRef.getTable().getBaseSchema()) {
-                SlotDescriptor slotDesc = analyzer.getColumnSlot(tblRef.getDesc(), column);
+                SlotDescriptor slotDesc = tblRef.getDesc().getColumnSlot(column.getName());
                 if (null == slotDesc) {
                     continue;
                 }
@@ -1147,7 +1275,7 @@ public class SingleNodePlanner {
         }
         // assignConjuncts(scanNode, analyzer);
         scanNode.init(analyzer);
-        // TODO chenhao16 add
+        // TODO chenhao add
         // materialize conjuncts in where
         analyzer.materializeSlots(scanNode.getConjuncts());
 
@@ -1356,7 +1484,7 @@ public class SingleNodePlanner {
         // List<Expr> conjuncts =
         //         analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList(), false);
         List<Expr> conjuncts = analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList());
-        // TODO chenhao16
+        // TODO chenhao
         // Because Conjuncts can't be assigned to UnionNode and Palo's fe can't evaluate conjuncts,
         // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant 
         // Select.
@@ -1513,5 +1641,191 @@ public class SingleNodePlanner {
         }
     }
 
+    /**
+     ------------------------------------------------------------------------------
+     */
+    /**
+     * Push down predicates rules
+     */
+
+    /**
+     * Entrance for push-down rules, it will execute possible push-down rules from top to down
+     * and the planner will be responsible for assigning all predicates to PlanNode. 
+     */
+    private void pushDownPredicates(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        // Push down predicates according to the semantic requirements of SQL.
+        pushDownPredicatesPastSort(analyzer, stmt);
+        pushDownPredicatesPastWindows(analyzer, stmt);
+        pushDownPredicatesPastAggregation(analyzer, stmt);
+    }
+
+    private void pushDownPredicatesPastSort(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed. 
+        if (stmt.evaluateOrderBy() || stmt.getLimit() >= 0 || stmt.getOffset() > 0 || stmt.getSortInfo() == null) {
+            return;
+        } 
+        final List<Expr> predicates = getBoundPredicates(analyzer, stmt.getSortInfo().getSortTupleDescriptor());
+        if (predicates.size() <= 0) {
+            return;
+        }
+        final List<Expr> pushDownPredicates = getPredicatesReplacedSlotWithSourceExpr(predicates, analyzer);
+        if (pushDownPredicates.size() <= 0) {
+            return;
+        }
+
+        // Push down predicates to sort's child until they are assigned successfully.
+        if (putPredicatesOnWindows(stmt, analyzer, pushDownPredicates)) {
+            return;
+        }
+        if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
+            return;
+        }
+        putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
+    }
+
+    private void pushDownPredicatesPastWindows(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
+        if (analyticInfo == null || analyticInfo.getCommonPartitionExprs().size() == 0) {
+            return;
+        }
+        final List<Expr> predicates = getBoundPredicates(analyzer, analyticInfo.getOutputTupleDesc());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        // Push down predicates to Windows' child until they are assigned successfully.
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        if (pushDownPredicates.size() <= 0) {
+            return;
+        }
+        if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
+            return;
+        }
+        putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
+    }
+
+    private void pushDownPredicatesPastAggregation(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        final AggregateInfo aggregateInfo = stmt.getAggInfo();
+        if (aggregateInfo == null || aggregateInfo.getGroupingExprs().size() <= 0) {
+            return;
+        }
+        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        // Push down predicates to aggregation's child until they are assigned successfully.
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        if (pushDownPredicates.size() <= 0) {
+            return;
+        }
+        putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
+    }
+
+    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+        final List<Expr> predicatesCanPushDown = Lists.newArrayList();
+        for (Expr predicate : predicates) {
+            if (predicate.isConstant()) {
+                // Constant predicates can't be pushed down past Groupby.
+                continue;
+            }
+
+            final List<TupleId> tupleIds = Lists.newArrayList();
+            final List<SlotId> slotIds = Lists.newArrayList();
+            predicate.getIds(tupleIds, slotIds);
+
+            boolean isAllSlotReferingGroupBys = true;
+            for (SlotId slotId : slotIds) {
+                final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
+                Expr sourceExpr = slotDesc.getSourceExprs().get(0);
+                if (sourceExpr.getFn() instanceof AggregateFunction) {
+                    isAllSlotReferingGroupBys = false;
+                }
+            }
+
+            if (isAllSlotReferingGroupBys) {
+                predicatesCanPushDown.add(predicate);
+            }
+        }
+        return getPredicatesReplacedSlotWithSourceExpr(predicatesCanPushDown, analyzer);
+    }
+
+    private List<Expr> getPredicatesReplacedSlotWithSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+        final List<Expr> predicatesCanPushDown = Lists.newArrayList();
+        analyzer.markConjunctsAssigned(predicates);
+        for (Expr predicate : predicates) {
+            final Expr newPredicate = predicate.clone();
+            replacePredicateSlotRefWithSource(newPredicate, analyzer);
+            predicatesCanPushDown.add(newPredicate);
+        }
+        return predicatesCanPushDown;
+    }
+
+    private void replacePredicateSlotRefWithSource(Expr predicate, Analyzer analyzer) {
+        replacePredicateSlotRefWithSource(null, predicate, -1, analyzer);
+    }
+
+    private void replacePredicateSlotRefWithSource(Expr parent, Expr predicate, int childIndex, Analyzer analyzer) {
+        if (predicate instanceof SlotRef) {
+            final SlotRef slotRef =  (SlotRef)predicate;
+            if (parent != null && childIndex >= 0) {
+                final Expr newReplacedExpr = slotRef.getDesc().getSourceExprs().get(0).clone();
+                parent.setChild(childIndex, newReplacedExpr);
+            }
+        }
+
+        for (int i = 0; i < predicate.getChildren().size(); i++) {
+            final Expr child = predicate.getChild(i);
+            replacePredicateSlotRefWithSource(predicate, child, i, analyzer);
+        }
+    }
+
+    // Register predicates with Aggregation's output tuple id.
+    private boolean putPredicatesOnAggregation(SelectStmt stmt, Analyzer analyzer,
+                                      List<Expr> predicates) throws AnalysisException {
+        final AggregateInfo aggregateInfo = stmt.getAggInfo();
+        if (aggregateInfo != null) {
+            analyzer.registerConjuncts(predicates, aggregateInfo.getOutputTupleId());
+            return true;
+        }
+        return false;
+    }
+
+    // Register predicates with Windows's tuple id.
+    private boolean putPredicatesOnWindows(SelectStmt stmt, Analyzer analyzer,
+                                 List<Expr> predicates) throws AnalysisException {
+        final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
+        if (analyticInfo != null) {
+            analyzer.registerConjuncts(predicates, analyticInfo.getOutputTupleId());
+            return true;
+        }
+        return false;
+    }
+
+    // Register predicates with TableRef's tuple id.
+    private void putPredicatesOnFrom(SelectStmt stmt, Analyzer analyzer, List<Expr> predicates) throws AnalysisException {
+        final List<TupleId> tableTupleIds = Lists.newArrayList();
+        for (TableRef tableRef : stmt.getTableRefs()) {
+            tableTupleIds.add(tableRef.getId());
+        }
+
+        for (Expr predicate : predicates) {
+            Preconditions.checkArgument(predicate.isBoundByTupleIds(tableTupleIds),
+                    "Predicate:" + predicate.toSql() + " can't be assigned to some PlanNode.");
+            final List<TupleId> predicateTupleIds = Lists.newArrayList();
+            predicate.getIds(predicateTupleIds, null);
+            analyzer.registerConjunct(predicate, predicateTupleIds);
+        }
+    }
+
+    /**
+     ------------------------------------------------------------------------------
+     */
+
+    private List<Expr> getBoundPredicates(Analyzer analyzer, TupleDescriptor tupleDesc) {
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        tupleIds.add(tupleDesc.getId());
+        return analyzer.getUnassignedConjuncts(tupleIds);
+    }
 }
 

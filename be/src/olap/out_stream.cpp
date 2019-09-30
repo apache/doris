@@ -32,9 +32,11 @@ OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_b
         _compressor = NULL;
         break;
 
+#ifdef DORIS_WITH_LZO
     case COMPRESS_LZO:
         _compressor = lzo_compress;
         break;
+#endif
 
     case COMPRESS_LZ4:
         _compressor = lz4_compress;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -190,7 +191,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             if (isExpire(tableId, currentTimeMs)) {
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 // erase table
@@ -204,10 +205,11 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         } // end for tables
     }
 
-    private void handleOlapTable(OlapTable olapTable) {
+    private void onEraseOlapTable(OlapTable olapTable) {
+        // inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Partition partition : olapTable.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
                 }
@@ -217,7 +219,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         // drop all replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Partition partition : olapTable.getPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices();
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
             for (MaterializedIndex materializedIndex : allIndices) {
                 long indexId = materializedIndex.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
@@ -233,6 +235,9 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             } // end for indices
         } // end for partitions
         AgentTaskExecutor.submit(batchTask);
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -246,9 +251,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
-
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 iterator.remove();
@@ -269,13 +273,16 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             // remove tablet from inverted index
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Partition partition : olapTable.getPartitions()) {
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     for (Tablet tablet : index.getTablets()) {
                         invertedIndex.deleteTablet(tablet.getId());
                     }
                 }
             }
         }
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(tableId);
 
         LOG.info("replay erase table[{}]", tableId);
     }
@@ -291,7 +298,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             if (isExpire(partitionId, currentTimeMs)) {
                 // remove tablet in inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     for (Tablet tablet : index.getTablets()) {
                         invertedIndex.deleteTablet(tablet.getId());
                     }
@@ -321,7 +328,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             if (partition.getName().equals(partitionName)) {
                 // remove tablet in inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     for (Tablet tablet : index.getTablets()) {
                         invertedIndex.deleteTablet(tablet.getId());
                     }
@@ -343,7 +350,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         if (!Catalog.isCheckpointThread()) {
             // remove tablet from inverted index
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
                 }
@@ -575,7 +582,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
@@ -627,7 +634,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             // storage medium should be got from RecyclePartitionInfo, not from olap table. because olap table
             // does not have this partition any more
             TStorageMedium medium = partitionInfo.getDataProperty().getStorageMedium();
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);

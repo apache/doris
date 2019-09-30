@@ -20,8 +20,11 @@
 #include <zlib.h>
 #include <bzlib.h>
 #include <lz4/lz4frame.h>
+
+#ifdef DORIS_WITH_LZO
 #include <lzo/lzoconf.h>
 #include <lzo/lzo1x.h>
+#endif
 
 #include "common/status.h"
 
@@ -148,6 +151,7 @@ private:
     const static unsigned DORIS_LZ4F_VERSION;
 };
 
+#ifdef DORIS_WITH_LZO
 class LzopDecompressor : public Decompressor {
 public:
     virtual ~LzopDecompressor();
@@ -255,5 +259,6 @@ private:
     const static uint64_t F_CRC32_D;
     const static uint64_t F_ADLER32_D;
 };
+#endif // DORIS_WITH_LZO 
 
 } // namespace

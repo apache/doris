@@ -1084,6 +1084,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    public boolean isBound(List<SlotId> slotIds) {
+        final List<TupleId> exprTupleIds = Lists.newArrayList();
+        final List<SlotId> exprSlotIds = Lists.newArrayList();
+        getIds(exprTupleIds, exprSlotIds);
+        return !exprSlotIds.retainAll(slotIds);
+    }
+
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
@@ -1512,6 +1519,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         expr.write(output);
     }
 
+    /**
+     * The expr result may be null
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
@@ -1553,14 +1566,25 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+
+    protected void recursiveResetChildrenResult() throws AnalysisException {
+        for (int i = 0; i < children.size(); i++) {
+            final Expr child = children.get(i);
+            final Expr newChild = child.getResultValue();
+            if (newChild != child) {
+                setChild(i, newChild);
+            }
+        }
+    }
+
     /**
      * For calculating expr.
      * @return value returned can't be null, if this and it's children are't constant expr, return this.
      * @throws AnalysisException
      */
     public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
     }
-
 }

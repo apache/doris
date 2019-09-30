@@ -25,6 +25,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
+#include "exec/parquet_scanner.h"
 #include "exprs/expr.h"
 #include "util/runtime_profile.h"
 
@@ -68,7 +69,7 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
                   _partition_infos.end(),
                   compare_part_use_range);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanNode::prepare(RuntimeState* state) {
@@ -80,7 +81,7 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // Initialize slots map
@@ -89,7 +90,7 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
         if (!pair.second) {
             std::stringstream ss;
             ss << "Failed to insert slot, col_name=" << slot->col_name();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -105,7 +106,7 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanNode::open(RuntimeState* state) {
@@ -124,7 +125,7 @@ Status BrokerScanNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(start_scanners());
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanNode::start_scanners() {
@@ -133,7 +134,7 @@ Status BrokerScanNode::start_scanners() {
         _num_running_scanners = 1;
     }
     _scanner_threads.emplace_back(&BrokerScanNode::scanner_worker, this, 0, _scan_ranges.size());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -141,7 +142,7 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
     // check if CANCELLED.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        if (update_status(Status::CANCELLED)) {
+        if (update_status(Status::Cancelled("Cancelled"))) {
             // Notify all scanners
             _queue_writer_cond.notify_all();
         }
@@ -149,7 +150,7 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
 
     if (_scan_finished.load()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     std::shared_ptr<RowBatch> scanner_batch;
@@ -167,7 +168,7 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
             return _process_status;
         }
         if (_runtime_state->is_cancelled()) {
-            if (update_status(Status::CANCELLED)) {
+            if (update_status(Status::Cancelled("Cancelled"))) {
                 _queue_writer_cond.notify_all();
             }
             return _process_status;
@@ -182,7 +183,7 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
     if (scanner_batch == nullptr) {
         _scan_finished.store(true);
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // notify one scanner
@@ -216,12 +217,12 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
         }
     }
     
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerScanNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -260,25 +261,46 @@ Status BrokerScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BrokerScanNode::debug_string(int ident_level, std::stringstream* out) const {
     (*out) << "BrokerScanNode";
 }
 
+std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRange& scan_range,
+        ScannerCounter* counter) {
+    BaseScanner *scan = nullptr;
+    switch (scan_range.ranges[0].format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+        scan = new ParquetScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
+    default:
+        scan = new BrokerScanner(
+                _runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+    }
+    std::unique_ptr<BaseScanner> scanner(scan);
+    return scanner;
+}
+
 Status BrokerScanNode::scanner_scan(
         const TBrokerScanRange& scan_range, 
         const std::vector<ExprContext*>& conjunct_ctxs, 
         const std::vector<ExprContext*>& partition_expr_ctxs,
-        BrokerScanCounter* counter) {
-    std::unique_ptr<BrokerScanner> scanner(new BrokerScanner(
-            _runtime_state, 
-            runtime_profile(),
-            scan_range.params, 
-            scan_range.ranges, 
-            scan_range.broker_addresses, 
-            counter));
+        ScannerCounter* counter) {
+
+    //create scanner object and open
+    std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
     
@@ -292,7 +314,7 @@ Status BrokerScanNode::scanner_scan(
         int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
         void* tuple_buffer = tuple_pool->allocate(tuple_buffer_size);
         if (tuple_buffer == nullptr) {
-            return Status("Allocate memory for row batch failed.");
+            return Status::InternalError("Allocate memory for row batch failed.");
         }
 
         Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buffer);
@@ -300,7 +322,7 @@ Status BrokerScanNode::scanner_scan(
             RETURN_IF_CANCELLED(_runtime_state);
             // If we have finished all works
             if (_scan_finished.load()) {
-                return Status::OK;
+                return Status::OK();
             }
 
             // This row batch has been filled up, and break this
@@ -318,22 +340,6 @@ Status BrokerScanNode::scanner_scan(
             RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
             if (scanner_eof) {
                 continue;
-            }
-
-            if (scan_range.params.__isset.partition_ids) {
-                int64_t partition_id = get_partition_id(partition_expr_ctxs, row);
-                if (partition_id == -1 || 
-                        !std::binary_search(scan_range.params.partition_ids.begin(), 
-                                           scan_range.params.partition_ids.end(), 
-                                           partition_id)) {
-                    counter->num_rows_filtered++;
-
-                    std::stringstream error_msg;
-                    error_msg << "No corresponding partition, partition id: " << partition_id;
-                    _runtime_state->append_error_msg_to_file(Tuple::to_string(tuple, *_tuple_desc), 
-                                                             error_msg.str());
-                    continue;
-                }
             }
 
             // eval conjuncts of this row.
@@ -359,15 +365,15 @@ Status BrokerScanNode::scanner_scan(
             }
             // Process already set failed, so we just return OK
             if (!_process_status.ok()) {
-                return Status::OK;
+                return Status::OK();
             }
             // Scan already finished, just return
             if (_scan_finished.load()) {
-                return Status::OK;
+                return Status::OK();
             }
             // Runtime state is canceled, just return cancel
             if (_runtime_state->is_cancelled()) {
-                return Status::CANCELLED;
+                return Status::Cancelled("Cancelled");
             }
             // Queue size Must be samller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
@@ -377,7 +383,7 @@ Status BrokerScanNode::scanner_scan(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BrokerScanNode::scanner_worker(int start_idx, int length) {
@@ -395,7 +401,7 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
             LOG(WARNING) << "Clone conjuncts failed.";
         }
     }
-    BrokerScanCounter counter;
+    ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
         const TBrokerScanRange& scan_range = 
             _scan_ranges[start_idx + i].scan_range.broker_scan_range;
@@ -407,7 +413,6 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 
     // Update stats
-    _runtime_state->update_num_rows_load_total(counter.num_rows_total);
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);
 

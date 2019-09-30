@@ -17,11 +17,12 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.UserException;
 
 public class TransactionCommitFailedException extends TransactionException {
     
     private static final long serialVersionUID = -2528170792631761535L;
+
+    public static final String NO_DATA_TO_LOAD_MSG = "all partitions have no load data";
 
     public TransactionCommitFailedException(String msg) {
         super(msg);

@@ -1,22 +1,19 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- *
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package org.apache.doris.task;
 
@@ -28,7 +25,9 @@ import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -36,6 +35,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,11 +53,15 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
 
     // optional
-    private List<ImportColumnDesc> columnExprDesc;
+    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
     private String partitions;
     private String path;
+    private boolean negative;
+    private boolean strictMode = true;
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    private int timeout = Config.stream_load_default_timeout_second;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -82,8 +86,8 @@ public class StreamLoadTask {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDesc() {
-        return columnExprDesc;
+    public List<ImportColumnDesc> getColumnExprDescs() {
+        return columnExprDescs;
     }
 
     public Expr getWhereExpr() {
@@ -100,6 +104,22 @@ public class StreamLoadTask {
 
     public String getPath() {
         return path;
+    }
+
+    public boolean getNegative() {
+        return negative;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public int getTimeout() {
+        return timeout;
     }
 
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
@@ -129,6 +149,19 @@ public class StreamLoadTask {
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
         }
+        if (request.isSetNegative()) {
+            negative = request.isNegative();
+        }
+        if (request.isSetTimeout()) {
+            timeout = request.getTimeout();
+        }
+        if (request.isSetStrictMode()) {
+            strictMode = request.isStrictMode();
+        }
+        if (request.isSetTimezone()) {
+            timezone = request.getTimezone();
+            TimeUtils.checkTimeZoneValid(timezone);
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -140,12 +173,19 @@ public class StreamLoadTask {
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        columnExprDesc = routineLoadJob.getColumnDescs();
+        // copy the columnExprDescs, cause it may be changed when planning.
+        // so we keep the columnExprDescs in routine load job as origin.
+        if (routineLoadJob.getColumnDescs() != null) {
+            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
+        strictMode = routineLoadJob.isStrictMode();
+        timezone = routineLoadJob.getTimezone();
     }
 
+    // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
         String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
@@ -170,7 +210,7 @@ public class StreamLoadTask {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDesc = columnsStmt.getColumns();
+            columnExprDescs = columnsStmt.getColumns();
         }
     }
 

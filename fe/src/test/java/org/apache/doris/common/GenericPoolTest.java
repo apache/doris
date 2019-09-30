@@ -40,6 +40,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPullLoadSubTaskInfo;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
+import org.apache.doris.thrift.TScanBatchResult;
+import org.apache.doris.thrift.TScanCloseParams;
+import org.apache.doris.thrift.TScanCloseResult;
+import org.apache.doris.thrift.TScanNextBatchParams;
+import org.apache.doris.thrift.TScanOpenParams;
+import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TTabletStatResult;
@@ -224,6 +230,21 @@ public class GenericPoolTest {
             // TODO Auto-generated method stub
             return null;
         }
+
+        @Override
+        public TScanOpenResult open_scanner(TScanOpenParams params) throws TException {
+            return null;
+        }
+
+        @Override
+        public TScanBatchResult get_next(TScanNextBatchParams params) throws TException {
+            return null;
+        }
+
+        @Override
+        public TScanCloseResult close_scanner(TScanCloseParams params) throws TException {
+            return null;
+        }
     }
 
     @Test
@@ -259,7 +280,6 @@ public class GenericPoolTest {
             flag = true;
             // pass
         } catch (Exception e) {
-            // can't get here
             Assert.fail();
         }
         Assert.assertTrue(flag);

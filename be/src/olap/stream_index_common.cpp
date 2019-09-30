@@ -17,7 +17,6 @@
 
 #include "olap/stream_index_common.h"
 
-#include "olap/stream_index_common.h"
 #include "olap/field.h"
 #include "olap/wrapper_field.h"
 
@@ -38,14 +37,15 @@ ColumnStatistics::~ColumnStatistics() {
 OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
     SAFE_DELETE(_minimum);
     SAFE_DELETE(_maximum);
-    // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
-    _minimum = WrapperField::create_by_type(type);
-    _maximum = WrapperField::create_by_type(type);
 
     _null_supported = null_supported;
-    if (NULL == _minimum || NULL == _maximum) {
+    if (type == OLAP_FIELD_TYPE_CHAR
+            || type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL) {
         _ignored = true;
     } else {
+        // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
+        _minimum = WrapperField::create_by_type(type);
+        _maximum = WrapperField::create_by_type(type);
         _ignored = false;
         reset();
     }
@@ -115,8 +115,8 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     // TODO(zc): too ugly
     if (_null_supported) {
         size_t copy_size = _minimum->field_size();
-        memcpy(buffer, _minimum->get_null(), copy_size);
-        memcpy(buffer + copy_size, _maximum->get_null(), copy_size);
+        memcpy(buffer, _minimum->nullable_cell_ptr(), copy_size);
+        memcpy(buffer + copy_size, _maximum->nullable_cell_ptr(), copy_size);
     } else {
         size_t copy_size = _minimum->size();
         memcpy(buffer, _minimum->ptr(), copy_size);

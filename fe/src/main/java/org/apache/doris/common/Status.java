@@ -17,15 +17,14 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.rpc.PStatus;
+import org.apache.doris.proto.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
 public class Status {
-    public static final Status OK               = new Status();
-   public static final Status CANCELLED        = new Status(TStatusCode.CANCELLED, "Cancelled");
-    public static final Status THRIFT_RPC_ERROR = 
-            new Status(TStatusCode.THRIFT_RPC_ERROR, "Thrift RPC failed");
+    public static final Status OK = new Status();
+    public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
+    public static final Status THRIFT_RPC_ERROR = new Status(TStatusCode.THRIFT_RPC_ERROR, "Thrift RPC failed");
 
     public TStatusCode getErrorCode() {
         return errorCode;
@@ -82,9 +81,9 @@ public class Status {
     }
 
     public void setPstatus(PStatus status) {
-        this.errorCode = TStatusCode.findByValue(status.code);
-        if (status.msgs != null && !status.msgs.isEmpty()) {
-            this.errorMsg = status.msgs.get(0);
+        this.errorCode = TStatusCode.findByValue(status.status_code);
+        if (status.error_msgs != null && !status.error_msgs.isEmpty()) {
+            this.errorMsg = status.error_msgs.get(0);
         }
     }
 

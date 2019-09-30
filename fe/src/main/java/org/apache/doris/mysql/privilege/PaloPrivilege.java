@@ -20,13 +20,12 @@ package org.apache.doris.mysql.privilege;
 public enum PaloPrivilege {
     NODE_PRIV("Node_priv", 0, "Privilege for cluster node operations"),
     ADMIN_PRIV("Admin_priv", 1, "Privilege for admin user"),
-    GRANT_PRIV("Grant_priv", 2, "Privilege for granting privlege"),
+    GRANT_PRIV("Grant_priv", 2, "Privilege for granting privilege"),
     SELECT_PRIV("Select_priv", 3, "Privilege for select data in tables"),
     LOAD_PRIV("Load_priv", 4, "Privilege for loading data into tables"),
     ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table"),
     CREATE_PRIV("Create_priv", 6, "Privilege for createing database or table"),
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table");
-
 
     public static PaloPrivilege[] privileges = {
             NODE_PRIV,

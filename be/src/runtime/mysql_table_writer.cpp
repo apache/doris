@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <mysql/mysql.h>
+
+#define __DorisMysql MYSQL
 #include "runtime/mysql_table_writer.h"
 
 #include <sstream>
+
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "exprs/expr.h"
@@ -46,7 +50,7 @@ MysqlTableWriter::~MysqlTableWriter() {
 Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string& tbl) {
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
-        return Status("Call mysql_init failed.");
+        return Status::InternalError("Call mysql_init failed.");
     }
 
     MYSQL* res = mysql_real_connect(
@@ -61,19 +65,19 @@ Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string&
     if (res == nullptr) {
         std::stringstream ss;
         ss << "mysql_real_connect failed because " << mysql_error(_mysql_conn);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // set character
     if (mysql_set_character_set(_mysql_conn, "utf8")) {
         std::stringstream ss;
         ss << "mysql_set_character_set failed because " << mysql_error(_mysql_conn);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _mysql_tbl = tbl;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MysqlTableWriter::insert_row(TupleRow* row) {
@@ -168,7 +172,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
             std::stringstream err_ss;
             err_ss << "can't convert this type to mysql type. type = " <<
                 _output_expr_ctxs[i]->root()->type();
-            return Status(err_ss.str());
+            return Status::InternalError(err_ss.str());
         }
         }
     }
@@ -181,15 +185,15 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         std::stringstream err_ss;
         err_ss << "Insert to mysql server(" << mysql_get_host_info(_mysql_conn)
             << ") failed, because: " << mysql_error(_mysql_conn);
-        return Status(err_ss.str());
+        return Status::InternalError(err_ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MysqlTableWriter::append(RowBatch* batch) {
     if (batch == nullptr || batch->num_rows() == 0) {
-        return Status::OK;
+        return Status::OK();
     }
 
     int num_rows = batch->num_rows();
@@ -197,7 +201,7 @@ Status MysqlTableWriter::append(RowBatch* batch) {
         RETURN_IF_ERROR(insert_row(batch->get_row(i)));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }

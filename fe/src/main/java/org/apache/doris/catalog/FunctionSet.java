@@ -20,19 +20,22 @@ package org.apache.doris.catalog;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Created by zhaochun on 15/10/28.
- */
 public class FunctionSet {
     private static final Logger LOG = LogManager.getLogger(FunctionSet.class);
 
@@ -292,9 +295,9 @@ public class FunctionSet {
     private static final Map<Type, String> HLL_UNION_AGG_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.VARCHAR,
-                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
+                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
                 .put(Type.HLL,
-                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
+                        "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
                 .build();
  
     private static final Map<Type, String> OFFSET_FN_INIT_SYMBOL =
@@ -507,6 +510,21 @@ public class FunctionSet {
 
                 .build();
 
+    public static final String BITMAP_UNION = "bitmap_union";
+    public static final String BITMAP_UNION_INT = "bitmap_union_int";
+    public static final String BITMAP_COUNT = "bitmap_count";
+    public static final String TO_BITMAP = "to_bitmap";
+
+    private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "_ZN5doris15BitmapFunctions17bitmap_update_intIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                    .build();
+
     public Function getFunction(Function desc, Function.CompareMode mode) {
         List<Function> fns = functions.get(desc.functionName());
         if (fns == null) {
@@ -535,7 +553,7 @@ public class FunctionSet {
 
         // Next check for strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
@@ -545,11 +563,35 @@ public class FunctionSet {
 
         // Finally check for non-strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
         return null;
+    }
+
+    /**
+     * There are essential differences in the implementation of some functions for different 
+     * types params, which should be prohibited.
+     * @param desc
+     * @param candicate
+     * @return
+     */
+    public static boolean isCastMatchAllowed(Function desc, Function candicate) {
+        final String functionName = desc.getFunctionName().getFunction();
+        final Type[] descArgTypes = desc.getArgs();
+        final Type[] candicateArgTypes = candicate.getArgs();
+        if (functionName.equalsIgnoreCase("hex") 
+                || functionName.equalsIgnoreCase("greast")
+                || functionName.equalsIgnoreCase("least")) {
+            final ScalarType descArgType = (ScalarType)descArgTypes[0];
+            final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
+            if (!descArgType.isStringType() && candicateArgType.isStringType()) {
+                // The implementations of hex for string and int are different.
+                return false;
+            }
+        }
+        return true;
     }
 
     public Function getFunction(String signatureString) {
@@ -677,6 +719,16 @@ public class FunctionSet {
                     prefix + "30count_distinct_string_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
 
+               addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(t),
+                    Type.VARCHAR,
+                    Type.VARCHAR,
+                    "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
             } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT 
                 || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
@@ -788,34 +840,44 @@ public class FunctionSet {
             // NDV
             // ndv return string
             addBuiltin(AggregateFunction.createBuiltin("ndv",
-                    Lists.newArrayList(t), Type.VARCHAR, Type.VARCHAR,
-                    prefix + "8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
-                    prefix + HLL_UPDATE_SYMBOL.get(t),
-                    prefix + "9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                    null,
-                    prefix + "12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
+            // BITMAP_UNION_INT
+            addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_INT,
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    BITMAP_UNION_INT_SYMBOL.get(t),
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             // HLL_UNION_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_union_agg",
                     Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
-                    prefix + "18hll_union_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
-                    prefix + HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
-                    prefix + "19hll_union_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                     HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
-                    null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, true, true));
 
             // HLL_RAW_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_raw_agg",
                     Lists.newArrayList(t), Type.HLL, Type.HLL,
-                    prefix + "16hll_raw_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
-                    prefix + "18hll_raw_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
-                    prefix + "17hll_raw_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
-                    null,
-                    prefix + "20hll_raw_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
@@ -825,7 +887,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "25knuth_stddev_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
@@ -849,7 +911,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("variance_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
@@ -926,6 +988,16 @@ public class FunctionSet {
                     prefix + "10sum_removeIN9doris_udf11LargeIntValES3_EEvPNS2_15FunctionContextERKT_PT0_",
                     null, false, true, false));
         }
+
+        //PercentileApprox
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_PNS2_9StringValE",
+                prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
 
 
         // Avg

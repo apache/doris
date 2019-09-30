@@ -22,11 +22,12 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
@@ -124,6 +125,8 @@ public class ScalarType extends Type {
                 return DATE;
             case DATETIME:
                 return DATETIME;
+            case TIME:
+                return TIME;
             case DECIMAL:
                 return (ScalarType) createDecimalType();
             case DECIMALV2:
@@ -167,6 +170,8 @@ public class ScalarType extends Type {
                 return DATE;
             case "DATETIME":
                 return DATETIME;
+            case "TIME":
+                return TIME;
             case "DECIMAL":
                 return (ScalarType) createDecimalType();
             case "DECIMALV2":
@@ -329,7 +334,7 @@ public class ScalarType extends Type {
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
-                stringBuilder.append("unknown");
+                stringBuilder.append("unknown type: " + type.toString());
                 break;
         }
         return stringBuilder.toString();
@@ -629,26 +634,18 @@ public class ScalarType extends Type {
             return t1;
         }
 
-        if (t1.type == PrimitiveType.VARCHAR || t2.type == PrimitiveType.VARCHAR) {
-            if (t1.isStringType() && t2.isStringType()) {
-                return createVarcharType(Math.max(t1.len, t2.len));
-            }
-            return INVALID;
-        }
-
-        if (t1.type == PrimitiveType.HLL || t2.type == PrimitiveType.HLL) {
+        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
+        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
+        if (t1IsHLL || t2IsHLL) {
+            if (t1IsHLL && t2IsHLL) {
                 return createHllType();
-        } 
-
-        if (t1.type == PrimitiveType.CHAR || t2.type == PrimitiveType.CHAR) {
-            Preconditions.checkState(t1.type != PrimitiveType.VARCHAR);
-            Preconditions.checkState(t2.type != PrimitiveType.VARCHAR);
-            if (t1.type == PrimitiveType.CHAR && t2.type == PrimitiveType.CHAR) {
-                return createCharType(Math.max(t1.len, t2.len));
             }
             return INVALID;
         }
 
+        if (t1.isStringType() || t2.isStringType()) {
+            return createVarcharType(Math.max(t1.len, t2.len));
+        }
 
         if ((t1.isDecimal() || t1.isDecimalV2()) && t2.isDate()
                 || t1.isDate() && (t2.isDecimal() || t2.isDecimalV2())) {
@@ -733,6 +730,7 @@ public class ScalarType extends Type {
             case INT:
                 return 4;
             case BIGINT:
+            case TIME:
                 return 8;
             case LARGEINT:
                 return 16;

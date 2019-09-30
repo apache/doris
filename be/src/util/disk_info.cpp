@@ -163,7 +163,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
         ss << "open /proc/mounts failed, errno:" << errno
             << ", message:" << strerror_r(errno, buf, 64);
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     Status status;
@@ -199,7 +199,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
             ss << "open /proc/mounts failed, errno:" << errno
                 << ", message:" << strerror_r(errno, buf, 64);
             LOG(WARNING) << ss.str();
-            status = Status(ss.str());
+            status = Status::InternalError(ss.str());
             break;
         }
         if (max_mount_size > 0) {

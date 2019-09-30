@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
@@ -73,7 +74,7 @@ public class Alter {
         clusterHandler.start();
     }
 
-    public void processAlterTable(AlterTableStmt stmt) throws DdlException {
+    public void processAlterTable(AlterTableStmt stmt) throws UserException {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
         final String clusterName = stmt.getClusterName();
@@ -88,8 +89,9 @@ public class Alter {
 
         // schema change ops can appear several in one alter stmt without other alter ops entry
         boolean hasSchemaChange = false;
-        // rollup ops, if has, should appear one and only one entry
-        boolean hasRollup = false;
+        // rollup ops, if has, should appear one and only one add or drop rollup entry
+        boolean hasAddRollup = false;
+        boolean hasDropRollup = false;
         // partition ops, if has, should appear one and only one entry
         boolean hasPartition = false;
         // rename ops, if has, should appear one and only one entry
@@ -99,18 +101,19 @@ public class Alter {
 
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
-        // check conflict alter ops first                 
-        // if all alter clauses are DropPartitionClause, no need to call checkQuota.
-        boolean allDropPartitionClause = true;
-        
+        // check conflict alter ops first
+
+        // if all alter clauses are DropPartitionClause or DropRollupClause, no need to check quota.
+        boolean allIsDropOps = true;
         for (AlterClause alterClause : alterClauses) {
-            if (!(alterClause instanceof DropPartitionClause)) {
-                allDropPartitionClause = false;
+            if (!(alterClause instanceof DropPartitionClause)
+                    && !(alterClause instanceof DropRollupClause)) {
+                allIsDropOps = false;
                 break;
             }
         }
 
-        if (!allDropPartitionClause) {
+        if (!allIsDropOps) {
             // check db quota
             db.checkQuota();
         }
@@ -120,32 +123,31 @@ public class Alter {
                     || alterClause instanceof AddColumnsClause
                     || alterClause instanceof DropColumnClause
                     || alterClause instanceof ModifyColumnClause
-                    || alterClause instanceof ReorderColumnsClause
-                    || alterClause instanceof ModifyTablePropertiesClause)
-                    && !hasRollup && !hasPartition && !hasRename) {
+                    || alterClause instanceof ReorderColumnsClause)
+                    && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
-            } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename && !hasModifyProp) {
-                hasRollup = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename && !hasModifyProp) {
-                hasRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasRollup
+            } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
+                hasAddRollup = true;
+            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp) {
+                hasDropRollup = true;
+            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp) {
+                hasPartition = true;
+            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp) {
+                hasPartition = true;
+            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddRollup
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
                     || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasRollup && !hasPartition && !hasRename && !hasModifyProp) {
+                    && !hasSchemaChange && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename
+                    && !hasModifyProp) {
                 hasRename = true;
-            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasRollup
-                    && !hasPartition
-                    && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddRollup
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasModifyProp = true;
             } else {
                 throw new DdlException("Conflicting alter clauses. see help for more information");
@@ -167,20 +169,15 @@ public class Alter {
 
             OlapTable olapTable = (OlapTable) table;
 
-            if (olapTable.getPartitions().size() == 0) {
+            if (olapTable.getPartitions().size() == 0 && !hasPartition) {
                 throw new DdlException("table with empty parition cannot do schema change. [" + tableName + "]");
             }
 
-            if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
-                    || olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table[" + table.getName() + "]'s state[" + olapTable.getState()
-                        + "] does not allow doing ALTER ops");
-                // here we pass NORMAL and ROLLUP
-                // NORMAL: ok to do any alter ops
-                // ROLLUP: we allow user DROP a rollup index when it's under ROLLUP
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
             
-            if (hasSchemaChange || hasModifyProp || hasRollup) {
+            if (hasSchemaChange || hasModifyProp || hasAddRollup) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),
@@ -195,7 +192,7 @@ public class Alter {
 
             if (hasSchemaChange || hasModifyProp) {
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (hasRollup) {
+            } else if (hasAddRollup || hasDropRollup) {
                 rollupHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasPartition) {
                 Preconditions.checkState(alterClauses.size() == 1);

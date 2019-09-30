@@ -27,8 +27,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSplitSink;
@@ -49,6 +49,7 @@ import java.util.Collections;
 import java.util.List;
 
 // Planner used to generate a plan for pull load ETL work
+@Deprecated
 public class PullLoadTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(PullLoadTaskPlanner.class);
 
@@ -81,7 +82,7 @@ public class PullLoadTaskPlanner {
         // Generate tuple descriptor
         List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
-        for (Column col : table.getBaseSchema()) {
+        for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);

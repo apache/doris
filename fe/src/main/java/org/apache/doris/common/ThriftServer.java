@@ -34,6 +34,7 @@ import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.Set;
 
 public class ThriftServer {
@@ -69,10 +70,15 @@ public class ThriftServer {
     }
 
     private void createThreadPoolServer() throws TTransportException {
-        TThreadPoolServer.Args args =
-          new TThreadPoolServer.Args(new TServerSocket(port)).protocolFactory(
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+            .bindAddr(new InetSocketAddress(port))
+            .clientTimeout(0)
+            .backlog(Config.thrift_backlog_num);
+
+        TThreadPoolServer.Args serverArgs =
+          new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
             new TBinaryProtocol.Factory()).processor(processor);
-        server = new TThreadPoolServer(args);
+        server = new TThreadPoolServer(serverArgs);
     }
 
     public void start() throws IOException {

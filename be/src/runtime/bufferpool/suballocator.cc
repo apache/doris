@@ -52,7 +52,7 @@ Status Suballocator::Allocate(int64_t bytes, unique_ptr<Suballocation>* result) 
     err_stream << "Requested memory allocation of "  << bytes
                << " bytes, larger than max " << "supported of " << MAX_ALLOCATION_BYTES
                << " bytes";
-    return Status(err_stream.str());
+    return Status::InternalError(err_stream.str());
   }
   unique_ptr<Suballocation> free_node;
   bytes = max(bytes, MIN_ALLOCATION_BYTES);
@@ -67,7 +67,7 @@ Status Suballocator::Allocate(int64_t bytes, unique_ptr<Suballocation>* result) 
     RETURN_IF_ERROR(AllocateBuffer(bytes, &free_node));
     if (free_node == nullptr) {
       *result = nullptr;
-      return Status::OK;
+      return Status::OK();
     }
   }
 
@@ -81,7 +81,7 @@ Status Suballocator::Allocate(int64_t bytes, unique_ptr<Suballocation>* result) 
   free_node->in_use_ = true;
   allocated_ += free_node->len_;
   *result = move(free_node);
-  return Status::OK;
+  return Status::OK();
 }
 
 int Suballocator::ComputeListIndex(int64_t bytes) const {
@@ -93,7 +93,7 @@ Status Suballocator::AllocateBuffer(int64_t bytes, unique_ptr<Suballocation>* re
   const int64_t buffer_len = max(min_buffer_len_, BitUtil::RoundUpToPowerOfTwo(bytes));
   if (!client_->IncreaseReservationToFit(buffer_len)) {
     *result = nullptr;
-    return Status::OK;
+    return Status::OK();
   }
 
   unique_ptr<Suballocation> free_node;
@@ -103,7 +103,7 @@ Status Suballocator::AllocateBuffer(int64_t bytes, unique_ptr<Suballocation>* re
   free_node->data_ = free_node->buffer_.data();
   free_node->len_ = buffer_len;
   *result = move(free_node);
-  return Status::OK;
+  return Status::OK();
 }
 
 Status Suballocator::SplitToSize(unique_ptr<Suballocation> free_node,
@@ -124,7 +124,7 @@ Status Suballocator::SplitToSize(unique_ptr<Suballocation> free_node,
       // Add the free node to the free list to restore the allocator to an internally
       // consistent state.
       AddToFreeList(move(free_node));
-      return Status("Failed to allocate list node in Suballocator");
+      return Status::InternalError("Failed to allocate list node in Suballocator");
     }
   }
 
@@ -150,7 +150,7 @@ Status Suballocator::SplitToSize(unique_ptr<Suballocation> free_node,
     free_node = move(left_child);
   }
   *result = move(free_node);
-  return Status::OK;
+  return Status::OK();
 }
 
 void Suballocator::Free(unique_ptr<Suballocation> allocation) {
@@ -239,8 +239,8 @@ Status Suballocation::Create(unique_ptr<Suballocation>* new_suballocation) {
   // overhead of these allocations might be a consideration.
   new_suballocation->reset(new (nothrow) Suballocation());
   if (*new_suballocation == nullptr) {
-    return Status(TStatusCode::MEM_ALLOC_FAILED);
+    return Status::MemoryAllocFailed("allocate memory failed");
   }
-  return Status::OK;
+  return Status::OK();
 }
 }

@@ -85,9 +85,9 @@ public class ReplicaTest {
         Assert.assertEquals(newRowCount, replica.getRowCount());
 
         // check version catch up
-        Assert.assertFalse(replica.checkVersionCatchUp(5, 98765));
-        Assert.assertFalse(replica.checkVersionCatchUp(newVersion, 76543));
-        Assert.assertTrue(replica.checkVersionCatchUp(newVersion, newVersionHash));
+        Assert.assertFalse(replica.checkVersionCatchUp(5, 98765, false));
+        Assert.assertFalse(replica.checkVersionCatchUp(newVersion, 76543, false));
+        Assert.assertTrue(replica.checkVersionCatchUp(newVersion, newVersionHash, false));
     }
 
     @Test

@@ -69,11 +69,29 @@ SlotRef::SlotRef(const TypeDescriptor& type, int offset) :
         _slot_id(-1) {
 }
 
+Status SlotRef::prepare(const SlotDescriptor* slot_desc,
+                        const RowDescriptor& row_desc) {
+    if (!slot_desc->is_materialized()) {
+        std::stringstream error;
+        error << "reference to non-materialized slot. slot_id: " << _slot_id;
+        return Status::InternalError(error.str());
+    }
+    _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
+    if (_tuple_idx == RowDescriptor::INVALID_IDX) {
+        return Status::InternalError("can't support");
+    }
+    _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
+    _slot_offset = slot_desc->tuple_offset();
+    _null_indicator_offset = slot_desc->null_indicator_offset();
+    _is_nullable = slot_desc->is_nullable();
+    return Status::OK();
+}
+
 Status SlotRef::prepare(
         RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
-        return Status::OK;
+        return Status::OK();
     }
 
     const SlotDescriptor* slot_desc  = state->desc_tbl().get_slot_descriptor(_slot_id);
@@ -81,26 +99,26 @@ Status SlotRef::prepare(
         // TODO: create macro MAKE_ERROR() that returns a stream
         std::stringstream error;
         error << "couldn't resolve slot descriptor " << _slot_id;
-        return Status(error.str());
+        return Status::InternalError(error.str());
     }
 
     if (!slot_desc->is_materialized()) {
         std::stringstream error;
         error << "reference to non-materialized slot. slot_id: " << _slot_id;
-        return Status(error.str());
+        return Status::InternalError(error.str());
     }
 
     // TODO(marcel): get from runtime state
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
-        return Status("can't support");
+        return Status::InternalError("can't support");
     }
     DCHECK(_tuple_idx != RowDescriptor::INVALID_IDX);
     _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
     _slot_offset = slot_desc->tuple_offset();
     _null_indicator_offset = slot_desc->null_indicator_offset();
     _is_nullable = slot_desc->is_nullable();
-    return Status::OK;
+    return Status::OK();
 }
 
 int SlotRef::get_slot_ids(std::vector<SlotId>* slot_ids) const {
@@ -171,7 +189,7 @@ std::string SlotRef::debug_string() const {
 Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
 
     DCHECK_EQ(get_num_children(), 0);
@@ -193,7 +211,7 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
     Function* _ir_compute_fn = codegen->get_registered_expr_fn(unique_slot_id);
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
 
     LLVMContext& context = codegen->context();
@@ -410,7 +428,7 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
     *fn = codegen->finalize_function(*fn);
     codegen->register_expr_fn(unique_slot_id, *fn);
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 BooleanVal SlotRef::get_boolean_val(ExprContext* context, TupleRow* row) {

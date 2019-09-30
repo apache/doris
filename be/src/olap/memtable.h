@@ -18,32 +18,36 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
-#include <memory>
-
+#include "common/object_pool.h"
 #include "olap/schema.h"
 #include "olap/skiplist.h"
 #include "runtime/tuple.h"
+#include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
-class ColumnDataWriter;
 class RowCursor;
+class RowsetWriter;
 
 class MemTable {
 public:
-    MemTable(Schema* schema, std::vector<FieldInfo>* field_infos,
-             std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
-             KeysType keys_type);
+    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+             const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+             KeysType keys_type, RowsetWriter* rowset_writer);
     ~MemTable();
+    int64_t tablet_id() { return _tablet_id; }
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(ColumnDataWriter* writer);
-    OLAPStatus close(ColumnDataWriter* writer);
+    OLAPStatus flush();
+    OLAPStatus close();
+
 private:
+    int64_t _tablet_id; 
     Schema* _schema;
-    std::vector<FieldInfo>* _field_infos;
+    const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;
-    std::vector<uint32_t>* _col_ids;
+    // the slot in _slot_descs are in order of tablet's schema
+    const std::vector<SlotDescriptor*>* _slot_descs;
     KeysType _keys_type;
 
     struct RowCursorComparator {
@@ -53,12 +57,17 @@ private:
     };
 
     RowCursorComparator _row_comparator;
-    Arena _arena;
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
+    ObjectPool _agg_object_pool;
 
     typedef SkipList<char*, RowCursorComparator> Table;
-    char* _tuple_buf;
+    u_int8_t* _tuple_buf;
     size_t _schema_size;
     Table* _skip_list;
+
+    RowsetWriter* _rowset_writer;
+
 }; // class MemTable
 
 } // namespace doris

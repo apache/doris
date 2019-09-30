@@ -21,7 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -59,6 +60,8 @@ public class LoadStmt extends DdlStmt {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
+    public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -72,7 +75,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
-
+    public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -80,7 +83,7 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
-    private String version = "v1";
+    private String version = "v2";
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -89,7 +92,9 @@ public class LoadStmt extends DdlStmt {
             .add(LOAD_DELETE_FLAG_PROPERTY)
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
-//            .add(VERSION)
+            .add(STRICT_MODE)
+            .add(VERSION)
+            .add(TIMEZONE)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -178,22 +183,35 @@ public class LoadStmt extends DdlStmt {
 
         // version
         final String versionProperty = properties.get(VERSION);
-        // TODO(ml): only support v1
         if (versionProperty != null) {
-            if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
-                throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
+            if (!versionProperty.equalsIgnoreCase(Load.VERSION)) {
+                throw new DdlException(VERSION + " must be " + Load.VERSION);
             }
         }
 
+        // strict mode
+        final String strictModeProperty = properties.get(STRICT_MODE);
+        if (strictModeProperty != null) {
+            if (!strictModeProperty.equalsIgnoreCase("true")
+                    && !strictModeProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(STRICT_MODE + " is not a boolean");
+            }
+        }
+
+        // time zone
+        final String timezone = properties.get(TIMEZONE);
+        if (timezone != null) {
+            TimeUtils.checkTimeZoneValid(timezone);
+        }
     }
 
-    private void analyzeVersion() {
+    private void analyzeVersion() throws AnalysisException {
         if (properties == null) {
             return;
         }
         final String versionProperty = properties.get(VERSION);
         if (versionProperty != null) {
-            version = LoadManager.VERSION;
+            throw new AnalysisException("Do not support VERSION property");
         }
     }
 
@@ -205,8 +223,8 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc != null) {
-                dataDescription.setIsPullLoad(true);
+            if (brokerDesc == null) {
+                dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
         }

@@ -89,7 +89,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
             _pool, tnode.agg_node.aggregate_functions[i], &evaluator);
         _aggregate_evaluators.push_back(evaluator);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::prepare(RuntimeState* state) {
@@ -172,7 +172,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::open(RuntimeState* state) {
@@ -199,7 +199,7 @@ Status AggregationNode::open(RuntimeState* state) {
     while (true) {
         bool eos = false;
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state());
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, before getting next from child 0."));
         RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
         // SCOPED_TIMER(_build_timer);
         if (VLOG_ROW_IS_ON) {
@@ -227,7 +227,7 @@ Status AggregationNode::open(RuntimeState* state) {
         }
 
         // RETURN_IF_LIMIT_EXCEEDED(state);
-        RETURN_IF_ERROR(state->check_query_state());
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, after hashing the child 0."));
 
         COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
         COUNTER_SET(memory_used_counter(),
@@ -238,7 +238,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
         batch.reset();
 
-        RETURN_IF_ERROR(state->check_query_state());
+        RETURN_IF_ERROR(state->check_query_state("Aggregation, after setting the counter."));
         if (eos) {
             break;
         }
@@ -255,19 +255,19 @@ Status AggregationNode::open(RuntimeState* state) {
     VLOG_ROW << "id=" << id() << " aggregated " << num_input_rows << " input rows into "
               << num_agg_rows << " output rows";
     _output_iterator = _hash_tbl->begin();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Aggregation, before evaluating conjuncts."));
     SCOPED_TIMER(_get_results_timer);
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     ExprContext** ctxs = &_conjunct_ctxs[0];
@@ -280,7 +280,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         // maintenance every N iterations.
         if (count++ % N == 0) {
             RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR(state->check_query_state());
+            RETURN_IF_ERROR(state->check_query_state("Aggregation, while evaluating conjuncts."));
         }
         int row_idx = row_batch->add_row();
         TupleRow* row = row_batch->get_row(row_idx);
@@ -312,12 +312,12 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         }
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // Iterate through the remaining rows in the hash table and call Serialize/Finalize on

@@ -23,6 +23,8 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -34,10 +36,13 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +56,8 @@ import java.util.Map;
 public class ExportStmt extends StatementBase {
     private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
 
+    public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
+
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
 
@@ -58,7 +65,7 @@ public class ExportStmt extends StatementBase {
     private List<String> partitions;
     private final String path;
     private final BrokerDesc brokerDesc;
-    private final Map<String, String> properties;
+    private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
 
@@ -68,14 +75,12 @@ public class ExportStmt extends StatementBase {
                       Map<String, String> properties, BrokerDesc brokerDesc) {
         this.tableRef = tableRef;
         this.path = path.trim();
-        this.properties = properties;
+        if (properties != null) {
+            this.properties = properties;
+        }
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-    }
-
-    public TableRef getTableRef() {
-        return tableRef;
     }
 
     public TableName getTblName() {
@@ -182,9 +187,9 @@ public class ExportStmt extends StatementBase {
             switch (tblType) {
                 case MYSQL:
                 case OLAP:
+                    break;
                 case BROKER:
                 case KUDU:
-                    break;
                 case SCHEMA:
                 case INLINE_VIEW:
                 case VIEW:
@@ -211,20 +216,57 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("No dest path specified.");
         }
 
-        String upperCasePath = path.toUpperCase();
-        if (upperCasePath.startsWith("BOS://")
-                || upperCasePath.startsWith("HDFS://")
-                || upperCasePath.startsWith("AFS://")) {
-            return;
+        try {
+            URI uri = new URI(path);
+            String schema = uri.getScheme();
+            if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
+                    && !schema.equalsIgnoreCase("hdfs"))) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
+            }
+        } catch (URISyntaxException e) {
+            throw new AnalysisException("Invalid path format. " + e.getMessage());
         }
-
-        throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
     }
 
-    private void checkProperties(Map<String, String> properties) throws AnalysisException {
+    private void checkProperties(Map<String, String> properties) throws UserException {
         this.columnSeparator = PropertyAnalyzer.analyzeColumnSeparator(
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR);
         this.lineDelimiter = PropertyAnalyzer.analyzeLineDelimiter(properties, ExportStmt.DEFAULT_LINE_DELIMITER);
+        // exec_mem_limit
+        if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
+            try {
+                Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid exec_mem_limit value: " + e.getMessage());
+            }
+        } else {
+            // use session variables
+            properties.put(LoadStmt.EXEC_MEM_LIMIT,
+                           String.valueOf(ConnectContext.get().getSessionVariable().getMaxExecMemByte()));
+        }
+        // timeout
+        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            try {
+                Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid timeout value: " + e.getMessage());
+            }
+        } else {
+            // use session variables
+            properties.put(LoadStmt.TIMEOUT_PROPERTY, String.valueOf(Config.export_task_default_timeout_second));
+        }
+
+        // tablet num per task
+        if (properties.containsKey(TABLET_NUMBER_PER_TASK_PROP)) {
+            try {
+                Long.parseLong(properties.get(TABLET_NUMBER_PER_TASK_PROP));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid tablet num per task value: " + e.getMessage());
+            }
+        } else {
+            // use session variables
+            properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
+        }
     }
 
     @Override

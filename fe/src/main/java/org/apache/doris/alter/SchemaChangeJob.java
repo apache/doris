@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -333,7 +334,7 @@ public class SchemaChangeJob extends AlterJob {
             OUTER_LOOP:
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     for (Tablet tablet : index.getTablets()) {
                         List<Replica> replicas = tablet.getReplicas();
                         for (Replica replica : replicas) {
@@ -514,7 +515,9 @@ public class SchemaChangeJob extends AlterJob {
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION
+                                    || replica.getState() == ReplicaState.NORMAL) {
                                 continue;
                             }
                             Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE);
@@ -619,6 +622,9 @@ public class SchemaChangeJob extends AlterJob {
             long rowCount = finishTabletInfo.getRow_count();
             // do not need check version > replica.getVersion, because the new replica's version is first set by sc
             replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
+            if (finishTabletInfo.isSetPath_hash()) {
+                replica.setPathHash(finishTabletInfo.getPath_hash());
+            }
         } finally {
             db.writeUnlock();
         }
@@ -847,8 +853,8 @@ public class SchemaChangeJob extends AlterJob {
                 }
 
                 // 3. update base schema if changed
-                if (this.changedIndexIdToSchema.containsKey(tableId)) {
-                    table.setNewBaseSchema(this.changedIndexIdToSchema.get(tableId));
+                if (this.changedIndexIdToSchema.containsKey(olapTable.getBaseIndexId())) {
+                    table.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
                 }
 
                 // 4. update table bloom filter columns
@@ -918,7 +924,8 @@ public class SchemaChangeJob extends AlterJob {
                     // set state to SCHEMA_CHANGE
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION) {
                                 // add log here, because there should no more CLONE replica when processing alter jobs.
                                 LOG.warn(String.format(
                                         "replica %d of tablet %d in backend %d state is invalid: %s",
@@ -1011,8 +1018,8 @@ public class SchemaChangeJob extends AlterJob {
                 if (newStorageType != null) {
                     olapTable.setIndexStorageType(indexId, newStorageType);
                 }
-                if (indexId == olapTable.getId()) {
-                    olapTable.setNewBaseSchema(entry.getValue());
+                if (indexId == olapTable.getBaseIndexId()) {
+                    olapTable.setNewFullSchema(entry.getValue());
                 }
             }
 
@@ -1063,7 +1070,9 @@ public class SchemaChangeJob extends AlterJob {
                     }
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
+                            if (replica.getState() == ReplicaState.CLONE
+                                    || replica.getState() == ReplicaState.DECOMMISSION
+                                    || replica.getState() == ReplicaState.NORMAL) {
                                 continue;
                             }
                             replica.setState(ReplicaState.NORMAL);
@@ -1100,12 +1109,13 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
                 jobInfo.add("N/A"); // index name
                 jobInfo.add("N/A"); // index id
+                jobInfo.add("N/A"); // origin id
                 jobInfo.add("N/A"); // schema version
-                jobInfo.add("N/A"); // index state
                 jobInfo.add(-1); // transaction id
                 jobInfo.add(state.name()); // job state
-                jobInfo.add("N/A"); // progress
                 jobInfo.add(cancelMsg);
+                jobInfo.add("N/A"); // progress
+                jobInfo.add(Config.alter_table_timeout_second); // timeout
                 jobInfos.add(jobInfo);
                 return;
             }
@@ -1165,19 +1175,18 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
             jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
             jobInfo.add(indexId);
+            jobInfo.add(indexId); // origin index id
             // index schema version and schema hash
-            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + "-" + changedIndexIdToSchemaHash.get(indexId));
-            jobInfo.add(indexState.get(indexId)); // index state
+            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + ":" + changedIndexIdToSchemaHash.get(indexId));
             jobInfo.add(transactionId);
             jobInfo.add(state.name()); // job state
-
+            jobInfo.add(cancelMsg);
             if (state == JobState.RUNNING) {
                 jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
             } else {
                 jobInfo.add("N/A");
             }
-
-            jobInfo.add(cancelMsg);
+            jobInfo.add(Config.alter_table_timeout_second);
 
             jobInfos.add(jobInfo);
         } // end for indexIds

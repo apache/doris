@@ -108,10 +108,12 @@ visible_functions = [
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE'],
-    [['now', 'current_timestamp'], 'DATETIME', [],
+    [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
-    [['curtime', 'current_time'], 'DATETIME', [],
+    [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
+    [['utc_timestamp'], 'DATETIME', [],
+        '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE'],
     [['timestamp'], 'DATETIME', ['DATETIME'],
         '_ZN5doris18TimestampFunctions9timestampEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
@@ -126,6 +128,8 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions5monthEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['quarter'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7quarterEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
+    [['dayofweek'], 'INT', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions11day_of_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['day', 'dayofmonth'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12day_of_monthEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
@@ -194,7 +198,7 @@ visible_functions = [
     [['datediff'], 'INT', ['DATETIME', 'DATETIME'],
         '_ZN5doris18TimestampFunctions9date_diffEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValES6_'],
-    [['timediff'], 'DATETIME', ['DATETIME', 'DATETIME'],
+    [['timediff'], 'TIME', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions9time_diffEPN9doris_udf'
             '15FunctionContextERKNS1_11DateTimeValES6_'],
 
@@ -213,6 +217,9 @@ visible_functions = [
     [['monthname'], 'VARCHAR', ['DATETIME'],
         '_ZN5doris18TimestampFunctions10month_nameEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
+
+    [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
+            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
 
     # Math builtin functions
     [['pi'], 'DOUBLE', [],
@@ -411,8 +418,8 @@ visible_functions = [
     [['if'], 'LARGEINT', ['BOOLEAN', 'LARGEINT', 'LARGEINT'], ''],
     [['if'], 'FLOAT', ['BOOLEAN', 'FLOAT', 'FLOAT'], ''],
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
-    [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
+    [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
 
@@ -466,18 +473,12 @@ visible_functions = [
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_'],
-    [['strleft'], 'VARCHAR', ['VARCHAR', 'INT'],
+    [['strleft', 'left'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['left'], 'VARCHAR', ['VARCHAR', 'INT'],
-     '_ZN5doris15StringFunctions4leftEPN9doris_udf'
-     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['strright'], 'VARCHAR', ['VARCHAR', 'INT'],
+    [['strright', 'right'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['right'], 'VARCHAR', ['VARCHAR', 'INT'],
-     '_ZN5doris15StringFunctions5rightEPN9doris_udf'
-     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
     [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
@@ -558,6 +559,8 @@ visible_functions = [
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
     [['money_format'], 'VARCHAR', ['DECIMALV2'],
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
+     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
+        '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE'],
 
     # Utility functions
     [['sleep'], 'BOOLEAN', ['INT'],
@@ -580,10 +583,20 @@ visible_functions = [
         '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
 
     #hll function
-    [['hll_cardinality'], 'BIGINT', ['HLL'],
-        '_ZN5doris16HllHashFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_6HllValE'],
+    [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
+        '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
-        '_ZN5doris16HllHashFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+        '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['hll_empty'], 'VARCHAR', [],
+        '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE'],
+
+    #bitmap function
+
+    [['to_bitmap'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_count'], 'BIGINT', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions12bitmap_countEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+
 
     # aes and base64 function
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
@@ -602,7 +615,45 @@ visible_functions = [
     [['md5'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions3md5EPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['md5sum'], 'VARCHAR', ['VARCHAR', '...'],
-        '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE']
+        '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+
+    # geo functions
+    [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions8st_pointEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_'],
+    [['ST_X'], 'DOUBLE', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions4st_xEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['ST_Y'], 'DOUBLE', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions4st_yEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+
+    [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions18st_distance_sphereEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_S6_'],
+
+    [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions9st_as_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions7st_lineEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Circle'], 'VARCHAR', ['DOUBLE', 'DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions9st_circleEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_',
+        '_ZN5doris12GeoFunctions17st_circle_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris12GeoFunctions11st_containsEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris12GeoFunctions19st_contains_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE']
 ]
 
 invisible_functions = [

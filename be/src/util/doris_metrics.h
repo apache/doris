@@ -83,7 +83,6 @@ public:
     static IntCounter storage_migrate_requests_total;
     static IntCounter delete_requests_total;
     static IntCounter delete_requests_failed;
-    static IntCounter cancel_delete_requests_total;
     static IntCounter clone_requests_total;
     static IntCounter clone_requests_failed;
 
@@ -108,12 +107,26 @@ public:
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
 
+    // Counters for segment_v2
+    // -----------------------
+    // total number of segments read
+    static IntCounter segment_read_total;
+    // total number of rows in queried segments (before index pruning)
+    static IntCounter segment_row_total;
+    // total number of rows selected by short key index
+    static IntCounter segment_rows_by_short_key;
+    // total number of rows selected by zone map index
+    static IntCounter segment_rows_read_by_zone_map;
+
     static IntCounter txn_begin_request_total;
     static IntCounter txn_commit_request_total;
     static IntCounter txn_rollback_request_total;
     static IntCounter txn_exec_plan_total;
     static IntCounter stream_receive_bytes_total;
     static IntCounter stream_load_rows_total;
+
+    static IntCounter memtable_flush_total;
+    static IntCounter memtable_flush_duration_us;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;

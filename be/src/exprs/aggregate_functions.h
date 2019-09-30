@@ -64,6 +64,19 @@ public:
     static void count_star_update(doris_udf::FunctionContext*, doris_udf::BigIntVal* dst);
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
+
+    // Impementation of percentile_approx
+    static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+
+    template <typename T>
+    static void percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst);
+
+    static void percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static DoubleVal percentile_approx_finalize(FunctionContext* ctx, const StringVal& src);
+
+    static StringVal percentile_approx_serialize(FunctionContext* ctx, const StringVal& state_sv);
+
     // Implementation of Avg.
     // TODO: Change this to use a fixed-sized BufferVal as intermediate type.
     static void avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -112,14 +125,6 @@ dst);
             const doris_udf::DecimalV2Val& src,
             doris_udf::StringVal* dst);
 
-    // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
-    //        const doris_udf::DecimalVal& src,
-    //        doris_udf::StringVal* dst, bool remove);
-    // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
-    //        const doris_udf::DecimalVal& src,
-    //        doris_udf::StringVal* dst) {
-    //    return decimal_avg_add_or_remove(ctx, src, dst, false);
-    // }
     static doris_udf::DecimalVal decimal_avg_get_value(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
     static doris_udf::DecimalV2Val decimalv2_avg_get_value(doris_udf::FunctionContext* ctx,
@@ -178,22 +183,6 @@ dst);
             const doris_udf::StringVal& src);
 
     static doris_udf::StringVal pcsa_finalize(
-            doris_udf::FunctionContext*,
-            const doris_udf::StringVal& src);
-
-    // Hyperloglog distinct estimate algorithm.
-    // See these papers for more details.
-    // 1) Hyperloglog: The analysis of a near-optimal cardinality estimation
-    // algorithm (2007)
-    // 2) HyperLogLog in Practice (paper from google with some improvements)
-    static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
-    template <typename T>
-    static void hll_update(doris_udf::FunctionContext*, const T& src, doris_udf::StringVal* dst);
-    static void hll_merge(
-            doris_udf::FunctionContext*,
-            const doris_udf::StringVal& src,
-            doris_udf::StringVal* dst);
-    static doris_udf::StringVal hll_finalize(
             doris_udf::FunctionContext*,
             const doris_udf::StringVal& src);
 
@@ -322,8 +311,19 @@ dst);
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
         const doris_udf::BigIntVal&, const T&, T* dst);
 
-    //  HLL value type calculate
-    //  init sets buffer
+    // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
+    //            when doris 0.12 release
+    static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
+    template <typename T>
+    static void hll_update(doris_udf::FunctionContext*, const T& src, doris_udf::StringVal* dst);
+    static void hll_merge(
+            doris_udf::FunctionContext*,
+            const doris_udf::StringVal& src,
+            doris_udf::StringVal* dst);
+    static doris_udf::StringVal hll_finalize(
+            doris_udf::FunctionContext*,
+            const doris_udf::StringVal& src);
+
     static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::HllVal* slot);
     // fill all register accroading to hll set type
     static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::HllVal& src,
@@ -337,6 +337,7 @@ dst);
     static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
                                             const doris_udf::HllVal& src);
+
     // calculate result
     static int64_t hll_algorithm(uint8_t *pdata, int data_len);
     static int64_t hll_algorithm(const StringVal &dst) {

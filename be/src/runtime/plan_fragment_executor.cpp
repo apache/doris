@@ -55,6 +55,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _closed(false),
       _has_thread_token(false),
       _is_report_success(true),
+      _is_report_on_cancel(true),
       _collect_query_statistics_with_every_batch(false) {
 }
 
@@ -76,7 +77,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     _runtime_state.reset(new RuntimeState(
-            request, request.query_options, request.query_globals.now_string, _exec_env));
+            request, request.query_options, request.query_globals, _exec_env));
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
@@ -172,6 +173,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     VLOG(1) << "scan_nodes.size()=" << scan_nodes.size();
     VLOG(1) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
+    _plan->try_do_aggregate_serde_improve();
+
     for (int i = 0; i < scan_nodes.size(); ++i) {
         ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
         const std::vector<TScanRangeParams>& scan_ranges =
@@ -233,7 +236,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::optimize_llvm_module() {
@@ -298,7 +301,7 @@ Status PlanFragmentExecutor::open_internal() {
     }
 
     if (_sink.get() == NULL) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
 
@@ -358,7 +361,7 @@ Status PlanFragmentExecutor::open_internal() {
     stop_report_thread();
     send_report(true);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::collect_query_statistics() {
@@ -429,7 +432,17 @@ void PlanFragmentExecutor::send_report(bool done) {
         status = _status;
     }
 
+    // If plan is done successfully, but _is_report_success is false,
+    // no need to send report.
     if (!_is_report_success && done && status.ok()) {
+        return;
+    }
+
+    // If both _is_report_success and _is_report_on_cancel are false,
+    // which means no matter query is success or failed, no report is needed.
+    // This may happen when the query limit reached and
+    // a internal cancellation being processed
+    if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }
 
@@ -473,7 +486,7 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
 Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
     if (_done) {
         *batch = NULL;
-        return Status::OK;
+        return Status::OK();
     }
 
     while (!_done) {
@@ -490,7 +503,7 @@ Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
         *batch = NULL;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::update_status(const Status& status) {
@@ -503,7 +516,7 @@ void PlanFragmentExecutor::update_status(const Status& status) {
 
         if (_status.ok()) {
             if (status.is_mem_limit_exceeded()) {
-                _runtime_state->set_mem_limit_exceeded();
+                _runtime_state->set_mem_limit_exceeded(status.get_error_msg());
             }
             _status = status;
         }
@@ -556,7 +569,7 @@ void PlanFragmentExecutor::close() {
             if (_prepared) {
                 _sink->close(runtime_state(), _status);
             } else {
-                _sink->close(runtime_state(), Status("prepare failed"));
+                _sink->close(runtime_state(), Status::InternalError("prepare failed"));
             }
         }
 

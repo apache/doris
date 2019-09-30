@@ -226,10 +226,14 @@ public class GlobalTransactionMgrTest {
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = masterTransMgr.getTransactionState(transactionId2);
-        // check status is prepare, because the commit failed
-        assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        try {
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
+            Assert.fail();
+        } catch (TabletQuorumFailedException e) {
+            transactionState = masterTransMgr.getTransactionState(transactionId2);
+            // check status is prepare, because the commit failed
+            assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        }
         // check replica version
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
@@ -313,7 +317,7 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", null,
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
@@ -379,7 +383,7 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", null,
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
@@ -533,10 +537,14 @@ public class GlobalTransactionMgrTest {
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = masterTransMgr.getTransactionState(transactionId2);
-        // check status is prepare, because the commit failed
-        assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        try {
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
+            Assert.fail();
+        } catch (TabletQuorumFailedException e) {
+            transactionState = masterTransMgr.getTransactionState(transactionId2);
+            // check status is prepare, because the commit failed
+            assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
+        }
 
         // commit the second transaction with 1,2,3 success
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);

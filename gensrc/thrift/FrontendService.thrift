@@ -367,6 +367,8 @@ struct TReportExecStatusParams {
   13: optional list<string> export_files 
 
   14: optional list<Types.TTabletCommitInfo> commitInfos
+
+  15: optional i64 loaded_rows
 }
 
 struct TFeResult {
@@ -407,6 +409,7 @@ struct TMasterOpRequest {
     6: optional i64 execMemLimit
     7: optional i32 queryTimeout
     8: optional string user_ip
+    9: optional string time_zone
 }
 
 struct TColumnDefinition {
@@ -443,6 +446,31 @@ struct TLoadCheckRequest {
     9: optional string tbl
 }
 
+struct TMiniLoadBeginRequest {
+    1: required string user
+    2: required string passwd
+    3: optional string cluster
+    4: optional string user_ip
+    5: required string db
+    6: required string tbl
+    7: required string label
+    8: optional string sub_label
+    9: optional i64 timeout_second
+    10: optional double max_filter_ratio 
+    11: optional i64 auth_code
+    12: optional i64 create_timestamp
+    13: optional Types.TUniqueId request_id
+}
+
+struct TIsMethodSupportedRequest {
+    1: optional string function_name
+}
+
+struct TMiniLoadBeginResult {
+    1: required Status.TStatus status
+    2: optional i64 txn_id
+}
+
 struct TUpdateExportTaskStatusRequest {
     1: required FrontendServiceVersion protocolVersion
     2: required Types.TUniqueId taskId
@@ -457,14 +485,17 @@ struct TLoadTxnBeginRequest {
     5: required string tbl
     6: optional string user_ip
     7: required string label
-    8: optional i64 timestamp
+    8: optional i64 timestamp   // deprecated, use request_id instead
     9: optional i64 auth_code
+    // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
+    11: optional Types.TUniqueId request_id
 }
 
 struct TLoadTxnBeginResult {
     1: required Status.TStatus status
     2: optional i64 txnId
+    3: optional string job_status // if label already used, set status of existing job
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -496,6 +527,10 @@ struct TStreamLoadPutRequest {
 
     15: optional string partitions
     16: optional i64 auth_code
+    17: optional bool negative
+    18: optional i32 timeout
+    19: optional bool strictMode
+    20: optional string timezone
 }
 
 struct TStreamLoadPutResult {
@@ -522,9 +557,16 @@ struct TRLTaskTxnCommitAttachment {
     11: optional string errorLogUrl
 }
 
+struct TMiniLoadTxnCommitAttachment {
+    1: required i64 loadedRows
+    2: required i64 filteredRows
+    3: optional string errorLogUrl
+} 
+
 struct TTxnCommitAttachment {
     1: required Types.TLoadType loadType
     2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+    3: optional TMiniLoadTxnCommitAttachment mlTxnCommitAttachment 
 }
 
 struct TLoadTxnCommitRequest {
@@ -580,9 +622,14 @@ service FrontendService {
     MasterService.TMasterResult finishTask(1:MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1:MasterService.TReportRequest request)
     MasterService.TFetchResourceResult fetchResource()
+    
+    // those three method are used for asynchronous mini load which will be abandoned
     TFeResult miniLoad(1:TMiniLoadRequest request)
     TFeResult updateMiniEtlTaskStatus(1:TUpdateMiniEtlTaskStatusRequest request)
     TFeResult loadCheck(1:TLoadCheckRequest request)
+    // this method is used for streaming mini load
+    TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request)
+    TFeResult isMethodSupported(TIsMethodSupportedRequest request)
 
     TMasterOpResult forward(TMasterOpRequest params)
 

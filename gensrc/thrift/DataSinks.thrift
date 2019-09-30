@@ -29,7 +29,12 @@ enum TDataSinkType {
     DATA_SPLIT_SINK,
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
-    OLAP_TABLE_SINK
+    OLAP_TABLE_SINK,
+    MEMORY_SCRATCH_SINK
+}
+
+struct TMemoryScratchSink {
+
 }
 
 // Sink which forwards data to a remote plan fragment,
@@ -109,5 +114,6 @@ struct TDataSink {
   5: optional TMysqlTableSink mysql_table_sink
   6: optional TExportSink export_sink
   7: optional TOlapTableSink olap_table_sink
+  8: optional TMemoryScratchSink memory_scratch_sink
 }
 

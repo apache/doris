@@ -58,6 +58,7 @@ endif()
 set(LLVM_BIN "${LLVM_HOME}/bin")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -151,11 +152,15 @@ set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(thriftnb STATIC IMPORTED)
 set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
 
-add_library(lzo STATIC IMPORTED)
-set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+if(WITH_LZO)
+    add_library(lzo STATIC IMPORTED)
+    set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+endif()
 
-add_library(mysql STATIC IMPORTED)
-set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+if (WITH_MYSQL)
+    add_library(mysql STATIC IMPORTED)
+    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+endif()
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
@@ -172,6 +177,30 @@ set_target_properties(openssl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
 
+add_library(jemalloc STATIC IMPORTED)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+
+add_library(brotlicommon STATIC IMPORTED)
+set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
+
+add_library(brotlidec STATIC IMPORTED)
+set_target_properties(brotlidec PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlidec.a)
+
+add_library(brotlienc STATIC IMPORTED)
+set_target_properties(brotlienc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlienc.a)
+
+add_library(zstd STATIC IMPORTED)
+set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libzstd.a)
+
+add_library(arrow STATIC IMPORTED)
+set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
+
+add_library(double-conversion STATIC IMPORTED)
+set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
+
+add_library(parquet STATIC IMPORTED)
+set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
+
 add_library(brpc STATIC IMPORTED)
 set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
 
@@ -183,6 +212,15 @@ set_target_properties(librdkafka_cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_D
 
 add_library(librdkafka STATIC IMPORTED)
 set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
+
+add_library(libs2 STATIC IMPORTED)
+set_target_properties(libs2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libs2.a)
+
+add_library(bitshuffle STATIC IMPORTED)
+set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbitshuffle.a)
+
+add_library(roaring STATIC IMPORTED)
+set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -249,6 +287,14 @@ execute_process(
   OUTPUT_VARIABLE LLVM_MODULE_LIBS
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+
+# Check if functions are supported in this platform. All flags will generated
+# in gensrc/build/common/env_config.h.
+# You can check funcion here which depends on platform. Don't forget add this
+# to be/src/common/env_config.h.in
+include(CheckFunctionExists)
+check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
+
 # compiler flags that are common across debug/release builds
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
@@ -269,6 +315,15 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFI
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
+
+if (WITH_MYSQL)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+endif()
+
+if (WITH_LZO)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -284,7 +339,7 @@ set(CXX_GCC_FLAGS "-g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb -O0 -gdwarf-2")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -414,7 +469,6 @@ include_directories(
     ${THIRDPARTY_DIR}/include/event/
 )
 
-
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
@@ -424,10 +478,12 @@ set(DORIS_LINK_LIBS
     Agent
     CodeGen
     Common
+    Env
     Exec
     Exprs
     Gutil
     Olap
+    Rowset
     Runtime
     Service
     Udf
@@ -435,16 +491,18 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     TestUtil
+    Geo
     ${WL_END_GROUP}
 )
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
     rocksdb
     librdkafka_cpp
     librdkafka
-    lzo
+    libs2
     snappy
     ${Boost_LIBRARIES}
     ${LLVM_MODULE_LIBS}
@@ -455,7 +513,6 @@ set(DORIS_DEPENDENCIES
     pprof
     lz4
     libevent
-    mysql
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -465,8 +522,30 @@ set(DORIS_DEPENDENCIES
     openssl
     crypto
     leveldb
+    bitshuffle
+    roaring
+    double-conversion
+    jemalloc
+    brotlicommon
+    brotlidec
+    brotlienc
+    zstd
+    arrow
+    parquet
     ${WL_END_GROUP}
 )
+
+if(WITH_LZO)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        lzo
+    )
+endif()
+
+if (WITH_MYSQL)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        mysql
+        )
+endif()
 
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
@@ -519,22 +598,25 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_definitions(-DBE_TEST)
 endif ()
 
+add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/codegen)
 add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/gutil)
-add_subdirectory(${SRC_DIR}/olap)
-add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/http)
-add_subdirectory(${SRC_DIR}/service)
+add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
-add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/gen_cpp)
+add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/gutil)
+add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
+add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/testutil)
+#add_subdirectory(${SRC_DIR}/tools)
+add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf_samples)
+add_subdirectory(${SRC_DIR}/util)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -548,21 +630,23 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
     TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
     SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
     if (NOT "${TEST_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${DIR_NAME}/${TEST_DIR_NAME}")
+        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
     endif()
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
 ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
-    add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/common)
-    add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/env)
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
-    add_subdirectory(${TEST_DIR}/runtime)
+    add_subdirectory(${TEST_DIR}/geo)
     add_subdirectory(${TEST_DIR}/http)
+    add_subdirectory(${TEST_DIR}/olap)
+    add_subdirectory(${TEST_DIR}/runtime)
+    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/util)
 endif ()
 
 # Install be

@@ -95,7 +95,8 @@ enum TFileFormatType {
     FORMAT_CSV_LZO,
     FORMAT_CSV_BZ2,
     FORMAT_CSV_LZ4FRAME,
-    FORMAT_CSV_LZOP
+    FORMAT_CSV_LZOP,
+    FORMAT_PARQUET
 }
 
 // One broker range information.
@@ -111,6 +112,12 @@ struct TBrokerRangeDesc {
     6: required i64 size
     // used to get stream for this load
     7: optional Types.TUniqueId load_id
+    // total size of the file
+    8: optional i64 file_size
+    // number of columns from file
+    9: optional i32 num_of_columns_from_file = 0
+    // columns parsed from file path should be after the columns read from file
+    10: optional list<string> columns_from_path
 }
 
 struct TBrokerScanRangeParams {
@@ -136,6 +143,13 @@ struct TBrokerScanRangeParams {
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
     8: optional list<i64> partition_ids
+    
+    // This is the mapping of dest slot id and src slot id in load expr
+    // It excludes the slot id which has the transform expr
+    9: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    // strictMode is a boolean
+    // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
+    10: optional bool strict_mode
 }
 
 // Broker scan range
@@ -313,6 +327,7 @@ enum TAggregationOp {
   ROW_NUMBER,
   LAG,
   HLL_C, 
+  BITMAP_UNION,
 }
 
 //struct TAggregateFunctionCall {

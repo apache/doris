@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.AnalysisException;
@@ -97,6 +98,7 @@ public class StatisticProcDir implements ProcDirInterface {
             }
 
             ++totalDbNum;
+            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
             db.readLock();
             try {
                 int dbTableNum = 0;
@@ -116,7 +118,7 @@ public class StatisticProcDir implements ProcDirInterface {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                         ++dbPartitionNum;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             ++dbIndexNum;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 ++dbTabletNum;
@@ -125,10 +127,11 @@ public class StatisticProcDir implements ProcDirInterface {
                                 Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
                                         infoService, db.getClusterName(),
                                         partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicationNum);
+                                        replicationNum, availableBackendsNum);
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
-                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT) {
+                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
+                                        && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
                                     unhealthyTabletIds.put(dbId, tablet.getId());
                                 }
 

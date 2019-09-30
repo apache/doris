@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -118,6 +120,17 @@ public class Column implements Writable {
         return this.name;
     }
 
+    public String getNameWithoutPrefix(String prefix) {
+        if (isNameWithPrefix(prefix)) {
+            return name.substring(prefix.length());
+        }
+        return name;
+    }
+
+    public boolean isNameWithPrefix(String prefix) {
+        return this.name.startsWith(prefix);
+    }
+
     public void setIsKey(boolean isKey) {
         this.isKey = isKey;
     }
@@ -173,6 +186,10 @@ public class Column implements Writable {
         return this.stats;
     }
 
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
     public String getComment() {
         return comment;
     }
@@ -214,24 +231,24 @@ public class Column implements Writable {
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
-            throw new DdlException("Cannot change " + getDataType() + " to " + other.getDataType());
+            throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
         if (this.aggregationType != other.aggregationType) {
-            throw new DdlException("Cannot change aggregation type");
+            throw new DdlException("Can not change aggregation type");
         }
 
         if (this.isAllowNull && !other.isAllowNull) {
-            throw new DdlException("Cannot change from null to not null");
+            throw new DdlException("Can not change from nullable to non-nullable");
         }
 
         if (this.getDefaultValue() == null) {
             if (other.getDefaultValue() != null) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         } else {
             if (!this.getDefaultValue().equals(other.getDefaultValue())) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         }
 
@@ -252,6 +269,29 @@ public class Column implements Writable {
         }
     }
 
+    public boolean nameEquals(String otherColName, boolean ignorePrefix) {
+        if (CaseSensibility.COLUMN.getCaseSensibility()) {
+            if (!ignorePrefix) {
+                return name.equals(otherColName);
+            } else {
+                return removeNamePrefix(name).equals(removeNamePrefix(otherColName));
+            }
+        } else {
+            if (!ignorePrefix) {
+                return name.equalsIgnoreCase(otherColName);
+            } else {
+                return removeNamePrefix(name).equalsIgnoreCase(removeNamePrefix(otherColName));
+            }
+        }
+    }
+
+    public static String removeNamePrefix(String colName) {
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
+        }
+        return colName;
+    }
+
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
@@ -260,7 +300,9 @@ public class Column implements Writable {
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
-        if (!isAllowNull) {
+        if (isAllowNull) {
+            sb.append("NULL ");
+        } else {
             sb.append("NOT NULL ");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL) {

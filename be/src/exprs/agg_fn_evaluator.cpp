@@ -96,7 +96,7 @@ Status AggFnEvaluator::create(
                 pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
         (*result)->_input_exprs_ctxs.push_back(ctx);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, bool is_analytic_fn) :
@@ -204,7 +204,7 @@ Status AggFnEvaluator::prepare(
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
         stringstream ss;
         ss << "Function " << _fn.name.function_name << " is not implemented.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // Load the function pointers.
@@ -261,7 +261,7 @@ Status AggFnEvaluator::prepare(
 
     *agg_fn_ctx = FunctionContextImpl::create_context(state, pool,
             intermediate_type, output_type, arg_types, 0, false);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
@@ -274,7 +274,7 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
         constant_args[i] = _input_exprs_ctxs[i]->root()->get_const_val(_input_exprs_ctxs[i]);
     }
     agg_fn_ctx->impl()->set_constant_args(constant_args);
-    return Status::OK;
+    return Status::OK();
 }
 
 void AggFnEvaluator::close(RuntimeState* state) {

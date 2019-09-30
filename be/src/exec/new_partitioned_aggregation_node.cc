@@ -180,7 +180,7 @@ Status NewPartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState*
     agg_fns_.push_back(agg_fn);
     needs_serialize_ |= agg_fn->SupportsSerialize();
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
@@ -234,7 +234,7 @@ Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
         expr_results_pool_.get(), expr_mem_tracker(), build_row_desc, row_desc, &ht_ctx_));
   }
   // AddCodegenDisabledMessage(state);
-  return Status::OK;
+  return Status::OK();
 }
 
 //void NewPartitionedAggregationNode::Codegen(RuntimeState* state) {
@@ -298,14 +298,15 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
   }
 
   // Streaming preaggregations do all processing in GetNext().
-  if (is_streaming_preagg_) return Status::OK;
+  if (is_streaming_preagg_) return Status::OK();
 
   RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker());
   // Read all the rows from the child and process them.
   bool eos = false;
   do {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(QueryMaintenance(state));
+    RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting next from child 0."));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
@@ -345,7 +346,7 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
   if (!grouping_exprs_.empty()) {
     RETURN_IF_ERROR(MoveHashPartitions(child(0)->rows_returned()));
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch,
@@ -353,12 +354,12 @@ Status NewPartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* ro
   int first_row_idx = row_batch->num_rows();
   RETURN_IF_ERROR(GetNextInternal(state, row_batch, eos));
   RETURN_IF_ERROR(HandleOutputStrings(row_batch, first_row_idx));
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::HandleOutputStrings(RowBatch* row_batch,
     int first_row_idx) {
-  if (!needs_finalize_ && !needs_serialize_) return Status::OK;
+  if (!needs_finalize_ && !needs_serialize_) return Status::OK();
   // String data returned by Serialize() or Finalize() is from local expr allocations in
   // the agg function contexts, and will be freed on the next GetNext() call by
   // FreeLocalAllocations(). The data either needs to be copied out now or sent up the
@@ -378,7 +379,7 @@ Status NewPartitionedAggregationNode::HandleOutputStrings(RowBatch* row_batch,
       break;
     }
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_desc,
@@ -399,7 +400,7 @@ Status NewPartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_
     memcpy(new_ptr, sv->ptr, sv->len);
     sv->ptr = new_ptr;
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
@@ -407,13 +408,13 @@ Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
   SCOPED_TIMER(_runtime_profile->total_time_counter());
   RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
   RETURN_IF_CANCELLED(state);
-  RETURN_IF_ERROR(state->check_query_state());
+  RETURN_IF_ERROR(state->check_query_state("New partitioned aggregation, while getting next."));
   // clear tmp expr result alocations
   expr_results_pool_->clear();
 
   if (reached_limit()) {
     *eos = true;
-    return Status::OK;
+    return Status::OK();
   }
 
   if (grouping_exprs_.empty()) {
@@ -422,7 +423,7 @@ Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
     if (!singleton_output_tuple_returned_) GetSingletonOutput(row_batch);
     singleton_output_tuple_returned_ = true;
     *eos = true;
-    return Status::OK;
+    return Status::OK();
   }
 
   if (!child_eos_) {
@@ -435,7 +436,7 @@ Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
 
   *eos = partition_eos_ && child_eos_;
   COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewPartitionedAggregationNode::GetSingletonOutput(RowBatch* row_batch) {
@@ -470,7 +471,7 @@ Status NewPartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     if (aggregated_partitions_.empty() && spilled_partitions_.empty()) {
       // No more partitions, all done.
       partition_eos_ = true;
-      return Status::OK;
+      return Status::OK();
     }
     // Process next partition.
     RETURN_IF_ERROR(NextPartition());
@@ -486,7 +487,8 @@ Status NewPartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     // maintenance every N iterations.
     if ((count++ & (N - 1)) == 0) {
       RETURN_IF_CANCELLED(state);
-      RETURN_IF_ERROR(QueryMaintenance(state));
+      RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting rows from partition."));
     }
 
     int row_idx = row_batch->add_row();
@@ -511,7 +513,7 @@ Status NewPartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
   partition_eos_ = reached_limit();
   if (output_iterator_.AtEnd()) row_batch->mark_needs_deep_copy();
 
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
@@ -527,7 +529,8 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
   do {
     DCHECK_EQ(out_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(QueryMaintenance(state));
+    RETURN_IF_ERROR(state->check_query_state(
+            "New partitioned aggregation, while getting rows in streaming."));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
     SCOPED_TIMER(streaming_timer_);
@@ -579,7 +582,7 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
 
   _num_rows_returned += out_batch->num_rows();
   COUNTER_SET(num_passthrough_rows_, _num_rows_returned);
-  return Status::OK;
+  return Status::OK();
 }
 
 bool NewPartitionedAggregationNode::ShouldExpandPreaggHashTables() const {
@@ -670,7 +673,7 @@ Status NewPartitionedAggregationNode::reset(RuntimeState* state) {
 }
 
 Status NewPartitionedAggregationNode::close(RuntimeState* state) {
-  if (is_closed()) return Status::OK;
+  if (is_closed()) return Status::OK();
 
   if (!singleton_output_tuple_returned_) {
     GetOutputTuple(agg_fn_evals_, singleton_output_tuple_, mem_pool_.get());
@@ -749,7 +752,7 @@ Status NewPartitionedAggregationNode::Partition::InitStreams() {
     // unaggregated row stream.
     DCHECK(!unaggregated_row_stream->has_write_iterator());
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::Partition::InitHashTable(bool* got_memory) {
@@ -784,7 +787,7 @@ Status NewPartitionedAggregationNode::Partition::SerializeStreamForSpilling() {
     DCHECK(!parent->serialize_stream_->is_pinned());
 
     // Serialize and copy the spilled partition's stream into the new stream.
-    Status status = Status::OK;
+    Status status = Status::OK();
     BufferedTupleStream3* new_stream = parent->serialize_stream_.get();
     NewPartitionedHashTable::Iterator it = hash_tbl->Begin(parent->ht_ctx_.get());
     while (!it.AtEnd()) {
@@ -827,14 +830,18 @@ Status NewPartitionedAggregationNode::Partition::SerializeStreamForSpilling() {
     }
     DCHECK(parent->serialize_stream_->has_write_iterator());
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
   DCHECK(!parent->is_streaming_preagg_);
   DCHECK(!is_closed);
   DCHECK(!is_spilled());
-  RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
+  // TODO(ml): enable spill
+  std::stringstream msg;
+  msg << "New partitioned Aggregation in spill";
+  LIMIT_EXCEEDED(parent->mem_tracker(), parent->state_, msg.str());
+  // RETURN_IF_ERROR(parent->state_->StartSpilling(parent->mem_tracker()));
 
   RETURN_IF_ERROR(SerializeStreamForSpilling());
 
@@ -868,7 +875,7 @@ Status NewPartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows)
   if (parent->num_spilled_partitions_->value() == 1) {
     parent->add_runtime_exec_option("Spilled");
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewPartitionedAggregationNode::Partition::Close(bool finalize_rows) {
@@ -1071,14 +1078,14 @@ Status NewPartitionedAggregationNode::AppendSpilledRow(
       partition->unaggregated_row_stream.get();
   DCHECK(!stream->is_pinned());
   Status status;
-  if (LIKELY(stream->AddRow(row, &status))) return Status::OK;
+  if (LIKELY(stream->AddRow(row, &status))) return Status::OK();
   RETURN_IF_ERROR(status);
 
   // Keep trying to free memory by spilling until we succeed or hit an error.
   // Running out of partitions to spill is treated as an error by SpillPartition().
   while (true) {
     RETURN_IF_ERROR(SpillPartition(AGGREGATED_ROWS));
-    if (stream->AddRow(row, &status)) return Status::OK;
+    if (stream->AddRow(row, &status)) return Status::OK();
     RETURN_IF_ERROR(status);
   }
 }
@@ -1168,7 +1175,7 @@ Status NewPartitionedAggregationNode::CreateHashPartitions(
   if (!is_streaming_preagg_) {
     COUNTER_SET(max_partition_level_, level);
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::CheckAndResizeHashPartitions(
@@ -1187,7 +1194,7 @@ Status NewPartitionedAggregationNode::CheckAndResizeHashPartitions(
       RETURN_IF_ERROR(SpillPartition(partitioning_aggregated_rows));
     }
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::NextPartition() {
@@ -1236,7 +1243,7 @@ Status NewPartitionedAggregationNode::NextPartition() {
   output_partition_ = partition;
   output_iterator_ = output_partition_->hash_tbl->Begin(ht_ctx_.get());
   COUNTER_UPDATE(num_hash_buckets_, output_partition_->hash_tbl->num_buckets());
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::BuildSpilledPartition(Partition** built_partition) {
@@ -1277,7 +1284,7 @@ Status NewPartitionedAggregationNode::BuildSpilledPartition(Partition** built_pa
   } else {
     *built_partition = dst_partition;
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::RepartitionSpilledPartition() {
@@ -1322,7 +1329,7 @@ Status NewPartitionedAggregationNode::RepartitionSpilledPartition() {
   int64_t num_input_rows = partition->aggregated_row_stream->num_rows()
       + partition->unaggregated_row_stream->num_rows();
   RETURN_IF_ERROR(MoveHashPartitions(num_input_rows));
-  return Status::OK;
+  return Status::OK();
 }
 
 template<bool AGGREGATED_ROWS>
@@ -1345,12 +1352,12 @@ Status NewPartitionedAggregationNode::ProcessStream(BufferedTupleStream3* input_
       RETURN_IF_ERROR(input_stream->GetNext(&batch, &eos));
       RETURN_IF_ERROR(
           ProcessBatch<AGGREGATED_ROWS>(&batch, ht_ctx_.get()));
-      RETURN_IF_ERROR(state_->check_query_state());
+      RETURN_IF_ERROR(state_->check_query_state("New partitioned aggregation, while processing stream."));
       batch.reset();
     } while (!eos);
   }
   input_stream->Close(NULL, RowBatch::FlushMode::NO_FLUSH_RESOURCES);
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedAggregationNode::SpillPartition(bool more_aggregate_rows) {
@@ -1425,7 +1432,7 @@ Status NewPartitionedAggregationNode::MoveHashPartitions(int64_t num_input_rows)
   }
   VLOG(2) << ss.str();
   hash_partitions_.clear();
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewPartitionedAggregationNode::PushSpilledPartition(Partition* partition) {
@@ -1585,7 +1592,7 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //      codegen->GetPtrPtrType(codegen->GetType(ExprContext::LLVM_CLASS_NAME));
 //  StructType* tuple_struct = intermediate_tuple_desc_->GetLlvmStruct(codegen);
 //  if (tuple_struct == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenUpdateSlot(): failed to generate "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenUpdateSlot(): failed to generate "
 //                  "intermediate tuple desc");
 //  }
 //  PointerType* tuple_ptr_type = codegen->GetPtrType(tuple_struct);
@@ -1732,10 +1739,10 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //
 //  *fn = codegen->FinalizeFunction(*fn);
 //  if (*fn == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenUpdateSlot(): codegen'd "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenUpdateSlot(): codegen'd "
 //                  "UpdateSlot() function failed verification, see log");
 //  }
-//  return Status::OK;
+//  return Status::OK();
 //}
 //
 //Status NewPartitionedAggregationNode::CodegenCallUda(LlvmCodeGen* codegen,
@@ -1774,7 +1781,7 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //  Value* anyval_result = builder->CreateLoad(dst_lowered_ptr, "anyval_result");
 //
 //  *updated_dst_val = CodegenAnyVal(codegen, builder, dst_type, anyval_result);
-//  return Status::OK;
+//  return Status::OK();
 //}
 
 // IR codegen for the UpdateTuple loop.  This loop is query specific and based on the
@@ -1824,13 +1831,13 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //
 //  for (const SlotDescriptor* slot_desc : intermediate_tuple_desc_->slots()) {
 //    if (slot_desc->type().type == TYPE_CHAR) {
-//      return Status("NewPartitionedAggregationNode::CodegenUpdateTuple(): cannot codegen"
+//      return Status::InternalError("NewPartitionedAggregationNode::CodegenUpdateTuple(): cannot codegen"
 //                    "CHAR in aggregations");
 //    }
 //  }
 //
 //  if (intermediate_tuple_desc_->GetLlvmStruct(codegen) == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenUpdateTuple(): failed to generate "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenUpdateTuple(): failed to generate "
 //                  "intermediate tuple desc");
 //  }
 //
@@ -1910,10 +1917,10 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //  // CodegenProcessBatch() does the final optimizations.
 //  *fn = codegen->FinalizeFunction(*fn);
 //  if (*fn == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenUpdateTuple(): codegen'd "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenUpdateTuple(): codegen'd "
 //                  "UpdateTuple() function failed verification, see log");
 //  }
-//  return Status::OK;
+//  return Status::OK();
 //}
 //
 //Status NewPartitionedAggregationNode::CodegenProcessBatch(LlvmCodeGen* codegen,
@@ -1978,7 +1985,7 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //  DCHECK_GE(replaced, 1);
 //  process_batch_fn = codegen->FinalizeFunction(process_batch_fn);
 //  if (process_batch_fn == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenProcessBatch(): codegen'd "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenProcessBatch(): codegen'd "
 //        "ProcessBatch() function failed verification, see log");
 //  }
 //
@@ -1986,7 +1993,7 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //      reinterpret_cast<void**>(&process_batch_no_grouping_fn_) :
 //      reinterpret_cast<void**>(&process_batch_fn_);
 //  codegen->AddFunctionToJit(process_batch_fn, codegened_fn_ptr);
-//  return Status::OK;
+//  return Status::OK();
 //}
 //
 //Status NewPartitionedAggregationNode::CodegenProcessBatchStreaming(
@@ -2051,13 +2058,13 @@ void NewPartitionedAggregationNode::ClosePartitions() {
 //  DCHECK(process_batch_streaming_fn != NULL);
 //  process_batch_streaming_fn = codegen->FinalizeFunction(process_batch_streaming_fn);
 //  if (process_batch_streaming_fn == NULL) {
-//    return Status("NewPartitionedAggregationNode::CodegenProcessBatchStreaming(): codegen'd "
+//    return Status::InternalError("NewPartitionedAggregationNode::CodegenProcessBatchStreaming(): codegen'd "
 //        "ProcessBatchStreaming() function failed verification, see log");
 //  }
 //
 //  codegen->AddFunctionToJit(process_batch_streaming_fn,
 //      reinterpret_cast<void**>(&process_batch_streaming_fn_));
-//  return Status::OK;
+//  return Status::OK();
 //}
 
 #endif

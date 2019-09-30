@@ -23,26 +23,167 @@
 #include <set>
 #include <map>
 
-// #include "olap/field_info.h"
-#include "olap/olap_common.h"
-// #include "olap/olap_define.h"
+#include "gutil/macros.h"
 
 namespace doris {
 
-const static int HLL_COLUMN_PRECISION = 14;
-const static int HLL_EXPLICLIT_INT64_NUM = 160;
-const static int HLL_REGISTERS_COUNT = 16384;
-// registers (2^14) + 1 (type)
-const static int HLL_COLUMN_DEFAULT_LEN = 16385;
+class Slice;
 
-struct HllContext {
-    bool has_value;
-    bool has_sparse_or_full;
-    char registers[HLL_REGISTERS_COUNT];
-    std::set<uint64_t>* hash64_set = nullptr;
+const static int HLL_COLUMN_PRECISION = 14;
+const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
+const static int HLL_EXPLICLIT_INT64_NUM = 160;
+const static int HLL_SPARSE_THRESHOLD = 4096;
+const static int HLL_REGISTERS_COUNT = 16 * 1024;
+// maximum size in byte of serialized HLL: type(1) + registers (2^14)
+const static int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
+
+// 1 for type; 1 for hash values count; 8 for hash value
+const static int HLL_SINGLE_VALUE_SIZE = 10;
+const static int HLL_EMPTY_SIZE = 1;
+
+// Hyperloglog distinct estimate algorithm.
+// See these papers for more details.
+// 1) Hyperloglog: The analysis of a near-optimal cardinality estimation
+// algorithm (2007)
+// 2) HyperLogLog in Practice (paper from google with some improvements)
+
+// Each HLL value is a set of values. To save space, Doris store HLL value
+// in different format according to its cardinality.
+//
+// HLL_DATA_EMPTY: when set is empty.
+//
+// HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit.
+// If the number of hash values is not greater than 160, set is encoded in this format.
+// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is choosed,
+// maybe can be other number. If you are interested, you can try other number and see
+// if it will be better.
+//
+// HLL_DATA_SPRASE: only store non-zero registers. If the number of non-zero registers
+// is not greater than 4096, set is encoded in this format. The max space occupied is
+// (1 + 4 + 3 * 4096) = 12293.
+//
+// HLL_DATA_FULL: most space-consuming, store all registers
+// 
+// A HLL value will change in the sequence empty -> explicit -> sparse -> full, and not
+// allow reverse.
+//
+// NOTE: This values are persisted in storage devices, so don't change exist
+// enum values.
+enum HllDataType {
+    HLL_DATA_EMPTY = 0,
+    HLL_DATA_EXPLICIT = 1,
+    HLL_DATA_SPRASE = 2,
+    HLL_DATA_FULL = 3,
 };
 
-// help parse hll set
+class HyperLogLog {
+public:
+
+    HyperLogLog() = default;
+    explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
+        _hash_set.emplace(hash_value);
+    }
+
+    explicit HyperLogLog(const Slice& src);
+
+    ~HyperLogLog() {
+        delete[] _registers;
+    }
+
+    typedef uint8_t SetTypeValueType;
+    typedef int32_t SparseLengthValueType;
+    typedef uint16_t SparseIndexType;
+    typedef uint8_t SparseValueType;
+
+    // Add a hash value to this HLL value
+    // NOTE: input must be a hash_value
+    void update(uint64_t hash_value);
+
+    void merge(const HyperLogLog& other);
+
+    // Return max size of serialized binary
+    size_t max_serialized_size() const;
+
+    // Input slice should has enough capacity for serialize, which
+    // can be get through max_serialized_size(). If insufficient buffer
+    // is given, this will cause process crash.
+    // Return actual size of serialized binary.
+    size_t serialize(uint8_t* dst) const;
+
+    // Now, only empty HLL support this funciton.
+    bool deserialize(const Slice& slice);
+
+    int64_t estimate_cardinality() const;
+
+    static std::string empty() {
+        static HyperLogLog hll;
+        std::string buf;
+        buf.resize(HLL_EMPTY_SIZE);
+        hll.serialize((uint8_t*)buf.c_str());
+        return buf;
+    }
+
+    // Check if input slice is a valid serialized binary of HyperLogLog.
+    // This function only check the encoded type in slice, whose complex
+    // function is O(1). 
+    static bool is_valid(const Slice& slice);
+
+    // only for debug
+    std::string to_string() {
+        switch (_type) {
+            case HLL_DATA_EMPTY:
+                return {};
+            case HLL_DATA_EXPLICIT:
+            case HLL_DATA_SPRASE:
+            case HLL_DATA_FULL:
+                {
+                    std::string str {"hash set size: "};
+                    str.append(std::to_string(_hash_set.size()));
+                    str.append("\ncardinality:\t");
+                    str.append(std::to_string(estimate_cardinality()));
+                    str.append("\ntype:\t");
+                    str.append(std::to_string(_type));
+                    return str;
+                }
+            default:
+                return {};
+        }
+    }
+
+private:
+    HllDataType _type = HLL_DATA_EMPTY;
+    std::set<uint64_t> _hash_set;
+
+    // This field is much space consumming(HLL_REGISTERS_COUNT), we craete
+    // it only when it is really needed.
+    uint8_t* _registers = nullptr;
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(HyperLogLog);
+
+    void _convert_explicit_to_register();
+
+    // update one hash value into this registers
+    void _update_registers(uint64_t hash_value) {
+        // Use the lower bits to index into the number of streams and then
+        // find the first 1 bit after the index bits.
+        int idx = hash_value % HLL_REGISTERS_COUNT;
+        hash_value >>= HLL_COLUMN_PRECISION;
+        // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
+        hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
+        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
+        _registers[idx] = std::max((uint8_t)_registers[idx], first_one_bit);
+    }
+
+    // absorb other registers into this registers
+    void _merge_registers(const uint8_t* other_registers) {
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            _registers[i] = std::max(_registers[i], other_registers[i]);
+        }
+    }
+};
+
+// todo(kks): remove this when dpp_sink class was removed
 class HllSetResolver {
 public:
     HllSetResolver() : _buf_ref(nullptr),
@@ -84,19 +225,9 @@ public:
         return _explicit_value[index];
     };
 
-    // get explicit index value 64bit
-    char* get_explicit_value() {
-        return (char*)_explicit_value;
-    };
-
     // get full register value
     char* get_full_value() {
         return _full_value_position;
-    };
-
-    // get sparse (index, value) count
-    int get_sparse_count() {
-        return (int)*_sparse_count;
     };
 
     // get (index, value) map
@@ -106,16 +237,6 @@ public:
 
     // parse set , call after copy() or init()
     void parse();
-
-    // fill registers with set
-    void fill_registers(char* registers, int len);
-
-    // fill map with set
-    void fill_index_to_value_map(std::map<int, uint8_t>* index_to_value, int len);
-
-    // fill hash map
-    void fill_hash64_set(std::set<uint64_t>* hash_set);
-
 private :
     char* _buf_ref;    // set
     int _buf_len;      // set len
@@ -127,27 +248,13 @@ private :
     SparseLengthValueType* _sparse_count;
 };
 
-// 通过varchar的变长编码方式实现hll集合
-// 实现hll列中间计算结果的处理
-// empty 空集合
-// explicit 存储64位hash值的集合
-// sparse 存储hll非0的register
-// full  存储全部的hll register
-// empty -> explicit -> sparse -> full 四种类型的转换方向不可逆
-// 第一个字节存放hll集合的类型 0:empty 1:explicit 2:sparse 3:full
-// 已决定后面的数据怎么解析
+// todo(kks): remove this when dpp_sink class was removed
 class HllSetHelper {
 public:
     static void set_sparse(char *result, const std::map<int, uint8_t>& index_to_value, int& len);
     static void set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len);
-    static void set_full(char* result, const char* registers, const int set_len, int& len);
     static void set_full(char* result, const std::map<int, uint8_t>& index_to_value,
                          const int set_len, int& len);
-    static void set_max_register(char *registers,
-                                 int registers_len,
-                                 const std::set<uint64_t>& hash_set);
-    static void fill_set(const char* data, HllContext* context);
-    static void init_context(HllContext* context);
 };
 
 }  // namespace doris

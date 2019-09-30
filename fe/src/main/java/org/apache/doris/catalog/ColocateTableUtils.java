@@ -21,8 +21,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
-import java.util.List;
-
 public class ColocateTableUtils {
 
     static Table getColocateTable(Database db, String tableName) {
@@ -36,68 +34,32 @@ public class ColocateTableUtils {
         return parentTable;
     }
 
+    public static Table getTable(Database db, long tblId) {
+        Table tbl;
+        db.readLock();
+        try {
+            tbl = db.getTable(tblId);
+        } finally {
+            db.readUnlock();
+        }
+        return tbl;
+    }
+
     static void checkTableExist(Table colocateTable, String colocateTableName) throws DdlException {
         if (colocateTable == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_NO_EXIT, colocateTableName);
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_NOT_EXIST, colocateTableName);
         }
     }
 
     static void checkTableType(Table colocateTable) throws DdlException {
         if (colocateTable.type != (Table.TableType.OLAP)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_OLAP_TABLE, colocateTable.getName());
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_BE_OLAP_TABLE, colocateTable.getName());
         }
     }
 
-    static void checkBucketNum(OlapTable parentTable, DistributionInfo childDistributionInfo) throws DdlException {
-        int parentBucketNum = parentTable.getDefaultDistributionInfo().getBucketNum();
-        if (parentBucketNum != childDistributionInfo.getBucketNum()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM, parentBucketNum);
+    public static void checkTableIsColocated(Table parentTable, String colocateTableName) throws DdlException {
+        if (Catalog.getCurrentCatalog().getColocateTableIndex().isColocateTable(parentTable.getId())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_NOT_COLOCATE_TABLE, colocateTableName);
         }
     }
-
-    static void checkBucketNum(DistributionInfo oldDistributionInfo, DistributionInfo newDistributionInfo)
-            throws DdlException {
-        int oldBucketNum = oldDistributionInfo.getBucketNum();
-        if (oldBucketNum != newDistributionInfo.getBucketNum()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM, oldBucketNum);
-        }
-    }
-
-    static void checkReplicationNum(OlapTable parentTable, PartitionInfo childPartitionInfo) throws DdlException {
-        short childReplicationNum = childPartitionInfo.idToReplicationNum.entrySet().iterator().next().getValue();
-        checkReplicationNum(parentTable.getPartitionInfo(), childReplicationNum);
-    }
-
-    static void checkReplicationNum(PartitionInfo rangePartitionInfo, short childReplicationNum) throws DdlException {
-        short oldReplicationNum = rangePartitionInfo.idToReplicationNum.entrySet().iterator().next().getValue();
-        checkReplicationNum(oldReplicationNum, childReplicationNum);
-    }
-
-    private static void checkReplicationNum(short oldReplicationNum, short newReplicationNum) throws DdlException {
-        if (oldReplicationNum != newReplicationNum) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, oldReplicationNum);
-        }
-    }
-
-    static void checkDistributionColumnSizeAndType(OlapTable parentTable, DistributionInfo childDistributionInfo)
-            throws DdlException {
-        HashDistributionInfo parentDistribution = (HashDistributionInfo) (parentTable).getDefaultDistributionInfo();
-        List<Column> parentColumns = parentDistribution.getDistributionColumns();
-        List<Column> childColumns = ((HashDistributionInfo) childDistributionInfo).getDistributionColumns();
-
-        int parentColumnSize = parentColumns.size();
-        if (parentColumnSize != childColumns.size()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_SIZE,
-                    parentColumnSize);
-        }
-
-        for (int i = 0; i < parentColumnSize; i++) {
-            Type parentColumnType = parentColumns.get(i).getType();
-            if (!parentColumnType.equals(childColumns.get(i).getType())) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE,
-                        childColumns.get(i).getName(), parentColumnType);
-            }
-        }
-    }
-
 }

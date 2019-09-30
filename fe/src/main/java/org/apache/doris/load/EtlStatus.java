@@ -20,13 +20,13 @@ package org.apache.doris.load;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TEtlState;
-import com.google.common.collect.Lists;
+
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -66,7 +66,7 @@ public class EtlStatus implements Writable {
     }
 
     public void setTrackingUrl(String trackingUrl) {
-        this.trackingUrl = trackingUrl;
+        this.trackingUrl = Strings.nullToEmpty(trackingUrl);
     }
 
     public Map<String, String> getStats() {

@@ -29,9 +29,9 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TInPredicate;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,6 +95,11 @@ public class InPredicate extends Predicate {
     protected InPredicate(InPredicate other) {
         super(other);
         isNotIn = other.isNotIn();
+    }
+
+    public int getInElementNum() {
+        // the first child is compare expr
+        return getChildren().size() - 1;
     }
 
     @Override
@@ -238,6 +243,30 @@ public class InPredicate extends Predicate {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
+        final Expr leftChildValue = getChild(0);
+        if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
+            return this;
+        }
+
+        if (leftChildValue instanceof NullLiteral) {
+            return leftChildValue;
+        }
+
+        List<Expr> inListChildren = children.subList(1, children.size());
+        if (inListChildren.contains(leftChildValue)) {
+            return new BoolLiteral(true);
+        } else {
+            final NullLiteral nullLiteral = new NullLiteral();
+            if (inListChildren.contains(nullLiteral)) {
+                return nullLiteral;
+            }
+            return new BoolLiteral(false);
+        }
     }
 
     @Override

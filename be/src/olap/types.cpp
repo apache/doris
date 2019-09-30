@@ -23,15 +23,19 @@ template<typename TypeTraitsClass>
 TypeInfo::TypeInfo(TypeTraitsClass t)
       : _equal(TypeTraitsClass::equal),
         _cmp(TypeTraitsClass::cmp),
-        _copy_with_pool(TypeTraitsClass::copy_with_pool),
-        _copy_without_pool(TypeTraitsClass::copy_without_pool),
+        _shallow_copy(TypeTraitsClass::shallow_copy),
+        _deep_copy(TypeTraitsClass::deep_copy),
+        _deep_copy_with_arena(TypeTraitsClass::deep_copy_with_arena),
+        _direct_copy(TypeTraitsClass::direct_copy),
+        _allocate_value_from_arena(TypeTraitsClass::allocate_value_from_arena),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),
         _set_to_min(TypeTraitsClass::set_to_min),
-        _is_min(TypeTraitsClass::is_min),
         _hash_code(TypeTraitsClass::hash_code),
-        _size(TypeTraitsClass::size) {}
+        _size(TypeTraitsClass::size),
+        _field_type(TypeTraitsClass::type) {
+}
 
 class TypeInfoResolver {
     DECLARE_SINGLETON(TypeInfoResolver);
@@ -60,6 +64,8 @@ TypeInfoResolver::TypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_TINYINT>();
     add_mapping<OLAP_FIELD_TYPE_SMALLINT>();
     add_mapping<OLAP_FIELD_TYPE_INT>();
+    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
+    add_mapping<OLAP_FIELD_TYPE_BOOL>();
     add_mapping<OLAP_FIELD_TYPE_BIGINT>();
     add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
     add_mapping<OLAP_FIELD_TYPE_FLOAT>();
@@ -75,7 +81,7 @@ TypeInfoResolver::TypeInfoResolver() {
 TypeInfoResolver::~TypeInfoResolver() {}
 
 TypeInfo* get_type_info(FieldType field_type) {
-    return TypeInfoResolver::get_instance()->get_type_info(field_type);
+    return TypeInfoResolver::instance()->get_type_info(field_type);
 }
 
 } // namespace doris

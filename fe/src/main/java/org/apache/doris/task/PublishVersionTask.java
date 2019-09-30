@@ -35,9 +35,9 @@ public class PublishVersionTask extends AgentTask {
     private List<Long> errorTablets;
     private boolean isFinished;
 
-    public PublishVersionTask(long backendId, long transactionId, 
+    public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos) {
-        super(null, backendId, TTaskType.PUBLISH_VERSION, -1L, -1L, -1L, -1L, -1L, transactionId);
+        super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
         this.errorTablets = new ArrayList<Long>();
@@ -58,11 +58,12 @@ public class PublishVersionTask extends AgentTask {
         return partitionVersionInfos;
     }
 
-    public List<Long> getErrorTablets() {
+    public synchronized List<Long> getErrorTablets() {
         return errorTablets;
     }
     
-    public void addErrorTablets(List<Long> errorTablets) {
+    public synchronized void addErrorTablets(List<Long> errorTablets) {
+        this.errorTablets.clear();
         if (errorTablets == null) {
             return;
         }

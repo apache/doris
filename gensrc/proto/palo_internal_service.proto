@@ -22,6 +22,7 @@ syntax="proto2";
 import "internal_service.proto";
 
 package palo;
+option java_package = "org.apache.doris.proto";
 
 option cc_generic_services = true;
 
@@ -34,4 +35,5 @@ service PInternalService {
     rpc tablet_writer_add_batch(doris.PTabletWriterAddBatchRequest) returns (doris.PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(doris.PTabletWriterCancelRequest) returns (doris.PTabletWriterCancelResult);
     rpc trigger_profile_report(doris.PTriggerProfileReportRequest) returns (doris.PTriggerProfileReportResult);
+    rpc get_info(doris.PProxyRequest) returns (doris.PProxyResult);
 };

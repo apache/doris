@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
@@ -53,6 +52,7 @@ import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
+import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -70,9 +70,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -112,6 +114,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -130,6 +133,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -230,6 +234,8 @@ public class ShowExecutor {
             handleAdminShowTabletDistribution();
         } else if (stmt instanceof AdminShowConfigStmt) {
             handleAdminShowConfig();
+        } else if (stmt instanceof ShowSmallFilesStmt) {
+            handleShowSmallFiles();
         } else {
             handleEmtpy();
         }
@@ -737,8 +743,15 @@ public class ShowExecutor {
 
         // filter by limit
         long limit = showStmt.getLimit();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -919,7 +932,7 @@ public class ShowExecutor {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
                                                 + " in db " + showRoutineLoadStmt.getDbFullName()
-                                                + " include history " + showRoutineLoadStmt.isIncludeHistory());
+                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
@@ -1108,6 +1121,21 @@ public class ShowExecutor {
                         isSync = false;
                         break;
                     }
+
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
+                        if (tmp == null) {
+                            isSync = false;
+                            break;
+                        }
+                        // use !=, not equals(), because this should be the same object.
+                        if (tmp != replica) {
+                            isSync = false;
+                            break;
+                        }
+                    }
+
                 } finally {
                     db.readUnlock();
                 }
@@ -1136,14 +1164,77 @@ public class ShowExecutor {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-
-                for (Partition partition : olapTable.getPartitions()) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                long sizeLimit = -1;
+                if (showStmt.hasOffset() && showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getOffset() + showStmt.getLimit();
+                } else if (showStmt.hasLimit()) {
+                    sizeLimit = showStmt.getLimit();
+                }
+                boolean stop = false;
+                Collection<Partition> partitions = new ArrayList<Partition>();
+                List<String> partitionNames = showStmt.getPartitionNames();
+                if (showStmt.hasPartition()) {
+                    for (Partition partition : olapTable.getPartitions()) {
+                        if (partitionNames.contains(partition.getName())) {
+                            partitions.add(partition);
+                        }
+                    }
+                } else {
+                    partitions = olapTable.getPartitions();
+                }
+                List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                String indexName = showStmt.getIndexName();
+                long indexId = -1;
+                if (indexName != null) {
+                    Long id = olapTable.getIndexIdByName(indexName);
+                    if (id == null) {
+                        // invalid indexName
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getIndexName());
+                    }
+                    indexId = id;
+                }
+                for (Partition partition : partitions) {
+                    if (stop) {
+                        break;
+                    }
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        if (indexId > -1 && index.getId() != indexId) {
+                            continue;
+                        }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
-                        rows.addAll(procDir.fetchResult().getRows());
+                        tableInfos.addAll(procDir.fetchComparableResult(
+                                showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
+                        if (sizeLimit > -1 && tableInfos.size() >= sizeLimit) {
+                            stop = true;
+                            break;
+                        }
                     }
                 }
+                if (sizeLimit > -1 && tableInfos.size() < sizeLimit) {
+                    tableInfos.clear();
+                } else if (sizeLimit > -1) {
+                    tableInfos = tableInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                }
 
+                // order by
+                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                ListComparator<List<Comparable>> comparator = null;
+                if (orderByPairs != null) {
+                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                    comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+                } else {
+                    // order by tabletId, replicaId
+                    comparator = new ListComparator<List<Comparable>>(0, 1);
+                }
+                Collections.sort(tableInfos, comparator);
+
+                for (List<Comparable> tabletInfo : tableInfos) {
+                    List<String> oneTablet = new ArrayList<String>(tableInfos.size());
+                    for (Comparable column : tabletInfo) {
+                        oneTablet.add(column.toString());
+                    }
+                    rows.add(oneTablet);
+                }
             } finally {
                 db.readUnlock();
             }
@@ -1163,7 +1254,6 @@ public class ShowExecutor {
 
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
-
         Catalog catalog = Catalog.getInstance();
         Database db = catalog.getDb(showExportStmt.getDbName());
         if (db == null) {
@@ -1178,25 +1268,10 @@ public class ShowExecutor {
         if (state != null) {
             states = Sets.newHashSet(state);
         }
-        List<List<Comparable>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(),
-                states, showExportStmt.getOrderByPairs());
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> loadInfo : infos) {
-            List<String> oneInfo = new ArrayList<String>(loadInfo.size());
-            for (Comparable element : loadInfo) {
-                oneInfo.add(element.toString());
-            }
-            rows.add(oneInfo);
-        }
+        List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
+                dbId, showExportStmt.getJobId(), states, showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
-        // filter by limit
-        long limit = showExportStmt.getLimit();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
-        }
-
-        resultSet = new ShowResultSet(showExportStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
 
     private void handleShowBackends() {
@@ -1319,6 +1394,17 @@ public class ShowExecutor {
         List<List<String>> results;
         try {
             results = ConfigBase.getConfigInfo();
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleShowSmallFiles() throws AnalysisException {
+        ShowSmallFilesStmt showStmt = (ShowSmallFilesStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = Catalog.getCurrentCatalog().getSmallFileMgr().getInfo(showStmt.getDbName());
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

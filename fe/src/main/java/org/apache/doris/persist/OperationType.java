@@ -39,16 +39,6 @@ public class OperationType {
     public static final short OP_RECOVER_PARTITION = 18;
     public static final short OP_RENAME_TABLE = 19;
     public static final short OP_RENAME_PARTITION = 110;
-    @Deprecated
-    public static final short OP_BACKUP_START = 111;
-    @Deprecated
-    public static final short OP_BACKUP_FINISH_SNAPSHOT = 112;
-    @Deprecated
-    public static final short OP_BACKUP_FINISH = 113;
-    @Deprecated
-    public static final short OP_RESTORE_START = 114;
-    @Deprecated
-    public static final short OP_RESTORE_FINISH = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
@@ -64,6 +54,8 @@ public class OperationType {
     public static final short OP_CLEAR_ROLLUP_INFO = 28;
     public static final short OP_FINISH_CONSISTENCY_CHECK = 29;
     public static final short OP_RENAME_ROLLUP = 120;
+    public static final short OP_ALTER_JOB_V2 = 121;
+    public static final short OP_MODIFY_DISTRIBUTION_TYPE = 122;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -77,11 +69,6 @@ public class OperationType {
     public static final short OP_EXPORT_UPDATE_STATE = 37;
 
     public static final short OP_FINISH_SYNC_DELETE = 40;
-    @Deprecated
-    // (cmy 2015-07-22)
-    // do not use it anymore,use OP_ADD_REPLICA and OP_DELETE_REPLICA instead.
-    // remove later
-    public static final short OP_CLONE_DONE = 41;
     public static final short OP_ADD_REPLICA = 42;
     public static final short OP_DELETE_REPLICA = 43;
     public static final short OP_FINISH_ASYNC_DELETE = 44;
@@ -98,9 +85,6 @@ public class OperationType {
     public static final short OP_REMOVE_FRONTEND = 57;
     public static final short OP_SET_LOAD_ERROR_HUB = 58;
     public static final short OP_HEARTBEAT = 59;
-    public static final short OP_ALTER_ACCESS_RESOURCE = 60;
-    @Deprecated
-    public static final short OP_DROP_USER = 61;
     public static final short OP_CREATE_USER = 62;
     public static final short OP_NEW_DROP_USER = 63;
     public static final short OP_GRANT_PRIV = 64;
@@ -123,8 +107,6 @@ public class OperationType {
     public static final short OP_LINK_CLUSTER = 78;
     public static final short OP_ENTER_CLUSTER = 79;
     public static final short OP_SHOW_CLUSTERS = 80;
-    @Deprecated
-    public static final short OP_UPDATE_CLUSTER = 81;
     public static final short OP_UPDATE_DB = 82;
     public static final short OP_DROP_LINKDB = 83;
 
@@ -139,7 +121,7 @@ public class OperationType {
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
     public static final short OP_COLOCATE_BACKENDS_PER_BUCKETSEQ = 96;
-    public static final short OP_COLOCATE_MARK_BALANCING = 97;
+    public static final short OP_COLOCATE_MARK_UNSTABLE = 97;
     public static final short OP_COLOCATE_MARK_STABLE = 98;
     public static final short OP_MODIFY_TABLE_COLOCATE = 99;
 
@@ -166,4 +148,8 @@ public class OperationType {
     public static final short OP_CREATE_LOAD_JOB = 230;
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
+
+    // small files 251~260
+    public static final short OP_CREATE_SMALL_FILE = 251;
+    public static final short OP_DROP_SMALL_FILE = 252;
 }

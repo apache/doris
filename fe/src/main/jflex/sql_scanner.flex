@@ -148,12 +148,14 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("external", new Integer(SqlParserSymbols.KW_EXTERNAL));
         keywordMap.put("extract", new Integer(SqlParserSymbols.KW_EXTRACT));
         keywordMap.put("false", new Integer(SqlParserSymbols.KW_FALSE));
+        keywordMap.put("file", new Integer(SqlParserSymbols.KW_FILE));
         keywordMap.put("first", new Integer(SqlParserSymbols.KW_FIRST));
         keywordMap.put("float", new Integer(SqlParserSymbols.KW_FLOAT));
         keywordMap.put("follower", new Integer(SqlParserSymbols.KW_FOLLOWER));
         keywordMap.put("following", new Integer(SqlParserSymbols.KW_FOLLOWING));
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
         keywordMap.put("format", new Integer(SqlParserSymbols.KW_FORMAT));
+        keywordMap.put("path", new Integer(SqlParserSymbols.KW_PATH));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));
         keywordMap.put("frontend", new Integer(SqlParserSymbols.KW_FRONTEND));
         keywordMap.put("frontends", new Integer(SqlParserSymbols.KW_FRONTENDS));
@@ -166,7 +168,8 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("hash", new Integer(SqlParserSymbols.KW_HASH));
         keywordMap.put("having", new Integer(SqlParserSymbols.KW_HAVING));
         keywordMap.put("help", new Integer(SqlParserSymbols.KW_HELP));
-        keywordMap.put("hll_union", new Integer(SqlParserSymbols.KW_HLL_UNION)); 
+        keywordMap.put("hll_union", new Integer(SqlParserSymbols.KW_HLL_UNION));
+        keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
         keywordMap.put("hub", new Integer(SqlParserSymbols.KW_HUB)); 
         keywordMap.put("identified", new Integer(SqlParserSymbols.KW_IDENTIFIED));
         keywordMap.put("if", new Integer(SqlParserSymbols.KW_IF));
@@ -438,20 +441,36 @@ QuotedIdentifier = \`(\`\`|[^\`])*\`
 SingleQuoteStringLiteral = \'(\\.|[^\\\'])*\'
 DoubleQuoteStringLiteral = \"(\\.|[^\\\"])*\"
 
-// Both types of plan hints must appear within a single line.
-TraditionalCommentedPlanHints = "/*" [ ]* "+" [^\r\n*]* "*/"
-// Must end with a line terminator.
-EndOfLineCommentedPlanHints = "--" [ ]* "+" {NonTerminator}* {LineTerminator}
-
 FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
 FLit3 = [0-9]+
 Exponent = [eE] [+-]? [0-9]+
 DoubleLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}?
 
+EolHintBegin = "--" " "* "+"
+CommentedHintBegin = "/*" " "* "+"
+CommentedHintEnd = "*/"
+
+// Both types of plan hints must appear within a single line.
+HintContent = " "* "+" [^\r\n]*
+
 Comment = {TraditionalComment} | {EndOfLineComment}
-TraditionalComment = "/*" [^*] ~"*/" | "/*" "*"+ "/"
-EndOfLineComment = "--" {NonTerminator}* {LineTerminator}?
+
+// Match anything that has a comment end (*/) in it.
+ContainsCommentEnd = [^]* "*/" [^]*
+// Match anything that has a line terminator in it.
+ContainsLineTerminator = [^]* {LineTerminator} [^]*
+
+// A traditional comment is anything that starts and ends like a comment and has neither a
+// plan hint inside nor a CommentEnd (*/).
+TraditionalComment = "/*" !({HintContent}|{ContainsCommentEnd}) "*/"
+// Similar for a end-of-line comment.
+EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminator}?
+
+// This additional state is needed because newlines signal the end of a end-of-line hint
+// if one has been started earlier. Hence we need to discern between newlines within and
+// outside of end-of-line hints.
+%state EOLHINT
 
 %%
 
@@ -511,6 +530,24 @@ EndOfLineComment = "--" {NonTerminator}* {LineTerminator}?
                   escapeBackSlash(yytext().substring(1, yytext().length()-1)));
 }
 
+{CommentedHintBegin} {
+  return newToken(SqlParserSymbols.COMMENTED_PLAN_HINT_START, null);
+}
+
+{CommentedHintEnd} {
+  return newToken(SqlParserSymbols.COMMENTED_PLAN_HINT_END, null);
+}
+
+{EolHintBegin} {
+  yybegin(EOLHINT);
+  return newToken(SqlParserSymbols.COMMENTED_PLAN_HINT_START, null);
+}
+
+<EOLHINT> {LineTerminator} {
+  yybegin(YYINITIAL);
+  return newToken(SqlParserSymbols.COMMENTED_PLAN_HINT_END, null);
+}
+
 {IntegerLiteral} {
     BigInteger val = null;
     try {
@@ -539,20 +576,6 @@ EndOfLineComment = "--" {NonTerminator}* {LineTerminator}?
   }
 
   return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
-}
-
-{TraditionalCommentedPlanHints} {
-    String text = yytext();
-    // Remove everything before the first '+' as well as the trailing "*/"
-    String hintStr = text.substring(text.indexOf('+') + 1, text.length() - 2);
-    return newToken(SqlParserSymbols.COMMENTED_PLAN_HINTS, hintStr.trim());
-}
-
-{EndOfLineCommentedPlanHints} {
-    String text = yytext();
-    // Remove everything before the first '+'
-    String hintStr = text.substring(text.indexOf('+') + 1);
-    return newToken(SqlParserSymbols.COMMENTED_PLAN_HINTS, hintStr.trim());
 }
 
 {Comment} { /* ignore */ }

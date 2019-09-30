@@ -40,7 +40,7 @@ class RuntimeState;
 
 class EsPredicateTest : public testing::Test {
 public:
-    EsPredicateTest() : _runtime_state("EsPredicateTest") {
+    EsPredicateTest() : _runtime_state(TQueryGlobals()) {
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         TDescriptorTable t_desc_table;
 

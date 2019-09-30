@@ -62,7 +62,7 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
         _scanner_done(false),
         _transfer_done(false),
         _wait_duration(0, 0, 1, 0),
-        _status(Status::OK),
+        _status(Status::OK()),
         _resource_info(nullptr),
         _buffered_bytes(0),
         _running_thread(0),
@@ -86,7 +86,7 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // Now, we drop this functional
     DCHECK(!_is_result_order) << "ordered result don't support any more";
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapScanNode::_init_counter(RuntimeState* state) {
@@ -150,11 +150,10 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _rows_pushed_cond_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
-
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == NULL) {
         // TODO: make sure we print all available diagnostic output to our error log
-        return Status("Failed to get tuple descriptor.");
+        return Status::InternalError("Failed to get tuple descriptor.");
     }
 
     const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
@@ -183,7 +182,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     }
 
     _runtime_state = state;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::open(RuntimeState* state) {
@@ -204,7 +203,7 @@ Status OlapScanNode::open(RuntimeState* state) {
 
     _resource_info = ResourceTls::get_resource_tls();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -215,16 +214,16 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     if (state->is_cancelled()) {
         boost::unique_lock<boost::mutex> l(_row_batches_lock);
         _transfer_done = true;
-        boost::lock_guard<boost::mutex> guard(_status_mutex);
+        boost::lock_guard<SpinLock> guard(_status_mutex);
         if (LIKELY(_status.ok())) {
-            _status = Status::CANCELLED;
+            _status = Status::Cancelled("Cancelled");
         }
         return _status;
     }
 
     if (_eos) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // check if started.
@@ -298,25 +297,25 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                              row_batch->tuple_data_pool()->total_reserved_bytes());
 
         delete materialized_batch;
-        return Status::OK;
+        return Status::OK();
     }
 
     // all scanner done, change *eos to true
     *eos = true;
-    boost::lock_guard<boost::mutex> guard(_status_mutex);
+    boost::lock_guard<SpinLock> guard(_status_mutex);
     return _status;
 }
 
 Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->add_scan_bytes(_read_compressed_counter->value());
-    statistics->add_scan_rows(rows_returned());
-    return Status::OK;
+    statistics->add_scan_rows(_raw_rows_counter->value());
+    return Status::OK();
 }
 
 Status OlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
@@ -348,7 +347,7 @@ Status OlapScanNode::close(RuntimeState* state) {
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
-    for (auto scanner : _all_olap_scanners) {
+    for (auto scanner : _olap_scanners) {
         scanner->close(state);
     }
 
@@ -356,19 +355,28 @@ Status OlapScanNode::close(RuntimeState* state) {
     return ScanNode::close(state);
 }
 
+// PlanFragmentExecutor will call this method to set scan range
+// Doris scan range is defined in thrift file like this
+// struct TPaloScanRange {
+//  1: required list<Types.TNetworkAddress> hosts
+//  2: required string schema_hash
+//  3: required string version
+//  4: required string version_hash
+//  5: required Types.TTabletId tablet_id
+//  6: required string db_name
+//  7: optional list<TKeyRange> partition_column_ranges
+//  8: optional string index_name
+//  9: optional string table_name
+//}
+// every doris_scan_range is related with one tablet so that one olap scan node contains multiple tablet
 Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-        boost::shared_ptr<DorisScanRange> doris_scan_range(
-            new DorisScanRange(scan_range.scan_range.palo_scan_range));
-        RETURN_IF_ERROR(doris_scan_range->init());
-        VLOG(1) << "doris_scan_range table=" << scan_range.scan_range.palo_scan_range.table_name <<
-                " version" << scan_range.scan_range.palo_scan_range.version;
-        _doris_scan_ranges.push_back(doris_scan_range);
+        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::start_scan(RuntimeState* state) {
@@ -379,26 +387,18 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(normalize_conjuncts());
 
     VLOG(1) << "BuildOlapFilters";
-    // 2. Using ColumnValueRange to Build OlapEngine filters
+    // 2. Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
-
-    VLOG(1) << "SelectScanRanges";
-    // 3. Using `Partition Column`'s ColumnValueRange to select ScanRange
-    RETURN_IF_ERROR(select_scan_ranges());
 
     VLOG(1) << "BuildScanKey";
     // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to serval `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
-    VLOG(1) << "SplitScanRange";
-    // 5. Query OlapEngine to split `Sub ScanRange` to serval `Sub Sub ScanRange`
-    RETURN_IF_ERROR(split_scan_range());
-
     VLOG(1) << "StartScanThread";
     // 6. Start multi thread to read serval `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::normalize_conjuncts() {
@@ -510,7 +510,7 @@ Status OlapScanNode::normalize_conjuncts() {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::build_olap_filters() {
@@ -531,31 +531,7 @@ Status OlapScanNode::build_olap_filters() {
         }
     }
 
-    return Status::OK;
-}
-
-Status OlapScanNode::select_scan_ranges() {
-
-    std::list<boost::shared_ptr<DorisScanRange> >::iterator scan_range_iter
-        = _doris_scan_ranges.begin();
-
-    while (scan_range_iter != _doris_scan_ranges.end()) {
-        if (!select_scan_range(*scan_range_iter)) {
-            if ((*scan_range_iter)->scan_range().partition_column_ranges.size() != 0) {
-                VLOG(1) << "Remove ScanRange: ["
-                        << (*scan_range_iter)->scan_range().partition_column_ranges[0].begin_key << ", "
-                        << (*scan_range_iter)->scan_range().partition_column_ranges[0].end_key << ")";
-            } else {
-                VLOG(1) << "Remove ScanRange";
-            }
-
-            _doris_scan_ranges.erase(scan_range_iter++);
-        } else {
-            scan_range_iter++;
-        }
-    }
-
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanNode::build_scan_key() {
@@ -579,73 +555,150 @@ Status OlapScanNode::build_scan_key() {
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
-    _scan_keys.debug();
+    VLOG(1) << _scan_keys.debug_string();
 
-    return Status::OK;
+    return Status::OK();
 }
 
-Status OlapScanNode::split_scan_range() {
-    std::vector<OlapScanRange> sub_ranges;
-    VLOG(1) << "_doris_scan_ranges.size()=" << _doris_scan_ranges.size();
+static Status get_hints(
+        const TPaloScanRange& scan_range,
+        int block_row_count,
+        bool is_begin_include,
+        bool is_end_include,
+        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range, 
+        RuntimeProfile* profile) {
+    auto tablet_id = scan_range.tablet_id;
+    int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), NULL, 10);
+    std::string err;
+    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
+        tablet_id, schema_hash, true, &err);
+    if (table == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get tablet: " << tablet_id << "with schema hash: "
+            << schema_hash << ", reason: " << err;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
 
-    for (auto scan_range : _doris_scan_ranges) {
-        sub_ranges.clear();
-        RETURN_IF_ERROR(get_sub_scan_range(scan_range, &sub_ranges));
+    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
+    std::vector<std::vector<OlapTuple>> ranges;
+    bool have_valid_range = false;
+    for (auto& key_range : scan_key_range) {
+        if (key_range->begin_scan_range.size() == 1 
+                && key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+            continue;
+        }
+        SCOPED_TIMER(show_hints_timer);
+    
+        OLAPStatus res = OLAP_SUCCESS;
+        std::vector<OlapTuple> range;
+        res = table->split_range(key_range->begin_scan_range,
+                                 key_range->end_scan_range,
+                                 block_row_count, &range);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+        have_valid_range = true;
+    }
 
-        for (auto sub_range : sub_ranges) {
-            VLOG(1) << "SubScanKey=" << (sub_range.begin_include ? "[" : "(")
-                    << sub_range.begin_scan_range
-                    << " : " << sub_range.end_scan_range <<
-                    (sub_range.end_include ? "]" : ")");
-            _query_key_ranges.push_back(sub_range);
-            _query_scan_ranges.push_back(scan_range);
+    if (!have_valid_range) {
+        std::vector<OlapTuple> range;
+        auto res = table->split_range({}, {}, block_row_count, &range);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
+            return Status::InternalError("fail to show hints");
+        }
+        ranges.emplace_back(std::move(range));
+    }
+
+    for (int i = 0; i < ranges.size(); ++i) {
+        for (int j = 0; j < ranges[i].size(); j += 2) {
+            std::unique_ptr<OlapScanRange> range(new OlapScanRange);
+            range->begin_scan_range.reset();
+            range->begin_scan_range = ranges[i][j];
+            range->end_scan_range.reset();
+            range->end_scan_range = ranges[i][j + 1];
+
+            if (0 == j) {
+                range->begin_include = is_begin_include;
+            } else {
+                range->begin_include = true;
+            }
+
+            if (j + 2 == ranges[i].size()) {
+                range->end_include = is_end_include;
+            } else {
+                range->end_include = false;
+            }
+
+            sub_scan_range->emplace_back(std::move(range));
         }
     }
 
-    DCHECK(_query_key_ranges.size() == _query_scan_ranges.size());
-
-    return Status::OK;
+    return Status::OK();
 }
+
 
 Status OlapScanNode::start_scan_thread(RuntimeState* state) {
-    VLOG(1) << "Query ScanRange Num: " << _query_scan_ranges.size();
-
-    // thread num
-    if (0 == _query_scan_ranges.size()) {
+    if (_scan_ranges.empty()) {
         _transfer_done = true;
-        return Status::OK;
+        return Status::OK();
     }
 
-    int key_range_size = _query_key_ranges.size();
-    int key_range_num_per_scanner = key_range_size / 64;
-
-    if (0 == key_range_num_per_scanner) {
-        key_range_num_per_scanner = 1;
+    // ranges constructed from scan keys
+    std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
+    RETURN_IF_ERROR(_scan_keys.get_key_range(&cond_ranges));
+    // if we can't get ranges from conditions, we give it a total range
+    if (cond_ranges.empty()) {
+        cond_ranges.emplace_back(new OlapScanRange());
     }
 
-    // scan range per therad
-    for (int i = 0; i < key_range_size;) {
-        boost::shared_ptr<DorisScanRange> scan_range = _query_scan_ranges[i];
-        std::vector<OlapScanRange> key_ranges;
-        key_ranges.push_back(_query_key_ranges[i]);
-        ++i;
+    bool need_split = true;
+    // If we have ranges more than 64, there is no need to call
+    // ShowHint to split ranges
+    if (limit() != -1 || cond_ranges.size() > 64) {
+        need_split = false;
+    }
 
-        for (int j = 1;
-             j < key_range_num_per_scanner
-             && i < key_range_size
-             && _query_scan_ranges[i] == _query_scan_ranges[i - 1]
-             && _query_key_ranges[i].end_include == _query_key_ranges[i - 1].end_include;
-             j++, i++) {
-            key_ranges.push_back(_query_key_ranges[i]);
+    int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
+    for (auto& scan_range : _scan_ranges) {
+        std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
+        std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
+        if (need_split) {
+            auto st = get_hints(
+                    *scan_range,
+                    config::doris_scan_range_row_count,
+                    _scan_keys.begin_include(),
+                    _scan_keys.end_include(),
+                    cond_ranges,
+                    &split_ranges,
+                    _runtime_profile.get());
+            if (st.ok()) {
+                ranges = &split_ranges;
+            }
         }
 
-        OlapScanner* scanner = new OlapScanner(
-            state, this, _olap_scan_node.is_preaggregation,
-            scan_range.get(), key_ranges);
-
-        _scanner_pool->add(scanner);
-        _olap_scanners.push_back(scanner);
-        _all_olap_scanners = _olap_scanners;
+        int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
+        int num_ranges = ranges->size();
+        for (int i = 0; i < num_ranges;) {
+            std::vector<OlapScanRange*> scanner_ranges;
+            scanner_ranges.push_back((*ranges)[i].get());
+            ++i;
+            for (int j = 1;
+                 i < num_ranges &&
+                 j < ranges_per_scanner &&
+                 (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+                 ++j, ++i) {
+                scanner_ranges.push_back((*ranges)[i].get());
+            }
+            OlapScanner* scanner = new OlapScanner(
+                state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
+            _scanner_pool->add(scanner);
+            _olap_scanners.push_back(scanner);
+        }
     }
 
     // init progress
@@ -658,7 +711,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         new boost::thread(
             &OlapScanNode::transfer_thread, this, state));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template<class T>
@@ -672,7 +725,7 @@ Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescrip
     // 3. Add range to Column->ColumnValueRange map
     _column_value_ranges[slot->col_name()] = range;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
@@ -729,7 +782,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                 // 1.3 Push InPredicate value into ColumnValueRange
                 HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
                 while (iter->has_next()) {
-                    // column in (NULL,...) counldn't push down to OlapEngine
+                    // column in (NULL,...) counldn't push down to StorageEngine
                     // so that discard whole ColumnValueRange
                     if (NULL == iter->get_value()) {
                         range->clear();
@@ -834,7 +887,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                     default: {
                         LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
                                      << expr->type() << "]";
-                        return Status("Normalize filter fail, Unsupport Primitive type");
+                        return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
                     }
                     }
                 }
@@ -842,7 +895,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
@@ -949,7 +1002,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 default: {
                     LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
                                  << expr->type() << "]";
-                    return Status("Normalize filter fail, Unsupport Primitive type");
+                    return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
                 }
                 }
 
@@ -960,66 +1013,16 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
         }
     }
 
-    return Status::OK;
-}
-
-bool OlapScanNode::select_scan_range(boost::shared_ptr<DorisScanRange> scan_range) {
-    std::map<std::string, ColumnValueRangeType>::iterator iter
-        = _column_value_ranges.begin();
-
-    while (iter != _column_value_ranges.end()) {
-        // return false if it's partition column range has no intersection with
-        // column range deduce by conjunct
-        if (0 == scan_range->has_intersection(iter->first, iter->second)) {
-            return false;
-        }
-
-        ++iter;
-    }
-
-    return true;
-}
-
-Status OlapScanNode::get_sub_scan_range(
-        boost::shared_ptr<DorisScanRange> scan_range,
-        std::vector<OlapScanRange>* sub_range) {
-    std::vector<OlapScanRange> scan_key_range;
-    RETURN_IF_ERROR(_scan_keys.get_key_range(&scan_key_range));
-
-    if (limit() != -1 ||
-        scan_key_range.size() > 64) {
-        if (scan_key_range.size() != 0) {
-            *sub_range = scan_key_range;
-        } else { // [-oo, +oo]
-            sub_range->resize(1);
-        }
-    } else {
-        if (!EngineMetaReader::get_hints(
-                    scan_range,
-                    config::doris_scan_range_row_count,
-                    _scan_keys.begin_include(),
-                    _scan_keys.end_include(),
-                    scan_key_range,
-                    sub_range,
-                    _runtime_profile.get()).ok()) {
-            if (scan_key_range.size() != 0) {
-                *sub_range = scan_key_range;
-            } else { // [-oo, +oo]
-                sub_range->resize(1);
-            }
-        }
-    }
-
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
-    Status status = Status::OK;
+    Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
         if (!status.ok()) {
-            boost::lock_guard<boost::mutex> guard(_status_mutex);
+            boost::lock_guard<SpinLock> guard(_status_mutex);
             _status = status;
             break;
         }
@@ -1155,14 +1158,14 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    Status status = Status::OK;
+    Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
     DCHECK(NULL != state);
     if (!scanner->is_open()) {
         status = scanner->open();
         if (!status.ok()) {
-            boost::lock_guard<boost::mutex> guard(_status_mutex);
+            boost::lock_guard<SpinLock> guard(_status_mutex);
             _status = status;
             eos = true;
         }
@@ -1187,7 +1190,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     while (!eos && raw_rows_read < raw_rows_threshold) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
-            status = Status::CANCELLED;
+            status = Status::Cancelled("Cancelled");
             LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
             break;
         }
@@ -1213,43 +1216,50 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         raw_rows_read = scanner->raw_rows_read();
     }
 
-    boost::unique_lock<boost::mutex> l(_scan_batches_lock);
-    // if we failed, check status.
-    if (UNLIKELY(!status.ok())) {
-        _transfer_done = true;
-        boost::lock_guard<boost::mutex> guard(_status_mutex);
-        if (LIKELY(_status.ok())) {
-            _status = status;
-        }
-    }
-
-    bool global_status_ok = false;
     {
-        boost::lock_guard<boost::mutex> guard(_status_mutex);
-        global_status_ok = _status.ok();
-    }
-    if (UNLIKELY(!global_status_ok)) {
-        eos = true;
-        for (auto rb : row_batchs) {
-            delete rb;
+        boost::unique_lock<boost::mutex> l(_scan_batches_lock);
+        // if we failed, check status.
+        if (UNLIKELY(!status.ok())) {
+            _transfer_done = true;
+            boost::lock_guard<SpinLock> guard(_status_mutex);
+            if (LIKELY(_status.ok())) {
+                _status = status;
+            }
         }
-    } else {
-        for (auto rb : row_batchs) {
-            _scan_row_batches.push_back(rb);
+
+        bool global_status_ok = false;
+        {
+            boost::lock_guard<SpinLock> guard(_status_mutex);
+            global_status_ok = _status.ok();
         }
+        if (UNLIKELY(!global_status_ok)) {
+            eos = true;
+            for (auto rb : row_batchs) {
+                delete rb;
+            }
+        } else {
+            for (auto rb : row_batchs) {
+                _scan_row_batches.push_back(rb);
+            }
+        }
+        // If eos is true, we will process out of this lock block.
+        if (!eos) {
+            _olap_scanners.push_front(scanner);
+        }
+        _running_thread--;
     }
-    // Scanner thread completed. Take a look and update the status
-    if (UNLIKELY(eos)) {
+    if (eos) {
+        // close out of batches lock. we do this before _progress update
+        // that can assure this object can keep live before we finish.
+        scanner->close(_runtime_state);
+
+        boost::unique_lock<boost::mutex> l(_scan_batches_lock);
         _progress.update(1);
         if (_progress.done()) {
             // this is the right out
             _scanner_done = true;
         }
-        scanner->close(_runtime_state);
-    } else {
-        _olap_scanners.push_front(scanner);
     }
-    _running_thread--;
     _scan_batch_added_cv.notify_one();
 }
 
@@ -1268,7 +1278,7 @@ Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
     }
     // remove one batch, notify main thread
     _row_batch_added_cv.notify_one();
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapScanNode::debug_string(

@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
@@ -35,6 +35,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -51,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -60,7 +62,7 @@ import java.util.zip.Adler32;
  * Internal representation of db-related metadata. Owned by Catalog instance.
  * Not thread safe.
  * <p/>
- * The static initialisation method loadDb is the only way to construct a Db
+ * The static initialization method loadDb is the only way to construct a Db
  * object.
  * <p/>
  * Tables are stored in a map from the table name to the table object. They may
@@ -111,7 +113,7 @@ public class Database extends MetaObject implements Writable {
             this.fullQualifiedName = "";
         }
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.idToTable = new HashMap<Long, Table>();
+        this.idToTable = new ConcurrentHashMap<>();
         this.nameToTable = new HashMap<String, Table>();
         this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
         this.dbState = DbState.NORMAL;
@@ -205,7 +207,7 @@ public class Database extends MetaObject implements Writable {
 
                 OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         // skip ROLLUP index
                         if (mIndex.getState() == IndexState.ROLLUP) {
                             continue;
@@ -333,6 +335,11 @@ public class Database extends MetaObject implements Writable {
         return null;
     }
 
+    /**
+     * This is a thread-safe method when idToTable is a concurrent hash map
+     * @param tableId
+     * @return
+     */
     public Table getTable(long tableId) {
         return idToTable.get(tableId);
     }

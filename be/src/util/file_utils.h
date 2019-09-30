@@ -32,7 +32,7 @@ public:
     // if dir's parent directory doesn't exist
     //
     // RETURNS:
-    //  Status::OK      if create directory success or directory already exists
+    //  Status::OK()      if create directory success or directory already exists
     static Status create_dir(const std::string& dir_path);
 
     // Delete file recursively.

@@ -37,11 +37,11 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
-            return Status("id already exist");
+            return Status::InternalError("id already exist");
         }
         _stream_map.emplace(id, stream);
         VLOG(3) << "put stream load pipe: " << id;
-        return Status::OK;
+        return Status::OK();
     }
     
     std::shared_ptr<StreamLoadPipe> get(const UniqueId& id) {

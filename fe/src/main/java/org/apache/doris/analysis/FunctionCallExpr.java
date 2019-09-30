@@ -18,9 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -250,10 +252,6 @@ public class FunctionCallExpr extends Expr {
         return false;
     }
 
-   // public BuiltinAggregateFunction.Operator getAggOp() {
-   //     return aggOp;
-   // }
-
     @Override
     protected void toThrift(TExprNode msg) {
         // TODO: we never serialize this to thrift if it's an aggregate function
@@ -380,6 +378,30 @@ public class FunctionCallExpr extends Expr {
                     "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
         }
 
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT) && !arg.type.isInteger32Type())) {
+            throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
+        }
+
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION))) {
+            if (children.size() != 1) {
+                throw new AnalysisException("BITMAP_UNION function could only have one child");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                if (slotRef.getDesc().getColumn().getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("BITMAP_UNION function require the column is BITMAP_UNION aggregate type");
+                }
+            } else if (getChild(0) instanceof FunctionCallExpr) {
+                FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
+                if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
+                    throw new AnalysisException("BITMAP_UNION function only support TO_BITMAP function as it's child");
+                }
+            } else {
+                throw new AnalysisException("BITMAP_UNION only support BITMAP_UNION(column) or BITMAP_UNION(TO_BITMAP(column))");
+            }
+        }
+
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
                 || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
                 || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))
@@ -396,6 +418,16 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("NDV")
                 || fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
             fnParams.setIsDistinct(false);
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("percentile_approx(expr, DOUBLE) requires two parameters");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException("percentile_approx requires second parameter must be a constant : "
+                        + this.toSql());
+            }
         }
         return;
     }
@@ -526,23 +558,7 @@ public class FunctionCallExpr extends Expr {
             LOG.warn("fn {} not exists", fnName.getFunction());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
-
-        if (fnName.getFunction().equals("from_unixtime")) {
-            // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
-            if (children.size() > 1) {
-                final StringLiteral formatExpr = (StringLiteral) children.get(1);
-                final String dateFormat1 = "yyyy-MM-dd HH:mm:ss";
-                final String dateFormat2 = "yyyy-MM-dd";
-                if (!formatExpr.getStringValue().equals(dateFormat1)
-                        && !formatExpr.getStringValue().equals(dateFormat2)) {
-                    throw new AnalysisException(new StringBuilder("format does't support, try ")
-                                                .append("'").append(dateFormat1).append("'")
-                                                .append(" or ")
-                                                .append("'").append(dateFormat2).append("'.").toString());
-                }
-            }
-        }
-
+        
         if (fn.getFunctionName().getFunction().equals("time_diff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             return;

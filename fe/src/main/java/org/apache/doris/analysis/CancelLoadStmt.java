@@ -24,9 +24,6 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
 public class CancelLoadStmt extends DdlStmt {
 
     private String dbName;

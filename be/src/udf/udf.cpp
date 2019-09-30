@@ -16,6 +16,8 @@
 // under the License.
 
 #include "udf/udf.h"
+#include "common/logging.h"
+#include "olap/hll.h"
 
 #include <iostream>
 #include <sstream>
@@ -262,7 +264,7 @@ const char* FunctionContext::error_msg() const {
         return _impl->_error_msg.c_str();
     }
 
-    return NULL;
+    return nullptr;
 }
 
 uint8_t* FunctionContext::allocate(int byte_size) {  
@@ -336,10 +338,14 @@ void FunctionContext::set_error(const char* error_msg) {
         std::stringstream ss;
         ss << "UDF ERROR: " << error_msg;
 
-        if (_impl->_state != NULL) {
+        if (_impl->_state != nullptr) {
             _impl->_state->set_process_status(ss.str());
         }
     }
+}
+
+void FunctionContext::clear_error_msg() {
+    _impl->_error_msg.clear();
 }
 
 bool FunctionContext::add_warning(const char* warning_msg) {
@@ -361,6 +367,26 @@ bool FunctionContext::add_warning(const char* warning_msg) {
 StringVal::StringVal(FunctionContext* context, int len) : 
         len(len), 
         ptr(context->impl()->allocate_local(len)) {
+}
+
+bool StringVal::resize(FunctionContext* ctx, int new_len) {
+    if (new_len <= len) {
+        len = new_len;
+        return true;
+    }
+    if (UNLIKELY(new_len > StringVal::MAX_LENGTH)) {
+        len = 0;
+        is_null = true;
+        return false;
+    }
+    auto* new_ptr = ctx->impl()->allocate_local(new_len);
+    if (new_ptr != nullptr) {
+        memcpy(new_ptr, ptr, len);
+        ptr = new_ptr;
+        len = new_len;
+        return true;
+    }
+    return false;
 }
 
 StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len) {
@@ -439,9 +465,19 @@ void HllVal::init(FunctionContext* ctx) {
     is_null = false;
 }
 
-void HllVal::agg_parse_and_cal(const HllVal &other) {
+void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
     doris::HllSetResolver resolver;
-    resolver.init((char*)other.ptr, other.len);
+
+    // zero size means the src input is a HyperLogLog object
+    if (other.len == 0) {
+        auto* hll = reinterpret_cast<doris::HyperLogLog*>(other.ptr);
+        uint8_t* other_ptr = ctx->allocate(doris::HLL_COLUMN_DEFAULT_LEN);
+        int other_len = hll->serialize(ptr);
+        resolver.init((char*)other_ptr, other_len);
+    } else {
+        resolver.init((char*)other.ptr, other.len);
+    }
+
     resolver.parse();
 
     if (resolver.get_hll_data_type() == doris::HLL_DATA_EMPTY) {

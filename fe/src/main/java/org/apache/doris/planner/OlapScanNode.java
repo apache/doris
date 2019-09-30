@@ -17,11 +17,15 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -53,27 +57,15 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -86,6 +78,7 @@ public class OlapScanNode extends ScanNode {
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
     private boolean canTurnOnPreAggr = true;
+    private boolean forceOpenPreAgg = false;
     private ArrayList<String> tupleColumns = new ArrayList<String>();
     private HashSet<String> predicateColumns = new HashSet<String>();
     private OlapTable olapTable = null;
@@ -115,7 +108,6 @@ public class OlapScanNode extends ScanNode {
         this.reasonOfPreAggregation = reason;
     }
 
-
     public boolean isPreAggregation() {
         return isPreAggregation;
     }
@@ -126,6 +118,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setCanTurnOnPreAggr(boolean canChangePreAggr) {
         this.canTurnOnPreAggr = canChangePreAggr;
+    }
+
+    public boolean getForceOpenPreAgg() {
+        return forceOpenPreAgg;
+    }
+
+    public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
+        this.forceOpenPreAgg = forceOpenPreAgg;
     }
 
     public OlapTable getOlapTable() {

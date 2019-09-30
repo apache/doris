@@ -30,6 +30,8 @@
 #include "util/blocking_queue.hpp"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/query_statistics.h"
+#include "service/backend_options.h"
+#include "util/uid_util.h" // for print_id
 
 namespace llvm {
 class Function;
@@ -156,6 +158,12 @@ public:
 
     // Collect all scan node types.
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
+
+    // When the agg node is the scan node direct parent,
+    // we directly return agg object from scan node to agg node,
+    // and don't serialize the agg object.
+    // This improve is cautious, we ensure the correctness firstly.
+    void try_do_aggregate_serde_improve();
 
     typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
     // Evaluate exprs over row.  Returns true if all exprs return true.
@@ -387,17 +395,29 @@ protected:
     /// Nodes may override this to add extra periodic cleanup, e.g. freeing other local
     /// allocations. ExecNodes overriding this function should return
     /// ExecNode::QueryMaintenance().
-    virtual Status QueryMaintenance(RuntimeState* state) WARN_UNUSED_RESULT;
+    virtual Status QueryMaintenance(RuntimeState* state, const std::string& msg) WARN_UNUSED_RESULT;
 
 private:
     bool _is_closed;
 };
 
-#define RETURN_IF_LIMIT_EXCEEDED(state) \
+#define LIMIT_EXCEEDED(tracker, state, msg) \
+    do { \
+        stringstream str; \
+        str << "Memory exceed limit. " << msg << " "; \
+        str << "Backend: " << BackendOptions::get_localhost() << ", "; \
+        str << "fragment: " << print_id(state->fragment_instance_id()) << " "; \
+        str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
+        str << "You can change the limit by session variable exec_mem_limit."; \
+        return Status::MemoryLimitExceeded(str.str()); \
+    } while (false)
+
+#define RETURN_IF_LIMIT_EXCEEDED(state, msg) \
     do { \
         /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */ \
-        if (UNLIKELY(state->instance_mem_tracker()->any_limit_exceeded())) { \
-            return Status::MEM_LIMIT_EXCEEDED; \
+        MemTracker* tracker = state->instance_mem_tracker()->find_limit_exceeded_tracker(); \
+        if (tracker != nullptr) { \
+            LIMIT_EXCEEDED(tracker, state, msg); \
         } \
     } while (false)
 }

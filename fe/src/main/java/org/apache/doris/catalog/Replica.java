@@ -39,9 +39,21 @@ public class Replica implements Writable {
 
     public enum ReplicaState {
         NORMAL,
+        @Deprecated
         ROLLUP,
+        @Deprecated
         SCHEMA_CHANGE,
-        CLONE
+        CLONE,
+        ALTER, // replica is under rollup or schema change
+        DECOMMISSION; // replica is ready to be deleted
+
+        public boolean canLoad() {
+            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER;
+        }
+
+        public boolean canQuery() {
+            return this == NORMAL || this == SCHEMA_CHANGE;
+        }
     }
     
     public enum ReplicaStatus {
@@ -75,18 +87,38 @@ public class Replica implements Writable {
 
     private boolean bad = false;
 
+    /*
+     * If set to true, with means this replica need to be repaired. explicitly.
+     * This can happen when this replica is created by a balance clone task, and
+     * when task finished, the version of this replica is behind the partition's visible version.
+     * So this replica need a further repair.
+     * If we do not do this, this replica will be treated as version stale, and will be removed,
+     * so that the balance task is failed, which is unexpected.
+     * 
+     * furtherRepairSetTime set alone with needFurtherRepair.
+     * This is an insurance, in case that further repair task always fail. If 20 min passed
+     * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
+     */
+    private boolean needFurtherRepair = false;
+    private long furtherRepairSetTime = -1;
+    private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
+
+    // if this watermarkTxnId is set, which means before deleting a replica,
+    // we should ensure that all txns on this replicas are finished.
+    private long watermarkTxnId = -1;
+
     public Replica() {
     }
     
     // for rollup
     // the new replica's version is -1 and last failed version is -1
     public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
-        this(replicaId, backendId, -1, 0, schemaHash, -1, -1, state, -1, 0, -1, 0);
+        this(replicaId, backendId, -1, 0, schemaHash, 0L, 0L, state, -1, 0, -1, 0);
     }
     
     // for create tablet and restore
     public Replica(long replicaId, long backendId, ReplicaState state, long version, long versionHash, int schemaHash) {
-        this(replicaId, backendId, version, versionHash, schemaHash, -1, -1, state, -1L, 0L, version, versionHash);
+        this(replicaId, backendId, version, versionHash, schemaHash, 0L, 0L, state, -1L, 0L, version, versionHash);
     }
 
     public Replica(long replicaId, long backendId, long version, long versionHash, int schemaHash,
@@ -190,6 +222,18 @@ public class Replica implements Writable {
         }
         this.bad = bad;
         return true;
+    }
+
+    public boolean needFurtherRepair() {
+        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
+            return true;
+        }
+        return false;
+    }
+
+    public void setNeedFurtherRepair(boolean needFurtherRepair) {
+        this.needFurtherRepair = needFurtherRepair;
+        this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
     // only update data size and row num
@@ -342,7 +386,20 @@ public class Replica implements Writable {
                 this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
     }
 
-    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash) {
+    /*
+     * Check whether the replica's version catch up with the expected version.
+     * If ignoreAlter is true, and state is ALTER, and replica's version is PARTITION_INIT_VERSION, just return true, ignore the version.
+     *      This is for the case that when altering table, the newly created replica's version is PARTITION_INIT_VERSION,
+     *      but we need to treat it as a "normal" replica which version is supposed to be "catch-up".
+     *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
+     *      is already updated by load process, so we need to consider its version.
+     */
+    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash, boolean ignoreAlter) {
+        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION
+                && versionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+            return true;
+        }
+        
         if (expectedVersion == Partition.PARTITION_INIT_VERSION
                 && expectedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
             // no data is loaded into this replica, just return true
@@ -481,5 +538,13 @@ public class Replica implements Writable {
                 return -1;
             }
         }
+    }
+
+    public void setWatermarkTxnId(long watermarkTxnId) {
+        this.watermarkTxnId = watermarkTxnId;
+    }
+
+    public long getWatermarkTxnId() {
+        return watermarkTxnId;
     }
 }
