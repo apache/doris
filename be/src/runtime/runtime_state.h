@@ -93,6 +93,9 @@ public:
     // This function also initializes a user function mem tracker (in the fourth level).
     Status init_mem_trackers(const TUniqueId& query_id);
 
+    // for ut only
+    Status init_instance_mem_tracker();
+
     /// Called from Init() to set up buffer reservations and the file group.
     Status init_buffer_poolstate();
 

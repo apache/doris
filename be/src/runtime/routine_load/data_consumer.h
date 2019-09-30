@@ -36,6 +36,8 @@ class StreamLoadPipe;
 class DataConsumer {
 public:
     DataConsumer(StreamLoadContext* ctx):
+        _id(UniqueId::gen_uid()),
+        _grp_id(UniqueId::gen_uid()),
         _has_grp(false),
         _init(false),
         _cancelled(false),

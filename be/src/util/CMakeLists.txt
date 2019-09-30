@@ -81,6 +81,7 @@ set(UTIL_FILES
   thrift_rpc_helper.cpp
   faststring.cc
   slice.cpp
+  frame_of_reference_coding.cpp
 )
 
 if (WITH_MYSQL)

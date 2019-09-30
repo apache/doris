@@ -58,7 +58,7 @@ TEST_F(HllFunctionsTest, hll_hash) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("1024"));
     StringVal result = HllFunctions::hll_hash(ctx, input);
 
-    HyperLogLog hll((uint8_t*)result.ptr);
+    HyperLogLog hll(Slice(result.ptr, result.len));
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 1;
 
@@ -69,7 +69,7 @@ TEST_F(HllFunctionsTest, hll_hash_null) {
     StringVal input = StringVal::null();
     StringVal result = HllFunctions::hll_hash(ctx, input);
 
-    HyperLogLog hll((uint8_t*)result.ptr);
+    HyperLogLog hll(Slice(result.ptr, result.len));
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 0;
 
@@ -102,7 +102,7 @@ TEST_F(HllFunctionsTest, hll_merge) {
     HllFunctions::hll_merge(ctx, src2, &dst);
 
     StringVal serialized = HllFunctions::hll_serialize(ctx, dst);
-    HyperLogLog hll((uint8_t*)serialized.ptr);
+    HyperLogLog hll(Slice(serialized.ptr, serialized.len));
 
     BigIntVal expected(1);
     ASSERT_EQ(expected, hll.estimate_cardinality());

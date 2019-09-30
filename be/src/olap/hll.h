@@ -27,6 +27,8 @@
 
 namespace doris {
 
+class Slice;
+
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICLIT_INT64_NUM = 160;
@@ -81,7 +83,8 @@ public:
     explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
         _hash_set.emplace(hash_value);
     }
-    explicit HyperLogLog(const uint8_t* src);
+
+    explicit HyperLogLog(const Slice& src);
 
     ~HyperLogLog() {
         delete[] _registers;
@@ -98,10 +101,19 @@ public:
 
     void merge(const HyperLogLog& other);
 
-    int serialize(uint8_t* dest);
-    bool deserialize(const uint8_t* ptr);
+    // Return max size of serialized binary
+    size_t max_serialized_size() const;
 
-    int64_t estimate_cardinality();
+    // Input slice should has enough capacity for serialize, which
+    // can be get through max_serialized_size(). If insufficient buffer
+    // is given, this will cause process crash.
+    // Return actual size of serialized binary.
+    size_t serialize(uint8_t* dst) const;
+
+    // Now, only empty HLL support this funciton.
+    bool deserialize(const Slice& slice);
+
+    int64_t estimate_cardinality() const;
 
     static std::string empty() {
         static HyperLogLog hll;
@@ -110,6 +122,11 @@ public:
         hll.serialize((uint8_t*)buf.c_str());
         return buf;
     }
+
+    // Check if input slice is a valid serialized binary of HyperLogLog.
+    // This function only check the encoded type in slice, whose complex
+    // function is O(1). 
+    static bool is_valid(const Slice& slice);
 
     // only for debug
     std::string to_string() {
