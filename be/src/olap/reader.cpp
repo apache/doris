@@ -1064,8 +1064,7 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
         return res;
     }
     type = _tablet->tablet_schema().column(max_equal_index).type();
-    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_HLL)
-            || max_equal_index + 1 > _tablet->num_short_key_columns()) {
+    if (type != OLAP_FIELD_TYPE_VARCHAR || max_equal_index + 1 > _tablet->num_short_key_columns()) {
         _load_bf_columns.erase(max_equal_index);
     }
 

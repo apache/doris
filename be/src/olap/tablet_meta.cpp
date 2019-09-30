@@ -126,7 +126,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                 tcolumn.column_type.type, tcolumn.column_type.len);
                 column->set_length(length);
         column->set_index_length(length);
-        if (tcolumn.column_type.type == TPrimitiveType::VARCHAR || tcolumn.column_type.type == TPrimitiveType::HLL) {
+        if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
             if (!tcolumn.column_type.__isset.index_len) {
                 column->set_index_length(10);
             } else {

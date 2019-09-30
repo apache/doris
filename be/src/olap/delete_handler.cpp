@@ -149,8 +149,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
         valid_condition = valid_unsigned_number<uint64_t>(value_str);
     } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
         valid_condition = valid_decimal(value_str, column.precision(), column.frac());
-    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR
-               || field_type == OLAP_FIELD_TYPE_HLL) {
+    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR) {
         if (value_str.size() <= column.length()) {
             valid_condition = true;
         }
