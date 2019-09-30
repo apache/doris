@@ -127,8 +127,6 @@ private:
 
     RowCursor _read_row_cursor;
 
-    std::vector<uint32_t> _request_columns_size;
-
     std::vector<SlotDescriptor*> _query_slots;
 
     // time costed and row returned statistics

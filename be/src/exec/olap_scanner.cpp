@@ -236,14 +236,6 @@ Status OlapScanner::_init_return_columns() {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        const TabletColumn& column = _tablet->tablet_schema().column(index);
-        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                column.type() == OLAP_FIELD_TYPE_HLL) {
-            _request_columns_size.push_back(
-                column.length() - sizeof(StringLengthType));
-        } else {
-            _request_columns_size.push_back(column.length());
-        }
         _query_slots.push_back(slot);
     }
     if (_return_columns.empty()) {
