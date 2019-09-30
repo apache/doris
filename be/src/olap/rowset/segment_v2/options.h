@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <memory>
-
 namespace doris {
 namespace segment_v2 {
 
