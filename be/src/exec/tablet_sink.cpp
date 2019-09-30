@@ -839,6 +839,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     filter_bitmap->Set(row_no, true);
                     continue;
                 }
+                break;
             }
             case TYPE_HLL: {
                 Slice* hll_val = (Slice*)slot;
