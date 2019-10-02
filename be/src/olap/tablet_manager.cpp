@@ -25,7 +25,6 @@
 #include <queue>
 #include <set>
 #include <random>
-#include <regex>
 #include <stdlib.h>
 
 #include <boost/algorithm/string/classification.hpp>
@@ -34,6 +33,7 @@
 #include <boost/filesystem.hpp>
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <re2/re2.h>
 
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
@@ -682,42 +682,19 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
     return nullptr;
 } // get_tablet
 
-bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& path,
-        TTabletId* tablet_id, TSchemaHash* schema_hash) {
-    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores<true>();
-    for (auto data_dir : data_dirs) {
-        const std::string& data_dir_path = data_dir->path();
-        if (path.find(data_dir_path) != std::string::npos) {
-            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
-            std::regex rgx (pattern.c_str());
-            std::smatch sm;
-            bool ret = std::regex_search(path, sm, rgx);
-            if (ret) {
-                if (sm.size() == 3) {
-                    *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
-                    *schema_hash = std::strtoll(sm.str(2).c_str(), nullptr, 10);
-                    return true;
-                } else {
-                    LOG(WARNING) << "invalid match. match size:" << sm.size();
-                    return false;
-                }
-            }
-        }
-    }
-    return false;
+bool TabletManager::get_tablet_id_and_schema_hash_from_path(
+        const std::string& path, TTabletId* tablet_id, TSchemaHash* schema_hash) {
+    static re2::LazyRE2 re = {"/data/\\d+/(\\d+)/(\\d+)"};
+    return RE2::PartialMatch(path, *re, tablet_id, schema_hash);
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static std::regex rgx ("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
-    std::smatch sm;
-    bool ret = std::regex_search(path, sm, rgx);
+    static re2::LazyRE2 re = {"/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*"};
+    std::string id_str;
+    bool ret = RE2::PartialMatch(path, *re, &id_str);
     if (ret) {
-        if (sm.size() == 2) {
-            rowset_id->init(sm.str(1));
-            return true;
-        } else {
-            return false;
-        }
+        rowset_id->init(id_str);
+        return true;
     }
     return false;
 }
