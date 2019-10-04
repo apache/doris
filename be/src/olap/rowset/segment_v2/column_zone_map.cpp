@@ -30,8 +30,10 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_in
     _field.reset(FieldFactory::create_by_type(_type_info->type()));
     _zone_map.min_value = _field->allocate_value_from_arena(&_arena);
     _zone_map.max_value = _field->allocate_value_from_arena(&_arena);
-
-    _reset_zone_map();
+    _reset_page_zone_map();
+    _segment_zone_map.min_value = _field->allocate_value_from_arena(&_arena);
+    _segment_zone_map.max_value = _field->allocate_value_from_arena(&_arena);
+    _reset_segment_zone_map();
 }
 
 Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
@@ -57,12 +59,33 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
     return Status::OK();
 }
 
+void ColumnZoneMapBuilder::fill_segment_zone_map(ZoneMapPB* to) {
+    to->set_has_not_null(_segment_zone_map.has_not_null);
+    to->set_has_null(_segment_zone_map.has_null);
+    to->set_max(_field->to_string(_segment_zone_map.max_value));
+    to->set_min(_field->to_string(_segment_zone_map.min_value));
+}
+
 Status ColumnZoneMapBuilder::flush() {
     ZoneMapPB page_zone_map;
     page_zone_map.set_min(_field->to_string(_zone_map.min_value));
     page_zone_map.set_max(_field->to_string(_zone_map.max_value));
     page_zone_map.set_has_null(_zone_map.has_null);
     page_zone_map.set_has_not_null(_zone_map.has_not_null);
+
+    if (_field->compare(_segment_zone_map.min_value, _zone_map.min_value) > 0) {
+        _field->direct_copy_content(_segment_zone_map.min_value, _zone_map.min_value);
+    }
+    if (_field->compare(_segment_zone_map.max_value, _zone_map.max_value) < 0) {
+        _field->direct_copy_content(_segment_zone_map.max_value, _zone_map.max_value);
+    }
+    if (!_segment_zone_map.has_null && _zone_map.has_null) {
+        _segment_zone_map.has_null = true;
+    }
+    if (!_segment_zone_map.has_not_null && _zone_map.has_not_null) {
+        _segment_zone_map.has_not_null = true;
+    }
+
     std::string serialized_zone_map;
     bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
     if (!ret) {
@@ -73,15 +96,15 @@ Status ColumnZoneMapBuilder::flush() {
     RETURN_IF_ERROR(_page_builder->add((const uint8_t *)&data, &num));
     // reset the variables
     // we should allocate max varchar length and set to max for min value
-    _reset_zone_map();
+    _reset_page_zone_map();
     return Status::OK();
 }
 
-void ColumnZoneMapBuilder::_reset_zone_map() {
-    _field->set_to_max(_zone_map.min_value);
-    _field->set_to_min(_zone_map.max_value);
-    _zone_map.has_null = false;
-    _zone_map.has_not_null = false;
+void ColumnZoneMapBuilder::_reset_zone_map(ZoneMap& zone_map) {
+    _field->set_to_max(zone_map.min_value);
+    _field->set_to_min(zone_map.max_value);
+    zone_map.has_null = false;
+    zone_map.has_not_null = false;
 }
 
 Status ColumnZoneMap::load() {

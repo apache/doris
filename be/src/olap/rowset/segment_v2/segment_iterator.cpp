@@ -341,5 +341,10 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     return Status::OK();
 }
 
+Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
+    block->set_num_rows(0);
+    return Status::EndOfFile("no more data in segment");
+}
+
 }
 }

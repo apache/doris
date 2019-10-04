@@ -62,7 +62,10 @@ public:
 
     Status open();
 
-    std::unique_ptr<SegmentIterator> new_iterator(const Schema& schema, const StorageReadOptions& read_options);
+    Status new_iterator(
+            const Schema& schema,
+            const StorageReadOptions& read_options,
+            std::unique_ptr<segment_v2::SegmentIterator>* iter);
 
     uint64_t id() const { return _segment_id; }
 
@@ -112,6 +115,11 @@ private:
 
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+
+    bool _index_loaded;
+
+    // Map from column unique id to column ordinal in footer's ColumnMetaPB
+    std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
 };
 
 }

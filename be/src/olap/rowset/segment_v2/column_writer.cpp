@@ -247,6 +247,7 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
     if (_opts.need_zone_map) {
         _zone_map_pp.to_proto(meta->mutable_zone_map_page());
+        _column_zone_map_builder->fill_segment_zone_map(meta->mutable_zone_map());
     }
     if (_encoding_info->encoding() == DICT_ENCODING) {
         _dict_page_pp.to_proto(meta->mutable_dict_page());

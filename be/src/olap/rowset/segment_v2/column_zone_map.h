@@ -56,6 +56,8 @@ public:
 
     Status flush();
 
+    void fill_segment_zone_map(ZoneMapPB* to);
+
     uint64_t size() {
         return _page_builder->size();
     }
@@ -65,7 +67,10 @@ public:
     }
 
 private:
-    void _reset_zone_map();
+    void _reset_zone_map(ZoneMap& zone_map);
+    void _reset_page_zone_map() { _reset_zone_map(_zone_map); }
+
+    void _reset_segment_zone_map() { _reset_zone_map(_segment_zone_map); }
 
 private:
     const TypeInfo* _type_info;
@@ -73,6 +78,7 @@ private:
     std::unique_ptr<Field> _field;
     // memory will be managed by arena
     ZoneMap _zone_map;
+    ZoneMap _segment_zone_map;
     Arena _arena;
 };
 

@@ -91,8 +91,10 @@ message ColumnMetaPB {
     optional bool is_nullable = 6;
     // ordinal index page
     optional PagePointerPB ordinal_index_page = 7;
-    // zone map page
+    // zone map page of zone maps in page granularity
     optional PagePointerPB zone_map_page = 8;
+    // zone map in segment granularity
+    optional ZoneMapPB zone_map = 10;
 
     // // dictionary page for DICT_ENCODING
     optional PagePointerPB dict_page = 9;

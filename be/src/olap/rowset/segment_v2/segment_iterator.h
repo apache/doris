@@ -98,5 +98,15 @@ private:
     std::unique_ptr<RowBlockV2> _seek_block;
 };
 
+class EmptySegmentIterator : public SegmentIterator {
+public:
+    explicit EmptySegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema) : SegmentIterator(segment, schema)  {}
+    ~EmptySegmentIterator() override {}
+    Status init(const StorageReadOptions& opts) override {
+        return Status::OK();
+    }
+    Status next_batch(RowBlockV2* row_block) override;
+};
+
 }
 }
