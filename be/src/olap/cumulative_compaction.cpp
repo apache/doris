@@ -78,6 +78,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
 
     std::vector<RowsetSharedPtr> transient_rowsets;
+    size_t num_overlapping_segments = 0;
     for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
         // VersionHash will calculated from chosen rowsets.
         // If ultimate singleton rowset is chosen, VersionHash
@@ -85,22 +86,29 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // So the ultimate singleton rowset is revserved.
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
-            if (transient_rowsets.size() > config::min_cumulative_compaction_num_singleton_deltas) {
+            if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
                 _input_rowsets = transient_rowsets;
                 break;
             }
             transient_rowsets.clear();
+            num_overlapping_segments = 0;
             continue;
         }
 
-        if (transient_rowsets.size() >= config::max_cumulative_compaction_num_singleton_deltas) {
+        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas) {
             // the threshold of files to compacted one time
             break;
+        }
+
+        if (rowset->start_version() == rowset->end_version()) {
+            num_overlapping_segments += rowset->num_segments();
+        } else {
+            num_overlapping_segments++;
         }
         transient_rowsets.push_back(rowset); 
     }
 
-    if (transient_rowsets.size() > config::min_cumulative_compaction_num_singleton_deltas) {
+    if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
         _input_rowsets = transient_rowsets;
     }
 		
@@ -112,9 +120,9 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     if (_input_rowsets.size() <= 1) {
-        LOG(WARNING) << "There is no enough rowsets to cumulative compaction."
-                     << ", the size of rowsets to compact=" << candidate_rowsets.size()
-                     << ", cumulative_point=" << _tablet->cumulative_layer_point();
+        LOG(INFO) << "There is no enough rowsets to cumulative compaction."
+            << ", the size of rowsets to compact=" << candidate_rowsets.size()
+            << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 

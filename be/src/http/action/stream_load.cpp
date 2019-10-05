@@ -30,7 +30,7 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -344,6 +344,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    if (!http_req->header(HTTP_TIMEZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -352,7 +355,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
     }
 
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
             [&request, ctx] (FrontendServiceConnection& client) {
             client->streamLoadPut(ctx->put_result, request);

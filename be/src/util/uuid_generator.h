@@ -17,38 +17,33 @@
 
 #pragma once
 
-#include "common/status.h"
-#include "gen_cpp/FrontendService_types.h"
+#include <mutex>
+#include <ostream>
+#include <string>
+
+#include <boost/functional/hash.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include "util/spinlock.h"
 
 namespace doris {
 
-class ExecEnv;
-class FrontendServiceClient;
-template <class T> class ClientConnection;
-
-// this class is a helper for jni call. easy for unit test
-class FrontendHelper {
+class UUIDGenerator {
 public:
-    static void setup(ExecEnv* exec_env);
-
-    // for default timeout
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<FrontendServiceClient>&)> callback) {
-
-        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
+    boost::uuids::uuid next_uuid() {
+        std::lock_guard<SpinLock> lock(_uuid_gen_lock);
+        return _boost_uuid_generator();
     }
 
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
-        int timeout_ms);
+    static UUIDGenerator* instance() {
+        static UUIDGenerator generator;
+        return &generator;
+    }
 
 private:
-    static ExecEnv* _s_exec_env;
+    boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
+    SpinLock _uuid_gen_lock;
 };
 
 }
-

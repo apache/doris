@@ -380,6 +380,12 @@ public class InsertStmt extends DdlStmt {
                 }
                 targetColumns.add(col);
             }
+            // hll column mush in mentionedColumns
+            for (Column col : targetTable.getBaseSchema()) {
+                if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
+                }
+            }
         }
 
         /*
@@ -590,7 +596,7 @@ public class InsertStmt extends DdlStmt {
     }
     private void checkHllCompatibility(Column col, Expr expr) throws AnalysisException {
         final String hllMismatchLog = "Column's type is HLL,"
-                + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName();
+                + " SelectList must contains HLL or hll_hash or hll_empty function's result, column=" + col.getName();
         if (expr instanceof SlotRef) {
             final SlotRef slot = (SlotRef) expr;
             if (!slot.getType().equals(Type.HLL)) {
@@ -598,7 +604,8 @@ public class InsertStmt extends DdlStmt {
             }
         } else if (expr instanceof FunctionCallExpr) {
             final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
+                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
                 throw new AnalysisException(hllMismatchLog);
             }
         } else {

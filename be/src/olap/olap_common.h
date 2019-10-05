@@ -164,15 +164,6 @@ enum OLAPCompressionType {
     OLAP_COMP_LZ4 = 3,          // 用于储存的压缩算法，压缩率低，cpu开销低
 };
 
-// hll数据存储格式,优化存储结构减少多余空间的占用
-enum HllDataType {
-    HLL_DATA_EMPTY = 0,      // 用于记录空的hll集合
-    HLL_DATA_EXPLICIT,    // 直接存储hash后结果的集合类型
-    HLL_DATA_SPRASE,     // 记录register不为空的集合类型
-    HLL_DATA_FULL,        // 记录完整的hll集合
-    HLL_DATA_NONE
-};
-
 enum PushType {
     PUSH_NORMAL = 1,
     PUSH_FOR_DELETE = 2,

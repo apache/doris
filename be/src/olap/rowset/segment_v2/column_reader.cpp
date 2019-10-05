@@ -32,6 +32,7 @@
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 
 namespace doris {
 namespace segment_v2 {
@@ -160,13 +161,20 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     return Status::OK();
 }
 
-void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, RowRanges* row_ranges) {
+void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions,
+        RowRanges* row_ranges) {
     std::vector<uint32_t> page_indexes;
-    _get_filtered_pages(cond_column, &page_indexes);
+    _get_filtered_pages(cond_column, delete_conditions, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
-void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint32_t>* page_indexes) {
+PagePointer ColumnReader::get_dict_page_pointer() const {
+    return _meta.dict_page();
+}
+
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+        const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
@@ -188,7 +196,19 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, std::vector<uint
                 max_value->set_null();
             }
         }
-        if (cond_column->eval({min_value.get(), max_value.get()})) {
+        bool should_read = false;
+        if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
+            should_read = true;
+        }
+        if (should_read) {
+            for (auto& col_cond : delete_conditions) {
+                if (col_cond->del_eval({min_value.get(), max_value.get()}) == DEL_SATISFIED) {
+                    should_read = false;
+                    break;
+                }
+            }
+        }
+        if (should_read) {
             page_indexes->push_back(i);
         }
     }
@@ -411,8 +431,58 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
 
+    // lazy init dict_encoding'dict for three reasons
+    // 1. a column use dictionary encoding still has non-dict-encoded data pages are seeked,load dict when necessary
+    // 2. ColumnReader which is owned by Segment and Rowset can being alive even when there is no query,it should retain memory as small as possible.
+    // 3. Iterators of the same column won't repeat load the dict page because of page cache.
+    if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
+        BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
+        if (binary_dict_page_decoder->is_dict_encoding()) {
+            if (_dict_decoder == nullptr) {
+                PagePointer pp = _reader->get_dict_page_pointer();
+                RETURN_IF_ERROR(_reader->read_page(pp, &_dict_page_handle));
+
+                _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
+                RETURN_IF_ERROR(_dict_decoder->init());
+            }
+            binary_dict_page_decoder->set_dict_decoder(_dict_decoder.get());
+        }
+    }
+
     page->offset_in_page = 0;
 
+    return Status::OK();
+}
+
+Status DefaultValueColumnIterator::init() {
+    // be consistent with segment v1
+    if (_default_value == "NULL" && _is_nullable) {
+        _is_default_value_null = true;
+    } else {
+        TypeInfo* type_info = get_type_info(_type);
+        _value_size = type_info->size();
+        _mem_value.reserve(_value_size);
+        OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
+        if (s != OLAP_SUCCESS) {
+            return Status::InternalError("get value of type from default value failed.");
+        }
+    }
+    return Status::OK();
+}
+
+Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
+    if (_is_default_value_null) {
+        for (int i = 0; i < *n; ++i) {
+            dst->set_is_null(i, true);
+        }
+    } else {
+        for (int i = 0; i < *n; ++i) {
+            memcpy(dst->mutable_cell_ptr(i), _mem_value.data(), _value_size);
+            if (dst->is_nullable()) {
+                dst->set_is_null(i, false);
+            }
+        }
+    }
     return Status::OK();
 }
 

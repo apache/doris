@@ -67,6 +67,7 @@ import java.util.TreeSet;
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     public static String FUNCTION_HASH_HLL = "hll_hash";
+    // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
             "time_format",
@@ -333,8 +334,10 @@ public class DataDescription {
             } else if (paramExpr instanceof NullLiteral) {
                 args.add(null);
             } else {
-                // hadoop function only support slot, string and null parameters
-                throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                if (isHadoopLoad) {
+                    // hadoop function only support slot, string and null parameters
+                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                }
             }
         }
 

@@ -44,6 +44,8 @@
         
         strict_mode: 用户指定此次导入是否开启严格模式，默认为开启。关闭方式为 -H "strict_mode: false"。
 
+        timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
         Status: 导入最后的状态。
@@ -88,11 +90,11 @@
     6. 使用streaming方式导入（用户是defalut_cluster中的）
         seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load
 
-    7. 导入含有HLL列的表，可以是表中的列或者数据中的列用于生成HLL列
-        curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    7. 导入含有HLL列的表，可以是表中的列或者数据中的列用于生成HLL列，也可使用empty_hll补充数据中没有的列
+        curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=empty_hll()" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
-    8. 导入数据进行严格模式过滤
-        curl --location-trusted -u root -H "strict_mode: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    8. 导入数据进行严格模式过滤，并设置时区为 Africa/Abidjan
+        curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
     9. 导入含有聚合模型为BITMAP_UNION列的表，可以是表中的列或者数据中的列用于生成BITMAP_UNION列
         curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load

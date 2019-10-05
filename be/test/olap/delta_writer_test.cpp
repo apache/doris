@@ -30,6 +30,7 @@
 #include "olap/utils.h"
 #include "runtime/tuple.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/exec_env.h"
 #include "util/logging.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
@@ -56,6 +57,9 @@ void set_up() {
     doris::EngineOptions options;
     options.store_paths = paths;
     doris::StorageEngine::open(options, &k_engine);
+
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_storage_engine(k_engine);
 }
 
 void tear_down() {
@@ -301,7 +305,9 @@ TEST_F(TestDeltaWriter, open) {
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
-    res = delta_writer->close(nullptr);
+    res = delta_writer->close();
+    ASSERT_EQ(OLAP_SUCCESS, res);
+    res = delta_writer->close_wait(nullptr);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -391,7 +397,9 @@ TEST_F(TestDeltaWriter, write) {
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
 
-    res = delta_writer->close(nullptr);
+    res = delta_writer->close();
+    ASSERT_EQ(OLAP_SUCCESS, res);
+    res = delta_writer->close_wait(nullptr);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success

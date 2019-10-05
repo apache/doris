@@ -17,33 +17,38 @@
 
 #include "olap/delta_writer.h"
 
-#include "olap/schema.h"
-#include "olap/memtable.h"
 #include "olap/data_dir.h"
+#include "olap/memtable.h"
+#include "olap/memtable_flush_executor.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/schema.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req);
-    return OLAP_SUCCESS;
+    *writer = new DeltaWriter(req, StorageEngine::instance());
+    return (*writer)->init();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req)
+DeltaWriter::DeltaWriter(
+        WriteRequest* req,
+        StorageEngine* storage_engine)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
-      _rowset_writer(nullptr), _mem_table(nullptr),
-      _schema(nullptr), _tablet_schema(nullptr),
-      _delta_written_success(false) {}
+      _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
+      _delta_written_success(false),
+      _storage_engine(storage_engine) {
+}
 
 DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
         _garbage_collection();
     }
 
-    SAFE_DELETE(_mem_table);
+    _mem_table.reset();
     SAFE_DELETE(_schema);
     if (_rowset_writer != nullptr) {
         _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
@@ -53,26 +58,26 @@ DeltaWriter::~DeltaWriter() {
 void DeltaWriter::_garbage_collection() {
     OLAPStatus rollback_status = OLAP_SUCCESS;
     if (_tablet != nullptr) {
-        rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id,
+        rollback_status = _storage_engine->txn_manager()->rollback_txn(_req.partition_id,
             _req.txn_id,_req.tablet_id, _req.schema_hash, _tablet->tablet_uid());
     }
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will failed
     // when rollback failed should not delete rowset
     if (rollback_status == OLAP_SUCCESS) {
-        StorageEngine::instance()->add_unused_rowset(_cur_rowset);
+        _storage_engine->add_unused_rowset(_cur_rowset);
     }
     if (_new_tablet != nullptr) {
-        rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
+        rollback_status = _storage_engine->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
             _new_tablet->tablet_id(), _new_tablet->schema_hash(), _new_tablet->tablet_uid());
         if (rollback_status == OLAP_SUCCESS) {
-            StorageEngine::instance()->add_unused_rowset(_new_rowset);
+            _storage_engine->add_unused_rowset(_new_rowset);
         }
     }
 }
 
 OLAPStatus DeltaWriter::init() {
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_req.tablet_id, _req.schema_hash);
+    _tablet = _storage_engine->tablet_manager()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
                      << "schema_hash: " << _req.schema_hash << " not found";
@@ -85,7 +90,7 @@ OLAPStatus DeltaWriter::init() {
             return OLAP_ERR_RWLOCK_ERROR;
         }
         MutexLock push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+        RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(
                             _req.partition_id, _req.txn_id,
                             _req.tablet_id, _req.schema_hash, _tablet->tablet_uid(), _req.load_id));
         if (_req.need_gen_rollup) {
@@ -98,7 +103,7 @@ OLAPStatus DeltaWriter::init() {
                         << "new_tablet_id: " << new_tablet_id << ", "
                         << "new_schema_hash: " << new_schema_hash << ", "
                         << "transaction_id: " << _req.txn_id;
-                _new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(new_tablet_id, new_schema_hash);
+                _new_tablet = _storage_engine->tablet_manager()->get_tablet(new_tablet_id, new_schema_hash);
                 if (_new_tablet == nullptr) {
                     LOG(WARNING) << "find alter task, but could not find new tablet tablet_id: " << new_tablet_id
                                  << ", schema_hash: " << new_schema_hash;
@@ -108,7 +113,7 @@ OLAPStatus DeltaWriter::init() {
                 if (!new_migration_rlock.own_lock()) {
                     return OLAP_ERR_RWLOCK_ERROR;
                 }
-                StorageEngine::instance()->txn_manager()->prepare_txn(
+                _storage_engine->txn_manager()->prepare_txn(
                                     _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _new_tablet->tablet_uid(), _req.load_id);
             }
@@ -116,7 +121,7 @@ OLAPStatus DeltaWriter::init() {
     }
 
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    writer_context.rowset_id = _storage_engine->next_rowset_id();
     writer_context.tablet_uid = _tablet->tablet_uid();
     writer_context.tablet_id = _req.tablet_id;
     writer_context.partition_id = _req.partition_id;
@@ -132,48 +137,58 @@ OLAPStatus DeltaWriter::init() {
 
     _tablet_schema = &(_tablet->tablet_schema());
     _schema = new Schema(*_tablet_schema);
-    _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
-                              _req.tuple_desc, _tablet->keys_type());
+    _mem_table = std::make_shared<MemTable>(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
+            _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get());
+
+    // create flush handler
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &_flush_handler));
+
     _is_init = true;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::write(Tuple* tuple) {
     if (!_is_init) {
-        auto st = init();
-        if (st != OLAP_SUCCESS) {
-            return st;
-        }
+        RETURN_NOT_OK(init());
     }
 
     _mem_table->insert(tuple);
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_mem_table->flush(_rowset_writer.get()));
 
-        SAFE_DELETE(_mem_table);
-        _mem_table = new MemTable(_schema, _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type());
+    // if memtable is full, push it to the flush executor,
+    // and create a new memtable for incoming data
+    if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        RETURN_NOT_OK(_flush_memtable_async());
+        // create a new memtable for new incoming data
+        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
+                _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get()));
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-    if (!_is_init) {
-        auto st = init();
-        if (st != OLAP_SUCCESS) {
-            return st;
-        }
-    }
-    RETURN_NOT_OK(_mem_table->close(_rowset_writer.get()));
+OLAPStatus DeltaWriter::_flush_memtable_async() {
+    return _flush_handler->submit(_mem_table);
+}
 
-    OLAPStatus res = OLAP_SUCCESS;
+OLAPStatus DeltaWriter::close() {
+    if (!_is_init) {
+        RETURN_NOT_OK(init());
+    }
+
+    RETURN_NOT_OK(_flush_memtable_async());
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+    // return error if previous flush failed
+    RETURN_NOT_OK(_flush_handler->wait());
+
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    res = StorageEngine::instance()->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
+    OLAPStatus res = _storage_engine->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
         _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash, _tablet->tablet_uid(), 
         _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -194,7 +209,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             return res;
         }
 
-        res = StorageEngine::instance()->txn_manager()->commit_txn(_new_tablet->data_dir()->get_meta(),
+        res = _storage_engine->txn_manager()->commit_txn(_new_tablet->data_dir()->get_meta(),
                     _req.partition_id, _req.txn_id, _new_tablet->tablet_id(), 
                     _new_tablet->schema_hash(), _new_tablet->tablet_uid(),
                     _req.load_id, _new_rowset, false);
@@ -218,6 +233,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
 #endif
 
     _delta_written_success = true;
+
+    const FlushStatistic& stat = _flush_handler->get_stats();
+    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
+        << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 

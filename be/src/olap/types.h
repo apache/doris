@@ -64,6 +64,10 @@ public:
         _direct_copy(dest, src);
     }
 
+    inline char* allocate_value_from_arena(Arena* arena) const {
+        return _allocate_value_from_arena(arena);
+    }
+
     OLAPStatus from_string(void* buf, const std::string& scan_key) const {
         return _from_string(buf, scan_key);
     }
@@ -85,6 +89,7 @@ private:
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_deep_copy_with_arena)(void* dest, const void* src, Arena* arena);
     void (*_direct_copy)(void* dest, const void* src);
+    char* (*_allocate_value_from_arena)(Arena* arena);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -211,6 +216,10 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline uint32_t hash_code(const void* data, uint32_t seed) {
         return HashUtil::hash(data, sizeof(CppType), seed);
+    }
+
+    static inline char* allocate_value_from_arena(Arena* arena) {
+        return arena->Allocate(sizeof(CppType));
     }
 
     static std::string to_string(const void* src) {
@@ -524,6 +533,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
              * inputed by user may be greater than fixed length.
              */
             slice->size = value_len;
+        } else {
+            // append \0 to the tail
+            memset(slice->data + value_len, 0, slice->size - value_len);
         }
         return OLAP_SUCCESS;
     }
@@ -565,6 +577,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
     }
+    static char* allocate_value_from_arena(Arena* arena) {
+        char* type_value = arena->Allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = OLAP_CHAR_MAX_LENGTH;
+        slice->data = arena->Allocate(OLAP_CHAR_MAX_LENGTH);
+        return type_value;
+    }
 };
 
 template<>
@@ -590,6 +609,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
+    }
+    static char* allocate_value_from_arena(Arena* arena) {
+        char* type_value = arena->Allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = OLAP_STRING_MAX_LENGTH;
+        slice->data = arena->Allocate(OLAP_STRING_MAX_LENGTH);
+        return type_value;
     }
 };
 

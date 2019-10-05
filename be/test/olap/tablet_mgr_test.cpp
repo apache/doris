@@ -59,7 +59,7 @@ public:
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
         options.store_paths = paths;
-        options.backend_uid = doris::UniqueId();
+        options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }

@@ -20,6 +20,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/cpu_info.h"
 #include "util/logging.h"
 
 #include <gtest/gtest.h>
@@ -127,7 +128,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     doris::init_glog("be-test");
-
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

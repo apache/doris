@@ -69,7 +69,7 @@ public class ColumnDef {
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
         // default "value"
-        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "0");
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, null);
     }
 
     // parameter initialized in constructor

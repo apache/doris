@@ -19,6 +19,7 @@
 
 #include "exprs/anyval_util.h"
 #include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -29,19 +30,14 @@ void HllFunctions::init() {
 }
 
 StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
-    const int HLL_SINGLE_VALUE_SIZE = 10;
-    const int HLL_EMPTY_SIZE = 1;
-    std::string buf;
-    std::unique_ptr<HyperLogLog> hll;
+    HyperLogLog hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
-        hll.reset(new HyperLogLog(hash_value));
-        buf.resize(HLL_SINGLE_VALUE_SIZE);
-    } else {
-        hll.reset(new HyperLogLog());
-        buf.resize(HLL_EMPTY_SIZE);
+        hll.update(hash_value);
     }
-    hll->serialize((char*)buf.c_str());
+    std::string buf;
+    buf.resize(hll.max_serialized_size());
+    buf.resize(hll.serialize((uint8_t*)buf.c_str()));
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
@@ -49,6 +45,9 @@ void HllFunctions::hll_init(FunctionContext *, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(HyperLogLog);
     dst->ptr = (uint8_t*)new HyperLogLog();
+}
+StringVal HllFunctions::hll_empty(FunctionContext* ctx) {
+    return AnyValUtil::from_string_temp(ctx, HyperLogLog::empty());
 }
 
 template <typename T>
@@ -63,10 +62,15 @@ void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
         dst_hll->update(hash_value);
     }
 }
-void HllFunctions::hll_merge(FunctionContext*, const StringVal &src, StringVal* dst) {
-    HyperLogLog src_hll = HyperLogLog((char*)src.ptr);
+
+void HllFunctions::hll_merge(FunctionContext*, const StringVal& src, StringVal* dst) {
     auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst->ptr);
-    dst_hll->merge(src_hll);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        dst_hll->merge(*reinterpret_cast<HyperLogLog*>(src.ptr));
+    } else {
+        dst_hll->merge(HyperLogLog(Slice(src.ptr, src.len)));
+    }
 }
 
 BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal &src) {
@@ -88,8 +92,8 @@ BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& i
 
 StringVal HllFunctions::hll_serialize(FunctionContext *ctx, const StringVal &src) {
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
-    StringVal result(ctx, HLL_COLUMN_DEFAULT_LEN);
-    int size = src_hll->serialize((char*)result.ptr);
+    StringVal result(ctx, src_hll->max_serialized_size());
+    int size = src_hll->serialize((uint8_t*)result.ptr);
     result.resize(ctx, size);
     delete src_hll;
     return result;

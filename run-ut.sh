@@ -158,6 +158,9 @@ ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
+${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
+${DORIS_TEST_BINARY_DIR}/util/bit_stream_utils_test
+${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
@@ -241,6 +244,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
+# ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
@@ -265,6 +269,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/segment_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/page_compression_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_zone_map_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/row_ranges_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/txn_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/storage_types_test
 ${DORIS_TEST_BINARY_DIR}/olap/generic_iterators_test
@@ -272,6 +277,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/aggregate_func_test
 ${DORIS_TEST_BINARY_DIR}/olap/short_key_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
 ${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
+${DORIS_TEST_BINARY_DIR}/olap/hll_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test

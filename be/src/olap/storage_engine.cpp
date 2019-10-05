@@ -36,6 +36,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
+#include "olap/memtable_flush_executor.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
@@ -177,13 +178,21 @@ OLAPStatus StorageEngine::open() {
         _store_map.emplace(path.path, store);
     }
     _effective_cluster_id = config::cluster_id;
-    auto res = check_all_root_path_cluster_id();
+    auto res = _check_all_root_path_cluster_id();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to check cluster info. res=" << res;
         return res;
     }
 
     _update_storage_medium_type_count();
+
+    res = _check_file_descriptor_number();
+    if (res != OLAP_SUCCESS) {
+        LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
+                   << ". Please use (ulimit -n) to set a value equal or greater than "
+                   << config::min_file_descriptor_number;
+        return OLAP_ERR_INIT_FAILED;
+    }
 
     auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
     if (cache == nullptr) {
@@ -213,6 +222,9 @@ OLAPStatus StorageEngine::open() {
     load_data_dirs(dirs);
     // 取消未完成的SchemaChange任务
     _tablet_manager->cancel_unfinished_schema_change();
+
+    _memtable_flush_executor = new MemTableFlushExecutor();
+    _memtable_flush_executor->init(dirs);
 
     return OLAP_SUCCESS;
 }
@@ -354,7 +366,21 @@ bool StorageEngine::_used_disk_not_enough(uint32_t unused_num, uint32_t total_nu
     return ((total_num == 0) || (unused_num * 100 / total_num > _min_percentage_of_error_disk));
 }
 
-OLAPStatus StorageEngine::check_all_root_path_cluster_id() {
+OLAPStatus StorageEngine::_check_file_descriptor_number() {
+    struct rlimit l;
+    int ret = getrlimit(RLIMIT_NOFILE , &l);
+    if (ret != 0) {
+        LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
+                     << ", use default configuration instead.";
+        return OLAP_SUCCESS;
+    }
+    if (l.rlim_cur < config::min_file_descriptor_number) {
+        return OLAP_ERR_TOO_FEW_FILE_DESCRITPROR;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus StorageEngine::_check_all_root_path_cluster_id() {
     int32_t cluster_id = -1;
     for (auto& it : _store_map) {
         int32_t tmp_cluster_id = it.second->cluster_id();
@@ -470,6 +496,9 @@ OLAPStatus StorageEngine::clear() {
         store_pair.second = nullptr;
     }
     _store_map.clear();
+
+    delete _memtable_flush_executor;
+
     return OLAP_SUCCESS;
 }
 

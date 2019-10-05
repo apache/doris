@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
 
+#include "olap/hll.h"
 #include "util/brpc_stub_cache.h"
 #include "util/uid_util.h"
 #include "service/brpc.h"
@@ -492,6 +493,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_VARCHAR:
         case TYPE_DATE:
         case TYPE_DATETIME:
+        case TYPE_HLL:
             _need_validate_data = true;
             break;
         default:
@@ -698,7 +700,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
         bool row_valid = true;
         for (int i = 0; row_valid && i < _output_tuple_desc->slots().size(); ++i) {
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
-            if (tuple->is_null(desc->null_indicator_offset())) {
+            if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
                 continue;
             }
             void* slot = tuple->get_slot(desc->tuple_offset());
@@ -837,6 +839,25 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     filter_bitmap->Set(row_no, true);
                     continue;
                 }
+                break;
+            }
+            case TYPE_HLL: {
+                Slice* hll_val = (Slice*)slot;
+                if (!HyperLogLog::is_valid(*hll_val)) {
+                    std::stringstream ss;
+                    ss << "Content of HLL type column is invalid"
+                        << "column_name: " << desc->col_name() << "; ";
+#if BE_TEST
+                    LOG(INFO) << ss.str();
+#else
+                    state->append_error_msg_to_file("", ss.str());
+#endif
+                    filtered_rows++;
+                    row_valid = false;
+                    filter_bitmap->Set(row_no, true);
+                    continue;
+                }
+                break;
             }
             default:
                 break;

@@ -27,6 +27,7 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _deep_copy(TypeTraitsClass::deep_copy),
         _deep_copy_with_arena(TypeTraitsClass::deep_copy_with_arena),
         _direct_copy(TypeTraitsClass::direct_copy),
+        _allocate_value_from_arena(TypeTraitsClass::allocate_value_from_arena),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),

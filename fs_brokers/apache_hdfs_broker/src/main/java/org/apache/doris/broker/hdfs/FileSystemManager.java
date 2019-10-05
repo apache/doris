@@ -534,6 +534,7 @@ public class FileSystemManager {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
         synchronized (fsDataOutputStream) {
             try {
+                fsDataOutputStream.flush();
                 fsDataOutputStream.close();
             } catch (IOException e) {
                 logger.error("errors while close file output stream", e);

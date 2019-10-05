@@ -27,6 +27,13 @@ KeyCoder::KeyCoder(TraitsType traits)
         _decode_ascending(traits.decode_ascending) {
 }
 
+struct EnumClassHash {
+    template <typename T>
+    std::size_t operator()(T t) const {
+        return static_cast<std::size_t>(t);
+    }
+};
+
 // Helper class used to get KeyCoder
 class KeyCoderResolver {
 public:
@@ -63,6 +70,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_DECIMAL>();
         add_mapping<OLAP_FIELD_TYPE_CHAR>();
         add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+        add_mapping<OLAP_FIELD_TYPE_BOOL>();
     }
 
     template<FieldType field_type>
@@ -70,7 +78,7 @@ private:
         _coder_map.emplace(field_type, new KeyCoder(KeyCoderTraits<field_type>()));
     }
 
-    std::unordered_map<FieldType, KeyCoder*> _coder_map;
+    std::unordered_map<FieldType, KeyCoder*, EnumClassHash> _coder_map;
 };
 
 const KeyCoder* get_key_coder(FieldType type) {

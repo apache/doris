@@ -153,8 +153,16 @@ Status Segment::_initial_column_readers() {
 
 Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
-        // TODO(zc): create a DefaultValueIterator for this column
-        // create
+        const TabletColumn& tablet_column = _tablet_schema->column(cid);
+        if (!tablet_column.has_default_value()) {
+            return Status::InternalError("invalid nonexistent column without default value.");
+        }
+        std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
+                new DefaultValueColumnIterator(tablet_column.default_value(),
+                tablet_column.is_nullable(), tablet_column.type()));
+        RETURN_IF_ERROR(default_value_iter->init());
+        *iter = default_value_iter.release();
+        return Status::OK();
     }
     return _column_readers[cid]->new_iterator(iter);
 }

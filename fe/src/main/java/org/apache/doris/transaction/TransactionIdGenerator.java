@@ -30,7 +30,7 @@ public class TransactionIdGenerator {
     
     private long nextId = NEXT_ID_INIT_VALUE;
     // has to set it to an invalid value, then it will be logged when id is firstly increment
-    private long batchEndId = -1;
+    private long batchEndId = 0;
     
     private EditLog editLog;
     

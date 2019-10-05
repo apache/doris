@@ -18,8 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
-#include <memory>
-
+#include "common/object_pool.h"
 #include "olap/schema.h"
 #include "olap/skiplist.h"
 #include "runtime/tuple.h"
@@ -28,18 +27,22 @@
 namespace doris {
 
 class RowCursor;
+class RowsetWriter;
 
 class MemTable {
 public:
-    MemTable(Schema* schema, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type);
+             KeysType keys_type, RowsetWriter* rowset_writer);
     ~MemTable();
+    int64_t tablet_id() { return _tablet_id; }
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(RowsetWriter* rowset_writer);
-    OLAPStatus close(RowsetWriter* rowset_writer);
+    OLAPStatus flush();
+    OLAPStatus close();
+
 private:
+    int64_t _tablet_id; 
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;
@@ -54,12 +57,17 @@ private:
     };
 
     RowCursorComparator _row_comparator;
-    Arena _arena;
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
+    ObjectPool _agg_object_pool;
 
     typedef SkipList<char*, RowCursorComparator> Table;
-    char* _tuple_buf;
+    u_int8_t* _tuple_buf;
     size_t _schema_size;
     Table* _skip_list;
+
+    RowsetWriter* _rowset_writer;
+
 }; // class MemTable
 
 } // namespace doris

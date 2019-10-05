@@ -51,7 +51,7 @@ class ChunkAllocator {
 public:
     static void init_instance(size_t reserve_limit);
 
-#if BE_TEST
+#ifdef BE_TEST
     static ChunkAllocator* instance();
 #else
     static ChunkAllocator* instance() {

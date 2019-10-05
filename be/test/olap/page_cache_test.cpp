@@ -29,7 +29,7 @@ public:
 };
 
 TEST(StoragePageCacheTest, normal) {
-    StoragePageCache cache(10 * 1024);
+    StoragePageCache cache(kNumShards * 1024);
 
     StoragePageCache::CacheKey key("abc", 0);
 
@@ -56,7 +56,7 @@ TEST(StoragePageCacheTest, normal) {
         ASSERT_FALSE(found);
     }
     // put too many page to eliminate first page
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", i);
         PageCacheHandle handle;
         Slice data(new char[1024], 1024);

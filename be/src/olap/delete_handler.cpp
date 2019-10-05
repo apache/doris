@@ -149,8 +149,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
         valid_condition = valid_unsigned_number<uint64_t>(value_str);
     } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
         valid_condition = valid_decimal(value_str, column.precision(), column.frac());
-    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR
-               || field_type == OLAP_FIELD_TYPE_HLL) {
+    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR) {
         if (value_str.size() <= column.length()) {
             valid_condition = true;
         }
@@ -341,6 +340,15 @@ void DeleteHandler::finalize() {
 
     _del_conds.clear();
     _is_inited = false;
+}
+
+void DeleteHandler::get_delete_conditions_after_version(int32_t version,
+        std::vector<const Conditions*>* delete_conditions) const {
+    for (auto& del_cond : _del_conds) {
+        if (del_cond.filter_version > version) {
+            delete_conditions->emplace_back(del_cond.del_cond);
+        }
+    }
 }
 
 }  // namespace doris

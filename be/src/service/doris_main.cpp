@@ -55,7 +55,7 @@
 #include "service/http_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
 
 static void help(const char*);
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
     // options
     doris::EngineOptions options;
     options.store_paths = paths;
-    options.backend_uid = doris::UniqueId();
+    options.backend_uid = doris::UniqueId::gen_uid();
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
 
-    doris::FrontendHelper::setup(exec_env);
+    doris::ThriftRpcHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;
 
     EXIT_IF_ERROR(doris::BackendService::create_service(

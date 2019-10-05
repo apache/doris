@@ -219,8 +219,11 @@ namespace config {
     CONF_Int32(trash_file_expire_time_sec, "259200");
     // check row nums for BE/CE and schema change. true is open, false is closed.
     CONF_Bool(row_nums_check, "true")
-    //file descriptors cache, by default, cache 30720 descriptors
-    CONF_Int32(file_descriptor_cache_capacity, "30720");
+    //file descriptors cache, by default, cache 32768 descriptors
+    CONF_Int32(file_descriptor_cache_capacity, "32768");
+    // minimum file descriptor number
+    // modify them upon necessity
+    CONF_Int32(min_file_descriptor_number, "60000");
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
 
@@ -427,10 +430,6 @@ namespace config {
     // and the tablet will be marked as bad, so that FE will try to repair it.
     CONF_Bool(auto_recover_index_loading_failure, "false");
 
-    // This configuration is used to recover compaction under the corner case.
-    // If this configuration is set to true, block will seek position.
-    CONF_Bool(block_seek_position, "false");
-
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
     // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
     CONF_Int32(max_memory_sink_batch_count, "20");
@@ -466,6 +465,8 @@ namespace config {
     CONF_Int32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
     CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
+    // number of thread for flushing memtable per store
+    CONF_Int32(flush_thread_num_per_store, "2");
 } // namespace config
 
 } // namespace doris

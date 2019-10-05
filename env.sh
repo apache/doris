@@ -54,7 +54,7 @@ if [[ -z ${DORIS_GCC_HOME} ]]; then
     export DORIS_GCC_HOME=$(dirname `which gcc`)/..
 fi
 
-gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpversion`
+gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpfullversion -dumpversion`
 required_ver="5.3.1"
 if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
     echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"

@@ -57,17 +57,18 @@ public:
 
     inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
 
-    inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, Arena* arena = nullptr) const {
-        _agg_info->update(dest, src, arena);
+    inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
+        _agg_info->update(dest, src, mem_pool);
     }
 
-    inline void agg_finalize(RowCursorCell* dst, Arena* arena) const {
-        _agg_info->finalize(dst, arena);
+    inline void agg_finalize(RowCursorCell* dst, MemPool* mem_pool) const {
+        _agg_info->finalize(dst, mem_pool);
     }
 
-    virtual void consume(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) const {
-        _agg_info->init(dst, src, src_null, arena);
+    virtual void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const {
+        _agg_info->init(dst, src, src_null, mem_pool, agg_pool);
     }
 
     // todo(kks): Unify AggregateInfo::init method and Field::agg_init method
@@ -76,7 +77,7 @@ public:
     // This functionn differs copy functionn in that if this filed
     // contain aggregate information, this functionn will initialize
     // destination in aggregate format, and update with srouce content.
-    virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) const {
+    virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const {
         direct_copy(dst, src);
     }
 
@@ -199,6 +200,10 @@ public:
         _type_info->deep_copy_with_arena(dest, src, arena);
     }
 
+    inline void direct_copy_content(char* dest, const char* src) const {
+        _type_info->direct_copy(dest, src);
+    }
+
     // Copy srouce content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;
@@ -211,7 +216,7 @@ public:
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
-    inline std::string to_string(char* src) const {
+    inline std::string to_string(const char* src) const {
         return _type_info->to_string(src);
     }
 
@@ -344,7 +349,7 @@ public:
     }
 
     // the char field is especial, which need the _length info when consume raw data
-    void consume(RowCursorCell* dst, const char* src, bool src_null, Arena* arena) const override {
+    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const override {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -353,7 +358,7 @@ public:
         auto* value = reinterpret_cast<const StringValue*>(src);
         auto* dest_slice = (Slice*)(dst->mutable_cell_ptr());
         dest_slice->size = _length;
-        dest_slice->data = arena->Allocate(dest_slice->size);
+        dest_slice->data = (char*)mem_pool->allocate(dest_slice->size);
         memcpy(dest_slice->data, value->ptr, value->len);
         memset(dest_slice->data + value->len, 0, dest_slice->size - value->len);
     }
@@ -403,8 +408,8 @@ public:
     }
 
     // bitmap storage data always not null
-    void agg_init(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, arena);
+    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const override {
+        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
     }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -424,8 +429,8 @@ public:
     }
 
     // Hll storage data always not null
-    void agg_init(RowCursorCell* dst, const RowCursorCell& src, Arena* arena) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, arena);
+    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const override {
+        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
     }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {

@@ -28,7 +28,7 @@ namespace doris {
 
 // This iterator will generate ordered data. For example for schema
 // (int, int) this iterator will generator data like
-// (0, 1), (1, 2), (2, 4), (3, 4)...
+// (0, 1), (1, 2), (2, 3), (3, 4)...
 //
 // Usage:
 //      Schema schema;
@@ -104,16 +104,16 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
 // This class will iterate all data from internal iterator
 // through client call advance().
 // Usage:
-//      MergeContext ctx(iter);
+//      MergeIteratorContext ctx(iter);
 //      RETURN_IF_ERROR(ctx.init());
 //      while (ctx.valid()) {
 //          visit(ctx.current_row());
 //          RETURN_IF_ERROR(ctx.advance());
 //      }
-class MergeContext {
+class MergeIteratorContext {
 public:
     // This class don't take iter's ownership, client should delete it
-    MergeContext(RowwiseIterator* iter)
+    MergeIteratorContext(RowwiseIterator* iter)
         : _iter(iter), _block(iter->schema(), 1024) {
     }
 
@@ -151,13 +151,13 @@ private:
     size_t _index_in_block = 0;
 };
 
-Status MergeContext::init(const StorageReadOptions& opts) {
+Status MergeIteratorContext::init(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(_load_next_block());
     return Status::OK();
 }
 
-Status MergeContext::advance() {
+Status MergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
     _index_in_block++;
     do {
@@ -172,7 +172,7 @@ Status MergeContext::advance() {
     return Status::OK();
 }
 
-Status MergeContext::_load_next_block() {
+Status MergeIteratorContext::_load_next_block() {
     Status st;
     do {
         _block.clear();
@@ -210,23 +210,24 @@ public:
     Status next_batch(RowBlockV2* block) override;
 
     const Schema& schema() const override {
-        return *_schema.get();
+        return *_schema;
     }
 private:
     std::vector<RowwiseIterator*> _origin_iters;
-    std::vector<MergeContext*> _merge_ctxs;
+    std::vector<MergeIteratorContext*> _merge_ctxs;
 
     std::unique_ptr<Schema> _schema;
 
     struct MergeContextComparator {
-        bool operator()(const MergeContext* lhs, const MergeContext* rhs) const {
+        bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
 
             return compare_row(lhs_row, rhs_row) > 0;
         }
     };
-    using MergeHeap = std::priority_queue<MergeContext*, std::vector<MergeContext*>, MergeContextComparator>;
+    using MergeHeap = std::priority_queue<MergeIteratorContext*,
+            std::vector<MergeIteratorContext*>, MergeContextComparator>;
     std::unique_ptr<MergeHeap> _merge_heap;
 };
 
@@ -238,7 +239,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     _merge_heap.reset(new MergeHeap);
 
     for (auto iter : _origin_iters) {
-        std::unique_ptr<MergeContext> ctx(new MergeContext(iter));
+        std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

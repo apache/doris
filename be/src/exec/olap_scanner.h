@@ -53,6 +53,7 @@ public:
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
+        bool need_agg_finalize,
         const TPaloScanRange& scan_range,
         const std::vector<OlapScanRange*>& key_ranges);
 
@@ -107,6 +108,7 @@ private:
     int _id;
     bool _is_open;
     bool _aggregation;
+    bool _need_agg_finalize = true;
     bool _has_update_counter = false;
 
     Status _ctor_status;
@@ -124,8 +126,6 @@ private:
     std::vector<uint32_t> _return_columns;
 
     RowCursor _read_row_cursor;
-
-    std::vector<uint32_t> _request_columns_size;
 
     std::vector<SlotDescriptor*> _query_slots;
 

@@ -69,7 +69,7 @@ Doris instances communicate directly over the network. The following table shows
 | BE | be_port | 9060 | FE - > BE | BE for receiving requests from FE|
 | BE | be\_rpc_port | 9070 | BE < - > BE | port used by RPC between BE | BE|
 | BE | webserver\_port | 8040 | BE <--> BE | BE|
-| BE | heartbeat\_service_port | 9050 | FE - > BE | BE on the heart beat service port (thrift), users receive heartbeat from FE|
+| BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
 | FE | http_port* | 8030 | FE < - > FE, HTTP server port on user | FE|
 | FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE|
@@ -389,3 +389,19 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 	> The main reason for this problem is that when the user adds BE through the `ADD BACKEND` statement, FE recognizes whether the statement specifies hostname or IP. If it is hostname, FE automatically converts it to an IP address and stores it in metadata. When BE reports on the completion of the task, it carries its own IP address. If FE finds that BE reports inconsistent IP addresses and metadata, it will make the above error.
 	>
 	> Solutions to this error: 1) Set **priority\_network** parameters in FE and BE respectively. Usually FE and BE are in a network segment, so this parameter can be set to the same. 2) Fill in the `ADD BACKEND` statement directly with the correct IP address of BE instead of hostname to avoid FE getting the wrong IP address.
+
+5. File descriptor number of BE process
+
+   The number of file descriptor of BE process is controlled by the two parameters min_file_descriptor_number/max_file_descriptor_number.
+
+   If it is not in the [min_file_descriptor_number, max_file_descriptor_number] interval, error will occurs when starting BE process.
+
+   Please using ulimit command to set file descriptor under this circumstance.
+
+   The default value of min_file_descriptor_number is 65536.
+
+   The default value of max_file_descriptor_number is 131072.
+
+   For Example : ulimit -n 65536; this command set file descriptor to 65536.
+
+   After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.

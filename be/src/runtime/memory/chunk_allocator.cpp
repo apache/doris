@@ -41,8 +41,10 @@ static IntCounter system_free_count;
 static IntCounter system_alloc_cost_ns;
 static IntCounter system_free_cost_ns;
 
-#if BE_TEST
+#ifdef BE_TEST
+static std::mutex s_mutex;
 ChunkAllocator* ChunkAllocator::instance() {
+    std::lock_guard<std::mutex> l(s_mutex);
     if (_s_instance == nullptr) {
         DorisMetrics::instance()->initialize("common_ut");
         CpuInfo::init();

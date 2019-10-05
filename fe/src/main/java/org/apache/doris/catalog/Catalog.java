@@ -2869,12 +2869,16 @@ public class Catalog {
                 }
 
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    List<Column> newDistriCols = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
                     List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo)
                             .getDistributionColumns();
                     if (!newDistriCols.equals(defaultDistriCols)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "default is: " + defaultDistriCols);
+                    }
+                    if (hashDistributionInfo.getBucketNum() <= 0) {
+                        throw new DdlException("Cannot assign hash distribution buckets less than 1");
                     }
                 }
             } else {
@@ -5122,13 +5126,13 @@ public class Catalog {
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDef(stmt.getInlineViewDef());
-        newView.setOriginalViewDef(stmt.getInlineViewDef());
+        // init here in case the stmt string from view.toSql() has some syntax error.
         try {
             newView.init();
         } catch (UserException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException("failed to init view stmt", e);
         }
-
+      
         if (!db.createTableWithLock(newView, false, stmt.isSetIfNotExists())) {
             throw new DdlException("Failed to create view[" + tableName + "].");
         }

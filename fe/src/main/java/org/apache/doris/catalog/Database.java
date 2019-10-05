@@ -62,7 +62,7 @@ import java.util.zip.Adler32;
  * Internal representation of db-related metadata. Owned by Catalog instance.
  * Not thread safe.
  * <p/>
- * The static initialisation method loadDb is the only way to construct a Db
+ * The static initialization method loadDb is the only way to construct a Db
  * object.
  * <p/>
  * Tables are stored in a map from the table name to the table object. They may

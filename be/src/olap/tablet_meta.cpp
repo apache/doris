@@ -126,7 +126,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                 tcolumn.column_type.type, tcolumn.column_type.len);
                 column->set_length(length);
         column->set_index_length(length);
-        if (tcolumn.column_type.type == TPrimitiveType::VARCHAR || tcolumn.column_type.type == TPrimitiveType::HLL) {
+        if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
             if (!tcolumn.column_type.__isset.index_len) {
                 column->set_index_length(10);
             } else {
@@ -202,7 +202,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
                      << " , meta_file=" << file_path;
         return res;
     }
-    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid().to_proto();
+    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(file_path, tmp_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet meta pb to " 
