@@ -189,7 +189,7 @@ OLAPStatus RowCursor::build_max_key() {
     for (auto cid : _schema->column_ids()) {
         const Field* field = column_schema(cid);
         char* dest = cell_ptr(cid);
-        field->set_to_max(dest);
+        field->set_to_max_v1(dest);
         set_not_null(cid);
     }
     return OLAP_SUCCESS;

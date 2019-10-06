@@ -83,7 +83,7 @@ public:
     void set_null() { *reinterpret_cast<bool*>(_field_buf) = true; }
     void set_not_null() { *reinterpret_cast<bool*>(_field_buf) = false; }
     char* nullable_cell_ptr() const { return _field_buf; }
-    void set_to_max() { _rep->set_to_max(_field_buf + 1); }
+    void set_to_max() { _rep->set_to_max_v1(_field_buf + 1); }
     void set_to_min() { _rep->set_to_min(_field_buf + 1); }
     uint32_t hash_code() const { return _rep->hash_code(*this, 0); }
     void* cell_ptr() const { return _field_buf + 1; }

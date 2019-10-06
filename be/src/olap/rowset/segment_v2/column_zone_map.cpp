@@ -23,11 +23,10 @@ namespace doris {
 
 namespace segment_v2 {
 
-ColumnZoneMapBuilder::ColumnZoneMapBuilder(const TypeInfo* type_info) : _type_info(type_info) {
+ColumnZoneMapBuilder::ColumnZoneMapBuilder(Field* field) : _field(field) {
     PageBuilderOptions options;
     options.data_page_size = 0;
     _page_builder.reset(new BinaryPlainPageBuilder(options));
-    _field.reset(FieldFactory::create_by_type(_type_info->type()));
     _zone_map.min_value = _field->allocate_value_from_arena(&_arena);
     _zone_map.max_value = _field->allocate_value_from_arena(&_arena);
 
@@ -38,12 +37,12 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
     if (vals != nullptr) {
         for (int i = 0; i < count; ++i) {
             if (_field->compare(_zone_map.min_value, (char *)vals) > 0) {
-                _field->direct_copy_content(_zone_map.min_value, (const char *)vals);
+                _field->type_info()->direct_copy(_zone_map.min_value, (const char *)vals);
             }
             if (_field->compare(_zone_map.max_value, (char *)vals) < 0) {
-                _field->direct_copy_content(_zone_map.max_value, (const char *)vals);
+                _field->type_info()->direct_copy(_zone_map.max_value, (const char *)vals);
             }
-            vals += _type_info->size();
+            vals +=  _field->size();
             if (!_zone_map.has_not_null) {
                 _zone_map.has_not_null = true;
             }

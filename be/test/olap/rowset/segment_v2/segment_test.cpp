@@ -606,29 +606,6 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     }
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena* _arena, size_t _length = 0) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
-        char* src_value = &std::to_string(src)[0];
-        int src_len = strlen(src_value);
-
-        auto* dest_slice = (Slice*)target;
-        dest_slice->size = _length;
-        dest_slice->data = _arena->Allocate(dest_slice->size);
-        memcpy(dest_slice->data, src_value, src_len);
-        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
-        char* src_value = &std::to_string(src)[0];
-        int src_len = strlen(src_value);
-
-        auto* dest_slice = (Slice*)target;
-        dest_slice->size = src_len;
-        dest_slice->data = _arena->Allocate(src_len);
-        std::memcpy(dest_slice->data, src_value, src_len);
-    } else {
-        *(int*)target = src;
-    }
-}
-
 TEST_F(SegmentReaderWriterTest, TestStringDict) {
     size_t num_rows_per_block = 10;
     Arena _arena;
