@@ -280,11 +280,7 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        if (type == Type.DATE) {
-            return convertToString(PrimitiveType.DATE);
-        } else {
-            return convertToString(PrimitiveType.DATETIME);
-        }
+        return convertToString(type.getPrimitiveType());
     }
 
     private String convertToString(PrimitiveType type) {
