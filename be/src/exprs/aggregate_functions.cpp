@@ -156,7 +156,7 @@ StringVal AggregateFunctions::decimalv2_avg_serialize(
         FunctionContext* ctx, const StringVal& src) {
     StringVal result = string_val_get_value(ctx, src);
     if (!src.is_null) {
-        delete src.ptr;
+        delete (DecimalV2AvgState*)src.ptr;
     }
     return result;
 }
@@ -502,7 +502,7 @@ DecimalV2Val AggregateFunctions::decimalv2_avg_finalize(FunctionContext* ctx, co
         return DecimalV2Val::null();
     }
     DecimalV2Val result = decimalv2_avg_get_value(ctx, src);
-    delete src.ptr;
+    delete (DecimalV2AvgState*)src.ptr;
     return result;
 }
 
