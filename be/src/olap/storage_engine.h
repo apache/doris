@@ -255,6 +255,8 @@ private:
 
     void* _path_scan_thread_callback(void* arg);
 
+    void* _tablet_checkpoint_callback(void* arg);
+
 private:
 
     struct CompactionCandidate {
@@ -332,6 +334,9 @@ private:
 
     // thread to scan disk paths
     std::vector<std::thread> _path_scan_threads;
+
+    // thread to run tablet checkpoint
+    std::vector<std::thread> _tablet_checkpoint_threads;
 
     static atomic_t _s_request_number;
 

@@ -233,6 +233,10 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
+    OLAPStatus do_tablet_meta_checkpoint();
+
+    bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -249,6 +253,9 @@ private:
 
     DorisInitOnce _init_once;
     RWMutex _meta_lock;
+    // meta store lock is used for prevent 2 threads do checkpoint concurrently
+    // it will be used in econ-mode in the future
+    RWMutex _meta_store_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
@@ -260,6 +267,8 @@ private:
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 
     std::atomic<int64_t> _cumulative_point;
+    std::atomic<int32_t> _newly_created_rowset_num;
+    std::atomic<int64_t> _last_checkpoint_time;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 

@@ -118,8 +118,6 @@ OLAPStatus EnginePublishVersionTask::finish() {
             LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                       << ", transaction_id=" << transaction_id << ", version=" << version.first
                       << ", res=" << publish_status;
-            // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
-            RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
         }
 
         // check if the related tablet remained all have the version
