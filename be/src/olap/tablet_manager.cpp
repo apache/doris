@@ -1179,7 +1179,7 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
                         || !table_ptr->is_used() || !table_ptr->init_succeeded()) {
                     continue;
                 }
-                related_tablets->push_back(table_ptr);
+                related_tablets.push_back(table_ptr);
             }
         }
     }

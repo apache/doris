@@ -247,7 +247,7 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), 
-        rowset->rowset_id(), rowset->rowset_meta());
+        rowset->rowset_id(), rowset->rowset_meta().get());
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
     }
@@ -998,12 +998,13 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id())) {
             RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
-            LOG(DEBUG) << "remove rowset id from meta store because it is already persistent with tablet meta"
+            LOG(INFO) << "remove rowset id from meta store because it is already persistent with tablet meta"
                        << ", rowset_id=" << rs_meta->rowset_id();
         }
     }
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();
+    return OLAP_SUCCESS;
 }
 
 bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
@@ -1011,7 +1012,7 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
     bool find_rowset_id = false;
     bool find_version = false;
     for (auto& version_rowset : _rs_version_map) {
-        if (version_rowset.second->rowset_id() == rowset_id) {
+        if (version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
             find_rowset_id = true;
         }
         if (version_rowset.second->contains_version(rowset_meta->version())) {
@@ -1019,7 +1020,7 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
         }
     }
     for (auto& inc_version_rowset : _inc_rs_version_map) {
-        if (inc_version_rowset.second->rowset_id() == rowset_id) {
+        if (inc_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
             find_rowset_id = true;
         }
         if (inc_version_rowset.second->contains_version(rowset_meta->version())) {

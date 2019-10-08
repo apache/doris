@@ -681,6 +681,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE && (!tablet->rowset_meta_is_useful(rowset_meta))) {
             invalid_rowset_metas.push_back(rowset_meta);
         }
+        return true;
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {

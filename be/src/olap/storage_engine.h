@@ -227,6 +227,8 @@ private:
     OLAPStatus _start_bg_worker();
 
     void _clean_unused_txns();
+
+    void _clean_unused_rowset_metas();
     
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const int32_t expire);
