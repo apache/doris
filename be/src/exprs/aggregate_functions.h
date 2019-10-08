@@ -71,6 +71,10 @@ public:
     template <typename T>
     static void percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst);
 
+    template <typename T>
+    static void percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile,
+            const DoubleVal& digest_compression, StringVal* dst);
+
     static void percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
 
     static DoubleVal percentile_approx_finalize(FunctionContext* ctx, const StringVal& src);
@@ -198,13 +202,13 @@ dst);
     template <typename T>
     static BigIntVal count_or_sum_distinct_numeric_finalize(FunctionContext* ctx, const StringVal& state_sv);
 
-    // count distinct in multi distinct for string 
+    // count distinct in multi distinct for string
     static void count_distinct_string_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void count_distinct_string_update(FunctionContext* ctx, StringVal& src, StringVal* dst);
     static void count_distinct_string_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
     static StringVal count_distinct_string_serialize(FunctionContext* ctx, const StringVal& state_sv);
     static BigIntVal count_distinct_string_finalize(FunctionContext* ctx, const StringVal& state_sv);
- 
+
     // count distinct in multi distinct for decimal
     static void count_or_sum_distinct_decimal_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void count_or_sum_distinct_decimalv2_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -225,13 +229,13 @@ dst);
     static void count_distinct_date_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
     static StringVal count_distinct_date_serialize(FunctionContext* ctx, const StringVal& state_sv);
     static BigIntVal count_distinct_date_finalize(FunctionContext* ctx, const StringVal& state_sv);
- 
+
     template <typename T>
     static BigIntVal sum_distinct_bigint_finalize(FunctionContext* ctx, const StringVal& state_sv);
     template <typename T>
     static LargeIntVal sum_distinct_largeint_finalize(FunctionContext* ctx, const StringVal& state_sv);
     template <typename T>
-    static DoubleVal sum_distinct_double_finalize(FunctionContext* ctx, const StringVal& state_sv); 
+    static DoubleVal sum_distinct_double_finalize(FunctionContext* ctx, const StringVal& state_sv);
 
     /// Knuth's variance algorithm, more numerically stable than canonical stddev
     /// algorithms; reference implementation:

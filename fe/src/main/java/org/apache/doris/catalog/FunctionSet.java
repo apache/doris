@@ -127,7 +127,7 @@ public class FunctionSet {
                     "3maxIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
                .build();
 
-    private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE = 
+    private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE =
              ImmutableMap.<Type, Type>builder()
                     .put(Type.TINYINT, Type.BIGINT)
                     .put(Type.SMALLINT, Type.BIGINT)
@@ -138,7 +138,7 @@ public class FunctionSet {
                     .put(Type.LARGEINT, Type.LARGEINT)
                     .put(Type.DECIMAL, Type.DECIMAL)
                     .put(Type.DECIMALV2, Type.DECIMALV2)
-                    .build(); 
+                    .build();
 
     private static final Map<Type, String> MULTI_DISTINCT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -229,8 +229,8 @@ public class FunctionSet {
                     .put(Type.LARGEINT,
                             "38count_or_sum_distinct_numeric_finalizeIN9doris_udf11LargeIntValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
                     .build();
-   
-    
+
+
     private static final Map<Type, String> MULTI_DISTINCT_SUM_FINALIZE_SYMBOL =
              ImmutableMap.<Type, String>builder()
                     .put(Type.BIGINT,
@@ -290,7 +290,7 @@ public class FunctionSet {
                 .put(Type.LARGEINT,
                     "10hll_updateIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
                 .build();
-   
+
 
     private static final Map<Type, String> HLL_UNION_AGG_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
@@ -299,7 +299,7 @@ public class FunctionSet {
                 .put(Type.HLL,
                         "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
                 .build();
- 
+
     private static final Map<Type, String> OFFSET_FN_INIT_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.BOOLEAN,
@@ -571,7 +571,7 @@ public class FunctionSet {
     }
 
     /**
-     * There are essential differences in the implementation of some functions for different 
+     * There are essential differences in the implementation of some functions for different
      * types params, which should be prohibited.
      * @param desc
      * @param candicate
@@ -581,7 +581,7 @@ public class FunctionSet {
         final String functionName = desc.getFunctionName().getFunction();
         final Type[] descArgTypes = desc.getArgs();
         final Type[] candicateArgTypes = candicate.getArgs();
-        if (functionName.equalsIgnoreCase("hex") 
+        if (functionName.equalsIgnoreCase("hex")
                 || functionName.equalsIgnoreCase("greast")
                 || functionName.equalsIgnoreCase("least")) {
             final ScalarType descArgType = (ScalarType)descArgTypes[0];
@@ -704,18 +704,18 @@ public class FunctionSet {
                     prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
                     null, false, true, true));
 
-           
+
             // count in multi distinct
             if (t == Type.CHAR || t == Type.VARCHAR) {
-               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
-                    Type.VARCHAR, 
+                    Type.VARCHAR,
                     prefix + "26count_distinct_string_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
                     prefix + "28count_distinct_string_updateEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
-                    prefix + "27count_distinct_string_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_", 
-                    prefix + "31count_distinct_string_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",  
-                    null,      
-                    null, 
+                    prefix + "27count_distinct_string_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "31count_distinct_string_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    null,
+                    null,
                     prefix + "30count_distinct_string_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
 
@@ -729,31 +729,31 @@ public class FunctionSet {
                     "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
-            } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT 
+            } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT
                 || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
-               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
-                    Type.VARCHAR, 
+                    Type.VARCHAR,
                     prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
-                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t), 
-                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),  
-                    null,                      
-                    null, 
+                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),
+                    null,
+                    null,
                     prefix + MULTI_DISTINCT_COUNT_FINALIZE_SYMBOL.get(t),
                     false, true, true));
             } else if (t == Type.DATE || t == Type.DATETIME) {
-               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
-                    Type.VARCHAR, 
+                    Type.VARCHAR,
                     prefix + "24count_distinct_date_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
                     prefix + "26count_distinct_date_updateEPN9doris_udf15FunctionContextERNS1_11DateTimeValEPNS1_9StringValE",
                     prefix + "25count_distinct_date_mergeEPN9doris_udf15FunctionContextERNS1_9StringValEPS4_",
-                    prefix + "29count_distinct_date_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",  
-                    null,    
-                    null, 
+                    prefix + "29count_distinct_date_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    null,
+                    null,
                     prefix + "28count_distinct_date_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    false, true, true)); 
+                    false, true, true));
             } else if (t == Type.DECIMAL) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
@@ -765,7 +765,7 @@ public class FunctionSet {
                     null,
                     null,
                     prefix + "31count_distinct_decimal_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    false, true, true)); 
+                    false, true, true));
             } else if (t == Type.DECIMALV2) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
@@ -777,20 +777,20 @@ public class FunctionSet {
                     null,
                     null,
                     prefix + "33count_distinct_decimalv2_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    false, true, true)); 
+                    false, true, true));
             }
 
             // sum in multi distinct
             if (t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
-                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t), 
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     t,
-                    Type.VARCHAR, 
+                    Type.VARCHAR,
                     prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
                     prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
-                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t), 
-                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),  
-                    null,                      
-                    null, 
+                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),
+                    null,
+                    null,
                     prefix + MULTI_DISTINCT_SUM_FINALIZE_SYMBOL.get(t),
                     false, true, true));
             }  else if (t == Type.DECIMAL) {
@@ -998,7 +998,14 @@ public class FunctionSet {
                 prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, false, false));
-
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "22percentile_approx_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "24percentile_approx_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_RKS3_SA_PNS2_9StringValE",
+                prefix + "23percentile_approx_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "27percentile_approx_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
 
         // Avg
         // TODO: switch to CHAR(sizeof(AvgIntermediateType) when that becomes available
