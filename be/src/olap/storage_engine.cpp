@@ -1031,8 +1031,8 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
         int64_t used_time = UnixMillis() - start_time;
-        if (used_time < config::meta_checkpoint_min_interval_secs * 1000) {
-            usleep(config::meta_checkpoint_min_interval_secs * 1000 - used_time);
+        if (used_time < config::tablet_meta_checkpoint_min_interval_secs * 1000) {
+            usleep(config::tablet_meta_checkpoint_min_interval_secs * 1000 - used_time);
         } else {
             usleep(1000);
         }

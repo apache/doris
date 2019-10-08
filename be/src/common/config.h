@@ -469,8 +469,8 @@ namespace config {
     CONF_Int32(flush_thread_num_per_store, "2");
 
     // config for tablet meta checkpoint
-    CONF_Int32(meta_checkpoint_min_new_rowsets_num, "10");
-    CONF_Int32(meta_checkpoint_min_interval_secs, "600");
+    CONF_Int32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
+    CONF_Int32(tablet_meta_checkpoint_min_interval_secs, "600");
 } // namespace config
 
 } // namespace doris

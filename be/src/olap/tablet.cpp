@@ -986,8 +986,8 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     if (_newly_created_rowset_num == 0) {
         return OLAP_SUCCESS;
     }
-    if (UnixMillis() - _last_checkpoint_time < config::meta_checkpoint_min_interval_secs * 1000
-        && _newly_created_rowset_num < config::meta_checkpoint_min_new_rowsets_num * 10) {
+    if (UnixMillis() - _last_checkpoint_time < config::tablet_meta_checkpoint_min_interval_secs * 1000
+        && _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return OLAP_SUCCESS;
     }
     // hold read lock not write lock, because it will not modify meta structure
@@ -1027,7 +1027,7 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
             find_version = true;
         }
     }
-    if (find_rowset_id || find_version) {
+    if (find_rowset_id || !find_version) {
         return true;
     } else {
         return false;
