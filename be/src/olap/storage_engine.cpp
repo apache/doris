@@ -1029,9 +1029,9 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
         LOG(INFO) << "begin to do tablet meta checkpoint";
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
-        int64_t used_time = UnixMillis() - start_time;
-        if (used_time < config::tablet_meta_checkpoint_min_interval_secs * 1000) {
-            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time / 1000);
+        int64_t used_time = (UnixMillis() - start_time) / 1000;
+        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
+            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time);
         } else {
             sleep(1);
         }

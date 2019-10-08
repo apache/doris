@@ -107,7 +107,7 @@ public:
     inline size_t field_index(const string& field_name) const;
 
     // operation in rowsets
-    OLAPStatus add_rowset(RowsetSharedPtr rowset);
+    OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
     OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;

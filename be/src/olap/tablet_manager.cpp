@@ -1284,7 +1284,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
             }
 
             new_rowset = builder->build();
-            res = tablet->add_rowset(new_rowset);
+            res = tablet->add_rowset(new_rowset, false);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
                 break;

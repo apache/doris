@@ -240,16 +240,41 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
     return _data_dir->deregister_tablet(this);
 }
 
-OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
+OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     WriteLock wrlock(&_meta_lock);
     RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
-    OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), 
-        rowset->rowset_id(), rowset->rowset_meta().get());
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
+
+    vector<RowsetSharedPtr> rowsets_to_delete;
+    // yiguolei: temp code, should remove the rowset contains by this rowset
+    // but it should be removed in multi path version
+    for (auto& it : _rs_version_map) {
+        if ((it.first.first >= rowset->start_version() && it.first.second < rowset->end_version())
+            || (it.first.first > rowset->start_version() && it.first.second <= rowset->end_version())) {
+            if (it.second == nullptr) {
+                LOG(FATAL) << "there exist a version "
+                           << " start_version=" << it.first.first
+                           << " end_version=" << it.first.second
+                           << " contains the input rs with version "
+                           << " start_version=" << rowset->start_version()
+                           << " end_version=" << rowset->end_version()
+                           << " but the related rs is null";
+                return OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
+            } else {
+                rowsets_to_delete.push_back(it.second);
+            }
+        }
+    }
+    modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
+
+    if (need_persist) {
+        OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), 
+            rowset->rowset_id(), rowset->rowset_meta().get());
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
+        }
     }
     ++_newly_created_rowset_num;
     return OLAP_SUCCESS;
