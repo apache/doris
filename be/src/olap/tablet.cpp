@@ -992,7 +992,7 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     }
     // hold read lock not write lock, because it will not modify meta structure
     ReadLock rdlock(&_meta_lock);
-    LOG(INFO) << "start to do tablet meta checkpoint" << full_name();
+    LOG(INFO) << "start to do tablet meta checkpoint, tablet=" << full_name();
     RETURN_NOT_OK(save_meta());
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store

@@ -1024,18 +1024,16 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-
     LOG(INFO) << "try to start tablet meta checkpoint thread!";
-
     while (true) {
         LOG(INFO) << "begin to do tablet meta checkpoint";
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
         int64_t used_time = UnixMillis() - start_time;
         if (used_time < config::tablet_meta_checkpoint_min_interval_secs * 1000) {
-            usleep(config::tablet_meta_checkpoint_min_interval_secs * 1000 - used_time);
+            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time / 1000);
         } else {
-            usleep(1000);
+            sleep(1);
         }
     }
 
