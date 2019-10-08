@@ -250,7 +250,7 @@ public class DateLiteral extends LiteralExpr {
     // Date column and Datetime column's hash value is not same.
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        String value = getStringValue();
+        String value = convertToString(type);
         ByteBuffer buffer;
         try {
             buffer = ByteBuffer.wrap(value.getBytes("UTF-8"));
@@ -280,7 +280,11 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        if (type == Type.DATE) {
+        return convertToString(type.getPrimitiveType());
+    }
+
+    private String convertToString(PrimitiveType type) {
+        if (type == PrimitiveType.DATE) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
