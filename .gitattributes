@@ -1,6 +1,6 @@
 # Use whitelist to set text on
 # text means convert to LF when check in
-# eol=lf means convert to LF whne check out
+# eol=lf means convert to LF when check out
 *.cpp text eol=lf
 *.cc text eol=lf
 *.c text eol=lf
