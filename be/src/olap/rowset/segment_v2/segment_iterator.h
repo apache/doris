@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/iterators.h"
 #include "olap/schema.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/column_zone_map.h"
@@ -96,16 +95,6 @@ private:
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
-};
-
-class EmptySegmentIterator : public SegmentIterator {
-public:
-    explicit EmptySegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema) : SegmentIterator(segment, schema)  {}
-    ~EmptySegmentIterator() override {}
-    Status init(const StorageReadOptions& opts) override {
-        return Status::OK();
-    }
-    Status next_batch(RowBlockV2* row_block) override;
 };
 
 }

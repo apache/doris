@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/rowset/segment_v2/segment_iterator.h"
+#include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
@@ -58,7 +59,7 @@ Status Segment::open() {
 Status Segment::new_iterator(
         const Schema& schema,
         const StorageReadOptions& read_options,
-        std::unique_ptr<segment_v2::SegmentIterator>* iter) {
+        std::unique_ptr<RowwiseIterator>* iter) {
 
     if (read_options.conditions != nullptr) {
         for(auto& column_condition : read_options.conditions->columns()) {
@@ -74,7 +75,7 @@ Status Segment::new_iterator(
             ZoneMapPB c_zone_map = c_meta.zone_map();
             if (!c_zone_map.has_not_null() && !c_zone_map.has_null()) {
                 // no data
-                iter->reset(new EmptySegmentIterator(this->shared_from_this(), schema));
+                iter->reset(new EmptySegmentIterator(schema));
                 return Status::OK();
             }
             // TODO Logic here and the similar logic in ColumnReader::_get_filtered_pages should be unified.
@@ -97,7 +98,7 @@ Status Segment::new_iterator(
             }
             if (!column_condition.second->eval({min_value.get(), max_value.get()})) {
                 // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(this->shared_from_this(), schema));
+                iter->reset(new EmptySegmentIterator(schema));
                 return Status::OK();
             }
         }
@@ -178,9 +179,6 @@ Status Segment::_parse_index() {
 }
 
 Status Segment::_initial_column_readers() {
-    // If we can't find unique id, it means this segment is created
-    // with an old schema. So we should create a DefaultValueIterator
-    // for this column.
     // TODO(zc): Lazy init()?
     // There may be too many columns, majority of them would not be used
     // in query, so we should not init them here.

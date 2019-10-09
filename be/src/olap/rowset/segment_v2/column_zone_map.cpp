@@ -59,20 +59,12 @@ Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
     return Status::OK();
 }
 
-void ColumnZoneMapBuilder::fill_segment_zone_map(ZoneMapPB* to) {
-    to->set_has_not_null(_segment_zone_map.has_not_null);
-    to->set_has_null(_segment_zone_map.has_null);
-    to->set_max(_field->to_string(_segment_zone_map.max_value));
-    to->set_min(_field->to_string(_segment_zone_map.min_value));
+void ColumnZoneMapBuilder::fill_segment_zone_map(ZoneMapPB* const to) {
+    _fill_zone_map_to_pb(&_segment_zone_map, to);
 }
 
 Status ColumnZoneMapBuilder::flush() {
-    ZoneMapPB page_zone_map;
-    page_zone_map.set_min(_field->to_string(_zone_map.min_value));
-    page_zone_map.set_max(_field->to_string(_zone_map.max_value));
-    page_zone_map.set_has_null(_zone_map.has_null);
-    page_zone_map.set_has_not_null(_zone_map.has_not_null);
-
+    // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _zone_map.min_value) > 0) {
         _field->direct_copy_content(_segment_zone_map.min_value, _zone_map.min_value);
     }
@@ -85,6 +77,9 @@ Status ColumnZoneMapBuilder::flush() {
     if (!_segment_zone_map.has_not_null && _zone_map.has_not_null) {
         _segment_zone_map.has_not_null = true;
     }
+
+    ZoneMapPB page_zone_map;
+    _fill_zone_map_to_pb(&_zone_map, &page_zone_map);
 
     std::string serialized_zone_map;
     bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
@@ -105,6 +100,13 @@ void ColumnZoneMapBuilder::_reset_zone_map(ZoneMap& zone_map) {
     _field->set_to_min(zone_map.max_value);
     zone_map.has_null = false;
     zone_map.has_not_null = false;
+}
+
+void ColumnZoneMapBuilder::_fill_zone_map_to_pb(ZoneMap* const from, ZoneMapPB* const to) {
+    to->set_has_not_null(from->has_not_null);
+    to->set_has_null(from->has_null);
+    to->set_max(_field->to_string(from->max_value));
+    to->set_min(_field->to_string(from->min_value));
 }
 
 Status ColumnZoneMap::load() {
