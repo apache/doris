@@ -242,6 +242,11 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     WriteLock wrlock(&_meta_lock);
+    // if the rowset already exist, should not return version already exist
+    // should return OLAP_SUCCESS
+    if (contains_rowset(rowset->rowset_id())) {
+        return OLAP_SUCCESS;
+    }
     RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
@@ -370,6 +375,9 @@ RowsetSharedPtr Tablet::rowset_with_largest_size() {
 // add inc rowset should not persist tablet meta, because the 
 OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
+    if (contains_rowset(rowset->rowset_id())) {
+        return OLAP_SUCCESS;
+    }
     // check if the rowset id is valid
     RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
@@ -1058,6 +1066,20 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
     } else {
         return false;
     }
+}
+
+bool Tablet::contains_rowset(const RowsetId rowset_id) {
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace doris

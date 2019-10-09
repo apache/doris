@@ -237,6 +237,8 @@ public:
 
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
+    bool contains_rowset(const RowsetId rowset_id);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
