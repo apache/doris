@@ -825,14 +825,9 @@ OLAPStatus DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE 
             && rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            OLAPStatus publish_status = OLAP_SUCCESS;
-            if (rowset_meta->is_singleton_delta()) {
-                publish_status = tablet->add_inc_rowset(rowset);
-            } else {
-                publish_status = tablet->add_rowset(rowset, false);
-            }
+            OLAPStatus publish_status = tablet->add_rowset(rowset, false);
             if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
+                LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
                             << " tablet id: " << rowset_meta->tablet_id()
                             << " txn id:" << rowset_meta->txn_id()
                             << " start_version: " << rowset_meta->version().first
