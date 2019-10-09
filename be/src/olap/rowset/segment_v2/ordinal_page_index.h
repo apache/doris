@@ -39,12 +39,15 @@ namespace segment_v2 {
 // index_pair:
 //      Ordinal (4 Bytes)
 //      PagePointer (8 Bytes)
+
+static const uint32_t ORDINAL_PAGE_INDEX_HEADER_SIZE = 4;
+
 class OrdinalPageIndexBuilder {
 public:
     OrdinalPageIndexBuilder() : _num_pages(0) {
         _buffer.reserve(4 * 1024);
         // reserve space for number of pages
-        _buffer.resize(4);
+        _buffer.resize(ORDINAL_PAGE_INDEX_HEADER_SIZE);
     }
 
     void append_entry(rowid_t rid, const PagePointer& page) {
@@ -119,7 +122,7 @@ public:
     }
 
 private:
-    uint32_t _header_size() const { return 8; }
+    uint32_t _header_size() const { return ORDINAL_PAGE_INDEX_HEADER_SIZE; }
 
 private:
     friend OrdinalPageIndexIterator;
