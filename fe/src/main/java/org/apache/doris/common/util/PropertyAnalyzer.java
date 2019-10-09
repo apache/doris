@@ -381,12 +381,12 @@ public class PropertyAnalyzer {
     public static Set<String> analyzeInvertedIndex(Map<String, String> properties,
                                                    List<Column> columns) throws AnalysisException {
         if (properties == null || !properties.containsKey(PROPERTIES_INVERTED_INDEX_COLUMNS)) {
-            return null;
+            return Sets.newHashSet();
         }
         String idxColsStr = properties.get(PROPERTIES_INVERTED_INDEX_COLUMNS);
         properties.remove(PROPERTIES_INVERTED_INDEX_COLUMNS);
         if (Strings.isNullOrEmpty(idxColsStr)) {
-            return null;
+            return Sets.newHashSet();
         }
         Set<String> resultCols = Sets.newHashSet();
         Map<String, Column> columnMap = columns.stream()
@@ -401,11 +401,11 @@ public class PropertyAnalyzer {
                             " invalid column: " + idxCol);
                 }
                 if (resultCols.contains(column.getName())) {
-                    throw new AnalysisException("Reduplicated reverted index column: " + idxCol);
+                    throw new AnalysisException("Reduplicated inverted index column: " + idxCol);
                 }
                 resultCols.add(column.getName());
             } else {
-                throw new AnalysisException("Reverted index column does not exist in table. " +
+                throw new AnalysisException("Inverted index column does not exist in table. " +
                         "invalid column: " + idxCol);
             }
         }

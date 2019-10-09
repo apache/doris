@@ -244,6 +244,9 @@ public class OlapTable extends Table {
     }
 
     public Set<String> getInvertedIndexColumns() {
+        if (invertedIndexColumns == null) {
+            return null;
+        }
         return ImmutableSet.copyOf(invertedIndexColumns);
     }
 
@@ -864,6 +867,8 @@ public class OlapTable extends Table {
             Text.writeString(out, colocateGroup);
         }
 
+        out.writeLong(baseIndexId);
+
         // inverted index columns
         if (invertedIndexColumns == null) {
             out.writeBoolean(false);
@@ -874,8 +879,6 @@ public class OlapTable extends Table {
                 Text.writeString(out, idxCol);
             }
         }
-
-        out.writeLong(baseIndexId);
     }
 
     @Override
@@ -964,6 +967,13 @@ public class OlapTable extends Table {
             }
         }
 
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_57) {
+            baseIndexId = in.readLong();
+        } else {
+            // the old table use table id as base index id
+            baseIndexId = id;
+        }
+
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
             if (in.readBoolean()) {
                 int idxSize = in.readInt();
@@ -972,13 +982,6 @@ public class OlapTable extends Table {
                     invertedIndexColumns.add(Text.readString(in));
                 }
             }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_57) {
-            baseIndexId = in.readLong();
-        } else {
-            // the old table use table id as base index id
-            baseIndexId = id;
         }
     }
 

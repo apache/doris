@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -114,6 +115,7 @@ public class UnitTestUtil {
         table.addPartition(partition);
         table.setIndexSchemaInfo(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1);
         table.setStorageTypeToIndex(indexId, TStorageType.COLUMN);
+        table.setInvertedIndexColumns(ImmutableSet.of("v"));
 
         // db
         Database db = new Database(dbId, DB_NAME);

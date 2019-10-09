@@ -115,4 +115,69 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_BF_FPP, "0.05");
         Assert.assertEquals(0.05, PropertyAnalyzer.analyzeBloomFilterFpp(properties), 0.0001);
     }
+
+    @Test
+    public void testInvertedColumns() throws AnalysisException {
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("k1", PrimitiveType.INT));
+        columns.add(new Column("k2", PrimitiveType.TINYINT));
+        columns.add(new Column("v1",
+                ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("v2",
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+        columns.get(0).setIsKey(true);
+        columns.get(1).setIsKey(true);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS, "v1,v2");
+
+        Set<String> invertedColumns = PropertyAnalyzer.analyzeInvertedIndex(properties, columns);
+        Assert.assertEquals(Sets.newHashSet("v1", "v2"), invertedColumns);
+    }
+
+    @Test
+    public void testInvertedColumnsError() {
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("k1", PrimitiveType.INT));
+        columns.add(new Column("k2", PrimitiveType.TINYINT));
+        columns.add(new Column("v1",
+                ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("v2", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+        columns.get(0).setIsKey(true);
+        columns.get(1).setIsKey(true);
+
+        Map<String, String> properties = Maps.newHashMap();
+
+        // no invert columns
+        properties.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS, "");
+        try {
+            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeInvertedIndex(properties, columns));
+        } catch (AnalysisException e) {
+            Assert.fail();
+        }
+
+        // v3 not exist
+        properties.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS, "v3");
+        try {
+            PropertyAnalyzer.analyzeInvertedIndex(properties, columns);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Inverted index column does not exist in table"));
+        }
+
+        // key not supported
+        properties.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS, "k1");
+        try {
+            PropertyAnalyzer.analyzeInvertedIndex(properties, columns);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Inverted index only used in columns of value"));
+        }
+
+        // reduplicated column
+        properties.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_COLUMNS, "v1,V1");
+        try {
+            PropertyAnalyzer.analyzeInvertedIndex(properties, columns);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Reduplicated inverted index column"));
+        }
+    }
 }
