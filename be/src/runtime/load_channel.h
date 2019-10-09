@@ -29,6 +29,7 @@
 namespace doris {
 
 class Cache;
+class MemTracker;
 class TabletsChannel;
 
 // A LoadChannel manages tablets channels for all indexes
@@ -47,8 +48,13 @@ public:
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
+    time_t last_updated_time() { return _last_updated_time; }
+
 private:
     UniqueId _load_id;
+    // this mem tracker tracks the total mem comsuption of this load task
+    std::unique_ptr<MemTracker> _mem_tracker; 
+
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
@@ -57,6 +63,8 @@ private:
     Cache* _lastest_success_channel = nullptr;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
+
+    time_t _last_updated_time;
 };
 
 }

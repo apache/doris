@@ -29,18 +29,21 @@
 namespace doris {
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, StorageEngine::instance());
-    return (*writer)->init(mem_tracker);
+    *writer = new DeltaWriter(req, mem_tracker, StorageEngine::instance());
+    return (*writer)->init();
 }
 
 DeltaWriter::DeltaWriter(
         WriteRequest* req,
+        MemTracker* mem_tracker,
         StorageEngine* storage_engine)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
       _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
       _delta_written_success(false),
       _storage_engine(storage_engine) {
+
+    _mem_tracker.reset(new MemTracker(-1, "delta writer", mem_tracker));
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -143,10 +146,10 @@ OLAPStatus DeltaWriter::init(MemTracker* mem_tracker) {
     _tablet_schema = &(_tablet->tablet_schema());
     _schema = new Schema(*_tablet_schema);
     _mem_table = std::make_shared<MemTable>(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-            _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get());
+            _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get());
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), mem_tracker, &_flush_handler));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &_flush_handler));
 
     _is_init = true;
     return OLAP_SUCCESS;
@@ -165,7 +168,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get()));
+                _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
     }
     return OLAP_SUCCESS;
 }

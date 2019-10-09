@@ -25,12 +25,11 @@
 
 namespace doris {
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key): 
+TabletsChannel::TabletsChannel(
+        const TabletsChannelKey& key,
+        MemTracker* mem_tracker): 
     _key(key), _closed_senders(64) {
-    // _last_updated_time should be set before being inserted to
-    // _tablet_channels in tablet_channel_mgr, or it may be erased
-    // immediately by gc thread.
-    _last_updated_time = time(nullptr);
+    _load_mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker))
 }
 
 TabletsChannel::~TabletsChannel() {
@@ -62,7 +61,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     RETURN_IF_ERROR(_open_all_writers(params));
 
     _opened = true;
-    _last_updated_time = time(nullptr);
     return Status::OK();
 }
 
@@ -82,7 +80,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         return Status::InternalError("lost data packet");
     }
 
-    RowBatch row_batch(*_row_desc, params.row_batch(), &_mem_tracker);
+    RowBatch row_batch(*_row_desc, params.row_batch(), &_row_batch_mem_tracker);
 
     // iterator all data
     for (int i = 0; i < params.tablet_ids_size(); ++i) {
@@ -103,7 +101,6 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
     }
     _next_seqs[params.sender_id()]++;
-    _last_updated_time = time(nullptr);
     return Status::OK();
 }
 
@@ -186,7 +183,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, &writer);
+        auto st = DeltaWriter::open(&request, _load_mem_tracker.get(),  &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

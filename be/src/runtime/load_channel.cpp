@@ -17,13 +17,19 @@
 
 #include "runtime/load_channel.h"
 
+#include "runtime/mem_tracker.h"
 #include "runtime/tablets_channle.h"
 #include "olap/lru_cache.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id) :_load_id(load_id) {
+LoadChannel::LoadChannel(const UniqueId& load_id) :_load_id(load_id, int64_t mem_limit) {
     _lastest_success_channel = new_lru_cache(8);
+    _mem_tracker.reset(new MemTracker(mem_limit, std::to_string(load_id)));
+    // _last_updated_time should be set before being inserted to
+    // _load_channels in load_channel_mgr, or it may be erased
+    // immediately by gc thread.
+    _last_updated_time = time(nullptr);
 }
 
 LoadChannel::~LoadChannel() {
@@ -41,7 +47,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key));
+            channel.reset(new TabletsChannel(key, _mem_tracker.get()));
             _tablets_channels.insert(index_id, channel);
         }
     }
@@ -51,10 +57,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     if (!_opened) {
         _opened = true;
     }
+    _last_updated_time = time(nullptr);
     return Status::OK();
-}
-
-static void dummy_deleter(const CacheKey& key, void* value) {
 }
 
 Status LoadChannel::add_batch(
@@ -75,7 +79,7 @@ Status LoadChannel::add_batch(
                 return Status::OK();
             }
             std::stringstream ss;
-            ss << "load channel add batch with unknown index id: " << index_id;
+            ss << "load channel " << _load_id << " add batch with unknown index id: " << index_id;
             return Status::InternalError(ss.str());
         }
         channel = it->second;
@@ -99,6 +103,7 @@ Status LoadChannel::add_batch(
             _lastest_success_channel->release(handle);
         }
     }
+    _last_updated_time = time(nullptr);
     return st;
 }
 

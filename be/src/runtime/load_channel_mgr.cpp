@@ -17,26 +17,14 @@
 
 #include "runtime/load_channel_mgr.h"
 
-#include <cstdint>
-#include <unordered_map>
-#include <utility>
-
-#include "common/object_pool.h"
-#include "exec/tablet_info.h"
-#include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/stopwatch.hpp"
-#include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 
 namespace doris {
 
 LoadChannelMgr::LoadChannelMgr(ExecEnv* exec_env) :_exec_env(exec_env) {
-    _load_channels.init(2011);
     _lastest_success_channel = new_lru_cache(1024);
 }
 
@@ -53,7 +41,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         if (it != _load_channels.end()) {
             channel = it->second;
         } else {
-            // create a new 
+            // create a new load channel
             channel.reset(new LoadChannel(load_id));
             _load_channels.insert(load_id, channel);
         }
@@ -61,9 +49,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
-}
-
-static void dummy_deleter(const CacheKey& key, void* value) {
 }
 
 Status LoadChannelMgr::add_batch(
@@ -85,7 +70,7 @@ Status LoadChannelMgr::add_batch(
                 return Status::OK();
             }
             std::stringstream ss;
-            ss << "TabletWriter add batch with unknown load id: " << load_id;
+            ss << "load channel manager add batch with unknown load id: " << load_id;
             return Status::InternalError(ss.str());
         }
         channel = it->second;
@@ -117,7 +102,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::start_bg_worker() {
-    _tablets_channel_clean_thread = std::thread(
+    _load_channels_clean_thread = std::thread(
         [this] {
             #ifdef GOOGLE_PROFILER
                 ProfilerRegisterThread();
@@ -129,8 +114,11 @@ Status LoadChannelMgr::start_bg_worker() {
                 sleep(interval);
             }
         });
-    _tablets_channel_clean_thread.detach();
+    _load_channels_clean_thread.detach();
     return Status::OK();
+}
+
+static void dummy_deleter(const CacheKey& key, void* value) {
 }
 
 Status LoadChannelMgr::_start_load_channels_clean() {

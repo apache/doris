@@ -30,6 +30,7 @@ namespace doris {
 
 class FlushHandler;
 class MemTable;
+class MemTracker;
 class Schema;
 class SegmentGroup;
 class StorageEngine;
@@ -55,9 +56,9 @@ struct WriteRequest {
 
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
 
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
+    DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine);
 
     OLAPStatus init();
 
@@ -94,6 +95,7 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushHandler> _flush_handler;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 }  // namespace doris

@@ -27,7 +27,7 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer)
+                   KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
     : _tablet_id(tablet_id),
       _schema(schema),
       _tablet_schema(tablet_schema),
@@ -36,9 +36,10 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
       _keys_type(keys_type),
       _row_comparator(_schema),
       _rowset_writer(rowset_writer) {
+
     _schema_size = _schema->schema_size();
-    _tracker.reset(new MemTracker(config::write_buffer_size * 2));
-    _mem_pool.reset(new MemPool(_tracker.get()));
+    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker))
+    _mem_pool.reset(new MemPool(_mem_tracker));
     _tuple_buf = _mem_pool->allocate(_schema_size);
     _skip_list = new Table(_row_comparator, _mem_pool.get());
 }

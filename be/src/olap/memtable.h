@@ -57,7 +57,7 @@ private:
     };
 
     RowCursorComparator _row_comparator;
-    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _agg_object_pool;
 

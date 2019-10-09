@@ -20,8 +20,6 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
-#include <ostream>
-#include <sstream>
 #include <thread>
 #include <ctime>
 
@@ -30,7 +28,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/tablets_channel.h"
-#include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
 #include "service/brpc.h"
@@ -45,7 +42,7 @@ class Cache;
 // All dispached load data for this backend is routed from this class
 class LoadChannelMgr {
 public:
-    LoadChannelMgr(ExecEnv* exec_env);
+    LoadChannelMgr();
     ~LoadChannelMgr();
 
     // open a new load channel if not exist
@@ -63,22 +60,16 @@ public:
     Status start_bg_worker();
 
 private:
-
-    std::shared_ptr<MemTracker> _create_mem_tracker_if_not_exist();
-
-private:
-    ExecEnv* _exec_env;
-    // lock protect the channel map
+    // lock protect the load channel map
     std::mutex _lock;
-
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
 
     Cache* _lastest_success_channel = nullptr;
 
     // thread to clean timeout load channels
-    std::thread _tablets_channel_clean_thread;
-    Status _start_tablets_channel_clean();
+    std::thread _load_channels_clean_thread;
+    Status _start_load_channels_clean();
 };
 
 }
