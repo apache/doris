@@ -81,6 +81,7 @@ int CpuInfo::max_num_numa_nodes_;
 unique_ptr<int[]> CpuInfo::core_to_numa_node_;
 vector<vector<int>> CpuInfo::numa_node_to_cores_;
 vector<int> CpuInfo::numa_node_core_idx_;
+pthread_mutex_t CpuInfo::init_mutex_;
 
 static struct {
   string name;
@@ -111,7 +112,9 @@ int64_t ParseCPUFlags(const string& values) {
 }
 
 void CpuInfo::init() {
-    if (initialized_) return;
+  pthread_mutex_lock(&init_mutex_);
+  if (initialized_) return;
+
   string line;
   string name;
   string value;
@@ -173,6 +176,7 @@ void CpuInfo::init() {
 
   _init_numa();
   initialized_ = true;
+  pthread_mutex_unlock(&init_mutex_);
 }
 
 void CpuInfo::_init_numa() {

@@ -219,6 +219,9 @@ class CpuInfo {
   /// Array with 'max_num_cores_' entries, each of which is the index of that core in its
   /// NUMA node.
   static std::vector<int> numa_node_core_idx_;
+
+  // used for init in multi thread
+  static pthread_mutex_t init_mutex_;
 };
 }
 #endif
