@@ -18,68 +18,45 @@
 #pragma once
 
 #include <unordered_map>
-#include <memory>
 #include <mutex>
-#include <ostream>
-#include <sstream>
-#include <thread>
-#include <ctime>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/tablets_channel.h"
-#include "util/hash_util.hpp"
 #include "util/uid_util.h"
-
-#include "service/brpc.h"
 
 namespace doris {
 
-class ExecEnv;
-
 class Cache;
+class TabletsChannel;
 
-//  Mgr -> load -> tablet
-// All dispached load data for this backend is routed from this class
-class TabletWriterMgr {
+// A LoadChannel manages tablets channels for all indexes
+// corresponding to a certain load job
+class LoadChannel {
 public:
-    TabletWriterMgr(ExecEnv* exec_env);
-    ~TabletWriterMgr();
+    LoadChannel(const UniqueId& load_id);
+    ~LoadChannel();
 
-    // open a new backend
+    // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    // when batch.
-    Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     int64_t* wait_lock_time_ns);
+    Status add_batch(const PTabletWriterAddBatchRequest& request);
 
-    // cancel all tablet stream for 'load_id' load
-    // id: stream load's id
-    Status cancel(const PTabletWriterCancelRequest& request);
-
-    Status start_bg_worker();
+    // return true if this load channel has been opened and all tablets channels are closed then.
+    bool is_finished();
 
 private:
-    ExecEnv* _exec_env;
-    // lock protect the channel map
+    UniqueId _load_id;
+    // lock protect the tablets channel map
     std::mutex _lock;
-
-    // A map from load_id|index_id to load channel
-    butil::FlatMap<
-        TabletsChannelKey,
-        std::shared_ptr<TabletsChannel>,
-        TabletsChannelKeyHasher> _tablets_channels;
+    // index id -> tablets channel
+    std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
 
     Cache* _lastest_success_channel = nullptr;
-
-    // thread to clean timeout tablets_channel
-    std::thread _tablets_channel_clean_thread;
-
-    Status _start_tablets_channel_clean();
+    // set to true if at least one tablets channel has been opened
+    bool _opened = false;
 };
 
 }

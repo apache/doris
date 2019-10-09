@@ -93,7 +93,7 @@ private:
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
-    std::shared_ptr<FlushHandler> _flush_handler;
+    std::unique_ptr<FlushHandler> _flush_handler;
 };
 
 }  // namespace doris

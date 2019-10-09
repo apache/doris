@@ -28,9 +28,9 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
     *writer = new DeltaWriter(req, StorageEngine::instance());
-    return (*writer)->init();
+    return (*writer)->init(mem_tracker);
 }
 
 DeltaWriter::DeltaWriter(
@@ -50,6 +50,11 @@ DeltaWriter::~DeltaWriter() {
 
     _mem_table.reset();
     SAFE_DELETE(_schema);
+
+    if (_flush_handler != nullptr) {
+        _flush_handler->cancel();
+    }
+
     if (_rowset_writer != nullptr) {
         _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
     }
@@ -76,7 +81,7 @@ void DeltaWriter::_garbage_collection() {
     }
 }
 
-OLAPStatus DeltaWriter::init() {
+OLAPStatus DeltaWriter::init(MemTracker* mem_tracker) {
     _tablet = _storage_engine->tablet_manager()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
@@ -141,7 +146,7 @@ OLAPStatus DeltaWriter::init() {
             _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get());
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &_flush_handler));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), mem_tracker, &_flush_handler));
 
     _is_init = true;
     return OLAP_SUCCESS;

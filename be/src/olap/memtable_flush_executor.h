@@ -54,6 +54,7 @@ struct MemTableFlushContext {
 struct FlushResult {
     OLAPStatus flush_status;
     int64_t flush_time_ns;
+    int64_t flush_size_bytes;
 };
 
 // the statistic of a certain flush handler.
@@ -68,13 +69,16 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 // This class must be wrapped by std::shared_ptr, or you will get bad_weak_ptr exception
 // when calling submit();
 class MemTableFlushExecutor;
+class MemTracker;
 class FlushHandler : public std::enable_shared_from_this<FlushHandler> {
 public:
-    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor):
+    FlushHandler(int32_t flush_queue_idx, MemTracker* parent, MemTableFlushExecutor* flush_executor):
         _flush_queue_idx(flush_queue_idx),
         _last_flush_status(OLAP_SUCCESS),
         _counter_cond(0),
-        _flush_executor(flush_executor) {
+        _flush_executor(flush_executor),
+        _mem_tracker(new MemTracker(-1, "FlushHandler", parent)),
+        _is_cancelled(false) {
     }
 
     // submit a memtable to flush. return error if some previous submitted MemTable has failed  
@@ -91,7 +95,9 @@ public:
         _counter_cond.dec_to_zero();
     }
 
-    bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS; }
+    bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load(); }
+
+    void cancel() { _is_cancelled.store(true); }
 private:
     // flush queue idx in memtable flush executor
     int32_t _flush_queue_idx;
@@ -102,6 +108,12 @@ private:
 
     FlushStatistic _stats;
     MemTableFlushExecutor* _flush_executor;
+
+    // Should not call it if is_cancelled()
+    std::unique_ptr<MemTracker> _mem_tracker;
+    // the caller of the flush handler can set this variable to notify that the
+    // uppper application is already cancelled.
+    std::atomic<bool> _is_cancelled;
 };
 
 // MemTableFlushExecutor is for flushing memtables to disk.
@@ -111,7 +123,7 @@ private:
 //
 //      ...
 //      std::shared_ptr<FlushHandler> flush_handler;
-//      memTableFlushExecutor.create_flush_handler(path_hash, &flush_handler);
+//      memTableFlushExecutor.create_flush_handler(path_hash, mem_tracker, &flush_handler);
 //      ...      
 //      flush_handler->submit(memtable)
 //      ...
@@ -125,7 +137,7 @@ public:
     ~MemTableFlushExecutor();
 
     // create a flush handler to access the flush executor
-    OLAPStatus create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
+    OLAPStatus create_flush_handler(int64_t path_hash, MemTracker* mem_tracker, std::shared_ptr<FlushHandler>* flush_handler);
 
 private:
     // given the path hash, return the next idx of flush queue.

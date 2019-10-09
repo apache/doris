@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tablet_writer_mgr.h"
+#include "runtime/load_channel_mgr.h"
 
 #include <cstdint>
 #include <unordered_map>
@@ -35,29 +35,30 @@
 
 namespace doris {
 
-TabletWriterMgr::TabletWriterMgr(ExecEnv* exec_env) :_exec_env(exec_env) {
-    _tablets_channels.init(2011);
+LoadChannelMgr::LoadChannelMgr(ExecEnv* exec_env) :_exec_env(exec_env) {
+    _load_channels.init(2011);
     _lastest_success_channel = new_lru_cache(1024);
 }
 
-TabletWriterMgr::~TabletWriterMgr() {
+LoadChannelMgr::~LoadChannelMgr() {
     delete _lastest_success_channel;
 }
 
-Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
-    TabletsChannelKey key(params.id(), params.index_id());
-    std::shared_ptr<TabletsChannel> channel;
+Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
+    UniqueId load_id(params.id());
+    std::shared_ptr<LoadChannel> channel;
     {
         std::lock_guard<std::mutex> l(_lock);
-        auto val = _tablets_channels.seek(key);
-        if (val != nullptr) {
-            channel = *val;
+        auto it = _load_channels.find(load_id);
+        if (it != _load_channels.end()) {
+            channel = it->second;
         } else {
             // create a new 
-            channel.reset(new TabletsChannel(key));
-            _tablets_channels.insert(key, channel);
+            channel.reset(new LoadChannel(load_id));
+            _load_channels.insert(load_id, channel);
         }
     }
+
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
 }
@@ -65,69 +66,57 @@ Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
 static void dummy_deleter(const CacheKey& key, void* value) {
 }
 
-Status TabletWriterMgr::add_batch(
+Status LoadChannelMgr::add_batch(
         const PTabletWriterAddBatchRequest& request,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
         int64_t* wait_lock_time_ns) {
-    TabletsChannelKey key(request.id(), request.index_id());
-    std::shared_ptr<TabletsChannel> channel;
+
+    UniqueId load_id(request.id());
+    // 1. get load channel
+    std::shared_ptr<LoadChannel> channel;
     {
-        MonotonicStopWatch timer;
-        timer.start();
         std::lock_guard<std::mutex> l(_lock);
-        *wait_lock_time_ns += timer.elapsed_time();
-        auto value = _tablets_channels.seek(key);
-        if (value == nullptr) {
-            auto handle = _lastest_success_channel->lookup(key.to_string());
+        auto it = _load_channels.find(load_id);
+        if (it == _load_channels.end()) {
+            auto handle = _lastest_success_channel->lookup(load_id.to_string());
             // success only when eos be true
             if (handle != nullptr && request.has_eos() && request.eos()) {
                 _lastest_success_channel->release(handle);
                 return Status::OK();
             }
             std::stringstream ss;
-            ss << "TabletWriter add batch with unknown id, key=" << key;
+            ss << "TabletWriter add batch with unknown load id: " << load_id;
             return Status::InternalError(ss.str());
         }
-        channel = *value;
+        channel = it->second;
     }
-    if (request.has_row_batch()) {
-        RETURN_IF_ERROR(channel->add_batch(request));
-    }
-    Status st;
-    if (request.has_eos() && request.eos()) {
-        bool finished = false;
-        st = channel->close(request.sender_id(), &finished, request.partition_ids(), tablet_vec);
-        if (!st.ok()) {
-            LOG(WARNING) << "channle close failed, key=" << key
-                << ", sender_id=" << request.sender_id()
-                << ", err_msg=" << st.get_error_msg();
-        }
-        if (finished) {
-            MonotonicStopWatch timer;
-            timer.start();
-            std::lock_guard<std::mutex> l(_lock);
-            *wait_lock_time_ns += timer.elapsed_time();
-            _tablets_channels.erase(key);
-            if (st.ok()) {
-                auto handle = _lastest_success_channel->insert(
-                    key.to_string(), nullptr, 1, dummy_deleter);
-                _lastest_success_channel->release(handle);
-            }
-        }
-    }
-    return st;
-}
 
-Status TabletWriterMgr::cancel(const PTabletWriterCancelRequest& params) {
-    TabletsChannelKey key(params.id(), params.index_id());
-    {
+    // 2. add batch to load channel
+    if (request.has_row_batch()) {
+        RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
+    }
+
+    // 3. handle finish
+    if (channel->is_finished()) {
         std::lock_guard<std::mutex> l(_lock);
-        _tablets_channels.erase(key);
+        _load_channels.erase(load_id);
+        auto handle = _lastest_success_channel->insert(
+                load_id.to_string(), nullptr, 1, dummy_deleter);
+        _lastest_success_channel->release(handle);
     }
     return Status::OK();
 }
 
-Status TabletWriterMgr::start_bg_worker() {
+Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
+    UniqueId load_id(request.id());
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _load_channels.erase(load_id);
+    }
+    return Status::OK();
+}
+
+Status LoadChannelMgr::start_bg_worker() {
     _tablets_channel_clean_thread = std::thread(
         [this] {
             #ifdef GOOGLE_PROFILER
@@ -136,7 +125,7 @@ Status TabletWriterMgr::start_bg_worker() {
 
             uint32_t interval = 60;
             while (true) {
-                _start_tablets_channel_clean();
+                _start_load_channels_clean();
                 sleep(interval);
             }
         });
@@ -144,23 +133,23 @@ Status TabletWriterMgr::start_bg_worker() {
     return Status::OK();
 }
 
-Status TabletWriterMgr::_start_tablets_channel_clean() {
+Status LoadChannelMgr::_start_load_channels_clean() {
     const int32_t max_alive_time = config::streaming_load_rpc_max_alive_time_sec;
     time_t now = time(nullptr);
     {
         std::lock_guard<std::mutex> l(_lock);
-        std::vector<TabletsChannelKey> need_delete_keys;
+        std::vector<UniqueId> need_delete_channel_ids;
 
-        for (auto& kv : _tablets_channels) {
+        for (auto& kv : _load_channels) {
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= max_alive_time) {
-                need_delete_keys.emplace_back(kv.first);
+                need_delete_channel_ids.emplace_back(kv.first);
             }
         }
 
-        for(auto& key: need_delete_keys) {
-            _tablets_channels.erase(key);
-            LOG(INFO) << "erase timeout tablets channel: " << key;
+        for(auto& key: need_delete_channel_ids) {
+            _load_channels.erase(key);
+            LOG(INFO) << "erase timeout load channel: " << key;
         }
     }
     return Status::OK();
