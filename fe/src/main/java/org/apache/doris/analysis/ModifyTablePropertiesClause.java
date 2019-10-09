@@ -55,6 +55,11 @@ public class ModifyTablePropertiesClause extends AlterClause {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("hash")) {
                 throw new AnalysisException("Can only change distribution type to HASH");
             }
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK).equalsIgnoreCase("true")) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK + " should be set to true");
+            }
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
