@@ -519,9 +519,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
             if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
             }
-            StorageEngine::instance()->txn_manager()->delete_txn(meta, partition_id, transaction_id,
-                                tablet_info.first.tablet_id, tablet_info.first.schema_hash, 
-                                tablet_info.first.tablet_uid);
+            StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet_info.first, transaction_id);
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;

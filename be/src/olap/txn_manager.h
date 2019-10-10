@@ -72,6 +72,22 @@ public:
         _txn_tablet_map.clear();
         _txn_locks.clear();
     }
+
+    OLAPStatus prepare_txn(TPartitionId partition_id, const TabletSharedPtr tablet, const TTransactionId transaction_id, const PUniqueId& load_id);
+
+    OLAPStatus commit_txn(TPartitionId partition_id, const TabletSharedPtr tablet, const TTransactionId transaction_id,
+                          const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, 
+                          bool is_recovery);
+
+    OLAPStatus publish_txn(TPartitionId partition_id, const TabletSharedPtr tablet, TTransactionId transaction_id,
+                           const Version& version, VersionHash& version_hash);
+
+    // delete the txn from manager if it is not committed(not have a valid rowset)
+    OLAPStatus rollback_txn(TPartitionId partition_id, const TabletSharedPtr tablet, TTransactionId transaction_id);
+
+
+    OLAPStatus delete_txn(TPartitionId partition_id, const TabletSharedPtr tablet, TTransactionId transaction_id);
+
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     OLAPStatus prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,

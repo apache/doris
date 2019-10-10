@@ -90,10 +90,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet->data_dir()->get_meta(), 
-                partition_id, 
-                transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, 
-                version, version_hash);
+            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet, 
+                transaction_id, version, version_hash);
             
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to publish for rowset_id:" << rowset->rowset_id()
