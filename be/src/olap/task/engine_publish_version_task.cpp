@@ -90,7 +90,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet, 
+            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(partition_id, tablet, 
                 transaction_id, version, version_hash);
             
             if (publish_status != OLAP_SUCCESS) {
