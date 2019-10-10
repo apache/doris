@@ -341,7 +341,7 @@ void AggregateFunctions::decimalv2_avg_update(FunctionContext* ctx,
 
 StringVal AggregateFunctions::decimalv2_avg_serialize(
         FunctionContext* ctx, const StringVal& src) {
-    DCHECK(!src->is_null);
+    DCHECK(!src.is_null);
     StringVal result(ctx, src.len);
     memcpy(result.ptr, src.ptr, src.len);
     delete (DecimalV2AvgState*)src.ptr;
