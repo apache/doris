@@ -573,11 +573,9 @@ OLAPStatus DataDir::_convert_old_tablet() {
 
         // write pending rowset to olap meta
         for (auto& rowset_pb : pending_rowsets) {
-            string meta_binary;
-            rowset_pb.SerializeToString(&meta_binary);
             RowsetId rowset_id;
             rowset_id.init(rowset_pb.rowset_id_v2());
-            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_id, meta_binary);
+            status = RowsetMetaManager::save(_meta, rowset_pb.tablet_uid(), rowset_id, rowset_pb);
             if (status != OLAP_SUCCESS) {
                 LOG(FATAL) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
                              << tablet_id << "." << schema_hash;

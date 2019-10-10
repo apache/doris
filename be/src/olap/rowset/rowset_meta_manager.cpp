@@ -79,22 +79,16 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tab
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, const RowsetMetaPB& rowset_meta_pb) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
-    bool ret = rowset_meta->serialize(&value);
+    bool ret = rowset_meta_pb.SerializeToString(&value);;
     if (!ret) {
         std::string error_msg = "serialize rowset pb failed. rowset id:" + key;
         LOG(WARNING) << error_msg;
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    return status;
-}
-
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id, const string& meta_binary) {
-    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-    OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
     return status;
 }
 

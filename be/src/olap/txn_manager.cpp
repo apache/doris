@@ -182,8 +182,9 @@ OLAPStatus TxnManager::commit_txn(
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
     // it is under a single txn lock
     if (!is_recovery) {
-        OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
-            rowset_ptr->rowset_meta().get());
+        RowsetMetaPB rowset_meta_pb;
+        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
+        OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
                         << rowset_ptr->rowset_id()
@@ -234,9 +235,9 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
         rowset_ptr->make_visible(version, version_hash);
-        OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, 
-            rowset_ptr->rowset_id(),
-            rowset_ptr->rowset_meta().get());
+        RowsetMetaPB rowset_meta_pb;
+        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
+        OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                          << rowset_ptr->rowset_id()
