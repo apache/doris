@@ -825,24 +825,13 @@ OLAPStatus DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE 
             && rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            // add visible rowset to tablet, it maybe use in the future
-            // there should be only preparing rowset in meta env because visible 
-            // rowset is persist with tablet meta currently
-            OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
+            OLAPStatus publish_status = tablet->add_rowset(rowset, false);
             if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
-                             << " tablet id: " << rowset_meta->tablet_id()
-                             << " txn id:" << rowset_meta->txn_id()
-                             << " start_version: " << rowset_meta->version().first
-                             << " end_version: " << rowset_meta->version().second;
-            } else {
-                // it is added into tablet meta, then remove it from meta
-                RowsetMetaManager::remove(tablet->data_dir()->get_meta(), rowset_meta->tablet_uid(), rowset->rowset_id());
-                LOG(INFO) << "successfully to add visible rowset: " << rowset_meta->rowset_id()
-                          << " to tablet: " << rowset_meta->tablet_id()
-                          << " txn id:" << rowset_meta->txn_id()
-                          << " start_version: " << rowset_meta->version().first
-                          << " end_version: " << rowset_meta->version().second;
+                LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
+                            << " tablet id: " << rowset_meta->tablet_id()
+                            << " txn id:" << rowset_meta->txn_id()
+                            << " start_version: " << rowset_meta->version().first
+                            << " end_version: " << rowset_meta->version().second;
             }
         } else {
             LOG(WARNING) << "find invalid rowset: " << rowset_meta->rowset_id()
