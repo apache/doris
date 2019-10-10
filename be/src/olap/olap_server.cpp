@@ -90,6 +90,16 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         thread.detach();
     }
 
+    for (auto data_dir : data_dirs) {
+        _tablet_checkpoint_threads.emplace_back(
+        [this, data_dir] {
+            _tablet_checkpoint_callback((void*)data_dir);
+        });
+    }
+    for (auto& thread : _tablet_checkpoint_threads) {
+        thread.detach();
+    }
+
     _fd_cache_clean_thread = std::thread(
         [this] {
             _fd_cache_clean_callback(nullptr);

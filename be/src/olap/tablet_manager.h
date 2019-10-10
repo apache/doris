@@ -135,6 +135,8 @@ public:
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
+    void do_tablet_meta_checkpoint(DataDir* data_dir);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
