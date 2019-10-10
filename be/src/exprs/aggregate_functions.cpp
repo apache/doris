@@ -251,8 +251,8 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, c
 }
 
 struct AvgState {
-    double sum;
-    int64_t count;
+    double sum = 0;
+    int64_t count = 0;
 };
 
 struct DecimalAvgState {
@@ -269,7 +269,7 @@ void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(AvgState);
     dst->ptr = ctx->allocate(dst->len);
-    memset(dst->ptr, 0, sizeof(AvgState));
+    dst->ptr = (uint8_t*) new (dst->ptr) AvgState;
 }
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
@@ -341,10 +341,12 @@ void AggregateFunctions::decimalv2_avg_update(FunctionContext* ctx,
 
 StringVal AggregateFunctions::decimalv2_avg_serialize(
         FunctionContext* ctx, const StringVal& src) {
-    StringVal result = string_val_get_value(ctx, src);
-    if (!src.is_null) {
-        delete (DecimalV2AvgState*)src.ptr;
+    if (src.is_null) {
+        return src;
     }
+    StringVal result(ctx, src.len);
+    memcpy(result.ptr, src.ptr, src.len);
+    delete (DecimalV2AvgState*)src.ptr;
     return result;
 }
 
