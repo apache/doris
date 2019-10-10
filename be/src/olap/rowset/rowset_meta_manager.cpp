@@ -139,7 +139,9 @@ OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::s
     }
     RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();
-    OLAPStatus status = save(meta, tablet_uid, rowset_id, &rowset_meta);
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta.to_rowset_pb(&rowset_meta_pb);
+    OLAPStatus status = save(meta, tablet_uid, rowset_id, rowset_meta_pb);
     return status;
 }
 

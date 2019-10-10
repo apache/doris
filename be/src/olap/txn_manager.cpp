@@ -183,7 +183,7 @@ OLAPStatus TxnManager::commit_txn(
     // it is under a single txn lock
     if (!is_recovery) {
         RowsetMetaPB rowset_meta_pb;
-        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
+        rowset_ptr->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
         OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
@@ -236,7 +236,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         // it maybe a fatal error
         rowset_ptr->make_visible(version, version_hash);
         RowsetMetaPB rowset_meta_pb;
-        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
+        rowset_ptr->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
         OLAPStatus save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
