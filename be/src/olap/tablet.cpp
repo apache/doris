@@ -275,8 +275,10 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
 
     if (need_persist) {
+        RowsetMetaPB rowset_meta_pb;
+        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
         OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), 
-            rowset->rowset_id(), rowset->rowset_meta().get());
+            rowset->rowset_id(), rowset_meta_pb);
         if (res != OLAP_SUCCESS) {
             LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
         }
