@@ -269,7 +269,7 @@ void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(AvgState);
     dst->ptr = ctx->allocate(dst->len);
-    dst->ptr = (uint8_t*) new (dst->ptr) AvgState;
+    new (dst->ptr) AvgState;
 }
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
@@ -341,9 +341,7 @@ void AggregateFunctions::decimalv2_avg_update(FunctionContext* ctx,
 
 StringVal AggregateFunctions::decimalv2_avg_serialize(
         FunctionContext* ctx, const StringVal& src) {
-    if (src.is_null) {
-        return src;
-    }
+    DCHECK(!src->is_null);
     StringVal result(ctx, src.len);
     memcpy(result.ptr, src.ptr, src.len);
     delete (DecimalV2AvgState*)src.ptr;
