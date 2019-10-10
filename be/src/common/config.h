@@ -467,6 +467,10 @@ namespace config {
     CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
     // number of thread for flushing memtable per store
     CONF_Int32(flush_thread_num_per_store, "2");
+
+    // config for tablet meta checkpoint
+    CONF_Int32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
+    CONF_Int32(tablet_meta_checkpoint_min_interval_secs, "600");
 } // namespace config
 
 } // namespace doris
