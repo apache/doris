@@ -497,9 +497,6 @@ DecimalVal AggregateFunctions::decimal_avg_finalize(FunctionContext* ctx, const 
 }
 
 DecimalV2Val AggregateFunctions::decimalv2_avg_finalize(FunctionContext* ctx, const StringVal& src) {
-    if (src.is_null) {
-        return DecimalV2Val::null();
-    }
     DecimalV2Val result = decimalv2_avg_get_value(ctx, src);
     delete (DecimalV2AvgState*)src.ptr;
     return result;
