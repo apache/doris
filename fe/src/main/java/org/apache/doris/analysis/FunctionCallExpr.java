@@ -358,9 +358,10 @@ public class FunctionCallExpr extends Expr {
         }
 
         // SUM and AVG cannot be applied to non-numeric types
-        if (fnName.getFunction().equalsIgnoreCase("sum")
+        if ((fnName.getFunction().equalsIgnoreCase("sum")
+                || fnName.getFunction().equalsIgnoreCase("avg"))
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {
-            throw new AnalysisException("SUM requires a numeric parameter: " + this.toSql());
+            throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {

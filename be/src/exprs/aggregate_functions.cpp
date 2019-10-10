@@ -177,61 +177,6 @@ void AggregateFunctions::count_remove(
     }
 }
 
-struct AvgState {
-    double sum;
-    int64_t count;
-};
-
-struct DecimalAvgState {
-    DecimalVal sum;
-    int64_t count;
-};
-
-struct DecimalV2AvgState {
-    DecimalV2Val sum;
-    int64_t count;
-};
-
-void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = false;
-    dst->len = sizeof(AvgState);
-    dst->ptr = ctx->allocate(dst->len);
-    memset(dst->ptr, 0, sizeof(AvgState));
-}
-
-void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = false;
-    dst->len = sizeof(DecimalAvgState);
-    dst->ptr = ctx->allocate(dst->len);
-    // memset(dst->ptr, 0, sizeof(DecimalAvgState));
-    DecimalAvgState* avg = reinterpret_cast<DecimalAvgState*>(dst->ptr);
-    avg->count = 0;
-    avg->sum.set_to_zero();
-}
-
-void AggregateFunctions::decimalv2_avg_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = false;
-    dst->len = sizeof(DecimalV2AvgState);
-    dst->ptr = ctx->allocate(dst->len);
-    // memset(dst->ptr, 0, sizeof(DecimalAvgState));
-    DecimalV2AvgState* avg = reinterpret_cast<DecimalV2AvgState*>(dst->ptr);
-    avg->count = 0;
-    avg->sum.set_to_zero();
-}
-
-
-template <typename T>
-void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-    DCHECK(dst->ptr != NULL);
-    DCHECK_EQ(sizeof(AvgState), dst->len);
-    AvgState* avg = reinterpret_cast<AvgState*>(dst->ptr);
-    avg->sum += src.val;
-    ++avg->count;
-}
-
 struct PercentileApproxState {
 public:
     PercentileApproxState() : digest(new TDigest()){
@@ -305,6 +250,59 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, c
     return DoubleVal(result);
 }
 
+struct AvgState {
+    double sum = 0;
+    int64_t count = 0;
+};
+
+struct DecimalAvgState {
+    DecimalVal sum;
+    int64_t count;
+};
+
+struct DecimalV2AvgState {
+    DecimalV2Val sum;
+    int64_t count = 0;
+};
+
+void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(AvgState);
+    dst->ptr = ctx->allocate(dst->len);
+    new (dst->ptr) AvgState;
+}
+
+void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(DecimalAvgState);
+    dst->ptr = ctx->allocate(dst->len);
+    // memset(dst->ptr, 0, sizeof(DecimalAvgState));
+    DecimalAvgState* avg = reinterpret_cast<DecimalAvgState*>(dst->ptr);
+    avg->count = 0;
+    avg->sum.set_to_zero();
+}
+
+void AggregateFunctions::decimalv2_avg_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(DecimalV2AvgState);
+    // The memroy for int128 need to be aligned by 16.
+    // So the constructor has been used instead of allocating memory.
+    // Also, it will be release in finalize.
+    dst->ptr = (uint8_t*) new DecimalV2AvgState;
+}
+
+template <typename T>
+void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(AvgState), dst->len);
+    AvgState* avg = reinterpret_cast<AvgState*>(dst->ptr);
+    avg->sum += src.val;
+    ++avg->count;
+}
+
 void AggregateFunctions::decimal_avg_update(FunctionContext* ctx,
         const DecimalVal& src,
         StringVal* dst) {
@@ -339,6 +337,15 @@ void AggregateFunctions::decimalv2_avg_update(FunctionContext* ctx,
     v.to_decimal_val(&avg->sum);
 
     ++avg->count;
+}
+
+StringVal AggregateFunctions::decimalv2_avg_serialize(
+        FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+    StringVal result(ctx, src.len);
+    memcpy(result.ptr, src.ptr, src.len);
+    delete (DecimalV2AvgState*)src.ptr;
+    return result;
 }
 
 template <typename T>
@@ -424,16 +431,17 @@ void AggregateFunctions::decimal_avg_merge(FunctionContext* ctx, const StringVal
 
 void AggregateFunctions::decimalv2_avg_merge(FunctionContext* ctx, const StringVal& src,
         StringVal* dst) {
-    const DecimalV2AvgState* src_struct = reinterpret_cast<const DecimalV2AvgState*>(src.ptr);
+    DecimalV2AvgState src_struct;
+    memcpy(&src_struct, src.ptr, sizeof(DecimalV2AvgState));
     DCHECK(dst->ptr != NULL);
     DCHECK_EQ(sizeof(DecimalV2AvgState), dst->len);
     DecimalV2AvgState* dst_struct = reinterpret_cast<DecimalV2AvgState*>(dst->ptr);
 
     DecimalV2Value v1 = DecimalV2Value::from_decimal_val(dst_struct->sum);
-    DecimalV2Value v2 = DecimalV2Value::from_decimal_val(src_struct->sum);
+    DecimalV2Value v2 = DecimalV2Value::from_decimal_val(src_struct.sum);
     DecimalV2Value v = v1 + v2;
     v.to_decimal_val(&dst_struct->sum);
-    dst_struct->count += src_struct->count;
+    dst_struct->count += src_struct.count;
 }
 
 DoubleVal AggregateFunctions::avg_get_value(FunctionContext* ctx, const StringVal& src) {
@@ -489,11 +497,8 @@ DecimalVal AggregateFunctions::decimal_avg_finalize(FunctionContext* ctx, const 
 }
 
 DecimalV2Val AggregateFunctions::decimalv2_avg_finalize(FunctionContext* ctx, const StringVal& src) {
-    if (src.is_null) {
-        return DecimalV2Val::null();
-    }
     DecimalV2Val result = decimalv2_avg_get_value(ctx, src);
-    ctx->free(src.ptr);
+    delete (DecimalV2AvgState*)src.ptr;
     return result;
 }
 
