@@ -742,8 +742,8 @@ public class SelectStmt extends QueryStmt {
 
     /**
      * Analyze aggregation-relevant components of the select block (Group By clause,
-     * select list, Order By clause), substitute AVG with SUM/COUNT, create the
-     * AggregationInfo, including the agg output tuple, and transform all post-agg exprs
+     * select list, Order By clause),
+     * Create the AggregationInfo, including the agg output tuple, and transform all post-agg exprs
      * given AggregationInfo's smap.
      */
     private void analyzeAggregation(Analyzer analyzer) throws AnalysisException {
@@ -867,12 +867,6 @@ public class SelectStmt extends QueryStmt {
             TreeNode.collect(sortInfo.getOrderingExprs(), Expr.isAggregatePredicate(), aggExprs);
         }
 
-        // substitute AVG before constructing AggregateInfo
-        ExprSubstitutionMap avgSMap = createAvgSMap(aggExprs, analyzer);
-
-        // Optionally rewrite all count(distinct <expr>) into equivalent NDV() calls.
-        ExprSubstitutionMap ndvSmap = avgSMap;
-
         // When DISTINCT aggregates are present, non-distinct (i.e. ALL) aggregates are
         // evaluated in two phases (see AggregateInfo for more details). In particular,
         // COUNT(c) in "SELECT COUNT(c), AGG(DISTINCT d) from R" is transformed to
@@ -884,7 +878,6 @@ public class SelectStmt extends QueryStmt {
         // i) There is no GROUP-BY clause, and
         // ii) Other DISTINCT aggregates are present.
         ExprSubstitutionMap countAllMap = createCountAllMap(aggExprs, analyzer);
-        countAllMap = ExprSubstitutionMap.compose(ndvSmap, countAllMap, analyzer);
         final ExprSubstitutionMap multiCountOrSumDistinctMap = 
                 createSumOrCountMultiDistinctSMap(aggExprs, analyzer);
         countAllMap = ExprSubstitutionMap.compose(multiCountOrSumDistinctMap, countAllMap, analyzer);
@@ -965,38 +958,6 @@ public class SelectStmt extends QueryStmt {
                     "clause?): " + havingClause.toSql());
             }
         }
-    }
-
-    /**
-     * Build smap AVG -> SUM/COUNT;
-     * assumes that select list and having clause have been analyzed.
-     */
-    private ExprSubstitutionMap createAvgSMap(
-            ArrayList<FunctionCallExpr> aggExprs, Analyzer analyzer) throws AnalysisException {
-        ExprSubstitutionMap result = new ExprSubstitutionMap();
-        for (FunctionCallExpr aggExpr : aggExprs) {
-            if (!aggExpr.getFnName().getFunction().equalsIgnoreCase("AVG")) {
-                continue;
-            }
-            // Transform avg(TIMESTAMP) to cast(avg(cast(TIMESTAMP as DOUBLE)) as TIMESTAMP)
-            CastExpr inCastExpr = null;
-
-            List<Expr> sumInputExprs = Lists.newArrayList(aggExpr.getChild(0).clone(null));
-            List<Expr> countInputExpr = Lists.newArrayList(aggExpr.getChild(0).clone(null));
-
-            FunctionCallExpr sumExpr = new FunctionCallExpr("sum",
-              new FunctionParams(aggExpr.isDistinct(), sumInputExprs));
-            FunctionCallExpr countExpr =
-                    new FunctionCallExpr("count",
-                new FunctionParams(aggExpr.isDistinct(), countInputExpr));
-            ArithmeticExpr divExpr =
-              new ArithmeticExpr(ArithmeticExpr.Operator.DIVIDE, sumExpr, countExpr);
-
-            divExpr.analyze(analyzer);
-            result.put(aggExpr, divExpr);
-        }
-        LOG.debug("avg smap: {}", result.debugString());
-        return result;
     }
 
 
