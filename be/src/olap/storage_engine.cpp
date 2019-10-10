@@ -648,7 +648,50 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     // clean rubbish transactions
     _clean_unused_txns();
 
+    // clean unused rowset metas in OlapMeta
+    _clean_unused_rowset_metas();
+
     return res;
+}
+
+void StorageEngine::_clean_unused_rowset_metas() {
+    std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
+    auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id, 
+        const std::string& meta_str) -> bool {
+
+        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        bool parsed = rowset_meta->init(meta_str);
+        if (!parsed) {
+            LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
+            // return false will break meta iterator, return true to skip this error
+            return true;
+        }
+        if (rowset_meta->tablet_uid() != tablet_uid) {
+            LOG(WARNING) << "tablet uid is not equal, skip the rowset"
+                         << ", rowset_id=" << rowset_meta->rowset_id()
+                         << ", in_put_tablet_uid=" << tablet_uid
+                         << ", tablet_uid in rowset meta=" << rowset_meta->tablet_uid();
+            return true;
+        }
+
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet_uid);
+        if (tablet == nullptr) {
+            return true;
+        }
+        if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE && (!tablet->rowset_meta_is_useful(rowset_meta))) {
+            LOG(INFO) << "rowset meta is useless any more, remote it. rowset_id=" << rowset_meta->rowset_id();
+            invalid_rowset_metas.push_back(rowset_meta);
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
+        for (auto& rowset_meta : invalid_rowset_metas) {
+            RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()); 
+        }
+        invalid_rowset_metas.clear();
+    }
 }
 
 void StorageEngine::_clean_unused_txns() {
@@ -972,6 +1015,26 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
         LOG(INFO) << "try to perform path scan!";
         ((DataDir*)arg)->perform_path_scan();
         usleep(interval * 1000000);
+    }
+
+    return nullptr;
+}
+
+void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+    LOG(INFO) << "try to start tablet meta checkpoint thread!";
+    while (true) {
+        LOG(INFO) << "begin to do tablet meta checkpoint";
+        int64_t start_time = UnixMillis();
+        _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
+        int64_t used_time = (UnixMillis() - start_time) / 1000;
+        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
+            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time);
+        } else {
+            sleep(1);
+        }
     }
 
     return nullptr;

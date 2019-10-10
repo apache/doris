@@ -1164,6 +1164,31 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set
     }
 }
 
+void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
+    vector<TabletSharedPtr> related_tablets;
+    {
+        ReadLock tablet_map_rdlock(&_tablet_map_lock);
+        for (tablet_map_t::value_type& table_ins : _tablet_map){
+            for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
+                // if tablet is not ready, it maybe a new tablet under schema change, not do compaction
+                if (table_ptr->tablet_state() != TABLET_RUNNING) {
+                    continue;
+                }
+
+                if (table_ptr->data_dir()->path_hash() != data_dir->path_hash()
+                        || !table_ptr->is_used() || !table_ptr->init_succeeded()) {
+                    continue;
+                }
+                related_tablets.push_back(table_ptr);
+            }
+        }
+    }
+    for (TabletSharedPtr tablet : related_tablets) {
+        tablet->do_tablet_meta_checkpoint();
+    }
+    return;
+}
+
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
     tablet_info->tablet_id = tablet->tablet_id();
     tablet_info->schema_hash = tablet->schema_hash();
@@ -1259,7 +1284,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
             }
 
             new_rowset = builder->build();
-            res = tablet->add_rowset(new_rowset);
+            res = tablet->add_rowset(new_rowset, false);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
                 break;
