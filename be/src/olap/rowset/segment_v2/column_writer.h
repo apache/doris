@@ -157,6 +157,7 @@ private:
 
     PagePointer _ordinal_index_pp;
     PagePointer _zone_map_pp;
+    PagePointer _dict_page_pp;
     uint64_t _written_size = 0;
 };
 

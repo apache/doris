@@ -85,10 +85,10 @@ private:
     std::unique_ptr<BinaryPlainPageBuilder> _dict_builder;
 
     EncodingTypePB _encoding_type;
-    struct HashOfSlice {                                                                                                                                              
+    struct HashOfSlice {
         size_t operator()(const Slice& slice) const {
             return HashStringThoroughly(slice.data, slice.size);
-        }   
+        }
     };
     // query for dict item -> dict id
     std::unordered_map<Slice, uint32_t, HashOfSlice> _dictionary;
@@ -116,11 +116,15 @@ public:
         return _data_page_decoder->current_index();
     }
 
+    bool is_dict_encoding() const;
+
+    void set_dict_decoder(PageDecoder* dict_decoder);
+
 private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    std::shared_ptr<BinaryPlainPageDecoder> _dict_decoder;
+    const BinaryPlainPageDecoder* _dict_decoder = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
     faststring _code_buf;

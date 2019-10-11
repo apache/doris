@@ -118,6 +118,10 @@ public:
         _need_delete_file = true;
     }
 
+    bool contains_version(Version version) {
+        return rowset_meta()->version().first <= version.first && rowset_meta()->version().second >= version.second;
+    }
+
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
     }

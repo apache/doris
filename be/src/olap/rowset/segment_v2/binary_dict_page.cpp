@@ -102,7 +102,7 @@ Slice BinaryDictPageBuilder::finish() {
     Slice data_slice = _data_page_builder->finish();
     _buffer.append(data_slice.data, data_slice.size);
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return Slice(_buffer.data(), _buffer.size());
+    return Slice(_buffer);
 }
 
 void BinaryDictPageBuilder::reset() {
@@ -129,7 +129,6 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
-    DCHECK(_finished) << "get dictionary page when the builder is not finished";
     _dictionary.clear();
     _dict_builder->reset();
     size_t add_count = 1;
@@ -148,7 +147,6 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
     _data(data),
     _options(options),
     _data_page_decoder(nullptr),
-    _dict_decoder(options.dict_decoder),
     _parsed(false),
     _encoding_type(UNKNOWN_ENCODING) { }
 
@@ -162,7 +160,6 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
-        DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
@@ -181,17 +178,26 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
 
+bool BinaryDictPageDecoder::is_dict_encoding() const {
+    return _encoding_type == DICT_ENCODING;
+}
+
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder){
+    _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
+};
+
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
         return _data_page_decoder->next_batch(n, dst);
     }
     // dictionary encoding
     DCHECK(_parsed);
+    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
     if (PREDICT_FALSE(*n == 0)) {
         *n = 0;
         return Status::OK();
     }
-    Slice *out = reinterpret_cast<Slice *>(dst->data());
+    Slice* out = reinterpret_cast<Slice*>(dst->data());
     _code_buf.resize((*n) * sizeof(int32_t));
 
     // copy the codewords into a temporary buffer first
@@ -202,10 +208,10 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {
-        int32_t codeword = *reinterpret_cast<int32_t *>(&_code_buf[i * sizeof(int32_t)]);
+        int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
-        char *destination = dst->column_block()->arena()->Allocate(element.size);
+        char* destination = dst->column_block()->arena()->Allocate(element.size);
         if (destination == nullptr) {
             return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
         }

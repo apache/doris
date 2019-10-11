@@ -118,6 +118,8 @@ dst);
             doris_udf::StringVal* dst);
     static void decimalv2_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
             doris_udf::StringVal* dst);
+    static doris_udf::StringVal decimalv2_avg_serialize(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& src);
     static void decimal_avg_remove(doris_udf::FunctionContext* ctx,
             const doris_udf::DecimalVal& src,
             doris_udf::StringVal* dst);

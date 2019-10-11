@@ -57,6 +57,7 @@ public:
 
     inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
         _agg_info->update(dest, src, mem_pool);
@@ -199,6 +200,10 @@ public:
         _type_info->deep_copy_with_arena(dest, src, arena);
     }
 
+    inline void direct_copy_content(char* dest, const char* src) const {
+        _type_info->direct_copy(dest, src);
+    }
+
     // Copy srouce content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;
@@ -211,7 +216,7 @@ public:
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
-    inline std::string to_string(char* src) const {
+    inline std::string to_string(const char* src) const {
         return _type_info->to_string(src);
     }
 

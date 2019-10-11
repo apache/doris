@@ -131,9 +131,6 @@ private:
     // Field offset of memory row format, used to get field ptr in memory row
     std::vector<size_t> _field_offset_in_memory;
 
-    // Data in storage will be construct of two parts: fixed-length field stored in ahead
-    // of buffer; content of variable length field(Varchar/HLL) are stored after first part
-
     // only used for SegmentReader to covert VectorizedRowBatch to RowBlock
     // Be careful to use this
     size_t _pos = 0;

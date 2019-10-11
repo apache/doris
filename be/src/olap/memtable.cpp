@@ -17,7 +17,6 @@
 
 #include "olap/memtable.h"
 
-#include "olap/hll.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/row_cursor.h"
 #include "olap/row.h"
