@@ -21,7 +21,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 
-namespace doris 
+namespace doris
 {
 
 SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
@@ -50,7 +50,7 @@ SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
 };
 
 SchemaTablesScanner::SchemaTablesScanner()
-        : SchemaScanner(_s_tbls_columns, 
+        : SchemaScanner(_s_tbls_columns,
                         sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
         _db_index(0),
         _table_index(0) {
@@ -73,10 +73,10 @@ Status SchemaTablesScanner::start(RuntimeState *state) {
     if (NULL != _param->user_ip) {
         db_params.__set_user_ip(*(_param->user_ip));
     }
-    
+
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
-                    _param->port, db_params, &_db_result)); 
+                    _param->port, db_params, &_db_result));
     } else {
         return Status::InternalError("IP or port dosn't exists");
     }
@@ -176,7 +176,15 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // creation_time
     {
-        tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
+        DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
+        int64_t create_time = tbl_status.create_time;
+        if (create_time <= 0) {
+            tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
+        } else {
+            time_slot->from_unixtime(create_time, TimezoneDatabase::default_time_zone);
+        }
+
     }
     // update_time
     {
@@ -184,7 +192,14 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // check_time
     {
-        tuple->set_null(_tuple_desc->slots()[16]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
+        DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
+        int64_t check_time = tbl_status.last_check_time;
+        if (check_time <= 0) {
+            tuple->set_null(_tuple_desc->slots()[16]->null_indicator_offset());
+        } else {
+            time_slot->from_unixtime(check_time, TimezoneDatabase::default_time_zone);
+        }
     }
     // collation
     {
@@ -233,7 +248,7 @@ Status SchemaTablesScanner::get_new_table() {
 
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip),
-                _param->port, table_params, &_table_result)); 
+                _param->port, table_params, &_table_result));
     } else {
         return Status::InternalError("IP or port dosn't exists");
     }

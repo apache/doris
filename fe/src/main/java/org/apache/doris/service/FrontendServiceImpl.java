@@ -234,6 +234,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setType(table.getMysqlType());
                     status.setEngine(table.getEngine());
                     status.setComment(table.getComment());
+                    status.setCreate_time(table.getCreateTime());
+                    status.setLast_check_time(table.getLastCheckTime());
 
                     tablesResult.add(status);
                 }

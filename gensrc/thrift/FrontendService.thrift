@@ -305,6 +305,8 @@ struct TTableStatus {
     2: required string type
     3: required string comment
     4: optional string engine
+    5: optional i64 last_check_time
+    6: optional i64 create_time
 }
 
 struct TListTableStatusResult {

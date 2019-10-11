@@ -25,6 +25,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/vfs.h>
+#include <sys/sysmacros.h>
 #include "boost/filesystem.hpp"
 #include "common/logging.h"
 #include "olap/data_dir.h"
