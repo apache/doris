@@ -238,7 +238,7 @@ OLAPStatus TxnManager::commit_txn(
 // remove a txn from txn manager
 OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                                    TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                                   Version& version, VersionHash& version_hash) {
+                                   const Version& version, VersionHash& version_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;

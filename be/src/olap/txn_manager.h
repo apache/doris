@@ -104,7 +104,7 @@ public:
     // not persist rowset meta because 
     OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
-                           Version& version, VersionHash& version_hash);
+                           const Version& version, VersionHash& version_hash);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
