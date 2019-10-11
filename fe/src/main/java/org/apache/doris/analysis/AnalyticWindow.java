@@ -350,7 +350,7 @@ public class AnalyticWindow {
 
         if (e.isConstant() && e.getType().isNumericType()) {
             try {
-                val=e.getConstFromExpr(e);
+                val = Expr.getConstFromExpr(e);
 //                val = TColumnValueUtil.getNumericVal(
 //                        FeSupport.EvalConstExpr(e, analyzer.getQueryGlobals()));
 
@@ -400,8 +400,8 @@ public class AnalyticWindow {
         try {
 //            TColumnValue val1 = FeSupport.EvalConstExpr(e1, analyzer.getQueryGlobals());
 //            TColumnValue val2 = FeSupport.EvalConstExpr(e2, analyzer.getQueryGlobals());
-            double left = e1.getConstFromExpr(e1);
-            double right = e2.getConstFromExpr(e2);
+            double left = Expr.getConstFromExpr(e1);
+            double right = Expr.getConstFromExpr(e2);
 
             if (left > right) {
                 throw new AnalysisException(
