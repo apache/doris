@@ -17,6 +17,7 @@
 
 #include "runtime/load_channel_mgr.h"
 
+#include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
 #include "service/backend_options.h"
 #include "util/stopwatch.hpp"
@@ -24,7 +25,7 @@
 
 namespace doris {
 
-LoadChannelMgr::LoadChannelMgr(ExecEnv* exec_env) :_exec_env(exec_env) {
+LoadChannelMgr::LoadChannelMgr() {
     _lastest_success_channel = new_lru_cache(1024);
 }
 
@@ -42,13 +43,23 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             channel = it->second;
         } else {
             // create a new load channel
-            channel.reset(new LoadChannel(load_id));
-            _load_channels.insert(load_id, channel);
+            // default mem limit is used to be compatible with old request.
+            // new request should be set load_mem_limit.
+            const int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
+            int64_t load_mem_limit = default_load_mem_limit;
+            if (params.has_load_mem_limit()) {
+                load_mem_limit = params.load_mem_limit();
+            }
+            channel.reset(new LoadChannel(load_id, load_mem_limit));
+            _load_channels.insert({load_id, channel});
         }
     }
 
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
+}
+
+static void dummy_deleter(const CacheKey& key, void* value) {
 }
 
 Status LoadChannelMgr::add_batch(
@@ -93,7 +104,7 @@ Status LoadChannelMgr::add_batch(
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
-    UniqueId load_id(request.id());
+    UniqueId load_id(params.id());
     {
         std::lock_guard<std::mutex> l(_lock);
         _load_channels.erase(load_id);
@@ -118,20 +129,18 @@ Status LoadChannelMgr::start_bg_worker() {
     return Status::OK();
 }
 
-static void dummy_deleter(const CacheKey& key, void* value) {
-}
-
 Status LoadChannelMgr::_start_load_channels_clean() {
+    std::vector<std::shared_ptr<LoadChannel>> need_delete_channels;
     const int32_t max_alive_time = config::streaming_load_rpc_max_alive_time_sec;
     time_t now = time(nullptr);
     {
-        std::lock_guard<std::mutex> l(_lock);
         std::vector<UniqueId> need_delete_channel_ids;
-
+        std::lock_guard<std::mutex> l(_lock);
         for (auto& kv : _load_channels) {
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= max_alive_time) {
                 need_delete_channel_ids.emplace_back(kv.first);
+                need_delete_channels.emplace_back(kv.second);
             }
         }
 
@@ -140,6 +149,15 @@ Status LoadChannelMgr::_start_load_channels_clean() {
             LOG(INFO) << "erase timeout load channel: " << key;
         }
     }
+
+    // we must canel these load channels before destroying them.
+    // or some object may be invalid before trying to visit it.
+    // eg: MemTracker in load channel
+    for (auto& channel : need_delete_channels) {
+        channel->cancel();
+        LOG(INFO) << "load channel has been safely deleted: " << channel->load_id();
+    }
+
     return Status::OK();
 }
 

@@ -34,9 +34,8 @@
 
 namespace doris {
 
-class ExecEnv;
-
 class Cache;
+class LoadChannel;
 
 // LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWrtier
 // All dispached load data for this backend is routed from this class

@@ -36,19 +36,31 @@ class TabletsChannel;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    Status add_batch(const PTabletWriterAddBatchRequest& request);
+    Status add_batch(
+            const PTabletWriterAddBatchRequest& request,
+            google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
-    time_t last_updated_time() { return _last_updated_time; }
+    // cancel this channel
+    Status cancel();
+
+    time_t last_updated_time() const { return _last_updated_time; }
+
+    const UniqueId& load_id() const { return _load_id; }
+
+private:
+    // when mem consumption exceeds limit, should call this to find the max mem consumption channel
+    // and try to reduce its mem usage.
+    bool _find_largest_max_consumption_tablets_channel(std::shared_ptr<TabletsChannel>* channel);
 
 private:
     UniqueId _load_id;

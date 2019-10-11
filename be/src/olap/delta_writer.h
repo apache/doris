@@ -72,7 +72,14 @@ public:
 
     OLAPStatus cancel();
 
+    // submit current memtable to flush queue, and wait all memtables in flush queue
+    // to be flushed.
+    // This is currently for reducing mem consumption of this delta writer.
+    OLAPStatus flush_memtable_and_wait();
+
     int64_t partition_id() const { return _req.partition_id; }
+
+    int64_t mem_consumption();
 
 private:
     // push a full memtable to flush executor
@@ -94,7 +101,7 @@ private:
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
-    std::unique_ptr<FlushHandler> _flush_handler;
+    std::shared_ptr<FlushHandler> _flush_handler;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
 

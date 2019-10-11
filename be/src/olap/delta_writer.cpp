@@ -55,7 +55,9 @@ DeltaWriter::~DeltaWriter() {
     SAFE_DELETE(_schema);
 
     if (_flush_handler != nullptr) {
+        // cancel and wait all memtables in flush queue to be finished
         _flush_handler->cancel();
+        _flush_handler->wait();
     }
 
     if (_rowset_writer != nullptr) {
@@ -84,7 +86,7 @@ void DeltaWriter::_garbage_collection() {
     }
 }
 
-OLAPStatus DeltaWriter::init(MemTracker* mem_tracker) {
+OLAPStatus DeltaWriter::init() {
     _tablet = _storage_engine->tablet_manager()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
@@ -168,13 +170,29 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
+                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
     }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::_flush_memtable_async() {
     return _flush_handler->submit(_mem_table);
+}
+
+OLAPStatus DeltaWriter::flush_memtable_and_wait() {
+    if (mem_consumption() == _mem_table->memory_usage()) {
+        // equal means there is no memtable in flush queue, just flush this memtable
+        VLOG(3) << "flush memtable to reduce mem consumption. memtable size: " << _mem_table->memory_usage()
+                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
+        _flush_memtable_async();
+        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
+                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get())); 
+    } else {
+        DCHECK(mem_consumption() > _mem_table->memory_usage());
+        // this means there should be at least one memtable in flush queue.
+    }
+    // wait all memtables in flush queue to be flushed.
+    RETURN_NOT_OK(_flush_handler->wait());
 }
 
 OLAPStatus DeltaWriter::close() {
@@ -249,8 +267,16 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    DCHECK(!_is_init);
+    if (_flush_handler != nullptr) {
+        // cancel and wait all memtables in flush queue to be finished
+        _flush_handler->cancel();
+        _flush_handler->wait();
+    }
     return OLAP_SUCCESS;
+}
+
+int64_t DeltaWriter::mem_consumption() {
+    return _mem_tracker->consumption();
 }
 
 } // namespace doris

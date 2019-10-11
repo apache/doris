@@ -124,6 +124,8 @@ namespace config {
     CONF_Int32(sys_log_roll_num, "10");
     // verbose log
     CONF_Strings(sys_log_verbose_modules, "");
+    // verbose log level
+    CONF_Int32(sys_log_verbose_level, "10");
     // log buffer level
     CONF_String(log_buffer_level, "");
 

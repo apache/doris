@@ -254,7 +254,7 @@ OLAPStatus olap_compress(const char* src_buf,
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (0 == lz4_res) {
-            VLOG(3) << "compress failed. src_len=" << src_len
+            VLOG(10) << "compress failed. src_len=" << src_len
                     << ", dest_len=" << dest_len
                     << ", written_len=" << *written_len
                     << ", lz4_res=" << lz4_res;

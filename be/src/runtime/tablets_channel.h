@@ -75,6 +75,15 @@ public:
         const google::protobuf::RepeatedField<int64_t>& partition_ids,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
+    Status cancel();
+
+    // upper application may call this to try to reduce the mem usage of this channel.
+    // eg. flush the largest memtable immediately.
+    // return Status::OK if mem is reduced.
+    Status reduce_mem_usage();
+
+    int64_t mem_consumption() { return _mem_tracker->consumption(); }
+    
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& params);
@@ -106,10 +115,7 @@ private:
 
     std::unordered_set<int64_t> _partition_ids;
 
-    // TODO(zc): to add this tracker to somewhere
-    MemTracker _row_batch_mem_tracker;
-
-    std::unique_ptr<MemTracker> _load_mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 

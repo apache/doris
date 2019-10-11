@@ -38,8 +38,8 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
       _rowset_writer(rowset_writer) {
 
     _schema_size = _schema->schema_size();
-    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker))
-    _mem_pool.reset(new MemPool(_mem_tracker));
+    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
+    _mem_pool.reset(new MemPool(_mem_tracker.get()));
     _tuple_buf = _mem_pool->allocate(_schema_size);
     _skip_list = new Table(_row_comparator, _mem_pool.get());
 }

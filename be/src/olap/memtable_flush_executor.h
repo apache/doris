@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "olap/olap_define.h"
+#include "runtime/mem_tracker.h"
 #include "util/blocking_queue.hpp"
 #include "util/counter_cond_variable.hpp"
 #include "util/spinlock.h"
@@ -72,12 +73,11 @@ class MemTableFlushExecutor;
 class MemTracker;
 class FlushHandler : public std::enable_shared_from_this<FlushHandler> {
 public:
-    FlushHandler(int32_t flush_queue_idx, MemTracker* parent, MemTableFlushExecutor* flush_executor):
+    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor):
         _flush_queue_idx(flush_queue_idx),
         _last_flush_status(OLAP_SUCCESS),
         _counter_cond(0),
         _flush_executor(flush_executor),
-        _mem_tracker(new MemTracker(-1, "FlushHandler", parent)),
         _is_cancelled(false) {
     }
 
@@ -109,8 +109,6 @@ private:
     FlushStatistic _stats;
     MemTableFlushExecutor* _flush_executor;
 
-    // Should not call it if is_cancelled()
-    std::unique_ptr<MemTracker> _mem_tracker;
     // the caller of the flush handler can set this variable to notify that the
     // uppper application is already cancelled.
     std::atomic<bool> _is_cancelled;
@@ -137,7 +135,7 @@ public:
     ~MemTableFlushExecutor();
 
     // create a flush handler to access the flush executor
-    OLAPStatus create_flush_handler(int64_t path_hash, MemTracker* mem_tracker, std::shared_ptr<FlushHandler>* flush_handler);
+    OLAPStatus create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
 
 private:
     // given the path hash, return the next idx of flush queue.

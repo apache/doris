@@ -53,15 +53,17 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
         _counter_cond.dec();
     }
 
+#if 0
     if (!is_cancelled()) {
         _mem_tracker->release(res.flush_size_bytes);
     }
+#endif
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(
-        int64_t path_hash, MemTracker* mem_tracker, std::shared_ptr<FlushHandler>* flush_handler) {
+        int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
     int32_t flush_queue_idx = _get_queue_idx(path_hash); 
-    flush_handler->reset(new FlushHandler(flush_queue_idx, mem_tracker, this));
+    flush_handler->reset(new FlushHandler(flush_queue_idx, this));
     return OLAP_SUCCESS;
 }
 
