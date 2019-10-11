@@ -234,6 +234,12 @@ BROTLI_NAME=brotli-0.6.0.tar.gz
 BROTLI_SOURCE=brotli-0.6.0
 BROTLI_MD5SUM="1dcdcda924ab0c232ce54fa9f2b02624"
 
+# flatbuffers
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v1.10.0.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-v1.10.0.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-v1.10.0
+FLATBUFFERS_MD5SUM="f7d19a3f021d93422b0bc287d7148cd2"
+
 # arrow
 ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.13.0.tar.gz"
 ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
