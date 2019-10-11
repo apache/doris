@@ -117,9 +117,9 @@ Status DataDir::_check_path_exist() {
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
         return Status::InternalError("opendir failed");
     }
+    struct dirent dirent;
     struct dirent* result = nullptr;
-    result = readdir(dirp);
-    if (result == nullptr) {
+    if (readdir_r(dirp, &dirent, &result) != 0) {
         char buf[64];
         LOG(WARNING) << "readdir failed, path=" << _path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
