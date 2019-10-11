@@ -67,10 +67,10 @@ public:
     }
 
 private:
-    void _reset_zone_map(ZoneMap& zone_map);
-    void _reset_page_zone_map() { _reset_zone_map(_zone_map); }
-    void _reset_segment_zone_map() { _reset_zone_map(_segment_zone_map); }
-    void _fill_zone_map_to_pb(ZoneMap* const from, ZoneMapPB* const to);
+    void _reset_zone_map(ZoneMap* zone_map);
+    void _reset_page_zone_map() { _reset_zone_map(&_zone_map); }
+    void _reset_segment_zone_map() { _reset_zone_map(&_segment_zone_map); }
+    void _fill_zone_map_to_pb(const ZoneMap& from, ZoneMapPB* const to);
 
 private:
     const TypeInfo* _type_info;

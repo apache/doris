@@ -62,13 +62,13 @@ Status Segment::new_iterator(
         std::unique_ptr<RowwiseIterator>* iter) {
 
     if (read_options.conditions != nullptr) {
-        for(auto& column_condition : read_options.conditions->columns()) {
+        for (auto& column_condition : read_options.conditions->columns()) {
             int32_t column_id = column_condition.first;
             auto entry = _column_id_to_footer_ordinal.find(column_id);
             if (entry == _column_id_to_footer_ordinal.end()) {
                 continue;
             }
-            ColumnMetaPB c_meta = _footer.columns(entry->second);
+            auto& c_meta = _footer.columns(entry->second);
             if (!c_meta.has_zone_map()) {
                 continue;
             }
