@@ -76,19 +76,19 @@ TxnManager::TxnManager() {
     }
 }
 
-OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, const TTransactionId transaction_id, 
+OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
                                    const PUniqueId& load_id) {
     return prepare_txn(partition_id, transaction_id, tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), load_id);
 }
 
-OLAPStatus TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, const TTransactionId transaction_id,
-                                  const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, bool is_recovery) {
+OLAPStatus TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
+                                  const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, bool is_recovery) {
     return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id, tablet->tablet_id(), 
         tablet->schema_hash(), tablet->tablet_uid(), load_id, rowset_ptr, is_recovery);
 }
 
 OLAPStatus TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
-                                   const Version& version, VersionHash& version_hash) {
+                                   const Version& version, VersionHash version_hash) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id, tablet->tablet_id(), 
         tablet->schema_hash(), tablet->tablet_uid(), version, version_hash);
 }
@@ -149,7 +149,7 @@ OLAPStatus TxnManager::prepare_txn(
 OLAPStatus TxnManager::commit_txn(
     OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-    const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, bool is_recovery) {
+    const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
         LOG(FATAL) << "invalid commit req "
                    << " partition_id=" << partition_id
@@ -238,7 +238,7 @@ OLAPStatus TxnManager::commit_txn(
 // remove a txn from txn manager
 OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                                    TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                                   const Version& version, VersionHash& version_hash) {
+                                   const Version& version, VersionHash version_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
