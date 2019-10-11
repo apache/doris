@@ -32,7 +32,7 @@ class VectorizedRowBatch;
         CLASS(uint32_t column_id, const type& value); \
         virtual ~CLASS() { }  \
         virtual void evaluate(VectorizedRowBatch* batch) const override; \
-        void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const override; \
+        void evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const override; \
     private: \
         type _value; \
     }; \

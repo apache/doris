@@ -41,7 +41,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
       _row_ranges(RowRanges::create_single(_segment->num_rows())),
       _cur_rowid(0),
       _cur_range_id(0),
-      _inited(false) {
+      _inited(false),
+      _sel_size(0) {
 }
 
 SegmentIterator::~SegmentIterator() {
@@ -311,8 +312,6 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         block->set_num_rows(0);
         return Status::EndOfFile("no more data in segment");
     }
-    // initialize selection vector to all true
-    block->selection_vector()->set_all_true();
 
     // check whether need to seek
     if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
@@ -349,9 +348,21 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     // TODO(hkp): lazy materialization
     // TODO(hkp): optimize column predicate to check column block once for one column
     if (_opts.column_predicates != nullptr) {
+        // init selection position index
+        if (_sel == nullptr || _sel_size < block->capacity()) {
+            _sel.reset(new uint16_t[block->capacity()]);
+            _sel_size = block->capacity();
+        }
+        uint32_t size = block->num_rows();
+        for (int i = 0; i < size; ++i) {
+            _sel[i] = i;
+        }
         for (auto column_predicate : *_opts.column_predicates) {
             auto column_block = block->column_block(column_predicate->column_id());
-            column_predicate->evaluate(&column_block, block->selection_vector());
+            column_predicate->evaluate(&column_block, _sel.get(), &size);
+        }
+        for (int i = 0; i < size; ++i) {
+            block->selection_vector()->set_row_selected(_sel[i]);
         }
     }
     return Status::OK();

@@ -52,9 +52,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         read_context->delete_handler->get_delete_conditions_after_version(_rowset->end_version(),
                 &read_options.delete_conditions);
     }
-    if (read_context->predicates != nullptr) {
-        read_options.column_predicates = read_context->predicates;
-    }
+    read_options.column_predicates = read_context->predicates;
 
     // create iterator for each segment
     std::vector<std::unique_ptr<segment_v2::SegmentIterator>> seg_iterators;
@@ -114,10 +112,10 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     _output_block->clear();
     size_t rows_read = 0;
     for (size_t row_idx = 0; row_idx < _input_block->num_rows(); ++row_idx) {
-        // shallow copy row from input block to output block
         if (!_input_block->is_row_selected(row_idx)) {
             continue;
         }
+        // shallow copy row from input block to output block
         _output_block->get_row(row_idx, _row.get());
         s = _input_block->copy_to_row_cursor(row_idx, _row.get());
         if (!s.ok()) {

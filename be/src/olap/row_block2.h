@@ -55,6 +55,7 @@ public:
     void clear() {
         _num_rows = 0;
         _arena.reset(new Arena);
+        _selection_vector.set_all_false();
     }
 
     // Copy the row_idx row's data into given row_cursor.
@@ -68,7 +69,7 @@ public:
         const TypeInfo* type_info = _schema.column(cid)->type_info();
         uint8_t* data = _column_datas[cid];
         uint8_t* null_bitmap = _column_null_bitmaps[cid];
-        return ColumnBlock(type_info, data, null_bitmap, _arena.get(), _capacity);
+        return ColumnBlock(type_info, data, null_bitmap, _capacity, _arena.get());
     }
 
     RowBlockRow row(size_t row_idx) const;

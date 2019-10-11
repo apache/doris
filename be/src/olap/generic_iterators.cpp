@@ -155,7 +155,9 @@ private:
 Status MergeIteratorContext::init(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(_load_next_block());
-    RETURN_IF_ERROR(advance());
+    if (valid()) {
+        RETURN_IF_ERROR(advance());
+    }
     return Status::OK();
 }
 

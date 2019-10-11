@@ -31,7 +31,7 @@ public:
 
     virtual void evaluate(VectorizedRowBatch* batch) const override;
 
-    void evaluate(ColumnBlock* block, SelectionVector* selector_vector) const override;
+    void evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const override;
 
 private:
     bool _is_null; //true for null, false for not null

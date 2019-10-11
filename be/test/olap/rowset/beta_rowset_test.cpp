@@ -220,8 +220,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k1 = 10
-            ColumnPredicate* predicate = new EqualPredicate<int32_t>(0, 10);
-            column_predicates.emplace_back(predicate);
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            column_predicates.emplace_back(predicate.get());
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;
             create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
@@ -250,7 +250,6 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(1, num_rows_read);
-            delete predicate;
         }
     }
 

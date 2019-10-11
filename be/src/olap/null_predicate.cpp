@@ -60,20 +60,18 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     }
 }
 
-void NullPredicate::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const {
+void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const {
+    uint16_t new_size = 0;
     if (!block->is_nullable() && _is_null) {
-        selector_vector->set_all_false();
+        *size = 0;
         return;
     }
-    for (int i = 0; i < block->nrows(); ++i) {
-        if (!selector_vector->is_row_selected(i)) {
-            continue;
-        }
-
-        if (block->cell(i).is_null() != _is_null) {
-            selector_vector->clear_bit(i);
-        }
+    for (int i = 0; i < *size; ++i) {
+        uint16_t idx = sel[i];
+        sel[new_size] = idx;
+        new_size += (block->cell(idx).is_null() == _is_null);
     }
+    *size = new_size;
 }
 
 } //namespace doris

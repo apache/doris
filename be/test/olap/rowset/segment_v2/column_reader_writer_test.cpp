@@ -64,7 +64,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 
         ColumnWriter writer(writer_opts, type_info, true, wfile.get());
         st = writer.init();
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         for (int i = 0; i < num_rows; ++i) {
             st = writer.append(BitmapTest(src_is_null, i), src + i);
@@ -109,12 +109,12 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         // sequence read
         {
             st = iter->seek_to_first();
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.ok()) << st.to_string();
 
             Arena arena;
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena, 1024);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &arena);
 
             int idx = 0;
             while (true) {
@@ -140,7 +140,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             Arena arena;
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena, 1024);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &arena);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);

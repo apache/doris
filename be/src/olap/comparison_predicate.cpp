@@ -102,7 +102,6 @@ COMPARISON_PRED_CONSTRUCTOR_STRING(GreaterEqualPredicate)
         } \
     } \
 
-
 COMPARISON_PRED_EVALUATE(EqualPredicate, ==)
 COMPARISON_PRED_EVALUATE(NotEqualPredicate, !=)
 COMPARISON_PRED_EVALUATE(LessPredicate, <)
@@ -112,32 +111,24 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
     template<class type> \
-    void CLASS<type>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const { \
+    void CLASS<type>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const { \
+        uint16_t new_size = 0; \
         if (block->is_nullable()) { \
-            for (int i = 0; i < block->nrows(); ++i) { \
-                if (!selector_vector->is_row_selected(i)) { \
-                    continue; \
-                } \
-                if (block->cell(i).is_null()) { \
-                    selector_vector->clear_bit(i); \
-                    continue; \
-                } \
-                const type* cell_value = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
-                if (!(*cell_value OP _value)) { \
-                    selector_vector->clear_bit(i); \
-                } \
+            for (int i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = i; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (!block->cell(idx).is_null() && (*cell_value OP _value)); \
             } \
         } else { \
-            for (int i = 0; i < block->nrows(); ++i) { \
-                if (!selector_vector->is_row_selected(i)) { \
-                    continue; \
-                } \
-                const type* cell_value = reinterpret_cast<const type*>(block->cell(i).cell_ptr()); \
-                if (!(*cell_value OP _value)) { \
-                    selector_vector->clear_bit(i); \
-                } \
+            for (int i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = i; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (*cell_value OP _value); \
             } \
         } \
+        *size = new_size; \
     } \
 
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(EqualPredicate, ==)
@@ -180,24 +171,31 @@ COMPARISON_PRED_CONSTRUCTOR_DECLARATION(GreaterEqualPredicate)
     template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const; \
 
-#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS) \
-    template void CLASS<int8_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<int16_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<int32_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<int64_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<int128_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<float>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<double>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<StringValue>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, SelectionVector* selector_vector) const; \
-
 COMPARISON_PRED_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(NotEqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(LessPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterEqualPredicate)
+
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS) \
+    template void CLASS<int8_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<int16_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<int32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<int64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<int128_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<float>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<double>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const; \
+
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(EqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotEqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(LessPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(LessEqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterEqualPredicate)
 
 } //namespace doris
