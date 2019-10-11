@@ -175,13 +175,14 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         tuple->set_null(_tuple_desc->slots()[13]->null_indicator_offset());
     }
     // creation_time
-    {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
-        DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
+    if (tbl_status.__isset.create_time) {
         int64_t create_time = tbl_status.create_time;
         if (create_time <= 0) {
             tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
         } else {
+            tuple->set_not_null(_tuple_desc->slots()[14]->null_indicator_offset());
+            void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
+            DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
             time_slot->from_unixtime(create_time, TimezoneDatabase::default_time_zone);
         }
 
@@ -191,13 +192,14 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         tuple->set_null(_tuple_desc->slots()[15]->null_indicator_offset());
     }
     // check_time
-    {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
-        DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
+    if (tbl_status.__isset.last_check_time) {
         int64_t check_time = tbl_status.last_check_time;
         if (check_time <= 0) {
             tuple->set_null(_tuple_desc->slots()[16]->null_indicator_offset());
         } else {
+            tuple->set_not_null(_tuple_desc->slots()[16]->null_indicator_offset());
+            void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
+            DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
             time_slot->from_unixtime(check_time, TimezoneDatabase::default_time_zone);
         }
     }
