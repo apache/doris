@@ -515,13 +515,10 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
             // should use tablet uid to ensure clean txn correctly
             TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id, 
                 tablet_info.first.schema_hash, tablet_info.first.tablet_uid);
-            OlapMeta* meta = nullptr;
-            if (tablet != nullptr) {
-                meta = tablet->data_dir()->get_meta();
+            if (tablet == nullptr) {
+                return;
             }
-            StorageEngine::instance()->txn_manager()->delete_txn(meta, partition_id, transaction_id,
-                                tablet_info.first.tablet_id, tablet_info.first.schema_hash, 
-                                tablet_info.first.tablet_uid);
+            StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet, transaction_id);
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
