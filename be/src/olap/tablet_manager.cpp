@@ -684,14 +684,26 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(
         const std::string& path, TTabletId* tablet_id, TSchemaHash* schema_hash) {
-    static re2::LazyRE2 re = {"/data/\\d+/(\\d+)/(\\d+)"};
-    return RE2::PartialMatch(path, *re, tablet_id, schema_hash);
+    static re2::RE2 normal_re("/data/\\d+/(\\d+)/(\\d+)($|/)");
+    if (RE2::PartialMatch(path, normal_re, tablet_id, schema_hash)) {
+        return true;
+    }
+
+    // If we can't match normal path pattern, this may be a path which is a empty tablet
+    // directory. Use this pattern to match empty tablet directory. In this case schema_hash
+    // will be set to zero.
+    static re2::RE2 empty_tablet_re("/data/\\d+/(\\d+)($|/$)");
+    if (!RE2::PartialMatch(path, empty_tablet_re, tablet_id)) {
+        return false;
+    }
+    *schema_hash = 0;
+    return true;
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static re2::LazyRE2 re = {"/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*"};
+    static re2::RE2 re("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
     std::string id_str;
-    bool ret = RE2::PartialMatch(path, *re, &id_str);
+    bool ret = RE2::PartialMatch(path, re, &id_str);
     if (ret) {
         rowset_id->init(id_str);
         return true;

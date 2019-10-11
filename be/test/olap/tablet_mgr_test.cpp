@@ -210,18 +210,76 @@ TEST_F(TabletMgrTest, DropTablet) {
 }
 
 TEST_F(TabletMgrTest, GetRowsetId) {
-    std::string path = _engine_data_path + "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
-    TTabletId tid;
-    TSchemaHash schema_hash;
-    ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-    ASSERT_EQ(15007, tid);
-    ASSERT_EQ(368169781, schema_hash);
+    // normal case
+    {
+        std::string path = _engine_data_path + "/data/0/15007/368169781";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_EQ(15007, tid);
+        ASSERT_EQ(368169781, schema_hash);
+    }
+    {
+        std::string path = _engine_data_path + "/data/0/15007/368169781/";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_EQ(15007, tid);
+        ASSERT_EQ(368169781, schema_hash);
+    }
+    // normal case
+    {
+        std::string path = _engine_data_path + "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_EQ(15007, tid);
+        ASSERT_EQ(368169781, schema_hash);
 
-    RowsetId id;
-    ASSERT_TRUE(_tablet_mgr.get_rowset_id_from_path(path, &id));
-    EXPECT_EQ(2UL << 56 | 1, id.hi);
-    ASSERT_EQ(2, id.mi);
-    ASSERT_EQ(3, id.lo);
+        RowsetId id;
+        ASSERT_TRUE(_tablet_mgr.get_rowset_id_from_path(path, &id));
+        EXPECT_EQ(2UL << 56 | 1, id.hi);
+        ASSERT_EQ(2, id.mi);
+        ASSERT_EQ(3, id.lo);
+    }
+    // empty tablet directory
+    {
+        std::string path = _engine_data_path + "/data/0/15007";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_EQ(15007, tid);
+        ASSERT_EQ(0, schema_hash);
+
+        RowsetId id;
+        ASSERT_FALSE(_tablet_mgr.get_rowset_id_from_path(path, &id));
+    }
+    // empty tablet directory
+    {
+        std::string path = _engine_data_path + "/data/0/15007/";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_EQ(15007, tid);
+        ASSERT_EQ(0, schema_hash);
+    }
+    // empty tablet directory
+    {
+        std::string path = _engine_data_path + "/data/0/15007abc";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_FALSE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+    }
+    // not match pattern
+    {
+        std::string path = _engine_data_path + "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
+        TTabletId tid;
+        TSchemaHash schema_hash;
+        ASSERT_FALSE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+
+        RowsetId id;
+        ASSERT_FALSE(_tablet_mgr.get_rowset_id_from_path(path, &id));
+    }
 }
 
 }  // namespace doris
