@@ -60,9 +60,6 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candicate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {
-        LOG(WARNING) << "There is no enough rowsets to do base compaction."
-                     << ", the size of rowsets to compact=" << _input_rowsets.size()
-                     << ", cumulative_point=" << _tablet->cumulative_layer_point();
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
