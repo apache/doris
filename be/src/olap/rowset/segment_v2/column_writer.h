@@ -57,7 +57,7 @@ class PageBuilder;
 class ColumnWriter {
 public:
     ColumnWriter(const ColumnWriterOptions& opts,
-                 Field* field,
+                 std::unique_ptr<Field> field,
                  bool is_nullable,
                  WritableFile* output_file);
     ~ColumnWriter();

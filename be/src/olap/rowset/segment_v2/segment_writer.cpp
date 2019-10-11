@@ -62,10 +62,10 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
             opts.need_zone_map = true;
         }
 
-        Field* field = FieldFactory::create(column);
-        DCHECK(field != nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        DCHECK(field.get() != nullptr);
 
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, field, is_nullable, _output_file.get()));
+        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }

@@ -72,13 +72,13 @@ private:
 };
 
 ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
-                           Field* field,
+                           std::unique_ptr<Field> field,
                            bool is_nullable,
                            WritableFile* output_file)
         : _opts(opts),
         _is_nullable(is_nullable),
-        _output_file(output_file) {
-        _field.reset(field);
+        _output_file(output_file),
+        _field(std::move(field)) {
 }
 
 ColumnWriter::~ColumnWriter() {

@@ -69,8 +69,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         } else if (type == OLAP_FIELD_TYPE_CHAR) {
             column = create_char_key(1);
         }
-        Field* field = FieldFactory::create(column);
-        ColumnWriter writer(writer_opts, field, true, wfile.get());
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ColumnWriter writer(writer_opts, std::move(field), true, wfile.get());
         st = writer.init();
         ASSERT_TRUE(st.ok());
 

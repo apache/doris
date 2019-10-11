@@ -56,7 +56,7 @@ public:
     inline size_t index_size() const { return _index_size; }
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-    //todo delete this method when segment v2 release
+    //todo(wangbo) delete this method when segment v2 release
     inline void set_to_max_v1(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
     virtual inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
@@ -385,7 +385,7 @@ public:
         return new CharField(*this);
     }
 
-    char* allocate_value_from_arena(Arena* arena) const {
+    char* allocate_value_from_arena(Arena* arena) const override {
         return Field::allocate_string_value_from_arena(arena);
     }
 };
@@ -399,7 +399,7 @@ public:
         return  _length - OLAP_STRING_MAX_BYTES;
     }
 
-    //todo using _length replace (_length - OLAP_STRING_MAX_BYTES) when segment v2 release
+    //todo(wangbo) using _length replace (_length - OLAP_STRING_MAX_BYTES) when segment v2 release
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
@@ -412,11 +412,11 @@ public:
         return new VarcharField(*this);
     }
 
-    char* allocate_value_from_arena(Arena* arena) const {
+    char* allocate_value_from_arena(Arena* arena) const override {
         return Field::allocate_string_value_from_arena(arena);
     }
 
-    void set_to_max(char* ch) {
+    void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         slice->size = _length;
         memset(slice->data, 0xFF, slice->size);
