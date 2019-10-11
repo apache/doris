@@ -82,7 +82,7 @@ OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletShared
 }
 
 OLAPStatus TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
-                                  const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, bool is_recovery) {
+                                  const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
     return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id, tablet->tablet_id(), 
         tablet->schema_hash(), tablet->tablet_uid(), load_id, rowset_ptr, is_recovery);
 }
@@ -149,7 +149,7 @@ OLAPStatus TxnManager::prepare_txn(
 OLAPStatus TxnManager::commit_txn(
     OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-    const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, bool is_recovery) {
+    const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
         LOG(FATAL) << "invalid commit req "
                    << " partition_id=" << partition_id

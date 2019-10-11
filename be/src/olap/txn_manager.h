@@ -77,7 +77,7 @@ public:
                            const PUniqueId& load_id);
 
     OLAPStatus commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
-                          const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, 
+                          const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, 
                           bool is_recovery);
 
     OLAPStatus publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
@@ -97,7 +97,7 @@ public:
     
     OLAPStatus commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
-                          const PUniqueId& load_id, RowsetSharedPtr& rowset_ptr, 
+                          const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, 
                           bool is_recovery);
     
     // remove a txn from txn manager
