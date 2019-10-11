@@ -247,7 +247,6 @@ public:
 void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(PercentileApproxState);
-    std::cout << ctx->get_num_args() << std::endl;
     const AnyVal* digest_compression = ctx->get_constant_arg(2);
     if (digest_compression != nullptr) {
         double compression = reinterpret_cast<const DoubleVal*>(digest_compression)->val;
