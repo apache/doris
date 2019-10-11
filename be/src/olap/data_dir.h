@@ -92,7 +92,7 @@ public:
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
-    
+
     // load data from meta and data files
     OLAPStatus load();
 
@@ -129,7 +129,6 @@ public:
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
-    Status _check_path_exist();
     Status _init_extension_and_capacity();
     Status _init_file_system();
     Status _init_meta();
@@ -137,7 +136,7 @@ private:
     Status _check_disk();
     OLAPStatus _read_and_write_test_file();
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
-    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
+    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
 
