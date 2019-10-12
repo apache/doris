@@ -90,6 +90,7 @@ public class TableTest {
 
         Table rFamily1 = Table.read(dis);
         Assert.assertTrue(table1.equals(rFamily1));
+        Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
         
         // 3. delete files
         dis.close();
