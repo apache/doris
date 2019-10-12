@@ -72,7 +72,7 @@ Status Segment::new_iterator(
             if (!c_meta.has_zone_map()) {
                 continue;
             }
-            ZoneMapPB c_zone_map = c_meta.zone_map();
+            auto& c_zone_map = c_meta.zone_map();
             if (!c_zone_map.has_not_null() && !c_zone_map.has_null()) {
                 // no data
                 iter->reset(new EmptySegmentIterator(schema));
