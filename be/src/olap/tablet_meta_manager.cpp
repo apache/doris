@@ -44,6 +44,9 @@ using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
 
+// should use tablet's generate tablet meta copy method to get a copy of current tablet meta
+// there are some rowset meta in local meta store and in in-memory tablet meta
+// but not in tablet meta in local meta store
 OLAPStatus TabletMetaManager::get_meta(
         DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash,
@@ -168,16 +171,6 @@ OLAPStatus TabletMetaManager::load_json_meta(DataDir* store, const std::string& 
     TTabletId tablet_id = tablet_meta_pb.tablet_id();
     TSchemaHash schema_hash = tablet_meta_pb.schema_hash();
     return save(store, tablet_id, schema_hash, meta_binary);
-}
-
-OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
-        TSchemaHash schema_hash, const std::string& dump_path) {
-    TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    OLAPStatus res = TabletMetaManager::get_meta(store, tablet_id, schema_hash, tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        return res;
-    }
-    return tablet_meta->save(dump_path);
 }
 
 }
