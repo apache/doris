@@ -242,7 +242,7 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    OLAPStatus clone_tablet_meta(TabletMetaSharedPtr tablet_meta);
+    OLAPStatus clone_tablet_meta(TabletMetaSharedPtr new_tablet_meta);
 
 private:
     OLAPStatus _init_once_action();

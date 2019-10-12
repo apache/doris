@@ -1124,10 +1124,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     return;
 }
 
-OLAPStatus Tablet::clone_tablet_meta(TabletMetaSharedPtr tablet_meta_) {
+OLAPStatus Tablet::clone_tablet_meta(TabletMetaSharedPtr new_tablet_meta) {
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
-    RETURN_NOT_OK(tablet_meta_->init_from_pb(tablet_meta_pb));
+    RETURN_NOT_OK(new_tablet_meta->init_from_pb(tablet_meta_pb));
     return OLAP_SUCCESS;
 }
 
