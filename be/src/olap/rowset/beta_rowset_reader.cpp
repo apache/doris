@@ -34,7 +34,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
 
     // SegmentIterator will load seek columns on demand
-    Schema schema(*_context->tablet_schema);
+    Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
