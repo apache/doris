@@ -30,8 +30,6 @@
 #include "runtime/tablets_channel.h"
 #include "util/uid_util.h"
 
-#include "service/brpc.h"
-
 namespace doris {
 
 class Cache;
@@ -44,11 +42,11 @@ public:
     LoadChannelMgr();
     ~LoadChannelMgr();
 
+    Status init(int64_t process_mem_limit);
+
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
-    // this batch must belong to a index in one transaction
-    // when batch.
     Status add_batch(const PTabletWriterAddBatchRequest& request,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                      int64_t* wait_lock_time_ns);
@@ -59,12 +57,25 @@ public:
     Status start_bg_worker();
 
 private:
+    // calculate the totol memory limit of all load processes on this Backend
+    int64_t _calc_total_mem_limit(int64_t process_mem_limit);
+    // calculate the memory limit for a single load process.
+    int64_t _calc_load_mem_limit(int64_t mem_limit);
+
+    // check if the total load mem consumption exceeds limit.
+    // If yes, it will pick a load channel to try to reduce memory consumption.
+    void _handle_mem_exceed_limit();
+
+private:
+    bool _init = false;
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-
     Cache* _lastest_success_channel = nullptr;
+
+    // check the total load mem consumption of this Backend
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // thread to clean timeout load channels
     std::thread _load_channels_clean_thread;

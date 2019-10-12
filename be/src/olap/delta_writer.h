@@ -77,9 +77,9 @@ public:
     // This is currently for reducing mem consumption of this delta writer.
     OLAPStatus flush_memtable_and_wait();
 
-    int64_t partition_id() const { return _req.partition_id; }
+    int64_t partition_id() const;
 
-    int64_t mem_consumption();
+    int64_t mem_consumption() const;
 
 private:
     // push a full memtable to flush executor

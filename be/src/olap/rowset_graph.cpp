@@ -257,7 +257,7 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
             << (*version_path)[version_path->size() - 1].second << ' ';
     }
 
-    VLOG(3) << "success to find path for spec_version. "
+    VLOG(10) << "success to find path for spec_version. "
             << "spec_version=" << spec_version.first << "-" << spec_version.second
             << ", path=" << shortest_path_for_debug.str();
 

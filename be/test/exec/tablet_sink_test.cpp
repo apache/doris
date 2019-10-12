@@ -336,7 +336,9 @@ TEST_F(OlapTableSinkTest, normal) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
+    // state._query_mem_tracker.reset(new MemTracker());
+    // state._instance_mem_tracker.reset(new MemTracker(-1, "test", state._query_mem_tracker.get()));
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -442,7 +444,7 @@ TEST_F(OlapTableSinkTest, convert) {
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -569,7 +571,7 @@ TEST_F(OlapTableSinkTest, init_fail1) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -627,7 +629,7 @@ TEST_F(OlapTableSinkTest, init_fail3) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -686,7 +688,7 @@ TEST_F(OlapTableSinkTest, init_fail4) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -753,7 +755,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
@@ -848,7 +850,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
-    state._instance_mem_tracker.reset(new MemTracker());
+    state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;

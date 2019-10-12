@@ -399,7 +399,15 @@ namespace config {
     CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
-    CONF_Int32(write_buffer_size, "104857600");
+    CONF_Int64(write_buffer_size, "104857600");
+
+    // followin 2 configs limit the memory consumption of load process on a Backend.
+    // eg: memory limit to 80% of mem limit config but up to 100GB(default)
+    // NOTICE(cmy): set these default values very large because we don't want to
+    // impact the load performace when user upgrading Doris.
+    // user should set these configs properly if necessary.
+    CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
+    CONF_Int32(load_process_max_memory_limit_percent, "80");    // 80%
 
     // update interval of tablet stat cache
     CONF_Int32(tablet_stat_cache_update_interval_second, "300");

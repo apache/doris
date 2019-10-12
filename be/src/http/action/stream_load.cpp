@@ -347,6 +347,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
     }
+    if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
+        try {
+            request.__set_execMemLimit(std::stoi(http_req->header(HTTP_EXEC_MEM_LIMIT))); 
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid mem limit format");
+        }
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;

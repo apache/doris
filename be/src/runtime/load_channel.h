@@ -24,19 +24,19 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/mem_tracker.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class Cache;
-class MemTracker;
 class TabletsChannel;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -57,6 +57,14 @@ public:
 
     const UniqueId& load_id() const { return _load_id; }
 
+    // check if this load channel mem consumption exceeds limit.
+    // If yes, it will pick a tablets channel to try to reduce memory consumption.
+    // If force is true, even if this load channel does not exceeds limit, it will still
+    // try to reduce memory.
+    void handle_mem_exceed_limit(bool force);
+
+    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+
 private:
     // when mem consumption exceeds limit, should call this to find the max mem consumption channel
     // and try to reduce its mem usage.
@@ -71,8 +79,8 @@ private:
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
-
-    Cache* _lastest_success_channel = nullptr;
+    // This is to save finished channels id, to handle the retry request.
+    std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
 

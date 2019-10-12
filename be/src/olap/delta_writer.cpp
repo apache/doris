@@ -193,6 +193,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
     }
     // wait all memtables in flush queue to be flushed.
     RETURN_NOT_OK(_flush_handler->wait());
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::close() {
@@ -275,8 +276,12 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-int64_t DeltaWriter::mem_consumption() {
+int64_t DeltaWriter::mem_consumption() const {
     return _mem_tracker->consumption();
+}
+
+int64_t DeltaWriter::partition_id() const {
+    return _req.partition_id;
 }
 
 } // namespace doris

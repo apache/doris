@@ -172,7 +172,8 @@ Status TabletsChannel::reduce_mem_usage() {
         return Status::OK();
     }
     
-    VLOG(3) << "pick the delte writer to flush, with mem consumption: " << max_consume;
+    VLOG(3) << "pick the delte writer to flush, with mem consumption: " << max_consume
+            << ", channel key: " << _key;
     OLAPStatus st = writer->flush_memtable_and_wait();
     if (st != OLAP_SUCCESS) {
         // flush failed, return error

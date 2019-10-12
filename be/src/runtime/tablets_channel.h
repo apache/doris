@@ -82,7 +82,7 @@ public:
     // return Status::OK if mem is reduced.
     Status reduce_mem_usage();
 
-    int64_t mem_consumption() { return _mem_tracker->consumption(); }
+    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
     
 private:
     // open all writer
