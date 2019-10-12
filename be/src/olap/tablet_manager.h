@@ -96,6 +96,15 @@ public:
                                TabletUid tablet_uid, bool include_deleted = false,
                                std::string* err = nullptr);
 
+    // Extract tablet_id and schema_hash from given path.
+    //
+    // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".
+    // Besides that, this also support empty tablet path, which path looks like
+    // "/data/{shard_id}/{tablet_id}"
+    //
+    // Return true when the path matches the path pattern, and tablet_id and schema_hash is
+    // saved in input params. When input path is an empty tablet directory, schema_hash will
+    // be set to 0. Return false if the path don't match valid pattern.
     bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
             TTabletId* tablet_id, TSchemaHash* schema_hash);
 
@@ -134,6 +143,8 @@ public:
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
+
+    void do_tablet_meta_checkpoint(DataDir* data_dir);
 
 private:
     // Add a tablet pointer to StorageEngine

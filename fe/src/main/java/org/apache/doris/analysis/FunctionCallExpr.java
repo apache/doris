@@ -167,7 +167,7 @@ public class FunctionCallExpr extends Expr {
             fn = null;
         }
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
@@ -278,7 +278,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-            
+
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).type.isHllType()) {
                     throw new AnalysisException(
@@ -319,7 +319,7 @@ public class FunctionCallExpr extends Expr {
                 if (arg0.type.isHllType()) {
                     throw new AnalysisException(
                             "group_concat requires second parameter can't be of type HLL: " + this.toSql());
-                } 
+                }
             }
             return;
         }
@@ -358,9 +358,10 @@ public class FunctionCallExpr extends Expr {
         }
 
         // SUM and AVG cannot be applied to non-numeric types
-        if (fnName.getFunction().equalsIgnoreCase("sum")
+        if ((fnName.getFunction().equalsIgnoreCase("sum")
+                || fnName.getFunction().equalsIgnoreCase("avg"))
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {
-            throw new AnalysisException("SUM requires a numeric parameter: " + this.toSql());
+            throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
                 && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {
@@ -368,7 +369,7 @@ public class FunctionCallExpr extends Expr {
                     "SUM_DISTINCT requires a numeric parameter: " + this.toSql());
         }
 
-        if ((fnName.getFunction().equalsIgnoreCase("min") 
+        if ((fnName.getFunction().equalsIgnoreCase("min")
                 || fnName.getFunction().equalsIgnoreCase("max")
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PC")
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PCSA")
@@ -421,12 +422,18 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
-            if (children.size() != 2) {
-                throw new AnalysisException("percentile_approx(expr, DOUBLE) requires two parameters");
+            if (children.size() != 2 && children.size() != 3) {
+                throw new AnalysisException("percentile_approx(expr, DOUBLE [, B]) requires two or three parameters");
             }
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException("percentile_approx requires second parameter must be a constant : "
                         + this.toSql());
+            }
+            if (children.size() == 3) {
+                if (!getChild(2).isConstant()) {
+                    throw new AnalysisException("percentile_approx requires the third parameter must be a constant : "
+                            + this.toSql());
+                }
             }
         }
         return;
@@ -558,7 +565,7 @@ public class FunctionCallExpr extends Expr {
             LOG.warn("fn {} not exists", fnName.getFunction());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
-        
+
         if (fn.getFunctionName().getFunction().equals("time_diff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             return;

@@ -1944,7 +1944,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
             sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         }
-        res = sc_params.new_tablet->add_rowset(new_rowset);
+        res = sc_params.new_tablet->add_rowset(new_rowset, false);
         if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occured. "
                          << "tablet=" << sc_params.new_tablet->full_name()
@@ -1973,6 +1973,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     }
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
 PROCESS_ALTER_EXIT:
+    {
+        // save tablet meta here because rowset meta is not saved during add rowset
+        WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
+        res = sc_params.new_tablet->save_meta();    
+    }
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
         res = sc_params.new_tablet->check_version_integrity(test_version);

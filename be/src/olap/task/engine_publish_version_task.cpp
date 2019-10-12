@@ -90,10 +90,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet->data_dir()->get_meta(), 
-                partition_id, 
-                transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, 
-                version, version_hash);
+            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(partition_id, tablet, 
+                transaction_id, version, version_hash);
             
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to publish for rowset_id:" << rowset->rowset_id()
@@ -118,8 +116,6 @@ OLAPStatus EnginePublishVersionTask::finish() {
             LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                       << ", transaction_id=" << transaction_id << ", version=" << version.first
                       << ", res=" << publish_status;
-            // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
-            RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
         }
 
         // check if the related tablet remained all have the version

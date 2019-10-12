@@ -25,7 +25,6 @@
 #include <queue>
 #include <set>
 #include <random>
-#include <regex>
 #include <stdlib.h>
 
 #include <boost/algorithm/string/classification.hpp>
@@ -34,6 +33,7 @@
 #include <boost/filesystem.hpp>
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <re2/re2.h>
 
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
@@ -682,42 +682,31 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
     return nullptr;
 } // get_tablet
 
-bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& path,
-        TTabletId* tablet_id, TSchemaHash* schema_hash) {
-    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores<true>();
-    for (auto data_dir : data_dirs) {
-        const std::string& data_dir_path = data_dir->path();
-        if (path.find(data_dir_path) != std::string::npos) {
-            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
-            std::regex rgx (pattern.c_str());
-            std::smatch sm;
-            bool ret = std::regex_search(path, sm, rgx);
-            if (ret) {
-                if (sm.size() == 3) {
-                    *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
-                    *schema_hash = std::strtoll(sm.str(2).c_str(), nullptr, 10);
-                    return true;
-                } else {
-                    LOG(WARNING) << "invalid match. match size:" << sm.size();
-                    return false;
-                }
-            }
-        }
+bool TabletManager::get_tablet_id_and_schema_hash_from_path(
+        const std::string& path, TTabletId* tablet_id, TSchemaHash* schema_hash) {
+    static re2::RE2 normal_re("/data/\\d+/(\\d+)/(\\d+)($|/)");
+    if (RE2::PartialMatch(path, normal_re, tablet_id, schema_hash)) {
+        return true;
     }
-    return false;
+
+    // If we can't match normal path pattern, this may be a path which is a empty tablet
+    // directory. Use this pattern to match empty tablet directory. In this case schema_hash
+    // will be set to zero.
+    static re2::RE2 empty_tablet_re("/data/\\d+/(\\d+)($|/$)");
+    if (!RE2::PartialMatch(path, empty_tablet_re, tablet_id)) {
+        return false;
+    }
+    *schema_hash = 0;
+    return true;
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static std::regex rgx ("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
-    std::smatch sm;
-    bool ret = std::regex_search(path, sm, rgx);
+    static re2::RE2 re("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
+    std::string id_str;
+    bool ret = RE2::PartialMatch(path, re, &id_str);
     if (ret) {
-        if (sm.size() == 2) {
-            rowset_id->init(sm.str(1));
-            return true;
-        } else {
-            return false;
-        }
+        rowset_id->init(id_str);
+        return true;
     }
     return false;
 }
@@ -1164,6 +1153,31 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set
     }
 }
 
+void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
+    vector<TabletSharedPtr> related_tablets;
+    {
+        ReadLock tablet_map_rdlock(&_tablet_map_lock);
+        for (tablet_map_t::value_type& table_ins : _tablet_map){
+            for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
+                // if tablet is not ready, it maybe a new tablet under schema change, not do compaction
+                if (table_ptr->tablet_state() != TABLET_RUNNING) {
+                    continue;
+                }
+
+                if (table_ptr->data_dir()->path_hash() != data_dir->path_hash()
+                        || !table_ptr->is_used() || !table_ptr->init_succeeded()) {
+                    continue;
+                }
+                related_tablets.push_back(table_ptr);
+            }
+        }
+    }
+    for (TabletSharedPtr tablet : related_tablets) {
+        tablet->do_tablet_meta_checkpoint();
+    }
+    return;
+}
+
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
     tablet_info->tablet_id = tablet->tablet_id();
     tablet_info->schema_hash = tablet->schema_hash();
@@ -1259,7 +1273,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
             }
 
             new_rowset = builder->build();
-            res = tablet->add_rowset(new_rowset);
+            res = tablet->add_rowset(new_rowset, false);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
                 break;
