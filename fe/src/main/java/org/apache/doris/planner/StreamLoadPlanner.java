@@ -144,6 +144,7 @@ public class StreamLoadPlanner {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQuery_type(TQueryType.LOAD);
         queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
+        queryOptions.setMem_limit(streamLoadTask.getMemLimit());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
