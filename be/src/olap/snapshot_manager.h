@@ -93,10 +93,6 @@ private:
 
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
            std::string* snapshot_id_path);
-
-    OLAPStatus _append_single_delta(
-            const TSnapshotRequest& request,
-            DataDir* store);
     
     OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
         DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);

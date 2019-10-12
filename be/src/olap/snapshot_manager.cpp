@@ -338,7 +338,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     path boost_path(snapshot_id_path);
     string snapshot_id = canonical(boost_path).string();
     do {
-        DataDir* data_dir = ref_tablet->data_dir();
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";
@@ -365,8 +364,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             if (res != OLAP_SUCCESS) {
                 break;
             }
-            res = TabletMetaManager::get_meta(data_dir, ref_tablet->tablet_id(),
-                                                ref_tablet->schema_hash(), new_tablet_meta);
+            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 
@@ -409,8 +407,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            res = TabletMetaManager::get_meta(data_dir, ref_tablet->tablet_id(),
-                                                ref_tablet->schema_hash(), new_tablet_meta);
+            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 
@@ -520,63 +517,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         *snapshot_path = snapshot_id;
     }
 
-    return res;
-}
-
-OLAPStatus SnapshotManager::_append_single_delta(
-        const TSnapshotRequest& request, DataDir* store) {
-    OLAPStatus res = OLAP_SUCCESS;
-    string root_path = store->path();
-    TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-    if (new_tablet_meta == nullptr) {
-        LOG(WARNING) << "fail to malloc TabletMeta.";
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-
-    res = TabletMetaManager::get_meta(store, request.tablet_id, request.schema_hash, new_tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to create tablet from header file. " 
-                     << " tablet_id=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
-        return res;
-    }
-    auto tablet = Tablet::create_tablet_from_meta(new_tablet_meta, store);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "fail to load tablet. " 
-                     << " res=" << res
-                     << " tablet_id=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    res = tablet->init();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to load tablet. [res=" << res 
-                     << " header_path=" << store->path();
-        return res;
-    }
-
-    const RowsetSharedPtr lastest_version = tablet->rowset_with_max_version();
-    if (lastest_version->start_version() != request.version) {
-        TPushReq empty_push;
-        empty_push.tablet_id = request.tablet_id;
-        empty_push.schema_hash = request.schema_hash;
-        empty_push.version = request.version + 1;
-        empty_push.version_hash = 0;
-        
-        PushHandler handler;
-        // res = handler.process(tablet, empty_push, PUSH_NORMAL, NULL);
-        // TODO (yiguolei) should create a empty version, call create new rowset meta and set version
-        // just return success to skip push a empty rowset into the snapshot since has alreay removed
-        // batch process code from push handler
-        res = OLAP_SUCCESS;
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to push empty version. " 
-                         << " res=" << res 
-                         << " version=" << empty_push.version;
-            return res;
-        }
-    }
     return res;
 }
 
