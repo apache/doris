@@ -140,8 +140,6 @@ public:
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map, int* tablet_counter);
 
-    void update_storage_medium_type_count(uint32_t storage_medium_type_count);
-
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
@@ -159,8 +157,6 @@ private:
     OLAPStatus _add_tablet_to_map(TTabletId tablet_id, SchemaHash schema_hash,
                                  const TabletSharedPtr& tablet, bool update_meta, 
                                  bool keep_files, bool drop_old);
-
-    void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
     void _build_tablet_stat();
     bool _check_tablet_id_exist_unlock(TTabletId tablet_id);
