@@ -240,9 +240,6 @@ void StorageEngine::_update_storage_medium_type_count() {
     }
 
     _available_storage_medium_type_count = available_storage_medium_types.size();
-    if (_tablet_manager != nullptr) {
-        _tablet_manager->update_storage_medium_type_count(_available_storage_medium_type_count);
-    }
 }
 
 OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
