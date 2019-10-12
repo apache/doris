@@ -338,7 +338,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     path boost_path(snapshot_id_path);
     string snapshot_id = canonical(boost_path).string();
     do {
-        DataDir* data_dir = ref_tablet->data_dir();
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";

@@ -1031,6 +1031,12 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     }
     // hold read lock not write lock, because it will not modify meta structure
     ReadLock rdlock(&_meta_lock);
+    if (tablet_state() != TABLET_RUNNING) {
+        LOG(INFO) << "tablet is under state=" << tablet_state()
+                  << ", not running, skip do checkpoint"
+                  << ", tablet=" << full_name();
+        return OLAP_SUCCESS;
+    }
     LOG(INFO) << "start to do tablet meta checkpoint, tablet=" << full_name();
     RETURN_NOT_OK(save_meta());
     // if save meta successfully, then should remove the rowset meta existing in tablet
@@ -1115,12 +1121,14 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
+    return;
 }
 
 OLAPStatus Tablet::clone_tablet_meta(TabletMetaSharedPtr tablet_meta_) {
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
     RETURN_NOT_OK(tablet_meta_->init_from_pb(tablet_meta_pb));
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

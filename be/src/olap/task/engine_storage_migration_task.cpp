@@ -108,17 +108,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                          << ", version=" << end_version;
             break;
         }
-
-        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        res = tablet->clone_tablet_meta(new_tablet_meta);
-        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
-            tablet->release_header_lock();
-            LOG(WARNING) << "tablet_meta already exists. "
-                         << "data_dir:" << stores[0]->path()
-                         << "tablet:" << tablet->full_name();
-            res = OLAP_ERR_META_ALREADY_EXIST;
-            break;
-        }
         tablet->release_header_lock();
 
         // generate schema hash path where files will be migrated
@@ -155,6 +144,16 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             res = OLAP_ERR_FILE_ALREADY_EXIST;
             break;
         }
+
+        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
+        res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
+            LOG(WARNING) << "tablet_meta already exists. "
+                         << "data_dir:" << stores[0]->path()
+                         << "tablet:" << tablet->full_name();
+            res = OLAP_ERR_META_ALREADY_EXIST;
+            break;
+        }
         create_dirs(schema_hash_path);
 
         // migrate all index and data files but header file
@@ -163,12 +162,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
-
+        tablet->obtain_header_rdlock();
         res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
+            tablet->release_header_lock();
             LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
             break;
         }
+        tablet->release_header_lock();
         std::string new_meta_file = schema_hash_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
         if (res != OLAP_SUCCESS) {
@@ -234,7 +235,12 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
-    OLAPStatus res = OLAP_SUCCESS;
+    OLAPStatus res = tablet->clone_tablet_meta(new_tablet_meta);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "could not generate new tablet meta. "
+                     << "tablet:" << tablet->full_name();
+        return res;
+    }
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
