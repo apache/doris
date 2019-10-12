@@ -163,7 +163,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(TabletMetaManager::get_meta(_data_dir, tablet_id(), schema_hash(), new_tablet_meta));
+        RETURN_NOT_OK(clone_tablet_meta(new_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -1115,6 +1115,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
+}
+
+OLAPStatus Tablet::clone_tablet_meta(TabletMetaSharedPtr tablet_meta_) {
+    TabletMetaPB tablet_meta_pb;
+    RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
+    RETURN_NOT_OK(tablet_meta_->init_from_pb(tablet_meta_pb));
 }
 
 }  // namespace doris

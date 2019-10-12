@@ -170,14 +170,4 @@ OLAPStatus TabletMetaManager::load_json_meta(DataDir* store, const std::string& 
     return save(store, tablet_id, schema_hash, meta_binary);
 }
 
-OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
-        TSchemaHash schema_hash, const std::string& dump_path) {
-    TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    OLAPStatus res = TabletMetaManager::get_meta(store, tablet_id, schema_hash, tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        return res;
-    }
-    return tablet_meta->save(dump_path);
-}
-
 }

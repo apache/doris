@@ -108,6 +108,17 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                          << ", version=" << end_version;
             break;
         }
+
+        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
+        res = tablet->clone_tablet_meta(new_tablet_meta);
+        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
+            tablet->release_header_lock();
+            LOG(WARNING) << "tablet_meta already exists. "
+                         << "data_dir:" << stores[0]->path()
+                         << "tablet:" << tablet->full_name();
+            res = OLAP_ERR_META_ALREADY_EXIST;
+            break;
+        }
         tablet->release_header_lock();
 
         // generate schema hash path where files will be migrated
@@ -142,16 +153,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             LOG(INFO) << "schema hash path already exist, skip this path. "
                       << "schema_hash_path=" << schema_hash_path;
             res = OLAP_ERR_FILE_ALREADY_EXIST;
-            break;
-        }
-
-        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
-            LOG(WARNING) << "tablet_meta already exists. "
-                         << "data_dir:" << stores[0]->path()
-                         << "tablet:" << tablet->full_name();
-            res = OLAP_ERR_META_ALREADY_EXIST;
             break;
         }
         create_dirs(schema_hash_path);
@@ -234,13 +235,6 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     OLAPStatus res = OLAP_SUCCESS;
-    res = TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-    if (res == OLAP_ERR_META_KEY_NOT_FOUND) {
-        LOG(WARNING) << "tablet_meta has already been dropped. "
-                     << "data_dir:" << tablet->data_dir()->path()
-                     << "tablet:" << tablet->full_name();
-        return res;
-    }
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

@@ -242,6 +242,8 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
+    OLAPStatus clone_tablet_meta(TabletMetaSharedPtr tablet_meta);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
