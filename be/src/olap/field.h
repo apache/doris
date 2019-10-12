@@ -57,7 +57,7 @@ public:
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-    virtual inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
+    virtual inline char* allocate_value_from_arena(Arena* arena) const { return arena->Allocate(_type_info->size()); }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
         _agg_info->update(dest, src, mem_pool);
@@ -386,6 +386,12 @@ public:
     char* allocate_value_from_arena(Arena* arena) const override {
         return Field::allocate_string_value_from_arena(arena);
     }
+
+    void set_to_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        slice->size = _length;
+        memset(slice->data, 0xFF, slice->size);
+    }
 };
 
 class VarcharField: public Field {
@@ -397,7 +403,7 @@ public:
         return  _length - OLAP_STRING_MAX_BYTES;
     }
 
-    //todo(wangbo) using _length replace (_length - OLAP_STRING_MAX_BYTES) when segment v2 release
+    // minus OLAP_STRING_MAX_BYTES here just for being compatible with old storage format
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
