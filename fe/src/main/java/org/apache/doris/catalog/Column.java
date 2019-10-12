@@ -260,6 +260,10 @@ public class Column implements Writable {
             }
         }
 
+        if (getDataType() == PrimitiveType.DATETIME && other.getDataType() == PrimitiveType.DATE) {
+            throw new DdlException("Cannot change from DATETIME to DATE");
+        }
+
         if (this.getPrecision() != other.getPrecision()) {
             throw new DdlException("Cannot change precision");
         }
