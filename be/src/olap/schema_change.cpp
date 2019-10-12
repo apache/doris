@@ -1227,6 +1227,12 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
+    std::vector<ColumnId> return_columns;
+    size_t num_cols = base_tablet->tablet_schema().num_columns();
+    return_columns.resize(num_cols);
+    for (int i = 0; i < num_cols; ++i) {
+        return_columns[i] = i;
+    }
     do {
         // get history data to be converted and it will check if there is hold in base tablet
         res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1300,9 +1306,10 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         }
 
         _reader_context.reader_type = READER_ALTER_TABLE;
-        _reader_context.tablet_schema= &base_tablet->tablet_schema();
+        _reader_context.tablet_schema = &base_tablet->tablet_schema();
         _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
+        _reader_context.return_columns = &return_columns;
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1501,6 +1508,12 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
+    std::vector<ColumnId> return_columns;
+    size_t num_cols = base_tablet->tablet_schema().num_columns();
+    return_columns.resize(num_cols);
+    for (int i = 0; i < num_cols; ++i) {
+        return_columns[i] = i;
+    }
     do {
         // before calculating version_to_be_changed,
         // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
@@ -1575,6 +1588,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         _reader_context.tablet_schema= &base_tablet->tablet_schema();
         _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
+        _reader_context.return_columns = &return_columns;
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1671,10 +1685,17 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     DeleteHandler delete_handler;
+    std::vector<ColumnId> return_columns;
+    size_t num_cols = base_tablet->tablet_schema().num_columns();
+    return_columns.resize(num_cols);
+    for (int i = 0; i < num_cols; ++i) {
+        return_columns[i] = i;
+    }
     _reader_context.reader_type = READER_ALTER_TABLE;
     _reader_context.tablet_schema = &base_tablet->tablet_schema();
     _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
+    _reader_context.return_columns = &return_columns;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
