@@ -180,7 +180,24 @@ enum ReaderType {
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
-typedef std::pair<int64_t, int64_t> Version;
+
+struct Version {
+    int64_t first;  
+    int64_t second;
+
+    Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
+
+    Version() : first(0), second(0) {}
+
+    bool operator!=(const Version& rhs) const {
+        return first != rhs.first || second != rhs.second;
+    }
+
+    bool operator==(const Version& rhs) const {
+        return first == rhs.first && second == rhs.second;
+    }
+};
+
 typedef std::vector<Version> Versions;
 
 

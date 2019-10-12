@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
 #include "olap/tuple.h"
@@ -239,10 +240,13 @@ public:
 
     bool contains_rowset(const RowsetId rowset_id);
 
+    void build_tablet_report_info(TTabletInfo* tablet_info);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
+    OLAPStatus _max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
 private:
     TabletState _state;
