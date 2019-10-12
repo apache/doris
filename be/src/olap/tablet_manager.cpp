@@ -948,7 +948,7 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _build_tablet_info(tablet, tablet_info);
+    tablet->build_tablet_report_info(tablet_info);
     VLOG(10) << "success to process report tablet info.";
     return res;
 } // report_tablet_info
@@ -974,7 +974,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             }
 
             TTabletInfo tablet_info;
-            _build_tablet_info(tablet_ptr, &tablet_info);
+            tablet_ptr->build_tablet_report_info(&tablet_info);
 
             // report expire transaction
             vector<int64_t> transaction_ids;
@@ -1140,10 +1140,6 @@ void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* pa
     }
 } // update_root_path_info
 
-void TabletManager::update_storage_medium_type_count(uint32_t storage_medium_type_count) {
-    _available_storage_medium_type_count = storage_medium_type_count;
-}
-
 void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos) {
     ReadLock rlock(&_tablet_map_lock);
     if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
@@ -1176,24 +1172,6 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
         tablet->do_tablet_meta_checkpoint();
     }
     return;
-}
-
-void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
-    tablet_info->tablet_id = tablet->tablet_id();
-    tablet_info->schema_hash = tablet->schema_hash();
-    tablet_info->row_count = tablet->num_rows();
-    tablet_info->data_size = tablet->tablet_footprint();
-    Version version = { -1, 0 };
-    VersionHash v_hash = 0;
-    tablet->max_continuous_version_from_begining(&version, &v_hash);
-    tablet_info->version = version.second;
-    tablet_info->version_hash = v_hash;
-    tablet_info->__set_partition_id(tablet->partition_id());
-    if (_available_storage_medium_type_count > 1) {
-        tablet_info->__set_storage_medium(tablet->data_dir()->storage_medium());
-    }
-    tablet_info->__set_version_count(tablet->version_count());
-    tablet_info->__set_path_hash(tablet->data_dir()->path_hash());
 }
 
 void TabletManager::_build_tablet_stat() {

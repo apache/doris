@@ -749,6 +749,10 @@ void Tablet::calc_missed_versions_unlock(int64_t spec_version,
 
 OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
     ReadLock rdlock(&_meta_lock);
+    return _max_continuous_version_from_begining(version, v_hash);
+}
+
+OLAPStatus Tablet::_max_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
     vector<pair<Version, VersionHash>> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version() , rs->version_hash());
@@ -1082,6 +1086,35 @@ bool Tablet::contains_rowset(const RowsetId rowset_id) {
         }
     }
     return false;
+}
+
+void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+    ReadLock rdlock(&_meta_lock);
+    tablet_info->tablet_id = _tablet_meta->tablet_id();
+    tablet_info->schema_hash = _tablet_meta->schema_hash();
+    tablet_info->row_count = _tablet_meta->num_rows();
+    tablet_info->data_size = _tablet_meta->tablet_footprint();
+    Version version = { -1, 0 };
+    VersionHash v_hash = 0;
+    _max_continuous_version_from_begining(&version, &v_hash);
+    auto max_rowset = rowset_with_max_version();
+    if (max_rowset != nullptr) {
+        if (max_rowset->version() != version) {
+            tablet_info->__set_version_miss(true);
+        }
+    } else {
+        // if the tablet is in running state, it is not under schema change
+        // and could not get rowset, it is bad should clone it
+        if (tablet_state() == TABLET_RUNNING) {
+            tablet_info->__set_used(false);
+        }
+    }
+    tablet_info->version = version.second;
+    tablet_info->version_hash = v_hash;
+    tablet_info->__set_partition_id(_tablet_meta->partition_id());
+    tablet_info->__set_storage_medium(_data_dir->storage_medium());
+    tablet_info->__set_version_count(_tablet_meta->version_count());
+    tablet_info->__set_path_hash(_data_dir->path_hash());
 }
 
 }  // namespace doris
