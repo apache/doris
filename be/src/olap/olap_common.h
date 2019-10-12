@@ -185,7 +185,7 @@ struct Version {
     int64_t first;  
     int64_t second;
 
-    Version(int64_t first, int64_t second) : first(first), second(second) {}
+    Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
 
     Version() : first(0), second(0) {}
 

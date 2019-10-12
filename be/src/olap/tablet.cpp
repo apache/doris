@@ -1102,6 +1102,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
         if (max_rowset->version() != version) {
             tablet_info->__set_version_miss(true);
         }
+    } else {
+        // if the tablet is in running state, it is not under schema change
+        // and could not get rowset, it is bad should clone it
+        if (tablet_state() == TABLET_RUNNING) {
+            tablet_info->__set_used(false);
+        }
     }
     tablet_info->version = version.second;
     tablet_info->version_hash = v_hash;
