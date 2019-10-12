@@ -364,7 +364,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             if (res != OLAP_SUCCESS) {
                 break;
             }
-            res = ref_tablet->clone_tablet_meta(new_tablet_meta);
+            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 
@@ -407,7 +407,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            res = ref_tablet->clone_tablet_meta(new_tablet_meta);
+            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 

@@ -235,7 +235,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
-    OLAPStatus res = tablet->clone_tablet_meta(new_tablet_meta);
+    OLAPStatus res = tablet->generate_tablet_meta_copy(new_tablet_meta);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "could not generate new tablet meta. "
                      << "tablet:" << tablet->full_name();

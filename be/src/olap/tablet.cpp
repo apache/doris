@@ -163,7 +163,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(clone_tablet_meta(new_tablet_meta));
+        RETURN_NOT_OK(generate_tablet_meta_copy(new_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -1124,7 +1124,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     return;
 }
 
-OLAPStatus Tablet::clone_tablet_meta(TabletMetaSharedPtr new_tablet_meta) {
+// should use this method to get a copy of current tablet meta
+// there are some rowset meta in local meta store and in in-memory tablet meta
+// but not in tablet meta in local meta store
+OLAPStatus Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
     RETURN_NOT_OK(new_tablet_meta->init_from_pb(tablet_meta_pb));
