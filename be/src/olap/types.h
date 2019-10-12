@@ -595,12 +595,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         return OLAP_SUCCESS;
     }
 
-    //todo remove this method when segment v2 release; segment v2 varchar using field.set_to_max
-    static void set_to_max(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 1;
-        memset(slice->data, 0xFF, 1);
-    }
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;

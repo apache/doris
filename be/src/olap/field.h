@@ -56,8 +56,6 @@ public:
     inline size_t index_size() const { return _index_size; }
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-    //todo(wangbo) delete this method when segment v2 release
-    inline void set_to_max_v1(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
     virtual inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
 
@@ -418,7 +416,7 @@ public:
 
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
-        slice->size = _length;
+        slice->size = _length - OLAP_STRING_MAX_BYTES;
         memset(slice->data, 0xFF, slice->size);
     }
 };
