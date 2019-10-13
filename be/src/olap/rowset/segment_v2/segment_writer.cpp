@@ -55,17 +55,17 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         bool is_nullable = column.is_nullable();
         column_meta->set_is_nullable(is_nullable);
 
-        // TODO(zc): we can add type_info into TabletColumn?
-        const TypeInfo* type_info = get_type_info(column.type());
-        DCHECK(type_info != nullptr);
-
         ColumnWriterOptions opts;
         opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
         // now we create zone map for key columns
         if (column.is_key()) {
             opts.need_zone_map = true;
         }
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, type_info, is_nullable, _output_file.get()));
+
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        DCHECK(field.get() != nullptr);
+
+        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
