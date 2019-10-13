@@ -538,6 +538,8 @@ void NewAggFnEvaluator::Update(const TupleRow* row, Tuple* dst, void* fn) {
                                                     num_varargs, varargs,
                                                     staging_intermediate_val_);
               break;
+          default:
+              DCHECK(false) << "NYI";
       }
   }
   SetDstSlot(staging_intermediate_val_, slot_desc, dst);
