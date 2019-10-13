@@ -35,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -58,6 +59,7 @@ public class Table extends MetaObject implements Writable {
     protected long id;
     protected String name;
     protected TableType type;
+    protected long createTime;
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
      *  eg. for OlapTable, when doing schema change, there will be some shadow columns which are not visible
@@ -99,6 +101,7 @@ public class Table extends MetaObject implements Writable {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
+        this.createTime = Instant.now().getEpochSecond();
     }
 
     public boolean isTypeRead() {
@@ -140,6 +143,10 @@ public class Table extends MetaObject implements Writable {
 
     public Column getColumn(String name) {
         return nameToColumn.get(name);
+    }
+
+    public long getCreateTime() {
+        return createTime;
     }
 
     public TTableDescriptor toThrift() {
@@ -189,6 +196,9 @@ public class Table extends MetaObject implements Writable {
         }
 
         Text.writeString(out, comment);
+
+        // write create time
+        out.writeLong(createTime);
     }
 
     @Override
@@ -215,6 +225,13 @@ public class Table extends MetaObject implements Writable {
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+
+        // read create time
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
+            this.createTime = in.readLong();
+        } else {
+            this.createTime = -1L;
         }
     }
 

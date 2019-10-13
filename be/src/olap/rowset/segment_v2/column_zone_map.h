@@ -50,7 +50,7 @@ struct ZoneMap {
 // The binary is encoded by BinaryPlainPageBuilder
 class ColumnZoneMapBuilder {
 public:
-    ColumnZoneMapBuilder(const TypeInfo* type_info);
+    ColumnZoneMapBuilder(Field* field);
 
     Status add(const uint8_t* vals, size_t count);
 
@@ -68,9 +68,8 @@ private:
     void _reset_zone_map();
 
 private:
-    const TypeInfo* _type_info;
     std::unique_ptr<BinaryPlainPageBuilder> _page_builder;
-    std::unique_ptr<Field> _field;
+    Field* _field;
     // memory will be managed by arena
     ZoneMap _zone_map;
     Arena _arena;
