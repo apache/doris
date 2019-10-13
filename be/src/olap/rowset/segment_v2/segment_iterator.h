@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/iterators.h"
 #include "olap/schema.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/column_zone_map.h"
