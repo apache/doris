@@ -91,11 +91,12 @@ message ColumnMetaPB {
     optional bool is_nullable = 6;
     // ordinal index page
     optional PagePointerPB ordinal_index_page = 7;
-    // zone map page
+    // page-level zone map index
     optional PagePointerPB zone_map_page = 8;
-
+    // segment-level zone map
+    optional ZoneMapPB zone_map = 9;
     // // dictionary page for DICT_ENCODING
-    optional PagePointerPB dict_page = 9;
+    optional PagePointerPB dict_page = 10;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
