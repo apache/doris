@@ -55,9 +55,9 @@ public:
     inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
 
-    inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
+    virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-    inline char* allocate_value_from_arena(Arena* arena) const { return _type_info->allocate_value_from_arena(arena); }
+    virtual inline char* allocate_value_from_arena(Arena* arena) const { return arena->Allocate(_type_info->size()); }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src, MemPool* mem_pool = nullptr) const {
         _agg_info->update(dest, src, mem_pool);
@@ -200,10 +200,6 @@ public:
         _type_info->deep_copy_with_arena(dest, src, arena);
     }
 
-    inline void direct_copy_content(char* dest, const char* src) const {
-        _type_info->direct_copy(dest, src);
-    }
-
     // Copy srouce content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;
@@ -259,6 +255,14 @@ protected:
     // 长度，单位为字节
     // 除字符串外，其它类型都是确定的
     uint32_t _length;
+
+    char* allocate_string_value_from_arena(Arena* arena) const {
+        char* type_value = arena->Allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = _length;
+        slice->data = arena->Allocate(slice->size);
+        return type_value;
+    };
 };
 
 template<typename LhsCellType, typename RhsCellType>
@@ -378,6 +382,16 @@ public:
     CharField* clone() const override {
         return new CharField(*this);
     }
+
+    char* allocate_value_from_arena(Arena* arena) const override {
+        return Field::allocate_string_value_from_arena(arena);
+    }
+
+    void set_to_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        slice->size = _length;
+        memset(slice->data, 0xFF, slice->size);
+    }
 };
 
 class VarcharField: public Field {
@@ -389,6 +403,7 @@ public:
         return  _length - OLAP_STRING_MAX_BYTES;
     }
 
+    // minus OLAP_STRING_MAX_BYTES here just for being compatible with old storage format
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = variable_ptr;
@@ -399,6 +414,16 @@ public:
 
     VarcharField* clone() const override {
         return new VarcharField(*this);
+    }
+
+    char* allocate_value_from_arena(Arena* arena) const override {
+        return Field::allocate_string_value_from_arena(arena);
+    }
+
+    void set_to_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        slice->size = _length - OLAP_STRING_MAX_BYTES;
+        memset(slice->data, 0xFF, slice->size);
     }
 };
 
