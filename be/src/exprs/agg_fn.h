@@ -150,6 +150,10 @@ class AggFn : public Expr {
   virtual std::string DebugString() const;
   static std::string DebugString(const std::vector<AggFn*>& exprs);
  
+  const int get_vararg_start_idx() const {
+      return _vararg_start_idx;
+  }
+
 private:
   friend class Expr;
   friend class NewAggFnEvaluator;
@@ -178,6 +182,8 @@ private:
   void* serialize_fn_ = nullptr;
   void* get_value_fn_ = nullptr;
   void* finalize_fn_ = nullptr;
+  
+  int _vararg_start_idx;
 
   AggFn(const TExprNode& node, const SlotDescriptor& intermediate_slot_desc,
       const SlotDescriptor& output_slot_desc);
