@@ -35,7 +35,8 @@ AggFn::AggFn(const TExprNode& tnode, const SlotDescriptor& intermediate_slot_des
   : Expr(tnode),
     is_merge_(tnode.agg_expr.is_merge_agg),
     intermediate_slot_desc_(intermediate_slot_desc),
-    output_slot_desc_(output_slot_desc) {
+    output_slot_desc_(output_slot_desc),
+    _vararg_start_idx(tnode.__isset.vararg_start_idx ? tnode.vararg_start_idx : -1) {
   // TODO(pengyubing) arg_type_descs_ is used for codegen
   //    arg_type_descs_(AnyValUtil::column_type_to_type_desc(
   //        TypeDescriptor::from_thrift(tnode.agg_expr.arg_types))) {
