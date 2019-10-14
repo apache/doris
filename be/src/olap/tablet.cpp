@@ -140,6 +140,16 @@ string Tablet::tablet_path() const {
     return _tablet_path;
 }
 
+OLAPStatus Tablet::set_tablet_state(TabletState state) {
+    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
+        LOG(WARNING) << "could not change tablet state from shutdown to " << state;
+        return OLAP_ERR_META_INVALID_ARGUMENT;
+    }
+    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
+    _state = state;
+    return OLAP_SUCCESS;
+}
+
 // should save tablet meta to remote meta store
 // if it's a primary replica
 OLAPStatus Tablet::save_meta() {

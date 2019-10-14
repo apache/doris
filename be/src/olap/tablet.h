@@ -65,7 +65,7 @@ public:
 
     // operation for TabletState
     TabletState tablet_state() const { return _state; }
-    inline OLAPStatus set_tablet_state(TabletState state);
+    OLAPStatus set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
     inline const TabletMetaSharedPtr tablet_meta();
@@ -286,12 +286,6 @@ inline bool Tablet::init_succeeded() {
 
 inline DataDir* Tablet::data_dir() const {
     return _data_dir;
-}
-
-inline OLAPStatus Tablet::set_tablet_state(TabletState state) {
-    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
-    _state = state;
-    return OLAP_SUCCESS;
 }
 
 inline const TabletMetaSharedPtr Tablet::tablet_meta() {
