@@ -65,10 +65,10 @@ void ColumnZoneMapBuilder::fill_segment_zone_map(ZoneMapPB* const to) {
 Status ColumnZoneMapBuilder::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _zone_map.min_value) > 0) {
-        _field->direct_copy_content(_segment_zone_map.min_value, _zone_map.min_value);
+        _field->type_info()->direct_copy(_segment_zone_map.min_value, _zone_map.min_value);
     }
     if (_field->compare(_segment_zone_map.max_value, _zone_map.max_value) < 0) {
-        _field->direct_copy_content(_segment_zone_map.max_value, _zone_map.max_value);
+        _field->type_info()->direct_copy(_segment_zone_map.max_value, _zone_map.max_value);
     }
     if (!_segment_zone_map.has_null && _zone_map.has_null) {
         _segment_zone_map.has_null = true;
