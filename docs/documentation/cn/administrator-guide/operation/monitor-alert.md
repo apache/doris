@@ -201,7 +201,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
     通过以下命令启动 Grafana
     
-    `nohuo ./bin/grafana-server &`
+    `nohup ./bin/grafana-server &`
     
     该命令将后台运行 Grafana，访问端口为上面配置的 8182
     
