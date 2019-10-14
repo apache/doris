@@ -43,6 +43,8 @@ import java.util.Map;
 public class CreateFunctionStmt extends DdlStmt {
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String SYMBOL_KEY = "symbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepareFnSymbol";
+    public static final String CLOSE_SYMBOL_KEY = "closeFnSymbol";
     public static final String MD5_CHECKSUM = "md5";
     public static final String INIT_KEY = "init_fn";
     public static final String UPDATE_KEY = "update_fn";
@@ -177,10 +179,12 @@ public class CreateFunctionStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
         }
+        String prepareFnSymbol = properties.get(PREPARE_SYMBOL_KEY);
+        String closeFnSymbol = properties.get(CLOSE_SYMBOL_KEY);
         function = ScalarFunction.createUdf(
                 functionName, argsDef.getArgTypes(),
                 returnType.getType(), argsDef.isVariadic(),
-                objectFile, symbol);
+                objectFile, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
     }
 
