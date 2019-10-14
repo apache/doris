@@ -54,8 +54,8 @@ struct MemTableFlushContext {
 // the flush result of a single memtable flush
 struct FlushResult {
     OLAPStatus flush_status;
-    int64_t flush_time_ns;
-    int64_t flush_size_bytes;
+    int64_t flush_time_ns = 0;
+    int64_t flush_size_bytes = 0;
 };
 
 // the statistic of a certain flush handler.

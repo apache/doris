@@ -25,14 +25,13 @@
 
 namespace doris {
 
-LoadChannelMgr::LoadChannelMgr() {
+LoadChannelMgr::LoadChannelMgr():_is_stopped(false) {
     _lastest_success_channel = new_lru_cache(1024);
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = _calc_total_mem_limit(process_mem_limit);
     _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
-    _init = true;
     return Status::OK();
 }
 
@@ -46,6 +45,7 @@ int64_t LoadChannelMgr::_calc_total_mem_limit(int64_t process_mem_limit) {
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
+    _is_stopped.store(true);
     if (_load_channels_clean_thread.joinable()) {
         _load_channels_clean_thread.join();
     }
@@ -53,9 +53,6 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
-    if (!_init) {
-        return Status::InternalError("load channel mgr is not initialized");
-    }
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
     {
@@ -177,12 +174,12 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 Status LoadChannelMgr::start_bg_worker() {
     _load_channels_clean_thread = std::thread(
         [this] {
-            #ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-            #endif
+#ifdef GOOGLE_PROFILER
+            ProfilerRegisterThread();
+#endif
 
             uint32_t interval = 60;
-            while (true) {
+            while (!_is_stopped.load()) {
                 _start_load_channels_clean();
                 sleep(interval);
             }

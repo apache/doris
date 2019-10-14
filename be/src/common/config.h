@@ -401,7 +401,7 @@ namespace config {
     // write buffer size before flush
     CONF_Int64(write_buffer_size, "104857600");
 
-    // followin 2 configs limit the memory consumption of load process on a Backend.
+    // following 2 configs limit the memory consumption of load process on a Backend.
     // eg: memory limit to 80% of mem limit config but up to 100GB(default)
     // NOTICE(cmy): set these default values very large because we don't want to
     // impact the load performace when user upgrading Doris.

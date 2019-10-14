@@ -52,12 +52,6 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
         _stats.flush_count.fetch_add(1);
         _counter_cond.dec();
     }
-
-#if 0
-    if (!is_cancelled()) {
-        _mem_tracker->release(res.flush_size_bytes);
-    }
-#endif
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(

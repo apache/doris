@@ -285,7 +285,7 @@ private:
     std::unordered_map<int64_t, AddBatchCounter> _node_add_batch_counter_map;
 
     // load mem limit is for remote load channel
-    int64_t _load_mem_limit;
+    int64_t _load_mem_limit = -1;
 };
 
 }

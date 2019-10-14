@@ -67,7 +67,6 @@ private:
     void _handle_mem_exceed_limit();
 
 private:
-    bool _init = false;
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
@@ -80,6 +79,7 @@ private:
     // thread to clean timeout load channels
     std::thread _load_channels_clean_thread;
     Status _start_load_channels_clean();
+    std::atomic<bool> _is_stopped;
 };
 
 }

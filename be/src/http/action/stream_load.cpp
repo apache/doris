@@ -349,7 +349,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
-            request.__set_execMemLimit(std::stoi(http_req->header(HTTP_EXEC_MEM_LIMIT))); 
+            request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT))); 
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid mem limit format");
         }
