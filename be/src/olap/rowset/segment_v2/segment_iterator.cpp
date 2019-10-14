@@ -364,6 +364,8 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         for (int i = 0; i < size; ++i) {
             block->selection_vector()->set_row_selected(_sel[i]);
         }
+    } else {
+        block->selection_vector()->set_all_true();
     }
     return Status::OK();
 }

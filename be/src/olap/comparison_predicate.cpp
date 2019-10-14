@@ -116,14 +116,14 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
         if (block->is_nullable()) { \
             for (int i = 0; i < *size; ++i) { \
                 uint16_t idx = sel[i]; \
-                sel[new_size] = i; \
+                sel[new_size] = idx; \
                 const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
                 new_size += (!block->cell(idx).is_null() && (*cell_value OP _value)); \
             } \
         } else { \
             for (int i = 0; i < *size; ++i) { \
                 uint16_t idx = sel[i]; \
-                sel[new_size] = i; \
+                sel[new_size] = idx; \
                 const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
                 new_size += (*cell_value OP _value); \
             } \
