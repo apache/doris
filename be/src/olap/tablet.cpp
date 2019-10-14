@@ -328,6 +328,20 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
     return rowset;
 }
 
+// This function only be called by SnapshotManager to perform incremental clone.
+// Interal data structure will be protected in SnapSshotManager.
+// There is no necessity to add lock in this place.
+const RowsetSharedPtr Tablet::get_inc_rowset_by_version(const Version& version) const {
+    auto iter = _inc_rs_version_map.find(version);
+    if (iter == _inc_rs_version_map.end()) {
+        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+                  << ", tablet: " << full_name();
+        return nullptr;
+    }
+    RowsetSharedPtr rowset = iter->second;
+    return rowset;
+}
+
 size_t Tablet::get_rowset_size_by_version(const Version& version) {
     DCHECK(_rs_version_map.find(version) != _rs_version_map.end())
             << "invalid version:" << version.first << "-" << version.second;
