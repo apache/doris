@@ -330,7 +330,7 @@ under the License.
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.1.25.Final</version>
+            <version>4.1.42.Final</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.objenesis/objenesis -->
