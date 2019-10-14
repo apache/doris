@@ -409,6 +409,12 @@ void NewAggFnEvaluator::Update(const TupleRow* row, Tuple* dst, void* fn) {
       DCHECK(input_evals_[i]->root() == agg_fn_.get_child(i));
       AnyValUtil::set_any_val(src_slot, agg_fn_.get_child(i)->type(), staging_input_vals_[i]);
   }
+  if (agg_fn_.is_merge()) {
+      reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], staging_intermediate_val_);
+      SetDstSlot(staging_intermediate_val_, slot_desc, dst);
+      return;
+  }
 
   // TODO: this part is not so good and not scalable. It can be replaced with
   // codegen but we can also consider leaving it for the first few cases for
