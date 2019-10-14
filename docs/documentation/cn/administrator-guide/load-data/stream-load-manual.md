@@ -114,6 +114,10 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
     ```
 
++ exec\_mem\_limit
+
+    导入内存限制。默认为 2GB，单位为字节。
+
 + strict\_mode
 
     Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为开启。
