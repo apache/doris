@@ -285,7 +285,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on column in Unique data model table: " + modColumn.getName());
             }
-            if (false == modColumn.isKey()) {
+            if (!modColumn.isKey()) {
                 modColumn.setAggregationType(AggregateType.REPLACE, true);
             }
         } else {
