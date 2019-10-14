@@ -37,11 +37,11 @@
     2. 导入数据，导入的方式见相关help curl
 
       a. 使用表中的列生成hll列
-        curl --location-trusted -uname:password -T data http://host/api/test_db/test/_load?label=load_1\&hll=set1,id:set2,name
-
+        curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, os, set1=hll_hash(id), set2=hll_hash(name)"
+            http://host/api/test_db/test/_stream_load
       b. 使用数据中的某一列生成hll列
-        curl --location-trusted -uname:password -T data http://host/api/test_db/test/_load?label=load_1\&hll=set1,cuid:set2,os
-            \&columns=dt,id,name,province,sex,cuid,os
+        curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, sex, cuid, os, set1=hll_hash(cuid), set2=hll_hash(os)"
+            http://host/api/test_db/test/_stream_load
 
     3. 聚合数据，常用方式3种：（如果不聚合直接对base表查询，速度可能跟直接使用ndv速度差不多）
 
