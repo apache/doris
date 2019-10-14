@@ -118,6 +118,22 @@ public:
     virtual Status get_children(const std::string& dir,
                                 std::vector<std::string>* result) = 0;
 
+    // Iterate the specified directory and call given callback function with child's
+    // name. This function continues execution until all children have been iterated
+    // or callback function return false.
+    // The names are relative to "dir".
+    //
+    // The function call extra cost is acceptable. Compared with returning all children
+    // into a given vector, the performance of this method is 5% worse. However this
+    // approach is more flexiable and efficient in fulfilling other requirements.
+    //
+    // Returns OK if "dir" exists.
+    //         NotFound if "dir" does not exist, the calling process does not have
+    //                  permission to access "dir", or if "dir" is invalid.
+    //         IOError if an IO Error was encountered
+    virtual Status iterate_dir(const std::string& dir,
+                               const std::function<bool(const char*)>& cb) = 0;
+
     // Delete the named file.
     virtual Status delete_file(const std::string& fname) = 0;
 

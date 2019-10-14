@@ -37,6 +37,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/sync/file_lock.hpp>
 
+#include "env/env.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
@@ -472,7 +473,7 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path + TRASH_PREFIX;
     std::vector<std::string> sub_dirs;
-    FileUtils::scan_dir(trash_path, &sub_dirs);
+    FileUtils::list_files(Env::Default(), trash_path, &sub_dirs);
     for (auto& sub_dir : sub_dirs) {
         // sub dir is time_label
         std::string sub_path = trash_path + "/" + sub_dir;
