@@ -69,12 +69,14 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (_dict_builder->is_page_full()) {
                     break;
                 }
-                char* item_mem = _arena.Allocate(src->size);
-                if (item_mem == nullptr) {
-                    return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
-                }
                 Slice dict_item(src->data, src->size);
-                dict_item.relocate(item_mem);
+                if (src->size > 0) {
+                    char* item_mem = _arena.Allocate(src->size);
+                    if (item_mem == nullptr) {
+                        return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
+                    }
+                    dict_item.relocate(item_mem);
+                }
                 value_code = _dictionary.size();
                 _dictionary.emplace(dict_item, value_code);
                 _dict_items.push_back(dict_item);
@@ -211,11 +213,14 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
-        char* destination = dst->column_block()->arena()->Allocate(element.size);
-        if (destination == nullptr) {
-            return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
+        if (element.size > 0) {
+            char* destination = dst->column_block()->arena()->Allocate(element.size);
+            if (destination == nullptr) {
+                return Status::MemoryAllocFailed(Substitute(
+                    "memory allocate failed, size:$0", element.size));
+            }
+            element.relocate(destination);
         }
-        element.relocate(destination);
         *out = element;
         ++out;
     }
