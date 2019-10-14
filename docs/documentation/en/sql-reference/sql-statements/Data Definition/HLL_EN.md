@@ -36,12 +36,15 @@ distributed by hash(id) buckets 32;
 
 2. Import data. See help curl for the way you import it.
 
-A. Generate HLL columns using columns in tables
-curl --location-trusted -uname:password -T data http://host/api/test_db/test/_load?label=load_1\&hll=set1,id:set2,name
+    A. Generate HLL columns using columns in tables
 
-B. Generate HLL columns using a column in the data
-curl --location-trusted -uname:password -T data http://host/api/test_db/test/_load?label=load_1\&hll=set1,cuid:set2,os
-\&columns=dt,id,name,province,sex,cuid,os
+        curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, os, set1=hll_hash(id), set2=hll_hash(name)"
+            http://host/api/test_db/test/_stream_load
+
+    B. Generate HLL columns using a column in the data
+
+        curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, sex, cuid, os, set1=hll_hash(cuid), set2=hll_hash(os)"
+            http://host/api/test_db/test/_stream_load
 
 3. There are three common ways of aggregating data: (without aggregating the base table directly, the speed may be similar to that of using NDV directly)
 
