@@ -103,12 +103,12 @@ Status LoadChannelMgr::add_batch(
         if (it == _load_channels.end()) {
             auto handle = _lastest_success_channel->lookup(load_id.to_string());
             // success only when eos be true
-            if (handle != nullptr && request.has_eos() && request.eos()) {
+            if (handle != nullptr) {
                 _lastest_success_channel->release(handle);
-                return Status::OK();
+                if (request.has_eos() && request.eos()) {
+                    return Status::OK();
+                }
             }
-            // release to decrease the handle's reference count
-            _lastest_success_channel->release(handle);
             std::stringstream ss;
             ss << "load channel manager add batch with unknown load id: " << load_id;
             return Status::InternalError(ss.str());
