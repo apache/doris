@@ -128,7 +128,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _init_mem_tracker();
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
-    RETURN_IF_ERROR(_load_channel_mgr->start_bg_worker());
 
     return Status::OK();
 }
