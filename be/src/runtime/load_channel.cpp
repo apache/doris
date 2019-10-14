@@ -61,9 +61,6 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-static void dummy_deleter(const CacheKey& key, void* value) {
-}
-
 Status LoadChannel::add_batch(
         const PTabletWriterAddBatchRequest& request,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
