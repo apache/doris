@@ -262,7 +262,7 @@ public class RollupHandler extends AlterHandler {
                     if (isKey) {
                         hasKey = true;
                         oneColumn.setIsKey(true);
-                        oneColumn.setAggregationType(null, true);
+                        oneColumn.setAggregationType(null, false);
                     } else {
                         meetValue = true;
                         oneColumn.setIsKey(false);
