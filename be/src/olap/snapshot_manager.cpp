@@ -349,7 +349,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             for (int64_t missed_version : request.missing_version) {
                 Version version = { missed_version, missed_version };
-                const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+                const RowsetSharedPtr rowset = ref_tablet->get_inc_rowset_by_version(version);
                 if (rowset != nullptr) {
                     consistent_rowsets.push_back(rowset);
                 } else {
