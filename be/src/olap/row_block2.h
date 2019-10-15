@@ -55,7 +55,10 @@ public:
     void clear() {
         _num_rows = 0;
         _arena.reset(new Arena);
-        _selection_vector.set_all_false();
+        _selected_size = _capacity;
+        for (int i = 0; i < _selected_size; ++i) {
+            _selection_vector[i] = i;
+        }
     }
 
     // Copy the row_idx row's data into given row_cursor.
@@ -76,12 +79,16 @@ public:
 
     const Schema* schema() const { return &_schema; }
 
-    SelectionVector* selection_vector() {
-        return &_selection_vector;
+    uint16_t* selection_vector() const {
+        return _selection_vector;
     }
 
-    bool is_row_selected(size_t idx) const {
-        return _selection_vector.is_row_selected(idx);
+    uint16_t selected_size() const {
+        return _selected_size;
+    }
+
+    void set_selected_size(uint16_t selected_size) {
+        _selected_size = selected_size;
     }
 
 private:
@@ -99,10 +106,10 @@ private:
     // manages the memory for slice's data
     std::unique_ptr<Arena> _arena;
 
-    // The bitmap indicating which rows are valid in this block.
-    // Deleted rows or rows which have failed to pass predicates will be zeroed
-    // in the bitmap, and thus not returned to the end user.
-    SelectionVector _selection_vector;
+    // index of selected rows for rows passed the predicate
+    uint16_t* _selection_vector;
+    // selected rows number
+    uint16_t _selected_size;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

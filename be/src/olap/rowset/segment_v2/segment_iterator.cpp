@@ -349,23 +349,12 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     // TODO(hkp): optimize column predicate to check column block once for one column
     if (_opts.column_predicates != nullptr) {
         // init selection position index
-        if (_sel == nullptr || _sel_size < block->capacity()) {
-            _sel.reset(new uint16_t[block->capacity()]);
-            _sel_size = block->capacity();
-        }
-        uint32_t size = block->num_rows();
-        for (int i = 0; i < size; ++i) {
-            _sel[i] = i;
-        }
+        uint32_t selected_size = block->selected_size();
         for (auto column_predicate : *_opts.column_predicates) {
             auto column_block = block->column_block(column_predicate->column_id());
-            column_predicate->evaluate(&column_block, _sel.get(), &size);
+            column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
         }
-        for (int i = 0; i < size; ++i) {
-            block->selection_vector()->set_row_selected(_sel[i]);
-        }
-    } else {
-        block->selection_vector()->set_all_true();
+        block->set_selected_size(selected_size);
     }
     return Status::OK();
 }

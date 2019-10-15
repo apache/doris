@@ -96,10 +96,6 @@ private:
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
-
-    // selection position index
-    std::unique_ptr<uint16_t[]> _sel;
-    uint16_t _sel_size;
 };
 
 }

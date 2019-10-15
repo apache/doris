@@ -64,7 +64,6 @@ Status AutoIncrementIterator::init(const StorageReadOptions& opts) {
 
 Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     int row_idx = 0;
-    block->selection_vector()->set_all_true();
     while (row_idx < block->capacity() && _rows_returned < _num_rows) {
         RowBlockRow row = block->row(row_idx);
 
@@ -95,6 +94,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
         _rows_returned++;
     }
     block->set_num_rows(row_idx);
+    block->set_selected_size(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     }
@@ -126,7 +126,8 @@ public:
     // Before call this function, Client must assure that
     // valid() return true
     RowBlockRow current_row() const {
-        return RowBlockRow(&_block, _index_in_block);
+        uint16_t* selection_vector = _block.selection_vector();
+        return RowBlockRow(&_block, selection_vector[_index_in_block]);
     }
 
     // Advance internal row index to next valid row
@@ -165,10 +166,7 @@ Status MergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
-        for (; _index_in_block < _block.num_rows(); ++_index_in_block) {
-            if (!_block.is_row_selected(_index_in_block)) {
-                continue;
-            }
+        if (_index_in_block < _block.selected_size()) {
             return Status::OK();
         }
         // current batch has no data, load next batch
@@ -271,7 +269,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         }
     }
     block->set_num_rows(row_idx);
-    block->selection_vector()->set_all_true();
+    block->set_selected_size(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     } else {

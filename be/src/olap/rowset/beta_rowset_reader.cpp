@@ -111,10 +111,9 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     // convert to output block
     _output_block->clear();
     size_t rows_read = 0;
-    for (size_t row_idx = 0; row_idx < _input_block->num_rows(); ++row_idx) {
-        if (!_input_block->is_row_selected(row_idx)) {
-            continue;
-        }
+    for (size_t i = 0; i < _input_block->selected_size(); ++i) {
+        uint16_t* selection_vector = _input_block->selection_vector();
+        uint16_t row_idx = selection_vector[i];
         // shallow copy row from input block to output block
         _output_block->get_row(row_idx, _row.get());
         s = _input_block->copy_to_row_cursor(row_idx, _row.get());
