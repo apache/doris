@@ -39,6 +39,10 @@ CREATE [AGGREGATE] FUNCTION function_name
 >           "finalize_fn": 聚合函数获取最后结果的函数签名。对于聚合函数是可选项，如果没有指定，将会使用默认的获取结果函数
 >
 >           "md5": 函数动态链接库的MD5值，用于校验下载的内容是否正确。此选项是可选项
+> 
+>           "prepare_fn": 自定义函数的prepare函数的函数签名，用于从动态库里面找到prepare函数入口。此选项对于自定义函数是可选项
+> 
+>           "close_fn": 自定义函数的close函数的函数签名，用于从动态库里面找到close函数入口。此选项对于自定义函数是可选项
 
 
 此语句创建一个自定义函数。执行此命令需要用户拥有 `ADMIN` 权限。
@@ -49,24 +53,35 @@ CREATE [AGGREGATE] FUNCTION function_name
 
 1. 创建一个自定义标量函数
 
-```
-CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-    "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-    "object_file" = "http://host:port/libmyadd.so"
-);
-```
+	```
+	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+   		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+    	"object_file" = "http://host:port/libmyadd.so"
+	);
+	```
+	
+2. 创建一个有prepare/close函数的自定义标量函数
+
+	```
+	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+   		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+   		"prepare_fn" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+   		"close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+    	"object_file" = "http://host:port/libmyadd.so"
+	);
+	```
 
 2. 创建一个自定义聚合函数
 
-```
-CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
-    "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
-    "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
-    "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
-    "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
-    "object_file"="http://host:port/libudasample.so"
-);
-```
+	```
+	CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
+	    "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
+	    "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
+	    "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
+	    "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
+	    "object_file"="http://host:port/libudasample.so"
+	);
+	```
 
 ## keyword
 
