@@ -28,7 +28,7 @@ IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2) 
 
 /// --- Prepare / Close Functions ---
 /// ---------------------------------
-void AddUdf_prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
-void AddUdf_close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
+void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
+void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
 
 }
