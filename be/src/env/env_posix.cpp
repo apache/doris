@@ -565,6 +565,23 @@ public:
         return Status::OK();
     }
 
+    Status iterate_dir(const std::string& dir,
+                       const std::function<bool(const char*)>& cb) override {
+        DIR* d = opendir(dir.c_str());
+        if (d == nullptr) {
+            return io_error(dir, errno);
+        }
+        struct dirent* entry;
+        while ((entry = readdir(d)) != nullptr) {
+            // callback returning false means to terminate iteration
+            if (!cb(entry->d_name)) {
+                break;
+            }
+        }
+        closedir(d);
+        return Status::OK();
+    }
+
     Status delete_file(const std::string& fname) override {
         if (unlink(fname.c_str()) != 0) {
             return io_error(fname, errno);

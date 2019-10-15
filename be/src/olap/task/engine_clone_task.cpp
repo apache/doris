@@ -522,7 +522,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         LOG(INFO) << "succeed to copy tablet " << signature
                   << ", total file size: " << total_file_size << " B"
                   << ", cost: " << total_time_ms << " ms"
-                  << ", rate: " << copy_rate << " B/s";
+                  << ", rate: " << copy_rate << " MB/s";
         if (make_snapshot_result.snapshot_version == 1) {
             OLAPStatus convert_status = _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
             if (convert_status != OLAP_SUCCESS) {

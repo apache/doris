@@ -33,6 +33,7 @@
 
 #include <openssl/md5.h>
 
+#include "env/env.h"
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
 
@@ -81,70 +82,25 @@ Status FileUtils::remove_all(const std::string& file_path) {
     return Status::OK();
 }
 
-Status FileUtils::scan_dir(
-        const std::string& dir_path, std::vector<std::string>* files,
-        int64_t* file_count) {
-
-    DIR* dir = opendir(dir_path.c_str());
-    if (dir == nullptr) {
-        char buf[64];
-        std::stringstream ss;
-        ss << "opendir(" << dir_path << ") failed, because: " << strerror_r(errno, buf, 64);
-        return Status::InternalError(ss.str());
-    }
-    DeferOp close_dir(std::bind<void>(&closedir, dir));
-
-    int64_t count = 0;
-    while (true) {
-        auto result = readdir(dir);
-        if (result == nullptr) {
-            break;
+Status FileUtils::list_files(Env* env, const std::string& dir,
+                             std::vector<std::string>* files) {
+    auto cb = [files](const char* name) -> bool {
+        if (!is_dot_or_dotdot(name)) {
+            files->push_back(name);
         }
-        std::string file_name = result->d_name;
-        if (file_name == "." || file_name == "..") {
-            continue; 
-        }
-
-        if (files != nullptr) {
-            files->emplace_back(std::move(file_name));
-        }
-        count++; 
-    }
-
-    if (file_count != nullptr) {
-        *file_count = count;
-    }
-
-    return Status::OK();
+        return true;
+    };
+    return env->iterate_dir(dir, cb);
 }
 
-Status FileUtils::scan_dir(
-        const std::string& dir_path,
-        const std::function<bool(const std::string&, const std::string&)>& callback) {
-    auto dir_closer = [] (DIR* dir) { closedir(dir); };
-    std::unique_ptr<DIR, decltype(dir_closer)> dir(opendir(dir_path.c_str()), dir_closer);
-    if (dir == nullptr) {
-        char buf[64];
-        LOG(WARNING) << "fail to open dir, dir=" << dir_path << ", errmsg=" << strerror_r(errno, buf, 64);
-        return Status::InternalError("fail to opendir");
-    }
-
-    while (true) {
-        auto result = readdir(dir.get());
-        if (result == nullptr) {
-            break;
+Status FileUtils::get_children_count(Env* env, const std::string& dir, int64_t* count) {
+    auto cb = [count](const char* name) -> bool {
+        if (!is_dot_or_dotdot(name)) {
+            *count += 1;
         }
-        std::string file_name = result->d_name;
-        if (file_name == "." || file_name == "..") {
-            continue; 
-        }
-        auto is_continue = callback(dir_path, file_name);
-        if (!is_continue) {
-            break;
-        }
-    }
-
-    return Status::OK();
+        return true;
+    };
+    return env->iterate_dir(dir, cb);
 }
 
 bool FileUtils::is_dir(const std::string& path) {

@@ -65,7 +65,7 @@ public:
 
     // operation for TabletState
     TabletState tablet_state() const { return _state; }
-    inline OLAPStatus set_tablet_state(TabletState state);
+    OLAPStatus set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
     inline const TabletMetaSharedPtr tablet_meta();
@@ -111,7 +111,12 @@ public:
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
     OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
+
+    // _rs_version_map and _inc_rs_version_map should be protected by _meta_lock
+    // The caller must call hold _meta_lock when call this two function.
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
+    const RowsetSharedPtr get_inc_rowset_by_version(const Version& version) const;
+
     size_t get_rowset_size_by_version(const Version& version);
     const RowsetSharedPtr rowset_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
@@ -286,12 +291,6 @@ inline bool Tablet::init_succeeded() {
 
 inline DataDir* Tablet::data_dir() const {
     return _data_dir;
-}
-
-inline OLAPStatus Tablet::set_tablet_state(TabletState state) {
-    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
-    _state = state;
-    return OLAP_SUCCESS;
 }
 
 inline const TabletMetaSharedPtr Tablet::tablet_meta() {

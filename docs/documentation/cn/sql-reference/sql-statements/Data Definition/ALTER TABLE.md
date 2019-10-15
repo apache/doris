@@ -66,7 +66,7 @@
             [PROPERTIES ("key"="value", ...)]
         注意：
             1) 聚合模型如果增加 value 列，需要指定 agg_type
-            2) 非聚合模型如果增加key列，需要指定KEY关键字
+            2) 非聚合模型（如 DUPLICATE KEY）如果增加key列，需要指定KEY关键字
             3) 不能在 rollup index 中增加 base index 中已经存在的列
                 如有需要，可以重新创建一个 rollup index）
             

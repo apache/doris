@@ -29,6 +29,7 @@
 #include <boost/filesystem.hpp>
 
 #include "agent/cgroups_mgr.h"
+#include "env/env.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -138,7 +139,7 @@ void DownloadAction::handle(HttpRequest *req) {
 void DownloadAction::do_dir_response(
         const std::string& dir_path, HttpRequest *req) {
     std::vector<std::string> files;
-    Status status = FileUtils::scan_dir(dir_path, &files);
+    Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
     if (!status.ok()) {
         LOG(WARNING) << "Failed to scan dir. dir=" << dir_path;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);

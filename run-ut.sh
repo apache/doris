@@ -209,7 +209,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/free_list_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_buffer_test
 ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
-${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
+${DORIS_TEST_BINARY_DIR}/runtime/load_channel_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test

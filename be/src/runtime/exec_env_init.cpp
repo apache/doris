@@ -32,7 +32,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/tablet_writer_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "util/metrics.h"
@@ -99,7 +99,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _pull_load_task_mgr = new PullLoadTaskMgr(config::pull_load_task_dir);
     _broker_mgr = new BrokerMgr(this);
-    _tablet_writer_mgr = new TabletWriterMgr(this);
+    _load_channel_mgr = new LoadChannelMgr();
     _load_stream_mgr = new LoadStreamMgr();
     _brpc_stub_cache = new BrpcStubCache();
     _stream_load_executor = new StreamLoadExecutor(this);
@@ -126,7 +126,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_mgr->init();
     _small_file_mgr->init();
     _init_mem_tracker();
-    RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
+
+    RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
 
     return Status::OK();
 }
@@ -210,7 +211,7 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
 void ExecEnv::_destory() {
     delete _brpc_stub_cache;
     delete _load_stream_mgr;
-    delete _tablet_writer_mgr;
+    delete _load_channel_mgr;
     delete _broker_mgr;
     delete _pull_load_task_mgr;
     delete _bfd_parser;

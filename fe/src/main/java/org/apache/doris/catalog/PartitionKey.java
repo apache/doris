@@ -22,6 +22,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -62,13 +63,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
-    public static PartitionKey createPartitionKey(List<String> keys, List<Column> columns)
+    public static PartitionKey createPartitionKey(List<PartitionValue> keys, List<Column> columns)
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
-            partitionKey.keys.add(LiteralExpr.create(keys.get(i), 
+            partitionKey.keys.add(keys.get(i).getValue(
                     Type.fromPrimitiveType(columns.get(i).getDataType())));
             partitionKey.types.add(columns.get(i).getDataType());
         }
@@ -127,6 +128,29 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return true;
     }
 
+    public static int compareLiteralExpr(LiteralExpr key1, LiteralExpr key2) {
+        int ret = 0;
+        if (key1 instanceof MaxLiteral || key2 instanceof MaxLiteral) {
+            ret = key1.compareLiteral(key2);
+        } else {
+            final Type destType = Type.getAssignmentCompatibleType(key1.getType(), key2.getType(), false);
+            try {
+                LiteralExpr newKey = key1;
+                if (key1.getType() != destType) {
+                    newKey = (LiteralExpr) key1.castTo(destType);
+                }
+                LiteralExpr newOtherKey = key2;
+                if (key2.getType() != destType) {
+                    newOtherKey = (LiteralExpr) key2.castTo(destType);
+                }
+                ret = newKey.compareLiteral(newOtherKey);
+            } catch (AnalysisException e) {
+                throw new RuntimeException("Cast error in partition");
+            }
+        }
+        return ret;
+    }
+
     // compare with other PartitionKey. used for partition prune
     @Override
     public int compareTo(PartitionKey other) {
@@ -134,27 +158,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         int other_key_len = other.keys.size();
         int min_len = Math.min(this_key_len, other_key_len);
         for (int i = 0; i < min_len; ++i) {
-            final LiteralExpr oldKey = this.getKeys().get(i);
-            final LiteralExpr otherOldKey = other.getKeys().get(i);
-            int ret = 0;
-            if (oldKey instanceof MaxLiteral || otherOldKey instanceof MaxLiteral) {
-                ret = oldKey.compareLiteral(otherOldKey);
-            } else {
-                final Type destType = Type.getAssignmentCompatibleType(oldKey.getType(), otherOldKey.getType(), false);
-                try {
-                    LiteralExpr newKey = oldKey;
-                    if (oldKey.getType() != destType) {
-                        newKey = (LiteralExpr) oldKey.castTo(destType);
-                    }
-                    LiteralExpr newOtherKey = otherOldKey;
-                    if (otherOldKey.getType() != destType) {
-                        newOtherKey = (LiteralExpr) otherOldKey.castTo(destType);
-                    }
-                    ret = newKey.compareLiteral(newOtherKey);
-                } catch (AnalysisException e) {
-                    throw new RuntimeException("Cast error in partition");
-                }
-            }
+            int ret = compareLiteralExpr(this.getKeys().get(i), other.getKeys().get(i));
             if (0 != ret) {
                 return ret;
             }

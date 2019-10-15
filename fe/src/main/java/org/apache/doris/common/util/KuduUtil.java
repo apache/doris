@@ -26,8 +26,8 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.KuduPartition.KuduRange;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -35,22 +35,22 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 
-import java.nio.charset.Charset;
-import java.util.List;
-import java.util.Set;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.kudu.ColumnSchema;
-import org.apache.kudu.Type;
 import org.apache.kudu.Schema;
+import org.apache.kudu.Type;
 import org.apache.kudu.client.CreateTableOptions;
 import org.apache.kudu.client.KuduClient;
 import org.apache.kudu.client.KuduClient.KuduClientBuilder;
 import org.apache.kudu.client.PartialRow;
 import org.apache.kudu.client.RangePartitionBound;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import java.nio.charset.Charset;
+import java.util.List;
+import java.util.Set;
 
 public class KuduUtil {
 
@@ -105,8 +105,8 @@ public class KuduUtil {
             PartialRow lower = kuduSchema.newPartialRow();
             PartialRow upper = kuduSchema.newPartialRow();
 
-            String lowerValue = lastDesc != null ? lastDesc.getPartitionKeyDesc().getUpperValues().get(0) : "";
-            String upperValue = single.getPartitionKeyDesc().getUpperValues().get(0);
+            String lowerValue = lastDesc != null ? lastDesc.getPartitionKeyDesc().getUpperValues().get(0).getStringValue() : "";
+            String upperValue = single.getPartitionKeyDesc().getUpperValues().get(0).getStringValue();
 
             switch (kuduType) {
                 case INT8:

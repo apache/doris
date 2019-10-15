@@ -28,19 +28,22 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, mem_tracker, StorageEngine::instance());
     return (*writer)->init();
 }
 
 DeltaWriter::DeltaWriter(
         WriteRequest* req,
+        MemTracker* mem_tracker,
         StorageEngine* storage_engine)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
       _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
       _delta_written_success(false),
       _storage_engine(storage_engine) {
+
+    _mem_tracker.reset(new MemTracker(-1, "delta writer", mem_tracker));
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -50,6 +53,13 @@ DeltaWriter::~DeltaWriter() {
 
     _mem_table.reset();
     SAFE_DELETE(_schema);
+
+    if (_flush_handler != nullptr) {
+        // cancel and wait all memtables in flush queue to be finished
+        _flush_handler->cancel();
+        _flush_handler->wait();
+    }
+
     if (_rowset_writer != nullptr) {
         _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
     }
@@ -132,7 +142,7 @@ OLAPStatus DeltaWriter::init() {
     _tablet_schema = &(_tablet->tablet_schema());
     _schema = new Schema(*_tablet_schema);
     _mem_table = std::make_shared<MemTable>(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-            _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get());
+            _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get());
 
     // create flush handler
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(_tablet->data_dir()->path_hash(), &_flush_handler));
@@ -154,13 +164,30 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get()));
+                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
     }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::_flush_memtable_async() {
     return _flush_handler->submit(_mem_table);
+}
+
+OLAPStatus DeltaWriter::flush_memtable_and_wait() {
+    if (mem_consumption() == _mem_table->memory_usage()) {
+        // equal means there is no memtable in flush queue, just flush this memtable
+        VLOG(3) << "flush memtable to reduce mem consumption. memtable size: " << _mem_table->memory_usage()
+                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
+        _flush_memtable_async();
+        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
+                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get())); 
+    } else {
+        DCHECK(mem_consumption() > _mem_table->memory_usage());
+        // this means there should be at least one memtable in flush queue.
+    }
+    // wait all memtables in flush queue to be flushed.
+    RETURN_NOT_OK(_flush_handler->wait());
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::close() {
@@ -232,8 +259,20 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    DCHECK(!_is_init);
+    if (_flush_handler != nullptr) {
+        // cancel and wait all memtables in flush queue to be finished
+        _flush_handler->cancel();
+        _flush_handler->wait();
+    }
     return OLAP_SUCCESS;
+}
+
+int64_t DeltaWriter::mem_consumption() const {
+    return _mem_tracker->consumption();
+}
+
+int64_t DeltaWriter::partition_id() const {
+    return _req.partition_id;
 }
 
 } // namespace doris
