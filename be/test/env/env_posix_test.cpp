@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "common/logging.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
@@ -199,6 +202,42 @@ TEST_F(EnvPosixTest, random_rw) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(0, slice4.size);
     }
+}
+
+TEST_F(EnvPosixTest, iterate_dir) {
+    std::string dir_path = "./ut_dir/env_posix/iterate_dir";
+    FileUtils::remove_all(dir_path);
+    auto st = Env::Default()->create_dir_if_missing(dir_path);
+    ASSERT_TRUE(st.ok());
+
+    st = Env::Default()->create_dir_if_missing(dir_path + "/abc");
+    ASSERT_TRUE(st.ok());
+
+    st = Env::Default()->create_dir_if_missing(dir_path + "/123");
+    ASSERT_TRUE(st.ok());
+
+    {
+        std::vector<std::string> children;
+        st = Env::Default()->get_children(dir_path, &children);
+        ASSERT_EQ(4, children.size());
+        std::sort(children.begin(), children.end());
+
+        ASSERT_STREQ(".", children[0].c_str());
+        ASSERT_STREQ("..", children[1].c_str());
+        ASSERT_STREQ("123", children[2].c_str());
+        ASSERT_STREQ("abc", children[3].c_str());
+    }
+    {
+        std::vector<std::string> children;
+        st = FileUtils::list_files(Env::Default(), dir_path, &children);
+        ASSERT_EQ(2, children.size());
+        std::sort(children.begin(), children.end());
+
+        ASSERT_STREQ("123", children[0].c_str());
+        ASSERT_STREQ("abc", children[1].c_str());
+    }
+
+    FileUtils::remove_all(dir_path);
 }
 
 }
