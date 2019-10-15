@@ -25,8 +25,16 @@
 
 namespace doris {
 
+class Env;
+
+// Return true if file is '.' or '..'
+inline bool is_dot_or_dotdot(const char* name) {
+    return name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'));
+}
+
 class FileUtils {
 public:
+
     // Create directory of dir_path, 
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
@@ -38,16 +46,18 @@ public:
     // Delete file recursively.
     static Status remove_all(const std::string& dir_path);
 
-    // Scan dir path and return all files in this path without '.' and '..'
-    // Item in files is the filename in 'dir_path', which is not absolute path
-    // if files == nullptr, no file names will be returned.
-    // if file_count != nullptr, it will save the number of files.
-    static Status scan_dir(
-            const std::string& dir_path, std::vector<std::string>* files,
-            int64_t* file_count = nullptr);
-    static Status scan_dir(
-        const std::string& dir_path,
-        const std::function<bool(const std::string&, const std::string&)>& callback);
+    // List all files in the specified directory without '.' and '..'.
+    // If you want retreive all files, you can use Env::iterate_dir.
+    // All valid files will be stored in given *files.
+    static Status list_files(
+        Env* env,
+        const std::string& dir,
+        std::vector<std::string>* files);
+
+    // Get the number of children belong to the specified directory, this
+    // funciton also exclude '.' and '..'.
+    // Return OK with *count is set to the count, if execute successful.
+    static Status get_children_count(Env* env, const std::string& dir, int64_t* count);
 
     // If the file_path is not exist, or is not a dir, return false.
     static bool is_dir(const std::string& file_path);
