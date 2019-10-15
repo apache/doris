@@ -112,12 +112,13 @@
             除AGGREGATE KEY外，其他key_type在建表时，value列不需要指定聚合类型。
 
     4. partition_desc
-        1) Range 分区
+        partition描述有两种使用方式
+        1) LESS THAN 
         语法：
             PARTITION BY RANGE (k1, k2, ...)
             (
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
-            PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+            PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
+            PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
             ...
             )
         说明：
@@ -132,6 +133,17 @@
         注意：
             1) 分区一般用于时间维度的数据管理
             2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
+        2）Fixed Range
+        语法：
+            PARTITION BY RANGE (k1, k2, k3, ...)
+            (
+            PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...), ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
+            PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
+            "k3-upper1-2", ...
+            )
+        说明：
+            1）Fixed Range比LESS THAN相对灵活些，左右区间完全由用户自己确定
+            2）其他与LESS THAN保持同步
 
     5. distribution_desc
         1) Hash 分桶
@@ -216,6 +228,7 @@
     
     3. 创建一个 olap 表，使用 Key Range 分区，使用Hash分桶，默认使用列存，
        相同key的记录同时存在，设置初始存储介质和冷却时间
+    1）LESS THAN
         CREATE TABLE example_db.table_range
         (
         k1 DATE,
@@ -244,7 +257,27 @@
         [ {"2014-06-01"},   {"2014-12-01"} )
         
         不在这些分区范围内的数据将视为非法数据被过滤
-    
+    2) Fixed Range
+        CREATE TABLE table_range
+        (
+        k1 DATE,
+        k2 INT,
+        k3 SMALLINT,
+        v1 VARCHAR(2048),
+        v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+        )
+        ENGINE=olap
+        DUPLICATE KEY(k1, k2, k3)
+        PARTITION BY RANGE (k1, k2, k3)
+        (
+        PARTITION p1 VALUES [("2014-01-01", "10", "200"), ("2014-01-01", "20", "300")),
+        PARTITION p2 VALUES [("2014-06-01", "100", "200"), ("2014-07-01", "100", "300"))
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 32
+        PROPERTIES(
+        "storage_medium" = "SSD"
+        );
+
     4. 创建一个 mysql 表
         CREATE TABLE example_db.table_mysql
         (

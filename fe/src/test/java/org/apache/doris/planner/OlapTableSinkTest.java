@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -115,7 +116,7 @@ public class OlapTableSinkTest {
                 2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
 
         Column partKey = new Column("k2", PrimitiveType.VARCHAR);
-        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList("123"), Lists.newArrayList(partKey));
+        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
         Partition p1 = new Partition(1, "p1", index, distInfo);
         Partition p2 = new Partition(2, "p2", index, distInfo);
 

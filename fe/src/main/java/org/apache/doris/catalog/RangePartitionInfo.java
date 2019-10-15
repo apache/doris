@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -122,7 +123,7 @@ public class RangePartitionInfo extends PartitionInfo {
                 PartitionKey upperKey = nextRange.upperEndpoint();
                 if (upperKey.compareTo(singlePartitionKey) >= 0) {
                     PartitionKey lowKey = null;
-                    if (!partKeyDesc.getLowerValues().isEmpty()) {
+                    if (partKeyDesc.hasLowerValues()) {
                         lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
                     } else {
                         if (lastRange == null) {
@@ -131,7 +132,10 @@ public class RangePartitionInfo extends PartitionInfo {
                             lowKey = lastRange.upperEndpoint();
                         }
                     }
-
+                    // check: [left, right), error if left equal right
+                    if (lowKey.compareTo(singlePartitionKey) >= 0) {
+                        throw new IllegalArgumentException("The right value must be more than the left value");
+                    }
                     newRange = Range.closedOpen(lowKey, singlePartitionKey);
 
                     // check if range intersected
@@ -143,7 +147,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
             if (newRange == null) {
                 PartitionKey lowKey = null;
-                if (!partKeyDesc.getLowerValues().isEmpty()) {
+                if (partKeyDesc.hasLowerValues()) {
                     lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
                 } else {
                     if (lastRange == null) {
@@ -153,8 +157,16 @@ public class RangePartitionInfo extends PartitionInfo {
                         lowKey = lastRange.upperEndpoint();
                     }
                 }
-
+                // check: [left, right), error if left equal right
+                if (lowKey.compareTo(singlePartitionKey) >= 0) {
+                    throw new IllegalArgumentException("The right value must be more than the left value");
+                }
                 newRange = Range.closedOpen(lowKey, singlePartitionKey);
+
+                // check if range intersected. The first Partition if lastRange == null
+                if (lastRange != null) {
+                    checkRangeIntersect(newRange, lastRange);
+                }
             }
         } catch (AnalysisException e) {
             throw new DdlException("Invalid range value format： " + e.getMessage());
@@ -181,7 +193,7 @@ public class RangePartitionInfo extends PartitionInfo {
             idToRange.put(partitionId, range);
         } catch (IllegalArgumentException e) {
             // Range.closedOpen may throw this if (lower > upper)
-            throw new DdlException("Invalid key range", e);
+            throw new DdlException("Invalid key range: " + e.getMessage());
         }
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
@@ -298,10 +310,10 @@ public class RangePartitionInfo extends PartitionInfo {
     public SingleRangePartitionDesc toSingleRangePartitionDesc(long partitionId, String partitionName,
                                                                Map<String, String> properties) {
         Range<PartitionKey> range = idToRange.get(partitionId);
-        List<String> upperValues = Lists.newArrayList();
-        List<String> lowerValues = Lists.newArrayList();
+        List<PartitionValue> upperValues = Lists.newArrayList();
+        List<PartitionValue> lowerValues = Lists.newArrayList();
         // FIXME(cmy): check here(getStringValue)
-        lowerValues.add(range.lowerEndpoint().getKeys().get(0).getStringValue());
+        lowerValues.add(new PartitionValue(range.lowerEndpoint().getKeys().get(0).getStringValue()));
 
         PartitionKey upperKey = range.upperEndpoint();
         PartitionKeyDesc keyDesc = null;
@@ -309,7 +321,7 @@ public class RangePartitionInfo extends PartitionInfo {
             keyDesc = PartitionKeyDesc.createMaxKeyDesc();
             keyDesc.setLowerValues(lowerValues);
         } else {
-            upperValues.add(range.upperEndpoint().getKeys().get(0).getStringValue());
+            upperValues.add(new PartitionValue(range.upperEndpoint().getKeys().get(0).getStringValue()));
             keyDesc = new PartitionKeyDesc(lowerValues, upperValues);
         }
 

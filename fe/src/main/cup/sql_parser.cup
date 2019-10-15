@@ -366,6 +366,8 @@ nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
+nonterminal PartitionKeyDesc fixed_partition_key_desc;
+nonterminal List<PartitionValue> partition_key_list;
 nonterminal SingleRangePartitionDesc single_range_partition_desc;
 nonterminal List<SingleRangePartitionDesc> opt_single_range_partition_desc_list;
 nonterminal List<SingleRangePartitionDesc> single_range_partition_desc_list;
@@ -1545,6 +1547,11 @@ single_range_partition_desc ::=
     {:
         RESULT = new SingleRangePartitionDesc(ifNotExists, partName, desc, properties);
     :}
+    | KW_PARTITION opt_if_not_exists:ifNotExists ident:partName KW_VALUES fixed_partition_key_desc:desc
+        opt_key_value_map:properties
+    {:
+        RESULT = new SingleRangePartitionDesc(ifNotExists, partName, desc, properties);
+    :}
     ;
 
 partition_key_desc ::=
@@ -1552,9 +1559,43 @@ partition_key_desc ::=
     {:
         RESULT = PartitionKeyDesc.createMaxKeyDesc();
     :}
-    | LPAREN string_list:keys RPAREN
+    | LPAREN partition_key_list:keys RPAREN
     {:
         RESULT = new PartitionKeyDesc(keys);
+    :}
+    ;
+
+partition_key_list ::=
+    /* empty */
+    {:
+        List<PartitionValue> l = new ArrayList<PartitionValue>();
+        RESULT = l;
+    :}
+    | partition_key_list:l COMMA STRING_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
+    | partition_key_list:l COMMA KW_MAX_VALUE
+    {:
+        l.add(PartitionValue.createMaxValue());
+        RESULT = l;
+    :}
+    | STRING_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | KW_MAX_VALUE
+    {:
+        RESULT = Lists.newArrayList(PartitionValue.createMaxValue());
+    :}
+    ;
+
+fixed_partition_key_desc ::=
+    /* format: [(lower), (upper))*/
+    LBRACKET LPAREN partition_key_list:lower RPAREN COMMA LPAREN partition_key_list:upper RPAREN RPAREN
+    {:
+        RESULT = new PartitionKeyDesc(lower, upper);
     :}
     ;
 

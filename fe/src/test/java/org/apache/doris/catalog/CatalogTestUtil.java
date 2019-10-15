@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -248,7 +249,7 @@ public class CatalogTestUtil {
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
                                                                    new PartitionKeyDesc(Lists
-                                                                           .newArrayList("100")),
+                                                                           .newArrayList(new PartitionValue("100"))),
                                                                    null));
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
@@ -280,7 +281,7 @@ public class CatalogTestUtil {
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
                                                                    new PartitionKeyDesc(Lists
-                                                                           .newArrayList("100")),
+                                                                           .newArrayList(new PartitionValue("100"))),
                                                                    null));
 
         SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
