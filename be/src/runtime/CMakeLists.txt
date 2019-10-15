@@ -82,7 +82,8 @@ set(RUNTIME_FILES
     buffered_tuple_stream3.cc
     #  export_task_mgr.cpp
     export_sink.cpp
-    tablet_writer_mgr.cpp
+    load_channel_mgr.cpp
+    load_channel.cpp
     tablets_channel.cpp
     bufferpool/buffer_allocator.cc
     bufferpool/buffer_pool.cc

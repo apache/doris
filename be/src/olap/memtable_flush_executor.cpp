@@ -21,6 +21,7 @@
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
 #include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -53,7 +54,8 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
     }
 }
 
-OLAPStatus MemTableFlushExecutor::create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
+OLAPStatus MemTableFlushExecutor::create_flush_handler(
+        int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
     int32_t flush_queue_idx = _get_queue_idx(path_hash); 
     flush_handler->reset(new FlushHandler(flush_queue_idx, this));
     return OLAP_SUCCESS;
@@ -140,6 +142,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         timer.start();
         res.flush_status = ctx.memtable->flush();
         res.flush_time_ns = timer.elapsed_time();
+        res.flush_size_bytes = ctx.memtable->memory_usage();
         // callback
         ctx.flush_handler->on_flush_finished(res);
     }
