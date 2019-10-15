@@ -233,11 +233,13 @@ public class ScalarFunction extends Function {
     public static ScalarFunction createUdf(
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
-            String objectFile, String symbol) {
+            String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
         ScalarFunction fn = new ScalarFunction(name, args, returnType, isVariadic);
         fn.setBinaryType(TFunctionBinaryType.HIVE);
         fn.setUserVisible(true);
         fn.symbolName = symbol;
+        fn.prepareFnSymbol = prepareFnSymbol;
+        fn.closeFnSymbol = closeFnSymbol;
         fn.setLocation(new HdfsURI(objectFile));
         return fn;
     }
