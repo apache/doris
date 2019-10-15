@@ -180,6 +180,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
+        reader_context.seek_columns = &return_columns;
 
         RowsetReaderSharedPtr rowset_reader;
         create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
@@ -220,6 +221,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;
+        reader_context.seek_columns = &return_columns;
 
         RowsetReaderSharedPtr rowset_reader;
         create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
