@@ -22,5 +22,7 @@
 namespace doris_udf {
 
 IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2);
+void AddUdf_prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
+void AddUdf_close(FunctionContext* context, FunctionContext::FunctionStateScope scope);
 
 }
