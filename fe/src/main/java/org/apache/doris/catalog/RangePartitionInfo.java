@@ -18,12 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
@@ -95,84 +92,78 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public Range<PartitionKey> checkAndCreateRange(SingleRangePartitionDesc desc) throws DdlException {
         Range<PartitionKey> newRange = null;
+        PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
         // check range
         try {
-            // create single value partition key
-            PartitionKeyDesc partKeyDesc = desc.getPartitionKeyDesc();
-            PartitionKey singlePartitionKey  = null;
-            if (partKeyDesc.isMax()) {
-                singlePartitionKey = PartitionKey.createInfinityPartitionKey(partitionColumns, true);
-            } else {
-                singlePartitionKey = PartitionKey.createPartitionKey(partKeyDesc.getUpperValues(), partitionColumns);
-            }
-
-            if (singlePartitionKey.isMinValue()) {
-                throw new DdlException("Partition value should not be MIN VALUE: " + singlePartitionKey.toSql());
-            }
-
-            List<Map.Entry<Long, Range<PartitionKey>>> entries =
-                    new ArrayList<Map.Entry<Long, Range<PartitionKey>>>(this.idToRange.entrySet());
-            Collections.sort(entries, RANGE_MAP_ENTRY_COMPARATOR);
-
-            Range<PartitionKey> lastRange = null;
-            Range<PartitionKey> nextRange = null;
-            for (Map.Entry<Long, Range<PartitionKey>> entry : entries) {
-                nextRange = entry.getValue();
-
-                // check if equals to upper bound
-                PartitionKey upperKey = nextRange.upperEndpoint();
-                if (upperKey.compareTo(singlePartitionKey) >= 0) {
-                    PartitionKey lowKey = null;
-                    if (partKeyDesc.hasLowerValues()) {
-                        lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
-                    } else {
-                        if (lastRange == null) {
-                            lowKey = PartitionKey.createInfinityPartitionKey(partitionColumns, false);
-                        } else {
-                            lowKey = lastRange.upperEndpoint();
-                        }
-                    }
-                    // check: [left, right), error if left equal right
-                    if (lowKey.compareTo(singlePartitionKey) >= 0) {
-                        throw new IllegalArgumentException("The right value must be more than the left value");
-                    }
-                    newRange = Range.closedOpen(lowKey, singlePartitionKey);
-
-                    // check if range intersected
-                    checkRangeIntersect(newRange, nextRange);
-                    break;
-                }
-                lastRange = nextRange;
-            } // end for ranges
-
-            if (newRange == null) {
-                PartitionKey lowKey = null;
-                if (partKeyDesc.hasLowerValues()) {
-                    lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
-                } else {
-                    if (lastRange == null) {
-                        // add first partition to this table. so the lower key is MIN
-                        lowKey = PartitionKey.createInfinityPartitionKey(partitionColumns, false);
-                    } else {
-                        lowKey = lastRange.upperEndpoint();
-                    }
-                }
-                // check: [left, right), error if left equal right
-                if (lowKey.compareTo(singlePartitionKey) >= 0) {
-                    throw new IllegalArgumentException("The right value must be more than the left value");
-                }
-                newRange = Range.closedOpen(lowKey, singlePartitionKey);
-
-                // check if range intersected. The first Partition if lastRange == null
-                if (lastRange != null) {
-                    checkRangeIntersect(newRange, lastRange);
-                }
-            }
+            newRange = createNewRange(partitionKeyDesc);
         } catch (AnalysisException e) {
             throw new DdlException("Invalid range value format： " + e.getMessage());
         }
 
         Preconditions.checkNotNull(newRange);
+        return newRange;
+    }
+
+    private Range<PartitionKey> createNewRange(PartitionKeyDesc partKeyDesc)
+            throws AnalysisException, DdlException {
+        Range<PartitionKey> newRange = null;
+        // generate and sort the existing ranges
+        List<Map.Entry<Long, Range<PartitionKey>>> sortedRanges = new ArrayList<Map.Entry<Long, Range<PartitionKey>>>(
+                this.idToRange.entrySet());
+        Collections.sort(sortedRanges, RANGE_MAP_ENTRY_COMPARATOR);
+
+        // create upper values for new range
+        PartitionKey newRangeUpper = null;
+        if (partKeyDesc.isMax()) {
+            newRangeUpper = PartitionKey.createInfinityPartitionKey(partitionColumns, true);
+        } else {
+            newRangeUpper = PartitionKey.createPartitionKey(partKeyDesc.getUpperValues(), partitionColumns);
+        }
+        if (newRangeUpper.isMinValue()) {
+            throw new DdlException("Partition's upper value should not be MIN VALUE: " + partKeyDesc.toSql());
+        }
+
+        Range<PartitionKey> lastRange = null;
+        Range<PartitionKey> nextRange = null;
+        for (Map.Entry<Long, Range<PartitionKey>> entry : sortedRanges) {
+            nextRange = entry.getValue();
+            // check if equals to upper bound
+            PartitionKey upperKey = nextRange.upperEndpoint();
+            if (upperKey.compareTo(newRangeUpper) >= 0) {
+                newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, nextRange);
+                break;
+            } else {
+                lastRange = nextRange;
+            }
+        } // end for ranges
+
+        if (newRange == null) /* the new range's upper value is larger than any existing ranges */ {
+            newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, nextRange);
+        }
+        return newRange;
+    }
+
+    private Range<PartitionKey> checkNewRange(PartitionKeyDesc partKeyDesc, PartitionKey newRangeUpper,
+            Range<PartitionKey> lastRange, Range<PartitionKey> nextRange) throws AnalysisException, DdlException {
+        Range<PartitionKey> newRange;
+        PartitionKey lowKey = null;
+        if (partKeyDesc.hasLowerValues()) {
+            lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
+        } else {
+            if (lastRange == null) {
+                lowKey = PartitionKey.createInfinityPartitionKey(partitionColumns, false);
+            } else {
+                lowKey = lastRange.upperEndpoint();
+            }
+        }
+        // check: [left, right), error if left equal right
+        if (lowKey.compareTo(newRangeUpper) >= 0) {
+            throw new AnalysisException("The lower values must smaller than upper values");
+        }
+        newRange = Range.closedOpen(lowKey, newRangeUpper);
+
+        // check if range intersected
+        checkRangeIntersect(newRange, nextRange);
         return newRange;
     }
 
@@ -307,34 +298,6 @@ public class RangePartitionInfo extends PartitionInfo {
         return null;
     }
 
-    public SingleRangePartitionDesc toSingleRangePartitionDesc(long partitionId, String partitionName,
-                                                               Map<String, String> properties) {
-        Range<PartitionKey> range = idToRange.get(partitionId);
-        List<PartitionValue> upperValues = Lists.newArrayList();
-        List<PartitionValue> lowerValues = Lists.newArrayList();
-        // FIXME(cmy): check here(getStringValue)
-        lowerValues.add(new PartitionValue(range.lowerEndpoint().getKeys().get(0).getStringValue()));
-
-        PartitionKey upperKey = range.upperEndpoint();
-        PartitionKeyDesc keyDesc = null;
-        if (upperKey.isMaxValue()) {
-            keyDesc = PartitionKeyDesc.createMaxKeyDesc();
-            keyDesc.setLowerValues(lowerValues);
-        } else {
-            upperValues.add(new PartitionValue(range.upperEndpoint().getKeys().get(0).getStringValue()));
-            keyDesc = new PartitionKeyDesc(lowerValues, upperValues);
-        }
-
-        SingleRangePartitionDesc singleDesc = new SingleRangePartitionDesc(false, partitionName, keyDesc, properties);
-
-        if (properties != null) {
-            // properties
-            Short replicationNum = getReplicationNum(partitionId);
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
-        }
-        return singleDesc;
-    }
-
     public boolean checkRange(Range<PartitionKey> newRange) {
         for (Range<PartitionKey> range : idToRange.values()) {
             if (range.isConnected(newRange)) {
@@ -409,31 +372,16 @@ public class RangePartitionInfo extends PartitionInfo {
                 new ArrayList<Map.Entry<Long, Range<PartitionKey>>>(this.idToRange.entrySet());
         Collections.sort(entries, RANGE_MAP_ENTRY_COMPARATOR);
 
-        Range<PartitionKey> lastRange = null;
         idx = 0;
         for (Map.Entry<Long, Range<PartitionKey>> entry : entries) {
             Partition partition = table.getPartition(entry.getKey());
             String partitionName = partition.getName();
             Range<PartitionKey> range = entry.getValue();
 
-            if (idx == 0) {
-                // first partition
-                if (!range.lowerEndpoint().isMinValue()) {
-                    sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
-                    sb.append(",\n");
-                }
-            } else {
-                Preconditions.checkNotNull(lastRange);
-                if (!lastRange.upperEndpoint().equals(range.lowerEndpoint())) {
-                    sb.append("PARTITION ").append(FeNameFormat.FORBIDDEN_PARTITION_NAME).append(idx)
-                            .append(" VALUES LESS THAN (").append(range.lowerEndpoint().toSql()).append(")");
-                    sb.append(",\n");
-                }
-            }
-
-            sb.append("PARTITION ").append(partitionName).append(" VALUES LESS THAN (");
-            sb.append(range.upperEndpoint().toSql()).append(")");
+            // print all partitions' range is fixed range, even if some of them is created by less than range
+            sb.append("PARTITION ").append(partitionName).append(" VALUES [");
+            sb.append(range.lowerEndpoint().toSql());
+            sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
@@ -444,8 +392,6 @@ public class RangePartitionInfo extends PartitionInfo {
                 sb.append(",\n");
             }
             idx++;
-
-            lastRange = range;
         }
         sb.append(")");
         return sb.toString();

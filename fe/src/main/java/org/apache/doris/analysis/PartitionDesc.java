@@ -22,23 +22,15 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import org.apache.commons.lang.NotImplementedException;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class PartitionDesc implements Writable {
+public class PartitionDesc {
 
     protected PartitionType type;
-
-    public PartitionDesc() {
-    }
 
     public void analyze(List<ColumnDef> columnDefs, Map<String, String> otherProperties) throws AnalysisException {
         throw new NotImplementedException();
@@ -54,27 +46,6 @@ public class PartitionDesc implements Writable {
 
     public PartitionInfo toPartitionInfo(List<Column> columns, Map<String, Long> partitionNameToId)
             throws DdlException {
-        throw new NotImplementedException();
-    }
-
-    public static PartitionDesc read(DataInput in) throws IOException {
-        PartitionType type = PartitionType.valueOf(Text.readString(in));
-        if (type == PartitionType.RANGE) {
-            PartitionDesc desc = new RangePartitionDesc();
-            desc.readFields(in);
-            return desc;
-        } else {
-            throw new IOException("Unknow partition type");
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
         throw new NotImplementedException();
     }
 }
