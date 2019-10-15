@@ -165,10 +165,20 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
+    std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
-        _load_channels.erase(load_id);
+        if (_load_channels.find(load_id) != _load_channels.end()) {
+            cancelled_channel = _load_channels[load_id];
+            _load_channels.erase(load_id);
+        }
     }
+    
+    if (cancelled_channel.get() != nullptr) {
+        cancelled_channel->cancel();
+        LOG(INFO) << "load channel has been cancelled: " << load_id;
+    }
+
     return Status::OK();
 }
 
