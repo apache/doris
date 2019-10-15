@@ -25,6 +25,7 @@ IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2);
 
 /// --- Prepare / Close Functions ---
 /// ---------------------------------
+
 /// The UDF can optionally include a prepare function. The prepare function is called
 /// before any calls to the UDF to evaluate values.
 void AddUdf_prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
