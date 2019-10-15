@@ -743,7 +743,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnCommitted(TransactionState txnState) {
         writeLock();
         try {
-            isCommitting = true;
+            executeReplayTxnAttachment(txnState);
         } finally {
             writeUnlock();
         }
@@ -770,15 +770,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 return;
             }
             // record attachment in load job
-            executeAfterAborted(txnState);
+            executeReplayTxnAttachment(txnState);
             // cancel load job
             unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason), false);
         } finally {
             writeUnlock();
         }
-    }
-
-    protected void executeAfterAborted(TransactionState txnState) {
     }
 
     /**
@@ -790,16 +787,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnAborted(TransactionState txnState) {
         writeLock();
         try {
-            executeReplayOnAborted(txnState);
+            executeReplayTxnAttachment(txnState);
             failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnState.getReason());
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
         } finally {
             writeUnlock();
         }
-    }
-
-    protected void executeReplayOnAborted(TransactionState txnState) {
     }
 
     /**
@@ -814,18 +808,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (!txnOperated) {
             return;
         }
-        executeAfterVisible(txnState);
+        executeReplayTxnAttachment(txnState);
         updateState(JobState.FINISHED);
-    }
-
-    protected void executeAfterVisible(TransactionState txnState) {
     }
 
     @Override
     public void replayOnVisible(TransactionState txnState) {
         writeLock();
         try {
-            executeReplayOnVisible(txnState);
+            executeReplayTxnAttachment(txnState);
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;
@@ -834,7 +825,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void executeReplayOnVisible(TransactionState txnState) {
+    protected void executeReplayTxnAttachment(TransactionState txnState) {
     }
 
     @Override
