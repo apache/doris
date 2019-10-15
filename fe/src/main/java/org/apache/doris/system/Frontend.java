@@ -22,7 +22,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 
 import java.io.DataInput;
@@ -30,9 +29,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class Frontend implements Writable {
-    
-    private long id;
-
     private FrontendNodeType role;
     private String nodeName;
     private String host;
@@ -47,30 +43,14 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    public static final TagSet DEFAULT_FOLLOWER_TAG_SET;
-    public static final TagSet DEFAULT_OBSERVER_TAG_SET;
-
-    static {
-        Tag typeTag = Tag.create(Type.TYPE, "frontend");
-        Tag followerTag = Tag.create(Type.FUNCTION, "follower");
-        Tag observerTag = Tag.create(Type.FUNCTION, "observer");
-        DEFAULT_FOLLOWER_TAG_SET = TagSet.create(typeTag, followerTag);
-        DEFAULT_OBSERVER_TAG_SET = TagSet.create(typeTag, observerTag);
-    }
-
-    private Frontend() {
+    public Frontend() {
     }
     
-    public Frontend(Long id, FrontendNodeType role, String nodeName, String host, int editLogPort) {
-        this.id = id;
+    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
         this.host = host;
         this.editLogPort = editLogPort;
-    }
-
-    public long getId() {
-        return id;
     }
 
     public FrontendNodeType getRole() {
@@ -141,7 +121,6 @@ public class Frontend implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
         Text.writeString(out, role.name());
         Text.writeString(out, host);
         out.writeInt(editLogPort);
@@ -150,12 +129,6 @@ public class Frontend implements Writable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
-            id = in.readLong();
-        } else {
-            // id will be set after
-            id = -1;
-        }
         role = FrontendNodeType.valueOf(Text.readString(in));
         if (role == FrontendNodeType.REPLICA) {
             // this is for compatibility.
