@@ -40,9 +40,9 @@ CREATE [AGGREGATE] FUNCTION function_name
 >
 >           "md5": 函数动态链接库的MD5值，用于校验下载的内容是否正确。此选项是可选项
 > 
->           "prepareFnSymbol": 自定义函数的prepare函数的函数签名，用于从动态库里面找到prepare函数入口。此选项对于自定义函数是可选项
+>           "prepare_fn": 自定义函数的prepare函数的函数签名，用于从动态库里面找到prepare函数入口。此选项对于自定义函数是可选项
 > 
->           "closeFnSymbol": 自定义函数的close函数的函数签名，用于从动态库里面找到close函数入口。此选项对于自定义函数是可选项
+>           "close_fn": 自定义函数的close函数的函数签名，用于从动态库里面找到close函数入口。此选项对于自定义函数是可选项
 
 
 此语句创建一个自定义函数。执行此命令需要用户拥有 `ADMIN` 权限。
@@ -65,8 +65,8 @@ CREATE [AGGREGATE] FUNCTION function_name
 	```
 	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
    		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   		"prepareFnSymbol" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   		"closeFnSymbol" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+   		"prepare_fn" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+   		"close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
     	"object_file" = "http://host:port/libmyadd.so"
 	);
 	```

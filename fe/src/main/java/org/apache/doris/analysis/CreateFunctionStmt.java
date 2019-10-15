@@ -43,8 +43,8 @@ import java.util.Map;
 public class CreateFunctionStmt extends DdlStmt {
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String SYMBOL_KEY = "symbol";
-    public static final String PREPARE_SYMBOL_KEY = "prepareFnSymbol";
-    public static final String CLOSE_SYMBOL_KEY = "closeFnSymbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepare_fn";
+    public static final String CLOSE_SYMBOL_KEY = "close_fn";
     public static final String MD5_CHECKSUM = "md5";
     public static final String INIT_KEY = "init_fn";
     public static final String UPDATE_KEY = "update_fn";
