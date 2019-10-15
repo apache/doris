@@ -53,7 +53,7 @@ public:
     // cancel this channel
     Status cancel();
 
-    time_t last_updated_time() const { return _last_updated_time; }
+    time_t last_updated_time() const { return _last_updated_time.load(); }
 
     const UniqueId& load_id() const { return _load_id; }
 
@@ -84,7 +84,7 @@ private:
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
 
-    time_t _last_updated_time;
+    std::atomic<time_t> _last_updated_time;
 };
 
 }
