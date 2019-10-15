@@ -602,6 +602,9 @@ public class LoadManager implements Writable{
                 map.put(loadJob.getLabel(), jobs);
             }
             jobs.add(loadJob);
+            if (!loadJob.isCompleted()) {
+                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+            }
         }
     }
 }

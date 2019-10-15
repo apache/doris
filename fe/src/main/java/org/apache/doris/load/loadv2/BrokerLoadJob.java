@@ -492,9 +492,6 @@ public class BrokerLoadJob extends LoadJob {
             return;
         }
         unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
-        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                          .add("msg", "execute replay txn attachment")
-                          .build());
     }
 
     @Override

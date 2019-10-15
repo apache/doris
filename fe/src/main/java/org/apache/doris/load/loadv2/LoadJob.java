@@ -744,9 +744,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             executeReplayTxnAttachment(txnState);
-            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                              .add("msg", "replay on committed")
-                              .build());
         } finally {
             writeUnlock();
         }
@@ -823,11 +820,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;
-            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                              .add("state", state)
-                              .add("progress", progress)
-                              .add("msg", "replay on visible")
-                              .build());
         } finally {
             writeUnlock();
         }
