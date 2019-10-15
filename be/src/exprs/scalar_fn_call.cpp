@@ -540,7 +540,8 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
 
 Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol, void** fn) {
     if (_fn.binary_type == TFunctionBinaryType::NATIVE 
-            || _fn.binary_type == TFunctionBinaryType::BUILTIN) {
+            || _fn.binary_type == TFunctionBinaryType::BUILTIN
+            || _fn.binary_type == TFunctionBinaryType::HIVE) {
         return UserFunctionCache::instance()->get_function_ptr(
             _fn.id, symbol, _fn.hdfs_location, _fn.checksum, fn, &_cache_entry);
     } else {
