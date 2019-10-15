@@ -39,6 +39,10 @@ RETURNS ret_type
 > "finalize_fn": A function signature that aggregates functions to obtain the final result. For aggregation functions, it is optional. If not specified, the default fetch result function will be used.
 >
 > "md5": The MD5 value of the function dynamic link library, which is used to verify that the downloaded content is correct. This option is optional
+>
+> "prepareFnSymbol": Function signature of the prepare function for finding the entry from the dynamic library. This option is optional for custom functions
+> 
+> "closeFnSymbol": Function signature of the close function for finding the entry from the dynamic library. This option is optional for custom functions
 
 
 This statement creates a custom function. Executing this command requires that the user have `ADMIN'privileges.
@@ -49,23 +53,33 @@ If the `function_name'contains the database name, the custom function will be cr
 
 1. Create a custom scalar function
 
-```
-CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-"Symbol"=""\\\\\\\\ zn9doris\\\ udf6addudfepns\\ FunctionContexterkns\\ INTVales 4\,
-"object file" ="http://host:port /libmyadd.so"
-);
-```
+	```
+	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+	"Symbol"=""\\\\\\\\ zn9doris\\\ udf6addudfepns\\ FunctionContexterkns\\ INTVales 4\,
+	"object file" ="http://host:port /libmyadd.so"
+	);
+	```
+2. Create a custom scalar function with prepare/close functions
 
-2. Create a custom aggregation function
+	```
+	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+   		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+   		"prepareFnSymbol" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+   		"closeFnSymbol" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+    	"object_file" = "http://host:port/libmyadd.so"
+	);
+	```
 
-```
-CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
-"init u fn"= "ZN9doris, udf9CountInitEPNS -u 15FunctionContextEPNS, u 9BigIntValE",
-"Update  fn" = " zn9doris \ udf11Countupdateepns \ \ FunctionContexterkns \ Intvalepns  bigintvale",
-"Merge fn"="\ zn9doris\\ udf10CountMergeepns\ \ FunctionContexterkns\ Bigintvaleps2\\\\\\\\\\\\\
-"Finalize \ fn" = "\ zn9doris \ udf13Count Finalizepns \\ FunctionContexterkns \ Bigintvale",
-"object" file ="http://host:port /libudasample.so"
-);
-```
+3. Create a custom aggregation function
+	
+	```
+	CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
+	"init u fn"= "ZN9doris, udf9CountInitEPNS -u 15FunctionContextEPNS, u 9BigIntValE",
+	"Update  fn" = " zn9doris \ udf11Countupdateepns \ \ FunctionContexterkns \ Intvalepns  bigintvale",
+	"Merge fn"="\ zn9doris\\ udf10CountMergeepns\ \ FunctionContexterkns\ Bigintvaleps2\\\\\\\\\\\\\
+	"Finalize \ fn" = "\ zn9doris \ udf13Count Finalizepns \\ FunctionContexterkns \ Bigintvale",
+	"object" file ="http://host:port /libudasample.so"
+	);
+	```
 ##keyword
 CREATE,FUNCTION
