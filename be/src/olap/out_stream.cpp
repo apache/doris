@@ -351,7 +351,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
-        VLOG(3) << "write stream begin:" << file_handle->tell();
+        VLOG(10) << "write stream begin:" << file_handle->tell();
 
         res = file_handle->write((*it)->array(), (*it)->limit());
         if (OLAP_SUCCESS != res) {
@@ -359,7 +359,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
             return res;
         }
 
-        VLOG(3) << "write stream end:" << file_handle->tell();
+        VLOG(10) << "write stream end:" << file_handle->tell();
 
         total_stream_len += (*it)->limit();
         if (write_mbytes_per_sec > 0) {
@@ -367,7 +367,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
             int64_t sleep_time =
                     total_stream_len / write_mbytes_per_sec - delta_time_us;
             if (sleep_time > 0) {
-                VLOG(3) << "sleep to limit merge speed. time=" << sleep_time
+                VLOG(10) << "sleep to limit merge speed. time=" << sleep_time
                         << ", bytes=" << total_stream_len;
                 usleep(sleep_time);
             }

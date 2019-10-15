@@ -18,11 +18,11 @@
 #include "service/internal_service.h"
 
 #include "common/config.h"
-#include "runtime/tablet_writer_mgr.h"
 #include "gen_cpp/BackendService.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "service/brpc.h"
 #include "util/uid_util.h"
 #include "util/thrift_util.h"
@@ -63,9 +63,9 @@ void PInternalServiceImpl<T>::tablet_writer_open(google::protobuf::RpcController
     VLOG_RPC << "tablet writer open, id=" << request->id()
         << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
     brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->tablet_writer_mgr()->open(*request);
+    auto st = _exec_env->load_channel_mgr()->open(*request);
     if (!st.ok()) {
-        LOG(WARNING) << "tablet writer open failed, message=" << st.get_error_msg()
+        LOG(WARNING) << "load channel open failed, message=" << st.get_error_msg()
             << ", id=" << request->id()
             << ", index_id=" << request->index_id()
             << ", txn_id=" << request->txn_id();
@@ -106,7 +106,7 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
             int64_t wait_lock_time_ns = 0;
             { 
                 SCOPED_RAW_TIMER(&execution_time_ns);
-                auto st = _exec_env->tablet_writer_mgr()->add_batch(*request, response->mutable_tablet_vec(), &wait_lock_time_ns);
+                auto st = _exec_env->load_channel_mgr()->add_batch(*request, response->mutable_tablet_vec(), &wait_lock_time_ns);
                 if (!st.ok()) {
                     LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                         << ", id=" << request->id()
@@ -129,7 +129,7 @@ void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcControll
         << ", index_id=" << request->index_id()
         << ", sender_id=" << request->sender_id();
     brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->tablet_writer_mgr()->cancel(*request);
+    auto st = _exec_env->load_channel_mgr()->cancel(*request);
     if (!st.ok()) {
         LOG(WARNING) << "tablet writer cancel failed, id=" << request->id()
         << ", index_id=" << request->index_id()

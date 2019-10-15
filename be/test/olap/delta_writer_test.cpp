@@ -44,6 +44,7 @@ static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
+MemTracker* k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -60,6 +61,8 @@ void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
+
+    k_mem_tracker = new MemTracker(-1, "delta writer test");
 }
 
 void tear_down() {
@@ -67,6 +70,7 @@ void tear_down() {
     k_engine = nullptr;
     system("rm -rf ./data_test");
     remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    delete k_mem_tracker;
 }
 
 void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
@@ -303,7 +307,7 @@ TEST_F(TestDeltaWriter, open) {
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
                               20001, 30001, load_id, false, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer); 
+    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -338,7 +342,7 @@ TEST_F(TestDeltaWriter, write) {
                               20002, 30002, load_id, false, tuple_desc,
                               &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer); 
+    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
 
     Arena arena;

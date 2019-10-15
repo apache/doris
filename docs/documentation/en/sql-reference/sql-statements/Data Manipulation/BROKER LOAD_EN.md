@@ -146,10 +146,8 @@
 
         max_filter_ratio: Data ratio of maximum tolerance filterable (data irregularity, etc.). Default zero tolerance.
 
-        exc_mem_limit: Sets the upper memory limit for import. The default is 2G, per byte. This is the upper memory limit for a single BE node.
-
-        A load may be distributed over multiple BEs. Let's assume that 1GB data needs up to 5GB of memory for processing at a single node. Suppose 1GB files are distributed over two nodes, then theoretically, each node needs 2.5GB of memory. Then the parameter can be set to 268454560, or 2.5GB.
-
+        exc_mem_limit: Memory limit. Default is 2GB. Unit is Bytes.
+        
         strict_mode: Whether the data is strictly restricted. The default is true.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.

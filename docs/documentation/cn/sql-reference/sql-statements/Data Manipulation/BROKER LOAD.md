@@ -135,8 +135,7 @@
         可以指定如下参数：
         timeout：         指定导入操作的超时时间。默认超时为4小时。单位秒。
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
-        exec_mem_limit:   设置导入使用的内存上限。默认为2G，单位字节。这里是指单个 BE 节点的内存上限。
-                          一个导入可能分布于多个BE。我们假设 1GB 数据在单个节点处理需要最大5GB内存。那么假设1GB文件分布在2个节点处理，那么理论上，每个节点需要内存为2.5GB。则该参数可以设置为 2684354560，即2.5GB
+        exec_mem_limit：  导入内存限制。默认为 2GB。单位为字节。
         strict mode：     是否对数据进行严格限制。默认为true。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
 
@@ -359,4 +358,5 @@
         )
      
 ## keyword
+
     BROKER,LOAD

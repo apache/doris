@@ -55,13 +55,15 @@ struct TabletsChannelKeyHasher {
     }
 };
 
+std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
+
 class DeltaWriter;
 class OlapTableSchemaParam;
 
 // channel that process all data for this load
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key);
+    TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker);
 
     ~TabletsChannel();
 
@@ -73,10 +75,15 @@ public:
         const google::protobuf::RepeatedField<int64_t>& partition_ids,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
-    time_t last_updated_time() {
-        return _last_updated_time;
-    }
+    Status cancel();
 
+    // upper application may call this to try to reduce the mem usage of this channel.
+    // eg. flush the largest memtable immediately.
+    // return Status::OK if mem is reduced.
+    Status reduce_mem_usage();
+
+    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& params);
@@ -108,13 +115,8 @@ private:
 
     std::unordered_set<int64_t> _partition_ids;
 
-    // TODO(zc): to add this tracker to somewhere
-    MemTracker _mem_tracker;
-
-    //use to erase timeout TabletsChannel in _tablets_channels
-    time_t _last_updated_time;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
-std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 } // end namespace

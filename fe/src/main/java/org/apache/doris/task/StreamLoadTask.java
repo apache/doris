@@ -62,6 +62,7 @@ public class StreamLoadTask {
     private boolean strictMode = true;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
+    private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -162,6 +163,9 @@ public class StreamLoadTask {
             timezone = request.getTimezone();
             TimeUtils.checkTimeZoneValid(timezone);
         }
+        if (request.isSetExecMemLimit()) {
+            execMemLimit = request.getExecMemLimit();
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -242,5 +246,9 @@ public class StreamLoadTask {
     private void setColumnSeparator(String oriSeparator) throws AnalysisException {
         columnSeparator = new ColumnSeparator(oriSeparator);
         columnSeparator.analyze();
+    }
+
+    public long getMemLimit() {
+        return execMemLimit;
     }
 }
