@@ -189,7 +189,11 @@ Status LoadChannelMgr::_start_bg_worker() {
             ProfilerRegisterThread();
 #endif
 
+#ifndef BE_TEST
             uint32_t interval = 60;
+#else
+            uint32_t interval = 1;
+#endif
             while (!_is_stopped.load()) {
                 _start_load_channels_clean();
                 sleep(interval);
