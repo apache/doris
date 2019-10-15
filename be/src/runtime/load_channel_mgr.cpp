@@ -120,9 +120,9 @@ Status LoadChannelMgr::add_batch(
     _handle_mem_exceed_limit(); 
 
     // 3. add batch to load channel
-    if (request.has_row_batch()) {
-        RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
-    }
+    // batch may not exist in request(eg: eos request without batch),
+    // this case will be handled in load channel's add batch method.
+    RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
 
     // 4. handle finish
     if (channel->is_finished()) {
@@ -165,10 +165,20 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
+    std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
-        _load_channels.erase(load_id);
+        if (_load_channels.find(load_id) != _load_channels.end()) {
+            cancelled_channel = _load_channels[load_id];
+            _load_channels.erase(load_id);
+        }
     }
+    
+    if (cancelled_channel.get() != nullptr) {
+        cancelled_channel->cancel();
+        LOG(INFO) << "load channel has been cancelled: " << load_id;
+    }
+
     return Status::OK();
 }
 
@@ -179,7 +189,11 @@ Status LoadChannelMgr::_start_bg_worker() {
             ProfilerRegisterThread();
 #endif
 
+#ifndef BE_TEST
             uint32_t interval = 60;
+#else
+            uint32_t interval = 1;
+#endif
             while (!_is_stopped.load()) {
                 _start_load_channels_clean();
                 sleep(interval);
