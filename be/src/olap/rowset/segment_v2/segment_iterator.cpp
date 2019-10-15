@@ -41,8 +41,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
       _row_ranges(RowRanges::create_single(_segment->num_rows())),
       _cur_rowid(0),
       _cur_range_id(0),
-      _inited(false),
-      _sel_size(0) {
+      _inited(false) {
 }
 
 SegmentIterator::~SegmentIterator() {
