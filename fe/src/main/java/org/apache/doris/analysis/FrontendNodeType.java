@@ -17,18 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.ha.FrontendNodeType;
-
-public class DropFollowerClause extends FrontendClause {
-    public DropFollowerClause(String hostPort) {
-        super(hostPort, FrontendNodeType.FOLLOWER);
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ALTER CLUSTER DROP FOLLOWER \"");
-        sb.append(hostPort).append("\"");
-        return sb.toString();
-    }
+public enum FrontendNodeType {
+    MASTER,
+    FOLLOWER,
+    OBSERVER,
+    REPLICA,
+    INIT,
+    UNKNOWN
 }

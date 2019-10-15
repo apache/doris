@@ -23,12 +23,12 @@ public class DropBackendClause extends BackendClause {
     private boolean force;
 
     public DropBackendClause(List<String> hostPorts) {
-        super(hostPorts);
+        super(hostPorts, null);
         this.force = true;
     }
 
     public DropBackendClause(List<String> hostPorts, boolean force) {
-        super(hostPorts);
+        super(hostPorts, null);
         this.force = force;
     }
 

@@ -27,10 +27,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
@@ -100,11 +100,6 @@ public class SystemInfoService {
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
         pathHashToDishInfoRef = new AtomicReference<ImmutableMap<Long, DiskInfo>>(ImmutableMap.<Long, DiskInfo>of());
     }
-
-    // for deploy manager
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws DdlException {
-        addBackends(hostPortPairs, isFree, "");
-    }
     
     /**
      * @param hostPortPairs : backend's host and port
@@ -112,8 +107,7 @@ public class SystemInfoService {
      * @param destCluster : if not null or empty backend will be added to destCluster 
      * @throws DdlException
      */
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs, 
-        boolean isFree, String destCluster) throws DdlException {
+    public void addBackends(List<Pair<String, Integer>> hostPortPairs, TagSet tagSet) throws DdlException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
             if (getBackendWithHeartbeatPort(pair.first, pair.second) != null) {
@@ -122,7 +116,7 @@ public class SystemInfoService {
         }
 
         for (Pair<String, Integer> pair : hostPortPairs) {
-            addBackend(pair.first, pair.second, isFree, destCluster);
+            addBackend(pair.first, pair.second, tagSet);
         }
     }
 
@@ -134,16 +128,8 @@ public class SystemInfoService {
         idToBackendRef.set(newIdToBackend);
     }
 
-    private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
-        Preconditions.checkState(cluster != null);
-        cluster.addBackend(backend.getId());
-        backend.setOwnerClusterName(clusterName);
-        backend.setBackendState(BackendState.using);
-    }
-
     // Final entry of adding backend
-    private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
+    private void addBackend(String host, int heartbeatPort, TagSet tagSet) throws DdlException {
         Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
@@ -157,15 +143,8 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
 
-        if (!Strings.isNullOrEmpty(destCluster)) {
-         // add backend to destCluster
-            setBackendOwner(newBackend, destCluster);
-        } else if (!isFree) {
-            // add backend to DEFAULT_CLUSTER
-            setBackendOwner(newBackend, DEFAULT_CLUSTER);
-        } else {
-            // backend is free
-        }
+        // register resource tag
+        Catalog.getCurrentCatalog().getTagManger().addResourceTag(newBackend.getId(), tagSet);
 
         // log
         Catalog.getInstance().getEditLog().logAddBackend(newBackend);
@@ -226,14 +205,10 @@ public class SystemInfoService {
         copiedReportVerions.remove(droppedBackend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
-
-        // update cluster
-        final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
-        if (null != cluster) {
-            cluster.removeBackend(droppedBackend.getId());
-        } else {
-            LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
-        }
+        
+        // unregister resource tag
+        Catalog.getCurrentCatalog().getTagManger().unregisterResource(droppedBackend.getId());
+        
         // log
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);

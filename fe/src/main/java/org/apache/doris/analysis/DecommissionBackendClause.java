@@ -17,16 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
+
+import java.util.List;
 
 public class DecommissionBackendClause extends BackendClause {
 
     private DecommissionType type;
 
     public DecommissionBackendClause(List<String> hostPorts) {
-        super(hostPorts);
+        super(hostPorts, null);
         type = DecommissionType.SystemDecommission;
     }
 

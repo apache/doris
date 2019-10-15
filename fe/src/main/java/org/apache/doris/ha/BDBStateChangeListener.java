@@ -17,6 +17,7 @@
 
 package org.apache.doris.ha;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.persist.EditLog;
 

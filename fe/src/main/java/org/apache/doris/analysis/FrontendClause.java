@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -40,8 +39,11 @@ public class FrontendClause extends AlterClause {
     protected int port;
     protected FrontendNodeType role;
 
-    protected FrontendClause(String hostPort, FrontendNodeType role) {
+    protected Map<String, String> properties;
+
+    protected FrontendClause(String hostPort, FrontendNodeType role, Map<String, String> properties) {
         this.hostPort = hostPort;
+        this.properties = properties;
         this.role = role;
     }
 
@@ -51,6 +53,10 @@ public class FrontendClause extends AlterClause {
 
     public int getPort() {
         return port;
+    }
+
+    public FrontendNodeType getRole() {
+        return role;
     }
 
     @Override
@@ -64,6 +70,12 @@ public class FrontendClause extends AlterClause {
         this.host = pair.first;
         this.port = pair.second;
         Preconditions.checkState(!Strings.isNullOrEmpty(host));
+
+        checkProperties();
+    }
+
+    protected void checkProperties() throws AnalysisException {
+
     }
 
     @Override

@@ -17,9 +17,9 @@
 
 package org.apache.doris.http.meta;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;

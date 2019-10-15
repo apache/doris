@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+
 import com.google.common.base.Preconditions;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -33,8 +34,11 @@ public class BackendClause extends AlterClause {
 
     protected List<Pair<String, Integer>> hostPortPairs;
 
-    protected BackendClause(List<String> hostPorts) {
+    protected Map<String, String> properties;
+
+    protected BackendClause(List<String> hostPorts, Map<String, String> properties) {
         this.hostPorts = hostPorts;
+        this.properties = properties;
         this.hostPortPairs = new LinkedList<Pair<String, Integer>>();
     }
 
@@ -50,6 +54,12 @@ public class BackendClause extends AlterClause {
         }
 
         Preconditions.checkState(!hostPortPairs.isEmpty());
+
+        checkProperties();
+    }
+
+    protected void checkProperties() throws AnalysisException {
+
     }
 
     @Override

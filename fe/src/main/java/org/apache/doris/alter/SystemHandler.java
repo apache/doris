@@ -20,16 +20,14 @@ package org.apache.doris.alter;
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.AddFollowerClause;
-import org.apache.doris.analysis.AddObserverClause;
+import org.apache.doris.analysis.AddFrontendClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterLoadErrorUrlClause;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
-import org.apache.doris.analysis.DropFollowerClause;
-import org.apache.doris.analysis.DropObserverClause;
+import org.apache.doris.analysis.DropFrontendClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -43,7 +41,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.SystemInfoService;
@@ -150,7 +147,7 @@ public class SystemHandler extends AlterHandler {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
             Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), 
-                addBackendClause.isFree(), addBackendClause.getDestCluster());
+                    addBackendClause.getTagSet());
         } else if (alterClause instanceof DropBackendClause) {
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
             if (!dropBackendClause.isForce()) {
@@ -188,18 +185,12 @@ public class SystemHandler extends AlterHandler {
             // log
             Catalog.getInstance().getEditLog().logStartDecommissionBackend(decommissionBackendJob);
             LOG.info("decommission backend job[{}] created. {}", jobId, decommissionBackendClause.toSql());
-        } else if (alterClause instanceof AddObserverClause) {
-            AddObserverClause clause = (AddObserverClause) alterClause;
-            Catalog.getInstance().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
-        } else if (alterClause instanceof DropObserverClause) {
-            DropObserverClause clause = (DropObserverClause) alterClause;
-            Catalog.getInstance().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
-        } else if (alterClause instanceof AddFollowerClause) {
-            AddFollowerClause clause = (AddFollowerClause) alterClause;
-            Catalog.getInstance().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
-        } else if (alterClause instanceof DropFollowerClause) {
-            DropFollowerClause clause = (DropFollowerClause) alterClause;
-            Catalog.getInstance().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
+        } else if (alterClause instanceof AddFrontendClause) {
+            AddFrontendClause clause = (AddFrontendClause) alterClause;
+            Catalog.getInstance().addFrontend(clause.getRole(), clause.getHost(), clause.getPort());
+        } else if (alterClause instanceof DropFrontendClause) {
+            DropFrontendClause clause = (DropFrontendClause) alterClause;
+            Catalog.getInstance().dropFrontend(clause.getRole(), clause.getHost(), clause.getPort());
         } else if (alterClause instanceof ModifyBrokerClause) {
             ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
             Catalog.getInstance().getBrokerMgr().execute(clause);

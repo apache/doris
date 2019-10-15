@@ -18,6 +18,7 @@
 package org.apache.doris.resource;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.resource.Tag.Type;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -31,14 +32,12 @@ import java.util.stream.Collectors;
 /*
  * TagSet represents a set of tags.
  * TagSet is printed as { "type1" : "tag1,tag2", "type2" : "tag1" }
- * So, this class is not thread safe.
+ * this class is not thread safe.
  */
 public class TagSet {
-
     private Set<Tag> tags = Sets.newHashSet();
 
     private TagSet() {
-
     }
 
     private TagSet(TagSet other) {
@@ -59,6 +58,13 @@ public class TagSet {
                 tagSet.addTag(tag);
             }
         }
+        return tagSet;
+    }
+
+    public static TagSet createFromString(String type, String tagName) throws AnalysisException {
+        TagSet tagSet = new TagSet();
+        Tag tag = Tag.create(type, tagName.trim());
+        tagSet.addTag(tag);
         return tagSet;
     }
 
@@ -91,6 +97,38 @@ public class TagSet {
 
     public boolean containsTag(Tag tag) {
         return tags.contains(tag);
+    }
+
+    // merge 2 tag sets, the result is the union of 2 sets.
+    public void merge(TagSet other) {
+        for (Tag tag : other.tags) {
+            addTag(tag);
+        }
+    }
+
+    public Set<Tag.Type> getTypes() {
+        Set<Tag.Type> set = Sets.newHashSet();
+        for (Tag tag : tags) {
+            set.add(tag.type);
+        }
+        return set;
+    }
+
+    private void deleteType(Type type) {
+        tags = tags.stream().filter(t -> t.type != type).collect(Collectors.toSet());
+    }
+
+    // merge 2 tag sets, but all types of tag in this tagset will be substituted by type in 'other' tagset
+    // eg:
+    // tagset A: { "type1" : "tag1,tag2", "type2" : "tag1" }
+    // tagset B: { "type1" : "tag3", "type3" : "tag4" }
+    // result of A.substituteMerge(B): { "type1" : "tag3", "type2" : "tag1", "type3" : "tag4" }
+    public void substituteMerge(TagSet other) {
+        Set<Tag.Type> types = other.getTypes();
+        for (Tag.Type type : types) {
+            deleteType(type);
+            merge(other.getTags(type));
+        }
     }
 
     public Set<Tag> getTags() {

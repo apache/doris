@@ -774,17 +774,17 @@ alter_table_clause ::=
     ;
 
 alter_system_clause ::=
-    KW_ADD KW_BACKEND string_list:hostPorts
+    KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false);
+        RESULT = new AddBackendClause(hostPorts, false, properties);
     :}
     | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new AddBackendClause(hostPorts, true);
+        RESULT = new AddBackendClause(hostPorts, true, null);
     :}
     | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
     {:
-        RESULT = new AddBackendClause(hostPorts, clusterName);
+        RESULT = new AddBackendClause(hostPorts, clusterName, null);
     :}
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
@@ -798,26 +798,26 @@ alter_system_clause ::=
     {:
         RESULT = new DecommissionBackendClause(hostPorts);
     :}
-    | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort
+    | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort opt_properties:properties
     {:
-        RESULT = new AddObserverClause(hostPort);
+        RESULT = new AddFrontendClause(hostPort, FrontendNodeType.OBSERVER, properties);
     :}
     | KW_DROP KW_OBSERVER STRING_LITERAL:hostPort
     {:
-        RESULT = new DropObserverClause(hostPort);
+        RESULT = new DropFrontendClause(hostPort, FrontendNodeType.OBSERVER);
     :}
-    | KW_ADD KW_FOLLOWER STRING_LITERAL:hostPort
+    | KW_ADD KW_FOLLOWER STRING_LITERAL:hostPort opt_properties:properties
     {:
-        RESULT = new AddFollowerClause(hostPort);
+        RESULT = new AddFrontendClause(hostPort, FrontendNodeType.FOLLOWER, properties);
     :}
     | KW_DROP KW_FOLLOWER STRING_LITERAL:hostPort
     {:
-        RESULT = new DropFollowerClause(hostPort);
+        RESULT = new DropFrontendClause(hostPort, FrontendNodeType.FOLLOWER);
     :}
     /* Broker manipulation */
-    | KW_ADD KW_BROKER ident_or_text:brokerName string_list:hostPorts
+    | KW_ADD KW_BROKER ident_or_text:brokerName string_list:hostPorts opt_properties:properties
     {:
-        RESULT = ModifyBrokerClause.createAddBrokerClause(brokerName, hostPorts);
+        RESULT = ModifyBrokerClause.createAddBrokerClause(brokerName, hostPorts, properties);
     :}
     | KW_DROP KW_BROKER ident_or_text:brokerName string_list:hostPorts
     {:

@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.analysis.FrontendNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;

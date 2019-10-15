@@ -17,10 +17,10 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;

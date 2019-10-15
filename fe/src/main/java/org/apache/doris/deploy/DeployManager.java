@@ -17,13 +17,13 @@
 
 package org.apache.doris.deploy;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -592,7 +592,7 @@ public class DeployManager extends Daemon {
                         case BACKEND:
                             List<Pair<String, Integer>> newBackends = Lists.newArrayList();
                             newBackends.add(Pair.create(remoteIp, remotePort));
-                            Catalog.getCurrentSystemInfo().addBackends(newBackends, false);
+                            Catalog.getCurrentSystemInfo().addBackends(newBackends, Backend.DEFAULT_TAG_SET);
                             break;
                         default:
                             break;

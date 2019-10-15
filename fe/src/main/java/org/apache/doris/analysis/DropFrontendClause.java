@@ -17,17 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.ha.FrontendNodeType;
-
-public class AddObserverClause extends FrontendClause {
-    public AddObserverClause(String hostPort) {
-        super(hostPort, FrontendNodeType.OBSERVER);
+public class DropFrontendClause extends FrontendClause {
+    public DropFrontendClause(String hostPort, FrontendNodeType type) {
+        super(hostPort, type, null);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER CLUSTER ADD OBSERVER \"");
+        sb.append("ALTER CLUSTER DROP " + role.name() + " \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
     }

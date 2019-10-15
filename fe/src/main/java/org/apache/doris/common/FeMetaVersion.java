@@ -138,4 +138,6 @@ public final class FeMetaVersion {
     public static final int VERSION_63 = 63;
     // for table create time
     public static final int VERSION_64 = 64;
+    // for tag system
+    public static final int VERSION_65 = 65;
 }

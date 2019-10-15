@@ -17,11 +17,14 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.Tag.Type;
+import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 
 import java.io.DataInput;
@@ -43,10 +46,11 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    public Frontend() {
+    private Frontend() {
     }
     
-    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
+    public Frontend(Long id, FrontendNodeType role, String nodeName, String host, int editLogPort) {
+        this.id = id;
         this.role = role;
         this.nodeName = nodeName;
         this.host = host;
@@ -121,6 +125,7 @@ public class Frontend implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        out.writeLong(id);
         Text.writeString(out, role.name());
         Text.writeString(out, host);
         out.writeInt(editLogPort);

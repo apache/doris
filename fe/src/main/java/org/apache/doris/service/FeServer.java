@@ -17,9 +17,9 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.analysis.FrontendNodeType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ThriftServer;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.thrift.FrontendService;
 
 import org.apache.logging.log4j.LogManager;

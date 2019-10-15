@@ -31,6 +31,7 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 
+@Deprecated // replace by tag system
 public class CreateClusterStmt extends DdlStmt {
     public static String CLUSTER_INSTANCE_NUM = "instance_num";
     public static String CLUSTER_SUPERMAN_PASSWORD = "password";
@@ -67,6 +68,8 @@ public class CreateClusterStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_DEPRECATED_COMMAND);
+
         FeNameFormat.checkDbName(clusterName);
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, analyzer.getQualifiedUser());

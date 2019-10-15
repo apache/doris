@@ -18,8 +18,10 @@
 package org.apache.doris.resource;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -30,43 +32,93 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class TagManager {
     // tag -> set of resource id
     private HashMultimap<Tag, Long> tagIndex = HashMultimap.create();
+    private Map<Long, TagSet> resourceIndex = Maps.newHashMap();
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    public boolean addIndex(Tag tag, Long resourceId) {
+    public boolean addResourceTag(Long resourceId, Tag tag) {
         lock.writeLock().lock();
         try {
+            if (resourceIndex.containsKey(resourceId)) {
+                resourceIndex.get(resourceId).addTag(tag);
+            } else {
+                resourceIndex.put(resourceId, TagSet.create(tag));
+            }
+
             return tagIndex.put(tag, resourceId);
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    public void addIndex(TagSet tagSet, Long resourceId) {
+    public void addResourceTag(Long resourceId, TagSet tagSet) {
         lock.writeLock().lock();
         try {
+            if (resourceIndex.containsKey(resourceId)) {
+                resourceIndex.get(resourceId).merge(tagSet);
+            } else {
+                resourceIndex.put(resourceId, tagSet);
+            }
+
             for (Tag tag : tagSet.getTags()) {
-                addIndex(tag, resourceId);
+                tagIndex.put(tag, resourceId);
             }
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    public boolean deleteIndex(Tag tag, Long resourceId) {
+    public boolean unregisterResource(Long resourceId) {
         lock.writeLock().lock();
         try {
-            return tagIndex.remove(tag, resourceId);
+            TagSet tagSet = resourceIndex.remove(resourceId);
+            if (tagSet != null) {
+                for (Tag tag : tagSet.getTags()) {
+                    tagIndex.remove(tag, resourceId);
+                }
+                return true;
+            }
+            return false;
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    public void deleteIndex(TagSet tagSet, Long resourceId) {
+    public boolean removeResourceTag(Long resourceId, Tag tag) {
         lock.writeLock().lock();
         try {
-            for (Tag tag : tagSet.getTags()) {
-                deleteIndex(tag, resourceId);
+            if (resourceIndex.containsKey(resourceId)) {
+                TagSet tagSet = resourceIndex.get(resourceId);
+                tagSet.deleteTag(tag);
+                if (tagSet.isEmpty()) {
+                    resourceIndex.remove(resourceId);
+                }
+
+                tagIndex.remove(tag, resourceId);
+                return true;
             }
+            return false;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean removeResourceTag(Long resourceId, TagSet tagSet) {
+        lock.writeLock().lock();
+        try {
+            if (resourceIndex.containsKey(resourceId)) {
+                TagSet existingTagSet = resourceIndex.get(resourceId);
+                for (Tag tag : tagSet.getTags()) {
+                    existingTagSet.deleteTag(tag);
+                    tagIndex.remove(tag, resourceId);
+                }
+
+                if (tagSet.isEmpty()) {
+                    resourceIndex.remove(resourceId);
+                }
+
+                return true;
+            }
+            return false;
         } finally {
             lock.writeLock().unlock();
         }

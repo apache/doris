@@ -24,6 +24,9 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.Tag.Type;
+import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
@@ -87,6 +90,16 @@ public class Backend implements Writable {
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
     // after init it, this variable is set to true.
     private boolean initPathInfo = false;
+
+    public static final TagSet DEFAULT_TAG_SET;
+
+    static {
+        Tag typeTag = Tag.create(Type.TYPE, "backend");
+        Tag locationTag = Tag.create(Type.LOCATION, "default_cluster");
+        Tag storageTag = Tag.create(Type.FUNCTION, "store");
+        Tag computeTag = Tag.create(Type.FUNCTION, "compute");
+        DEFAULT_TAG_SET = TagSet.create(typeTag, locationTag, storageTag, computeTag);
+    }
 
     public Backend() {
         this.host = "";
