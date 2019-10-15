@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
@@ -98,8 +99,10 @@ public class PartitionColumnFilter {
             PartitionKey upperKey = null;
             // cmy mod, catch AnalysisException
             try {
-                lowerKey = PartitionKey.createPartitionKey(Lists.newArrayList(lowerBound.getStringValue()), columns);
-                upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(upperBound.getStringValue()), columns);
+                lowerKey = PartitionKey.createPartitionKey(
+                        Lists.newArrayList(new PartitionValue(lowerBound.getStringValue())), columns);
+                upperKey = PartitionKey.createPartitionKey(
+                        Lists.newArrayList(new PartitionValue(upperBound.getStringValue())), columns);
             } catch (AnalysisException e) {
                 LOG.warn(e.getMessage());
                 return null;

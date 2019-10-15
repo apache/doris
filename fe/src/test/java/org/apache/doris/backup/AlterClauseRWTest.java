@@ -23,6 +23,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
@@ -64,7 +65,7 @@ public class AlterClauseRWTest {
 
             // add partition clause
             String partititionName = "p1";
-            List<String> values = Lists.newArrayList("100");
+            List<PartitionValue> values = Lists.newArrayList(new PartitionValue("100"));
             PartitionKeyDesc keyDesc = new PartitionKeyDesc(values);
             Map<String, String> properties = Maps.newHashMap();
             SingleRangePartitionDesc partitionDesc = new SingleRangePartitionDesc(false, partititionName, keyDesc,

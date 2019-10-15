@@ -139,16 +139,16 @@
         Except for AGGREGATE KEY, no need to specify aggregation type for value columns.
 
 4. partition_desc
-
-    1) Range partition
+    Partition has two ways to use:
+    1) LESS THAN
 
     Syntex: 
 
         ```
         PARTITION BY RANGE (k1, k2, ...)
         (
-        PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
-        PARTITION partition_name VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
+        PARTITION partition_name1 VALUES LESS THAN MAXVALUE|("value1", "value2", ...),
+        PARTITION partition_name2 VALUES LESS THAN MAXVALUE|("value1", "value2", ...)
         ...
         )
         ```
@@ -161,7 +161,23 @@
         3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of specifed column type.
         4) NULL values should be save in partition which includes MIN VALUE.
         5) Support multi partition columns, the the default partition value is MIN VALUE.
-                         
+    
+    2）Fixed Range
+    Syntex:
+
+        ```
+        PARTITION BY RANGE (k1, k2, k3, ...)
+        (
+        PARTITION partition_name1 VALUES [("k1-lower1", "k2-lower1", "k3-lower1",...), ("k1-upper1", "k2-upper1", "k3-upper1", ...)),
+        PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
+        "k3-upper1-2", ...
+        )
+        ```
+
+    Explain:
+        1）The Fixed Range is more flexible than the LESS THAN, and the left and right intervals are completely determined by the user.
+        2）Others are consistent with LESS THAN. 
+                    
 5. distribution_desc
     1) Hash
     Syntax: 
@@ -248,7 +264,7 @@
         );
     
     3. Create an olap table, with range partitioned, distributed by hash.
-
+    1) LESS THAN
         ```
         CREATE TABLE example_db.table_range
         (
@@ -283,6 +299,27 @@
         
         Data outside these ranges will not be loaded.
     
+    2) Fixed Range
+        CREATE TABLE table_range
+        (
+        k1 DATE,
+        k2 INT,
+        k3 SMALLINT,
+        v1 VARCHAR(2048),
+        v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+        )
+        ENGINE=olap
+        DUPLICATE KEY(k1, k2, k3)
+        PARTITION BY RANGE (k1, k2, k3)
+        (
+        PARTITION p1 VALUES [("2014-01-01", "10", "200"), ("2014-01-01", "20", "300")),
+        PARTITION p2 VALUES [("2014-06-01", "100", "200"), ("2014-07-01", "100", "300"))
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 32
+        PROPERTIES(
+        "storage_medium" = "SSD"
+        );
+
     4. Create a mysql table
 
         ```
