@@ -24,6 +24,7 @@
 #include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 
+#include "env/env.h"
 #include "http/http_client.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
@@ -155,17 +156,21 @@ Status UserFunctionCache::_load_cached_lib() {
     // create library directory if not exist
     RETURN_IF_ERROR(FileUtils::create_dir(_lib_dir));
 
-    auto scan_cb = [this] (const std::string& dir, const std::string& file) {
-        auto st = _load_entry_from_lib(dir, file);
-        if (!st.ok()) {
-            LOG(WARNING) << "load a library failed, dir=" << dir << ", file=" << file;
-        }
-        return true;
-    };
     for (int i = 0; i < kLibShardNum; ++i) {
         std::string sub_dir = _lib_dir + "/" + std::to_string(i);
         RETURN_IF_ERROR(FileUtils::create_dir(sub_dir));
-        RETURN_IF_ERROR(FileUtils::scan_dir(sub_dir, scan_cb));
+
+        auto scan_cb = [this, &sub_dir] (const char* file) {
+            if (is_dot_or_dotdot(file)) {
+                return true;
+            }
+            auto st = _load_entry_from_lib(sub_dir, file);
+            if (!st.ok()) {
+                LOG(WARNING) << "load a library failed, dir=" << sub_dir << ", file=" << file;
+            }
+            return true;
+        };
+        RETURN_IF_ERROR(Env::Default()->iterate_dir(sub_dir, scan_cb));
     }
     return Status::OK();
 }

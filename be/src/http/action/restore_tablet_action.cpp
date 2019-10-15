@@ -24,6 +24,7 @@
 #include "boost/lexical_cast.hpp"
 
 #include "agent/cgroups_mgr.h"
+#include "env/env.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -189,7 +190,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 
 Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src, const std::string& dst) {
     std::vector<std::string> files;
-    RETURN_IF_ERROR(FileUtils::scan_dir(src, &files));
+    RETURN_IF_ERROR(FileUtils::list_files(Env::Default(), src, &files));
     for (auto& file : files) {
         std::string from = src + "/" + file;
         std::string to = dst + "/" + file;
