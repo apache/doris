@@ -25,12 +25,11 @@
 
 namespace doris {
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key): 
+TabletsChannel::TabletsChannel(
+        const TabletsChannelKey& key,
+        MemTracker* mem_tracker): 
     _key(key), _closed_senders(64) {
-    // _last_updated_time should be set before being inserted to
-    // _tablet_channels in tablet_channel_mgr, or it may be erased
-    // immediately by gc thread.
-    _last_updated_time = time(nullptr);
+    _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
 }
 
 TabletsChannel::~TabletsChannel() {
@@ -62,7 +61,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     RETURN_IF_ERROR(_open_all_writers(params));
 
     _opened = true;
-    _last_updated_time = time(nullptr);
     return Status::OK();
 }
 
@@ -82,7 +80,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         return Status::InternalError("lost data packet");
     }
 
-    RowBatch row_batch(*_row_desc, params.row_batch(), &_mem_tracker);
+    RowBatch row_batch(*_row_desc, params.row_batch(), _mem_tracker.get());
 
     // iterator all data
     for (int i = 0; i < params.tablet_ids_size(); ++i) {
@@ -103,7 +101,6 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
     }
     _next_seqs[params.sender_id()]++;
-    _last_updated_time = time(nullptr);
     return Status::OK();
 }
 
@@ -158,6 +155,35 @@ Status TabletsChannel::close(int sender_id, bool* finished,
     return Status::OK();
 }
 
+Status TabletsChannel::reduce_mem_usage() {
+    std::lock_guard<std::mutex> l(_lock);
+    // find tablet writer with largest mem consumption
+    int64_t max_consume = 0L;
+    DeltaWriter* writer = nullptr;
+    for (auto& it : _tablet_writers) {
+        if (it.second->mem_consumption() > max_consume) {
+            max_consume = it.second->mem_consumption();
+            writer = it.second;
+        } 
+    }
+
+    if (writer == nullptr || max_consume == 0) {
+        // barely not happend, just return OK
+        return Status::OK();
+    }
+    
+    VLOG(3) << "pick the delte writer to flush, with mem consumption: " << max_consume
+            << ", channel key: " << _key;
+    OLAPStatus st = writer->flush_memtable_and_wait();
+    if (st != OLAP_SUCCESS) {
+        // flush failed, return error
+        std::stringstream ss;
+        ss << "failed to reduce mem consumption by flushing memtable. err: " << st;
+        return Status::InternalError(ss.str());
+    }
+    return Status::OK();
+}
+
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
@@ -186,7 +212,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, &writer);
+        auto st = DeltaWriter::open(&request, _mem_tracker.get(),  &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
@@ -199,6 +225,14 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }
     DCHECK(_tablet_writers.size() == params.tablets_size());
+    return Status::OK();
+}
+
+Status TabletsChannel::cancel() {
+    std::lock_guard<std::mutex> l(_lock);
+    for (auto& it : _tablet_writers) {
+        it.second->cancel();
+    }
     return Status::OK();
 }
 

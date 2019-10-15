@@ -700,7 +700,7 @@ OLAPStatus ColumnReader::init(
         _present_reader = NULL;
         _value_present = false;
     } else {
-        VLOG(3) << "create null present_stream for column_id:" << _column_unique_id;
+        VLOG(10) << "create null present_stream for column_id:" << _column_unique_id;
         _present_reader = new(std::nothrow) BitFieldReader(present_stream);
 
         if (NULL == _present_reader) {

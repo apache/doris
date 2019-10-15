@@ -164,7 +164,6 @@ RuntimeState::~RuntimeState() {
         _instance_mem_tracker->close();
     }
 
-#endif
     _instance_mem_tracker.reset();
    
     if (_query_mem_tracker.get() != NULL) {
@@ -172,6 +171,7 @@ RuntimeState::~RuntimeState() {
         _query_mem_tracker->close();
     }
     _query_mem_tracker.reset();
+#endif
 }
 
 Status RuntimeState::init(

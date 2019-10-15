@@ -46,7 +46,7 @@ class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
-class TabletWriterMgr;
+class LoadChannelMgr;
 class TestExecEnv;
 class ThreadPool;
 class ThreadResourceMgr;
@@ -120,7 +120,7 @@ public:
     BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
     BufferPool* buffer_pool() { return _buffer_pool; }
-    TabletWriterMgr* tablet_writer_mgr() { return _tablet_writer_mgr; }
+    LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
 
@@ -169,7 +169,7 @@ private:
     BfdParser* _bfd_parser = nullptr;
     PullLoadTaskMgr* _pull_load_task_mgr = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
-    TabletWriterMgr* _tablet_writer_mgr = nullptr;
+    LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     BrpcStubCache* _brpc_stub_cache = nullptr;
 

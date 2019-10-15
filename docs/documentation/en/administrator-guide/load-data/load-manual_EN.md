@@ -119,6 +119,17 @@ Operation steps:
 ### Notes
 Neither asynchronous nor synchronous import types should be retried endlessly after Doris returns an import failure or an import creation failure. **After a limited number of retries and failures, the external system retains the failure information. Most of the retries fail because of the problem of using method or data itself.**
 
+## Memory Limit
+
+Users can limit the memory usage of a single load by setting parameters to prevent the system from taking up too much memory and causing the system OOM.
+Different load methods restrict memory in a slightly different way. You can refer to the respective load manuals for viewing.
+
+An load job is usually distributed across multiple Backends. The load memory limit is the memory usage of load job on a single Backend, not memory usage across the cluster.
+
+At the same time, each Backend sets the overall upper limit of the memory available for load. See the General System Configuration section below for specific configuration. This configuration limits the overall memory usage limit for all load tasks running on this Backend.
+
+Smaller memory limits can affect load efficiency because the load process can frequently write in-memory data back to disk because memory reaches the upper limit. Excessive memory limits can cause system OOM when load concurrency is high. Therefore, you need to properly set the load memory limit according to your needs.
+
 ## Best Practices
 
 When users access Doris import, they usually use program access mode to ensure that data is imported into Doris regularly. Below is a brief description of the best practices for program access to Doris.
@@ -170,3 +181,9 @@ The following configuration belongs to the BE system configuration, which can be
 + streaming\_load\_rpc\_max\_alive\_time\_sec
 
 	During the import process, Doris opens a Writer for each Tablet to receive and write data. This parameter specifies Writer's waiting timeout time. If Writer does not receive any data at this time, Writer will be destroyed automatically. When the system processing speed is slow, Writer may not receive the next batch of data for a long time, resulting in import error: `Tablet Writer add batch with unknown id`. This configuration can be increased appropriately at this time. The default is 600 seconds.
+
+* load\_process\_max\_memory\_limit\_bytes and load\_process\_max\_memory\_limit\_percent
+
+    These two parameters limit the upper memory limit that can be used to load tasks on a single Backend. The maximum memory and maximum memory percentage are respectively. `load_process_max_memory_limit_percent` defaults to 80%, which is 80% of the `mem_limit` configuration. That is, if the physical memory is M, the default load memory limit is M * 80% * 80%.
+
+     `load_process_max_memory_limit_bytes` defaults to 100GB. The system takes the smaller of the two parameters as the final Backend load memory usage limit.

@@ -96,6 +96,7 @@ void NodeChannel::open() {
     }
     request.set_num_senders(_parent->_num_senders);
     request.set_need_gen_rollup(_parent->_need_gen_rollup);
+    request.set_load_mem_limit(_parent->_load_mem_limit);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -512,6 +513,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _close_timer = ADD_TIMER(_profile, "CloseTime");
     _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlightPacketTime");
     _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
+    // use query mem limit as load mem limit for remote load channels
+    _load_mem_limit = state->query_mem_tracker()->limit();
 
     // open all channels
     auto& partitions = _partition->get_partitions();
