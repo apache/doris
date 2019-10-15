@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -94,6 +95,7 @@ public class RangePartitionDesc extends PartitionDesc {
         }
 
         Set<String> nameSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        PartitionRangeType partitionType = PartitionRangeType.INVALID;
         for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {
             if (!nameSet.add(desc.getPartitionName())) {
                 throw new AnalysisException("Duplicated partition name: " + desc.getPartitionName());
@@ -103,6 +105,12 @@ public class RangePartitionDesc extends PartitionDesc {
             Map<String, String> givenProperties = null;
             if (otherProperties != null) {
                 givenProperties = Maps.newHashMap(otherProperties);
+            }
+            // check partitionType
+            if (partitionType == PartitionRangeType.INVALID) {
+                partitionType = desc.getPartitionKeyDesc().getPartitionType();
+            } else if (partitionType != desc.getPartitionKeyDesc().getPartitionType()) {
+                throw new AnalysisException("You can only use one of these methods to create partitions");
             }
             desc.analyze(columnDefs.size(), givenProperties);
         }
