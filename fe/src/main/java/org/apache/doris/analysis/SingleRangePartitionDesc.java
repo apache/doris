@@ -94,7 +94,7 @@ public class SingleRangePartitionDesc {
 
         FeNameFormat.checkPartitionName(partName);
 
-        partitionKeyDesc.analyze();
+        partitionKeyDesc.analyze(partColNum);
 
         if (otherProperties != null) {
             // use given properties

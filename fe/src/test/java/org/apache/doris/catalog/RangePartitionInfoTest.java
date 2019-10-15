@@ -168,7 +168,7 @@ public class RangePartitionInfoTest {
                 Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")));
         PartitionKeyDesc p4 = new PartitionKeyDesc(
                 Lists.newArrayList(new PartitionValue("20190105"), new PartitionValue("100")),
-                Lists.newArrayList(new PartitionValue("20190120"), PartitionValue.createMaxValue()));
+                Lists.newArrayList(new PartitionValue("20190120"), new PartitionValue("10000000000")));
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1", p1, null));
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p2", p2, null));
@@ -206,7 +206,7 @@ public class RangePartitionInfoTest {
                 Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"), new PartitionValue("200")));
         PartitionKeyDesc p2 = new PartitionKeyDesc(
                 Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"), new PartitionValue("200")),
-                Lists.newArrayList(PartitionValue.createMaxValue()));
+                Lists.newArrayList(new PartitionValue("10000000000")));
         PartitionKeyDesc p3 = new PartitionKeyDesc(
                 Lists.newArrayList(new PartitionValue("2021-02-01")));
 

@@ -93,15 +93,19 @@ public class PartitionKeyDesc {
 
         // currently, we do not support MAXVALUE in partition range values. eg: ("100", "200", MAXVALUE);
         // maybe support later.
-        for (PartitionValue lowerVal : lowerValues) {
-            if (lowerVal.isMax()) {
-                throw new AnalysisException("Not support MAXVALUE in partition range values.");
+        if (lowerValues != null) {
+            for (PartitionValue lowerVal : lowerValues) {
+                if (lowerVal.isMax()) {
+                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
+                }
             }
         }
 
-        for (PartitionValue upperVal : upperValues) {
-            if (upperVal.isMax()) {
-                throw new AnalysisException("Not support MAXVALUE in partition range values.");
+        if (upperValues != null) {
+            for (PartitionValue upperVal : upperValues) {
+                if (upperVal.isMax()) {
+                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
+                }
             }
         }
     }

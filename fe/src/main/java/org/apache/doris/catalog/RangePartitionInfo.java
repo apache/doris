@@ -95,7 +95,7 @@ public class RangePartitionInfo extends PartitionInfo {
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
         // check range
         try {
-            newRange = createNewRange(partitionKeyDesc);
+            newRange = createAndCheckNewRange(partitionKeyDesc);
         } catch (AnalysisException e) {
             throw new DdlException("Invalid range value format： " + e.getMessage());
         }
@@ -104,7 +104,8 @@ public class RangePartitionInfo extends PartitionInfo {
         return newRange;
     }
 
-    private Range<PartitionKey> createNewRange(PartitionKeyDesc partKeyDesc)
+    // create a new range and check it.
+    private Range<PartitionKey> createAndCheckNewRange(PartitionKeyDesc partKeyDesc)
             throws AnalysisException, DdlException {
         Range<PartitionKey> newRange = null;
         // generate and sort the existing ranges
@@ -162,8 +163,10 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         newRange = Range.closedOpen(lowKey, newRangeUpper);
 
-        // check if range intersected
-        checkRangeIntersect(newRange, nextRange);
+        if (nextRange != null) {
+            // check if range intersected
+            checkRangeIntersect(newRange, nextRange);
+        }
         return newRange;
     }
 
