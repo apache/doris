@@ -36,7 +36,7 @@ public class TagUtil {
                     throw new AnalysisException("Can not specify 'type' tag");
                 }
 
-                TagSet tmp = TagSet.createFromString(key.substring(PROP_TAG_PREFIX.length()), entry.getValue());
+                TagSet tmp = TagSet.create(key.substring(PROP_TAG_PREFIX.length()), entry.getValue());
                 if (userTagSet == null) {
                     userTagSet = tmp;
                 } else {

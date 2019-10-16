@@ -41,7 +41,7 @@ public class TagSet {
     }
 
     private TagSet(TagSet other) {
-        for (Tag tag : other.getTags()) {
+        for (Tag tag : other.getAllTags()) {
             tags.add(tag);
         }
     }
@@ -61,7 +61,7 @@ public class TagSet {
         return tagSet;
     }
 
-    public static TagSet createFromString(String type, String tagName) throws AnalysisException {
+    public static TagSet create(String type, String tagName) throws AnalysisException {
         TagSet tagSet = new TagSet();
         Tag tag = Tag.create(type, tagName.trim());
         tagSet.addTag(tag);
@@ -85,7 +85,7 @@ public class TagSet {
     }
 
     // get a set of tags by tag type
-    public TagSet getTags(Tag.Type type) {
+    public TagSet getTagsByType(Tag.Type type) {
         TagSet tagSet = new TagSet();
         for (Tag tag : tags) {
             if (tag.type == type) {
@@ -127,11 +127,11 @@ public class TagSet {
         Set<Tag.Type> types = other.getTypes();
         for (Tag.Type type : types) {
             deleteType(type);
-            merge(other.getTags(type));
+            merge(other.getTagsByType(type));
         }
     }
 
-    public Set<Tag> getTags() {
+    public Set<Tag> getAllTags() {
         return tags;
     }
 
@@ -144,9 +144,9 @@ public class TagSet {
         Map<String, String> map = Maps.newHashMap();
         Gson gson = new Gson();
         for (Tag.Type type : Tag.Type.values()) {
-            TagSet tagSet = getTags(type);
+            TagSet tagSet = getTagsByType(type);
             if (!tagSet.isEmpty()) {
-                map.put(type.toString(), Joiner.on(",").join(tagSet.getTags().stream().map(t -> t.tag).collect(Collectors.toList())));
+                map.put(type.toString(), Joiner.on(",").join(tagSet.getAllTags().stream().map(t -> t.tag).collect(Collectors.toList())));
             }
         }
         return gson.toJson(map);

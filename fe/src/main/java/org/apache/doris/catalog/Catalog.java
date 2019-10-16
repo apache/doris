@@ -167,7 +167,6 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.TagManager;
-import org.apache.doris.resource.TagSet;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
@@ -494,6 +493,7 @@ public class Catalog {
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
         this.smallFileMgr = new SmallFileMgr();
+        this.tagManager = new TagManager();
     }
 
     public static void destroyCheckpoint() {
@@ -2286,7 +2286,7 @@ public class Catalog {
         };
     }
 
-    public void addFrontend(FrontendNodeType role, String host, int editLogPort, TagSet tagSet) throws DdlException {
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2302,16 +2302,12 @@ public class Catalog {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
             }
 
-            long id = getNextId();
-            fe = new Frontend(id, role, nodeName, host, editLogPort);
+            fe = new Frontend(role, nodeName, host, editLogPort);
             frontends.put(nodeName, fe);
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 ((BDBHA) getHaProtocol()).addHelperSocket(host, editLogPort);
                 helperNodes.add(Pair.create(host, editLogPort));
             }
-
-            getTagManger().addResourceTag(fe.getId(), tagSet);
-
             editLog.logAddFrontend(fe);
         } finally {
             unlock();

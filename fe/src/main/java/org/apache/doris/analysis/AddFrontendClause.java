@@ -18,23 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.TagUtil;
-import org.apache.doris.resource.TagSet;
-import org.apache.doris.system.Frontend;
 
 import java.util.Map;
 
 public class AddFrontendClause extends FrontendClause {
-
-    private TagSet tagSet;
-
     public AddFrontendClause(String hostPort, FrontendNodeType type, Map<String, String> properties) {
         super(hostPort, type, properties);
-        if (type == FrontendNodeType.FOLLOWER) {
-            tagSet = Frontend.DEFAULT_FOLLOWER_TAG_SET;
-        } else {
-            tagSet = Frontend.DEFAULT_OBSERVER_TAG_SET;
-        }
     }
 
     @Override
@@ -42,11 +31,6 @@ public class AddFrontendClause extends FrontendClause {
         if (properties == null || properties.isEmpty()) {
             return;
         }
-
-        TagSet userTagSet = TagUtil.analyzeTagProperties(properties);
-
-        // use user specified tags to substitute the default tag of Backend
-        tagSet.substituteMerge(userTagSet);
     }
 
     @Override

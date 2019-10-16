@@ -72,15 +72,15 @@ public class ColumnSeparator implements ParseNode {
             String hexStr = originStr.substring(2);
             // check hex str
             if (hexStr.isEmpty()) {
-                throw new AnalysisException("Hex str is empty");
+                throw new AnalysisException("Invalid Column separator: Hex str is empty");
             }
             for (char hexChar : hexStr.toUpperCase().toCharArray()) {
                 if (HEX_STRING.indexOf(hexChar) == -1) {
-                    throw new AnalysisException("Hex str format error");
+                    throw new AnalysisException("Invalid Column separator: Hex str format error");
                 }
             }
             if (hexStr.length() % 2 != 0) {
-                throw new AnalysisException("Hex str length error");
+                throw new AnalysisException("Invalid Column separator: Hex str length error");
             }
 
             // transform to separator

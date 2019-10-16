@@ -59,7 +59,7 @@ public class TagManager {
                 resourceIndex.put(resourceId, tagSet);
             }
 
-            for (Tag tag : tagSet.getTags()) {
+            for (Tag tag : tagSet.getAllTags()) {
                 tagIndex.put(tag, resourceId);
             }
         } finally {
@@ -72,7 +72,7 @@ public class TagManager {
         try {
             TagSet tagSet = resourceIndex.remove(resourceId);
             if (tagSet != null) {
-                for (Tag tag : tagSet.getTags()) {
+                for (Tag tag : tagSet.getAllTags()) {
                     tagIndex.remove(tag, resourceId);
                 }
                 return true;
@@ -107,7 +107,7 @@ public class TagManager {
         try {
             if (resourceIndex.containsKey(resourceId)) {
                 TagSet existingTagSet = resourceIndex.get(resourceId);
-                for (Tag tag : tagSet.getTags()) {
+                for (Tag tag : tagSet.getAllTags()) {
                     existingTagSet.deleteTag(tag);
                     tagIndex.remove(tag, resourceId);
                 }
@@ -141,7 +141,7 @@ public class TagManager {
         lock.readLock().lock();
         try {
             Set<Long> res = null;
-            Set<Tag> tags = tagSet.getTags();
+            Set<Tag> tags = tagSet.getAllTags();
             for (Tag tag : tags) {
                 if (res == null) {
                     res = Sets.newHashSet(tagIndex.get(tag));
