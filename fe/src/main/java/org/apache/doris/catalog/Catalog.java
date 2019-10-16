@@ -3800,6 +3800,10 @@ public class Catalog {
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
 
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
+
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             List<Long> partitionId = null;
@@ -3859,6 +3863,9 @@ public class Catalog {
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
@@ -3870,6 +3877,9 @@ public class Catalog {
             sb.append(")");
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
             // properties
             sb.append("\nPROPERTIES (\n");
             sb.append("\"broker_name\" = \"").append(brokerTable.getBrokerName()).append("\",\n");
@@ -3885,6 +3895,9 @@ public class Catalog {
             }
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             EsTable esTable = (EsTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
 
             // partition
             PartitionInfo partitionInfo = esTable.getPartitionInfo();
@@ -3912,10 +3925,6 @@ public class Catalog {
             sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\"\n");
             sb.append(")");
         }
-
-        if (!Strings.isNullOrEmpty(table.getComment())) {
-            sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
-        }
         sb.append(";");
 
         createTableStmt.add(sb.toString());
@@ -3935,8 +3944,9 @@ public class Catalog {
                 sb = new StringBuilder();
                 Partition partition = olapTable.getPartition(entry.getKey());
                 sb.append("ALTER TABLE ").append(table.getName());
-                sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES LESS THAN ");
-                sb.append(entry.getValue().upperEndpoint().toSql());
+                sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES [");
+                sb.append(entry.getValue().lowerEndpoint().toSql());
+                sb.append(", ").append(entry.getValue().upperEndpoint().toSql()).append(")");
 
                 sb.append("(\"version_info\" = \"");
                 sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
