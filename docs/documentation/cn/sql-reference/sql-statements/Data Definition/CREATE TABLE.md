@@ -133,6 +133,7 @@
         注意：
             1) 分区一般用于时间维度的数据管理
             2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
+            
         2）Fixed Range
         语法：
             PARTITION BY RANGE (k1, k2, k3, ...)
@@ -226,8 +227,9 @@
         "storage_cooldown_time" = "2015-06-04 00:00:00"
         );
     
-    3. 创建一个 olap 表，使用 Key Range 分区，使用Hash分桶，默认使用列存，
+    3. 创建一个 olap 表，使用 Range 分区，使用Hash分桶，默认使用列存，
        相同key的记录同时存在，设置初始存储介质和冷却时间
+       
     1）LESS THAN
         CREATE TABLE example_db.table_range
         (
@@ -257,6 +259,7 @@
         [ {"2014-06-01"},   {"2014-12-01"} )
         
         不在这些分区范围内的数据将视为非法数据被过滤
+        
     2) Fixed Range
         CREATE TABLE table_range
         (
