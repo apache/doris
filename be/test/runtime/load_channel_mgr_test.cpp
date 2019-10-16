@@ -98,6 +98,7 @@ public:
         open_status = OLAP_SUCCESS;
         add_status = OLAP_SUCCESS;
         close_status = OLAP_SUCCESS;
+        config::streaming_load_rpc_max_alive_time_sec = 120;
     }
 private:
 };
