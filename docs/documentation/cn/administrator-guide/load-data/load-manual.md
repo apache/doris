@@ -188,3 +188,6 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
 
     `load_process_max_memory_limit_bytes` 默认为 100GB。系统会在两个参数中取较小者，作为最终的 Backend 导入内存使用上限。
 
++ label\_keep\_max\_second
+  
+    设置导入任务记录保留时间。已经完成的（ FINISHED or CANCELLED ）导入任务记录会保留在 Doris 系统中一段时间，时间由此参数决定。参数默认值时间为3天。该参数通用与所有类型的导入任务。
