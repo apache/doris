@@ -17,22 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,12 +37,6 @@ import java.util.Set;
 public class RangePartitionDesc extends PartitionDesc {
     private List<String> partitionColNames;
     private List<SingleRangePartitionDesc> singleRangePartitionDescs;
-
-    public RangePartitionDesc() {
-        type = PartitionType.RANGE;
-        partitionColNames = Lists.newArrayList();
-        singleRangePartitionDescs = Lists.newArrayList();
-    }
 
     public RangePartitionDesc(List<String> partitionColNames,
                               List<SingleRangePartitionDesc> singlePartitionDescs) {
@@ -191,37 +181,5 @@ public class RangePartitionDesc extends PartitionDesc {
             rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId);
         }
         return rangePartitionInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        int count = partitionColNames.size();
-        out.writeInt(count);
-        for (String colName : partitionColNames) {
-            Text.writeString(out, colName);
-        }
-
-        count = singleRangePartitionDescs.size();
-        out.writeInt(count);
-        for (SingleRangePartitionDesc singleRangePartitionDesc : singleRangePartitionDescs) {
-            singleRangePartitionDesc.write(out);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            partitionColNames.add(Text.readString(in));
-        }
-
-        count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            SingleRangePartitionDesc desc = new SingleRangePartitionDesc();
-            desc.readFields(in);
-            singleRangePartitionDescs.add(desc);
-        }
     }
 }

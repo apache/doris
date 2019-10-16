@@ -1578,7 +1578,7 @@ partition_key_list ::=
     :}
     | partition_key_list:l COMMA KW_MAX_VALUE
     {:
-        l.add(PartitionValue.createMaxValue());
+        l.add(PartitionValue.MAX_VALUE);
         RESULT = l;
     :}
     | STRING_LITERAL:item
@@ -1587,7 +1587,7 @@ partition_key_list ::=
     :}
     | KW_MAX_VALUE
     {:
-        RESULT = Lists.newArrayList(PartitionValue.createMaxValue());
+        RESULT = Lists.newArrayList(PartitionValue.MAX_VALUE);
     :}
     ;
 

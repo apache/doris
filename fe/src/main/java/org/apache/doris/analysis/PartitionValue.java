@@ -21,27 +21,20 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 public class PartitionValue {
+    public static final PartitionValue MAX_VALUE = new PartitionValue();
+
     private String value;
-    private boolean isMaxValue;
 
-    public static PartitionValue createMaxValue() {
-        PartitionValue value = new PartitionValue();
-        value.isMaxValue = true;
-        value.value = null;
-        return value;
-    }
-
-    public PartitionValue() {
+    private PartitionValue() {
 
     }
 
     public PartitionValue(String value) {
-        this.isMaxValue = false;
         this.value = value;
     }
 
     public LiteralExpr getValue(Type type) throws AnalysisException {
-        if (isMaxValue) {
+        if (isMax()) {
             return LiteralExpr.createInfinity(type, true);
         } else {
             return LiteralExpr.create(value, type);
@@ -49,11 +42,11 @@ public class PartitionValue {
     }
 
     public boolean isMax() {
-        return isMaxValue;
+        return this == MAX_VALUE;
     }
 
     public String getStringValue() {
-        if (isMaxValue) {
+        if (isMax()) {
             return "MAXVALUE";
         } else {
             return value;

@@ -18,20 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import org.apache.commons.lang.NotImplementedException;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Map;
 
 // Alter table clause.
-public class AlterClause implements Writable {
+public class AlterClause {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         throw new NotImplementedException();
     }
@@ -43,37 +36,4 @@ public class AlterClause implements Writable {
     public String toSql() {
         throw new NotImplementedException();
     }
-
-    public static AlterClause read(DataInput in) throws IOException {
-        String className = Text.readString(in);
-        if (className.startsWith("com.baidu.palo")) {
-            // we need to be compatible with former class name
-            className = className.replaceFirst("com.baidu.palo", "org.apache.doris");
-        }
-        AlterClause alterClause = null;
-        try {
-            Class<? extends AlterClause> derivedClass = (Class<? extends AlterClause>) Class.forName(className);
-            alterClause = derivedClass.newInstance();
-            Class[] paramTypes = { DataInput.class };
-            Method readMethod = derivedClass.getMethod("readFields", paramTypes);
-            Object[] params = { in };
-            readMethod.invoke(alterClause, params);
-
-            return alterClause;
-        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | NoSuchMethodException
-                | SecurityException | IllegalArgumentException | InvocationTargetException e) {
-            throw new IOException("failed read AlterClause", e);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        throw new NotImplementedException();
-    }
-
 }

@@ -172,14 +172,15 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
     }
 
+    // return: ("100", "200", "300")
     public String toSql() {
-        StringBuilder strBuilder = new StringBuilder();
+        StringBuilder sb = new StringBuilder("(");
         int i = 0;
         for (LiteralExpr expr : keys) {
             Object value = null;
             if (expr == MaxLiteral.MAX_VALUE) {
                 value = expr.toSql();
-                strBuilder.append(value);
+                sb.append(value);
                 continue;
             } else {
                 value = "\"" + expr.getRealValue() + "\"";
@@ -188,14 +189,15 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     value = dateLiteral.toSql();
                 }
             }
-            strBuilder.append(value);
+            sb.append(value);
 
             if (keys.size() - 1 != i) {
-                strBuilder.append(", ");
+                sb.append(", ");
             }
             i++;
         }
-        return strBuilder.toString();
+        sb.append(")");
+        return sb.toString();
     }
 
     @Override

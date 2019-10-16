@@ -17,13 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
@@ -644,29 +641,6 @@ public class OlapTable extends Table {
 
         AlterTableStmt alterTableStmt = new AlterTableStmt(new TableName(dbName, name), alterClauses);
         return alterTableStmt;
-    }
-
-    public AlterTableStmt toAddPartitionStmt(String dbName, String partitionName) {
-        Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
-        RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-        List<AlterClause> alterClauses = Lists.newArrayList();
-        
-        Partition partition = nameToPartition.get(partitionName);
-        Map<String, String> properties = Maps.newHashMap();
-        long version = partition.getVisibleVersion();
-        long versionHash = partition.getVisibleVersionHash();
-        properties.put(PropertyAnalyzer.PROPERTIES_VERSION_INFO, version + "," + versionHash);
-        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                       String.valueOf(partitionInfo.getReplicationNum(partition.getId())));
-
-        SingleRangePartitionDesc singleDesc =
-                rangePartitionInfo.toSingleRangePartitionDesc(partition.getId(), partitionName, properties);
-        DistributionDesc distributionDesc = partition.getDistributionInfo().toDistributionDesc();
-
-        AddPartitionClause addPartitionClause = new AddPartitionClause(singleDesc, distributionDesc, null);
-        alterClauses.add(addPartitionClause);
-        AlterTableStmt stmt = new AlterTableStmt(new TableName(dbName, name), alterClauses);
-        return stmt;
     }
 
     @Override

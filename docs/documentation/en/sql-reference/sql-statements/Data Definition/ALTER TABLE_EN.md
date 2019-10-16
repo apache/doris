@@ -1,244 +1,262 @@
 # ALTER TABLE
-## Description
-This statement is used to modify an existing table. If no rollup index is specified, the default operation is base index.
-该语句分为三种操作类型： schema change 、rollup 、partition
-These three types of operations cannot appear in an ALTER TABLE statement at the same time.
-Where schema change and rollup are asynchronous operations, task submission returns if it succeeds. You can then use the SHOW ALTER command to view progress.
-Partition is a synchronous operation, and the return of the command indicates that the execution is complete.
+## description
+    This statement is used to modify an existing table. If no rollup index is specified, the base operation is the default.
+    The statement is divided into three types of operations: schema change, rollup, partition
+    These three types of operations cannot appear in an ALTER TABLE statement at the same time.
+    Where schema change and rollup are asynchronous operations and are returned if the task commits successfully. You can then use the SHOW ALTER command to view the progress.
+    Partition is a synchronous operation, and a command return indicates that execution is complete.
 
-Grammar:
-ALTER TABLE [database.]table
-alter_clause1[, alter_clause2, ...];
+    grammar:
+        ALTER TABLE [database.]table
+        Alter_clause1[, alter_clause2, ...];
 
-alter_clause 分为 partition 、rollup、schema change 和 rename 四种。
+    The alter_clause is divided into partition, rollup, schema change, and rename.
 
-partition 支持如下几种修改方式
-1. Adding partitions
-Grammar:
-ADD PARTITION [IF NOT EXISTS] partition_name VALUES LESS THAN [MAXVALUE|("value1")] ["key"="value"]
-[DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]]
-Be careful:
-1) The partition is left-closed and right-open, the user specifies the right boundary, and the system automatically determines the left boundary.
-2) If no bucket-dividing method is specified, the bucket-dividing method used in table-building will be used automatically.
-3) If the barrel-dividing method is specified, only the number of barrels can be modified, but not the barrel-dividing method or the barrel-dividing column.
-4) The ["key"= "value"] section can set some properties of the partition, as specified in CREATE TABLE
+    Partition supports the following modifications
+    Increase the partition
+        grammar:
+            ADD PARTITION [IF NOT EXISTS] partition_name
+            Partition_desc ["key"="value"]
+            [DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]]
+        note:
+            1) partition_desc supports two ways of writing:
+                * VALUES LESS THAN [MAXVALUE|("value1", ...)]
+                * VALUES [("value1", ...), ("value1", ...))
+            1) The partition is the left closed right open interval. If the user only specifies the right boundary, the system will automatically determine the left boundary.
+            2) If the bucket mode is not specified, the bucket method used by the built-in table is automatically used.
+            3) If the bucket mode is specified, only the bucket number can be modified, and the bucket mode or bucket column cannot be modified.
+            4) ["key"="value"] section can set some properties of the partition, see CREATE TABLE for details.
 
-2. Delete partitions
-Grammar:
-DROP PARTITION [IF EXISTS] partition_name
-Be careful:
-1) A partitioned table should have at least one partition.
-2) During the execution of DROP PARTITION, deleted partitions can be restored through RECOVER statements. See RECOVER statement for details
+    2. Delete the partition
+        grammar:
+            DROP PARTITION [IF EXISTS] partition_name
+        note:
+            1) Use a partitioned table to keep at least one partition.
+            2) Execute DROP PARTITION For a period of time, the deleted partition can be recovered by the RECOVER statement. See the RECOVER statement for details.
+            
+    3. Modify the partition properties
+        grammar:
+            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+        Description:
+            1) The storage_medium, storage_cooldown_time, and replication_num attributes of the modified partition are currently supported.
+            2) For single-partition tables, partition_name is the same as the table name.
+        
+    Rollup supports the following ways to create:
+    1. Create a rollup index
+        grammar:
+            ADD ROLLUP rollup_name (column_name1, column_name2, ...)
+            [FROM from_index_name]
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) If from_index_name is not specified, it is created by default from base index
+            2) The columns in the rollup table must be existing columns in from_index
+            3) In properties, you can specify the storage format. See CREATE TABLE for details.
+            
+    2. Delete the rollup index
+        grammar:
+            DROP ROLLUP rollup_name
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) Cannot delete base index
+            2) Execute DROP ROLLUP For a period of time, the deleted rollup index can be restored by the RECOVER statement. See the RECOVER statement for details.
+    
+            
+    Schema change supports the following modifications:
+    1. Add a column to the specified location of the specified index
+        grammar:
+            ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
+            [AFTER column_name|FIRST]
+            [TO rollup_index_name]
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) Aggregate model If you add a value column, you need to specify agg_type
+            2) Non-aggregate models (such as DUPLICATE KEY) If you add a key column, you need to specify the KEY keyword.
+            3) You cannot add a column that already exists in the base index to the rollup index
+                Recreate a rollup index if needed
+            
+    2. Add multiple columns to the specified index
+        grammar:
+            ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
+            [TO rollup_index_name]
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) Aggregate model If you add a value column, you need to specify agg_type
+            2) Non-aggregate model If you add a key column, you need to specify the KEY keyword.
+            3) You cannot add a column that already exists in the base index to the rollup index
+            (You can recreate a rollup index if needed)
+    
+    3. Remove a column from the specified index
+        grammar:
+            DROP COLUMN column_name
+            [FROM rollup_index_name]
+        note:
+            1) Cannot delete partition column
+            2) If the column is removed from the base index, it will also be deleted if the column is included in the rollup index
+        
+    4. Modify the column type and column position of the specified index
+        grammar:
+            MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
+            [AFTER column_name|FIRST]
+            [FROM rollup_index_name]
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) Aggregate model If you modify the value column, you need to specify agg_type
+            2) Non-aggregate type If you modify the key column, you need to specify the KEY keyword.
+            3) Only the type of the column can be modified. The other attributes of the column remain as they are (ie other attributes need to be explicitly written in the statement according to the original attribute, see example 8)
+            4) The partition column cannot be modified
+            5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
+                TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
+                Convert LARGEINT to DOUBLE
+                VARCHAR supports modification of maximum length
+            6) Does not support changing from NULL to NOT NULL
+                
+    5. Reorder the columns of the specified index
+        grammar:
+            ORDER BY (column_name1, column_name2, ...)
+            [FROM rollup_index_name]
+            [PROPERTIES ("key"="value", ...)]
+        note:
+            1) All columns in index must be written
+            2) value is listed after the key column
+            
+    6. Modify the properties of the table, currently supports modifying the bloom filter column and the colocate_with attribute.
+        grammar:
+            PROPERTIES ("key"="value")
+        note:
+            Can also be merged into the above schema change operation to modify, see the example below
+     
 
-3. Modify partition attributes
-Grammar:
-MODIFY PARTITION partition u name SET ("key" ="value",...)
-Explain:
-1) Currently, three attributes, storage_medium, storage_cooldown_time and replication_num, are supported to modify partitions.
-2) For a single partition table, partition_name is the same table name.
-
-Rollup supports the following ways of creation:
-One. 1.2.1.1.1.1.1.1.1.
-Grammar:
-ADD ROLLUP rollup_name (column_name1, column_name2, ...)
-[FROM from index name]
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) If no from_index_name is specified, it is created by default from base index
-2) The column in the rollup table must be an existing column from_index
-3) In properties, you can specify the storage format. See CREATE TABLE for details.
-
-2. 1.2.2.2.2.2.2.2.2.
-Grammar:
-DROP ROLLUP rollup_name
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) Base index cannot be deleted
-2) During the execution of DROP ROLLUP, the deleted rollup index can be restored by RECOVER statement. See RECOVER statement for details
-
-
-schema change 支持如下几种修改方式：
-1. Add a column to the specified index location
-Grammar:
-ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
-[AFTER column_name|FIRST]
-[TO rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) If the value column is added to the aggregation model, agg_type needs to be specified
-2) If the key column is added to the non-aggregate model, KEY keywords need to be specified.
-3) Cannot add columns already existing in base index in rollup index
-If necessary, you can re-create a rollup index.
-
-2. Add multiple columns to the specified index
-Grammar:
-ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
-[TO rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) If the value column is added to the aggregation model, agg_type needs to be specified
-2) If the key column is added to the non-aggregate model, KEY keywords need to be specified.
-3) Cannot add columns already existing in base index in rollup index
-(You can re-create a rollup index if you need to)
-
-3. Delete a column from the specified index
-Grammar:
-DROP COLUMN column_name
-[FROM rollup_index_name]
-Be careful:
-1) Partition columns cannot be deleted
-2) If a column is deleted from base index, it will also be deleted if it is included in rollup index
-
-4. Modify the column type and column location of the specified index
-Grammar:
-MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
-[AFTER column_name|FIRST]
-[FROM rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) The aggregation model needs to specify agg_type if it modifies the value column
-2) If you modify the key column for a non-aggregated type, you need to specify the KEY keyword
-3) The type of column can only be modified, and the other attributes of the column remain the same (that is, other attributes should be explicitly written in the statement according to the original attributes, see example 8).
-4) Partition column cannot be modified
-5) The following types of conversion are currently supported (accuracy loss is guaranteed by users)
-TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
-LARGEINT 转换成 DOUBLE
-VARCHAR 25345;'20462;' 25913;'38271;' 24230s;
-6) Conversion from NULL to NOT NULL is not supported
-
-5. Reordering columns with specified index
-Grammar:
-ORDER BY (column_name1, column_name2, ...)
-[FROM rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-Be careful:
-1) All columns in index should be written out
-2) Value is listed after the key column
-
-6. Modify table attributes, which currently support modifying bloom filter columns and colocate_with attributes
-Grammar:
-PROPERTIES ("key"="value")
-Be careful:
-You can also incorporate it into the schema change operation above to modify it, as shown in the following example
-
-
-Rename supports the modification of the following names:
-1. Modify the table name
-Grammar:
-RENAME new_table_name;
-
-2. 1.2.2.5.5.5.5.;5.5.5.5.5.5.
-Grammar:
-RENAME ROLLUP old_rollup_name new_rollup_name;
-
-3. 修改 partition 名称
-Grammar:
-Rename old partition name and new partition name
-
+    Rename supports modification of the following names:
+    1. Modify the table name
+        grammar:
+            RENAME new_table_name;
+            
+    2. Modify the rollup index name
+        grammar:
+            RENAME ROLLUP old_rollup_name new_rollup_name;
+            
+    3. Modify the partition name
+        grammar:
+            RENAME PARTITION old_partition_name new_partition_name;
+      
 ## example
-[partition]
-1. Increase partitions, existing partitions [MIN, 2013-01-01], increase partitions [2013-01-01, 2014-01-01], using default bucket partitioning
-ALTER TABLE example_db.my_table
-ADD PARTITION p1 VALUES LESS THAN ("2014-01-01");
+    [partition]
+    1. Add partition, existing partition [MIN, 2013-01-01), add partition [2013-01-01, 2014-01-01), use default bucket mode
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES LESS THAN ("2014-01-01");
 
-2. Increase partitions and use new buckets
-ALTER TABLE example_db.my_table
-ADD PARTITION p1 VALUES LESS THAN ("2015-01-01")
-DISTRIBUTED BY HASH(k1) BUCKETS 20;
+    2. Increase the partition and use the new number of buckets
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES LESS THAN ("2015-01-01")
+        DISTRIBUTED BY HASH(k1) BUCKETS 20;
 
-3. Delete partitions
-ALTER TABLE example_db.my_table
-DROP PARTITION p1;
+    3. Increase the partition and use the new number of copies
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES LESS THAN ("2015-01-01")
+        ("replication_num"="1");
 
-[rollup]
-1. Create index: example_rollup_index, based on base index (k1, k2, k3, v1, v2). Formula storage.
-ALTER TABLE example_db.my_table
-ADD ROLLUP example_rollup_index(k1, k3, v1, v2)
-PROPERTIES("storage_type"="column");
+    4. Modify the number of partition copies
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION p1 SET("replication_num"="1");
 
-2. Create index: example_rollup_index2, based on example_rollup_index (k1, k3, v1, v2)
-ALTER TABLE example_db.my_table
-ADD ROLLUP example_rollup_index2 (k1, v1)
-FROM example_rollup_index;
+    5. Delete the partition
+        ALTER TABLE example_db.my_table
+        DROP PARTITION p1;
+        
+    6. Add a partition that specifies the upper and lower bounds
 
-3. Delete index: example_rollup_index2
-ALTER TABLE example_db.my_table
-DROP ROLLUP example_rollup_index2;
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
 
-[schema change]
-1. Add a key column new_col (non-aggregate model) to col1 of example_rollup_index
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT KEY DEFAULT "0" AFTER col1
-TO example_rollup_index;
+    [rollup]
+    1. Create index: example_rollup_index, based on base index(k1,k2,k3,v1,v2). Columnar storage.
+        ALTER TABLE example_db.my_table
+        ADD ROLLUP example_rollup_index(k1, k3, v1, v2)
+        PROPERTIES("storage_type"="column");
+        
+    2. Create index: example_rollup_index2, based on example_rollup_index(k1,k3,v1,v2)
+        ALTER TABLE example_db.my_table
+        ADD ROLLUP example_rollup_index2 (k1, v1)
+        FROM example_rollup_index;
+    
+    3. Delete index: example_rollup_index2
+        ALTER TABLE example_db.my_table
+        DROP ROLLUP example_rollup_index2;
 
-2. Add a value column new_col (non-aggregate model) to col1 of example_rollup_index
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1
-TO example_rollup_index;
+    [schema change]
+    1. Add a key column new_col to the col1 of example_rollup_index (non-aggregate model)
+        ALTER TABLE example_db.my_table
+        ADD COLUMN new_col INT KEY DEFAULT "0" AFTER col1
+        TO example_rollup_index;
 
-3. Add a key column new_col (aggregation model) to col1 of example_rollup_index
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1
-TO example_rollup_index;
+    2. Add a value column new_col to the col1 of example_rollup_index (non-aggregate model)
+          ALTER TABLE example_db.my_table
+          ADD COLUMN new_col INT DEFAULT "0" AFTER col1
+          TO example_rollup_index;
 
-4. Add a value column new_col SUM aggregation type (aggregation model) to col1 of example_rollup_index
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1
-TO example_rollup_index;
+    3. Add a key column new_col (aggregation model) to col1 of example_rollup_index
+          ALTER TABLE example_db.my_table
+          ADD COLUMN new_col INT DEFAULT "0" AFTER col1
+          TO example_rollup_index;
 
-5. Add multiple columns to example_rollup_index (aggregation model)
-ALTER TABLE example_db.my_table
-ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")
-TO example_rollup_index;
+    4. Add a value column to the col1 of example_rollup_index. new_col SUM aggregation type (aggregation model)
+          ALTER TABLE example_db.my_table
+          ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1
+          TO example_rollup_index;
+    
+    5. Add multiple columns to the example_rollup_index (aggregate model)
+        ALTER TABLE example_db.my_table
+        ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")
+        TO example_rollup_index;
+    
+    6. Remove a column from example_rollup_index
+        ALTER TABLE example_db.my_table
+        DROP COLUMN col2
+        FROM example_rollup_index;
+        
+    7. Modify the base index's col1 column to be of type BIGINT and move to the col2 column
+        ALTER TABLE example_db.my_table
+        MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
 
-6. Delete a column from example_rollup_index
-ALTER TABLE example_db.my_table
-DROP COLUMN col2
-FROM example_rollup_index;
+    8. Modify the maximum length of the val1 column of the base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+        ALTER TABLE example_db.my_table
+        MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+    
+    9. Reorder the columns in example_rollup_index (set the original column order: k1, k2, k3, v1, v2)
+        ALTER TABLE example_db.my_table
+        ORDER BY (k3, k1, k2, v2, v1)
+        FROM example_rollup_index;
+        
+    10. Perform both operations simultaneously
+        ALTER TABLE example_db.my_table
+        ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
+        ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 
-7. Modify the col1 column type of base index to BIGINT and move to the back of col2 column
-ALTER TABLE example_db.my_table
-MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
+    11. Modify the bloom filter column of the table
+        ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
 
-8. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
-ALTER TABLE example_db.my_table
-MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+        Can also be merged into the above schema change operation (note that the syntax of multiple clauses is slightly different)
+        ALTER TABLE example_db.my_table
+        DROP COLUMN col2
+        PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
 
-9. Rearrange the columns in example_rollup_index (set the original column order to k1, k2, k3, v1, v2)
-ALTER TABLE example_db.my_table
-ORDER BY (k3,k1,k2,v2,v1)
-FROM example_rollup_index;
+    12. Modify the Colocate property of the table
 
-10. Perform two operations simultaneously
-ALTER TABLE example_db.my_table
-ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
-ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
+        ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 
-11. 20462;- 259130;-bloom filter -210151;
-ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
+    13. Change the bucketing mode of the table from Random Distribution to Hash Distribution
 
-You can also incorporate it into the schema change operation above (note that the grammar of multiple clauses is slightly different)
-ALTER TABLE example_db.my_table
-DROP COLUMN col2
-PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
-
-12. Modify the Colocate property of the table
-ALTER TABLE example_db.my_table set ("colocate_with"="t1");
-
-13. Change the Distribution type from Random to Hash
-
-ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
-
-[Rename]
-1. Modify the table named Table 1 to table2
-ALTER TABLE table1 RENAME table2;
-
-2. 将表 example_table 中名为 rollup1 的 rollup index 修改为 rollup2
-ALTER TABLE example_table RENAME ROLLUP rollup1 rollup2;
-
-3. 将表 example_table 中名为 p1 的 partition 修改为 p2
-ALTER TABLE example_table RENAME PARTITION p1 p2;
-
+        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+        
+    [rename]
+    1. Modify the table named table1 to table2
+        ALTER TABLE table1 RENAME table2;
+        
+    2. Modify the rollup index named rollup1 in the table example_table to rollup2
+        ALTER TABLE example_table RENAME ROLLUP rollup1 rollup2;
+        
+    3. Modify the partition named p1 in the table example_table to p2
+        ALTER TABLE example_table RENAME PARTITION p1 p2;
+        
 ## keyword
-ALTER,TABLE,ROLLUP,COLUMN,PARTITION,RENAME
-
+    ALTER, TABLE, ROLLUP, COLUMN, PARTITION, RENAME
