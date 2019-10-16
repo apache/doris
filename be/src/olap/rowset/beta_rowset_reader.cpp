@@ -131,6 +131,8 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     _output_block->set_limit(_input_block->num_rows());
     _output_block->finalize(_input_block->num_rows());
     *block = _output_block.get();
+    // update raw_rows_read counter
+    _context->stats->raw_rows_read += _input_block->num_rows();
     return OLAP_SUCCESS;
 }
 
