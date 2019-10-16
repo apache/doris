@@ -22,26 +22,23 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt implements Writable {
+public class AlterTableStmt extends DdlStmt {
     private TableName tbl;
     private List<AlterClause> ops;
 
-    public AlterTableStmt() {
-        // for persist
-        tbl = new TableName();
-        ops = Lists.newArrayList();
+    public AlterTableStmt(TableName tbl, List<AlterClause> ops) {
+        this.tbl = tbl;
+        this.ops = ops;
+    }
+
+    public void setTableName(String newTableName) {
+        tbl = new TableName(tbl.getDb(), newTableName);
     }
 
     public TableName getTbl() {
@@ -52,14 +49,6 @@ public class AlterTableStmt extends DdlStmt implements Writable {
         return ops;
     }
 
-    public AlterTableStmt(TableName tbl, List<AlterClause> ops) {
-        this.tbl = tbl;
-        this.ops = ops;
-    }
-
-    public void setTableName(String newTableName) {
-        tbl = new TableName(tbl.getDb(), newTableName);
-    }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
@@ -102,25 +91,5 @@ public class AlterTableStmt extends DdlStmt implements Writable {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        tbl.write(out);
-        int count = ops.size();
-        out.writeInt(count);
-        for (AlterClause alterClause : ops) {
-            alterClause.write(out);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        tbl.readFields(in);
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            AlterClause alterClause = AlterClause.read(in);
-            ops.add(alterClause);
-        }
     }
 }

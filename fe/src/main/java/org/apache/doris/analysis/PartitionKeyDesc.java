@@ -17,21 +17,18 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
-// 用于表达在创建表、创建rollup中key range partition中所使用的key信息
-// 在知道具体列信息后，可以转成PartitionKey，仅仅在语法解析中短暂的有意义
-public class PartitionKeyDesc implements Writable {
+// Describe the partition key values in create table or add partition clause
+public class PartitionKeyDesc {
+    public static final PartitionKeyDesc MAX_VALUE = new PartitionKeyDesc();
+
     public enum PartitionRangeType {
         INVALID,
         LESS_THAN,
@@ -41,28 +38,26 @@ public class PartitionKeyDesc implements Writable {
     private List<PartitionValue> lowerValues;
     private List<PartitionValue> upperValues;
     private PartitionRangeType partitionType;
+
     public static PartitionKeyDesc createMaxKeyDesc() {
-        return new PartitionKeyDesc();
+        return MAX_VALUE;
     }
 
-    public PartitionKeyDesc() {
-        partitionType = PartitionRangeType.LESS_THAN; //LESS_THAN is default type.
+    private PartitionKeyDesc() {
+        partitionType = PartitionRangeType.LESS_THAN; // LESS_THAN is default type.
     }
 
-    // used by SQL parser
+    // values less than
     public PartitionKeyDesc(List<PartitionValue> upperValues) {
         this.upperValues = upperValues;
         partitionType = PartitionRangeType.LESS_THAN;
     }
 
+    // fixed range
     public PartitionKeyDesc(List<PartitionValue> lowerValues, List<PartitionValue> upperValues) {
         this.lowerValues = lowerValues;
         this.upperValues = upperValues;
         partitionType = PartitionRangeType.FIXED;
-    }
-
-    public void setLowerValues(List<PartitionValue> lowerValues) {
-        this.lowerValues = lowerValues;
     }
 
     public List<PartitionValue> getLowerValues() {
@@ -74,7 +69,7 @@ public class PartitionKeyDesc implements Writable {
     }
 
     public boolean isMax() {
-        return lowerValues == null && upperValues == null;
+        return this == MAX_VALUE;
     }
 
     public boolean hasLowerValues() {
@@ -89,65 +84,65 @@ public class PartitionKeyDesc implements Writable {
         return partitionType;
     }
 
-    public String toSql() {
-        if (this.isMax()) {
-            return "MAXVALUE";
+    public void analyze(int partColNum) throws AnalysisException {
+        if (!isMax()) {
+            if (upperValues.isEmpty() || upperValues.size() > partColNum) {
+                throw new AnalysisException("Partiton values number is more than partition column number: " + toSql());
+            }
+        }
+
+        // currently, we do not support MAXVALUE in partition range values. eg: ("100", "200", MAXVALUE);
+        // maybe support later.
+        if (lowerValues != null) {
+            for (PartitionValue lowerVal : lowerValues) {
+                if (lowerVal.isMax()) {
+                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
+                }
+            }
         }
 
         if (upperValues != null) {
-            StringBuilder sb = new StringBuilder("(");
-            Joiner.on(", ").appendTo(sb, Lists.transform(upperValues, new Function<PartitionValue, String>() {
-                @Override
-                public String apply(PartitionValue v) {
-                    return "'" + v.getStringValue() + "'";
+            for (PartitionValue upperVal : upperValues) {
+                if (upperVal.isMax()) {
+                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
                 }
-            })).append(")");
+            }
+        }
+    }
+
+    // returns:
+    // 1: MAXVALUE
+    // 2: ("100", "200", MAXVALUE)
+    // 3: [("100", "200"), ("300", "200"))
+    public String toSql() {
+        if (isMax()) {
+            return "MAXVALUE";
+        }
+
+        if (partitionType == PartitionRangeType.LESS_THAN) {
+            return getPartitionValuesStr(upperValues);
+        } else if (partitionType == PartitionRangeType.FIXED) {
+            StringBuilder sb = new StringBuilder("[");
+            sb.append(getPartitionValuesStr(lowerValues)).append(", ").append(getPartitionValuesStr(upperValues));
+            sb.append(")");
             return sb.toString();
         } else {
-            return "()";
+            return "INVALID";
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        int count = lowerValues == null ? 0 : lowerValues.size();
-        out.writeInt(count);
-        if (count > 0) {
-            for (PartitionValue value : lowerValues) {
-                Text.writeString(out, value.getStringValue());
+    private String getPartitionValuesStr(List<PartitionValue> values) {
+        StringBuilder sb = new StringBuilder("(");
+        Joiner.on(", ").appendTo(sb, Lists.transform(values, new Function<PartitionValue, String>() {
+            @Override
+            public String apply(PartitionValue v) {
+                if (v.isMax()) {
+                    return v.getStringValue();
+                } else {
+                    return "'" + v.getStringValue() + "'";
+                }
             }
-        }
-
-        count = upperValues == null ? 0: upperValues.size();
-        out.writeInt(count);
-        if (count > 0) {
-            for (PartitionValue value : upperValues) {
-                Text.writeString(out, value.getStringValue());
-            }
-        }
-
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String v = Text.readString(in);
-            if (v.equals("MAXVALUE")) {
-                lowerValues.add(new PartitionValue());
-            } else {
-                lowerValues.add(new PartitionValue(v));
-            }
-        }
-
-        count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String v = Text.readString(in);
-            if (v.equals("MAXVALUE")) {
-                upperValues.add(new PartitionValue());
-            } else {
-                upperValues.add(new PartitionValue(v));
-            }
-        }
+        })).append(")");
+        return sb.toString();
     }
 }

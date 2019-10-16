@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -114,17 +113,6 @@ public class ObjectWriter {
 
     public static CreateTableStmt readCreateTableStmt(String filePath) throws IOException {
         throw new RuntimeException("Don't support CreateTableStmt serialization anymore.");
-    }
-
-    public static List<AlterTableStmt> readAlterTableStmt(String filePath) throws IOException {
-        List<AlterTableStmt> stmts = null;
-        try {
-            stmts = read(filePath, AlterTableStmt.class);
-        } catch (IOException e) {
-            LOG.warn("failed to read AlterTableStmt: " + filePath, e);
-            throw e;
-        }
-        return stmts;
     }
 
     public static DirSaver readManifest(String filePath) throws IOException {
