@@ -602,11 +602,6 @@ public class GlobalTransactionMgr {
      * @return
      */
     public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
-        try {
-            Thread.sleep(60000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         TransactionState transactionState = idToTransactionState.get(transactionId);
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
