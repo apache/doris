@@ -750,7 +750,7 @@ public class GlobalTransactionMgr {
     
     // check if there exists a load job before the endTransactionId have all finished
     // load job maybe started but could not know the affected table id, so that we not check by table
-    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId) {
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, boolean printLog) {
         readLock();
         try {
             for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
@@ -758,8 +758,10 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                            entry.getKey(), dbId, endTransactionId);
+                    if (printLog) {
+                        LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                                entry.getKey(), dbId, endTransactionId);
+                    }
                     return false;
                 }
             }

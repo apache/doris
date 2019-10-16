@@ -290,7 +290,7 @@ public abstract class AlterJob implements Writable {
             return true;
         } else {
             isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
-                    .isPreviousTransactionsFinished(transactionId, dbId);
+                    .isPreviousTransactionsFinished(transactionId, dbId, true);
             return isPreviousLoadFinished;
         }
     }
