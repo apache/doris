@@ -182,8 +182,12 @@ The following configuration belongs to the BE system configuration, which can be
 
 	During the import process, Doris opens a Writer for each Tablet to receive and write data. This parameter specifies Writer's waiting timeout time. If Writer does not receive any data at this time, Writer will be destroyed automatically. When the system processing speed is slow, Writer may not receive the next batch of data for a long time, resulting in import error: `Tablet Writer add batch with unknown id`. This configuration can be increased appropriately at this time. The default is 600 seconds.
 
-* load\_process\_max\_memory\_limit\_bytes and load\_process\_max\_memory\_limit\_percent
++ load\_process\_max\_memory\_limit\_bytes and load\_process\_max\_memory\_limit\_percent
 
     These two parameters limit the upper memory limit that can be used to load tasks on a single Backend. The maximum memory and maximum memory percentage are respectively. `load_process_max_memory_limit_percent` defaults to 80%, which is 80% of the `mem_limit` configuration. That is, if the physical memory is M, the default load memory limit is M * 80% * 80%.
 
      `load_process_max_memory_limit_bytes` defaults to 100GB. The system takes the smaller of the two parameters as the final Backend load memory usage limit.
+
++ label\_keep\_max\_second
+
+  The retention time of load job which is FINISHED or CANCELLED. The record of load job will be kept in Doris system for a period of time which is determined by this parameter. The default time of this parameter is 3 days. This parameter is common to all types of load job. 
