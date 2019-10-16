@@ -125,27 +125,27 @@ public class RangePartitionInfo extends PartitionInfo {
         }
 
         Range<PartitionKey> lastRange = null;
-        Range<PartitionKey> nextRange = null;
+        Range<PartitionKey> currentRange = null;
         for (Map.Entry<Long, Range<PartitionKey>> entry : sortedRanges) {
-            nextRange = entry.getValue();
+            currentRange = entry.getValue();
             // check if equals to upper bound
-            PartitionKey upperKey = nextRange.upperEndpoint();
+            PartitionKey upperKey = currentRange.upperEndpoint();
             if (upperKey.compareTo(newRangeUpper) >= 0) {
-                newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, nextRange);
+                newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, currentRange);
                 break;
             } else {
-                lastRange = nextRange;
+                lastRange = currentRange;
             }
         } // end for ranges
 
         if (newRange == null) /* the new range's upper value is larger than any existing ranges */ {
-            newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, nextRange);
+            newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, currentRange);
         }
         return newRange;
     }
 
     private Range<PartitionKey> checkNewRange(PartitionKeyDesc partKeyDesc, PartitionKey newRangeUpper,
-            Range<PartitionKey> lastRange, Range<PartitionKey> nextRange) throws AnalysisException, DdlException {
+            Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
         Range<PartitionKey> newRange;
         PartitionKey lowKey = null;
         if (partKeyDesc.hasLowerValues()) {
@@ -163,9 +163,9 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         newRange = Range.closedOpen(lowKey, newRangeUpper);
 
-        if (nextRange != null) {
+        if (currentRange != null) {
             // check if range intersected
-            checkRangeIntersect(newRange, nextRange);
+            checkRangeIntersect(newRange, currentRange);
         }
         return newRange;
     }
