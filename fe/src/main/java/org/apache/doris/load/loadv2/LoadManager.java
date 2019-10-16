@@ -602,6 +602,9 @@ public class LoadManager implements Writable{
                 map.put(loadJob.getLabel(), jobs);
             }
             jobs.add(loadJob);
+            // The callback of load job which is replayed by image need to be registered in callback factory.
+            // The commit and visible txn will callback the unfinished load job.
+            // Otherwise, the load job always does not be completed while the txn is visible.
             if (!loadJob.isCompleted()) {
                 Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }

@@ -94,7 +94,7 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    protected void executeReplayTxnAttachment(TransactionState txnState) {
+    protected void replayTxnAttachment(TransactionState txnState) {
         updateLoadingStatue(txnState);
     }
 

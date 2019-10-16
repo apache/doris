@@ -484,7 +484,7 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    protected void executeReplayTxnAttachment(TransactionState txnState) {
+    protected void replayTxnAttachment(TransactionState txnState) {
         if (txnState.getTxnCommitAttachment() == null) {
             // The txn attachment maybe null when broker load has been cancelled without attachment.
             // The end log of broker load has been record but the callback id of txnState hasn't been removed

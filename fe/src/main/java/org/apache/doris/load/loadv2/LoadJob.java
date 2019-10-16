@@ -743,7 +743,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnCommitted(TransactionState txnState) {
         writeLock();
         try {
-            executeReplayTxnAttachment(txnState);
+            replayTxnAttachment(txnState);
         } finally {
             writeUnlock();
         }
@@ -770,7 +770,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 return;
             }
             // record attachment in load job
-            executeReplayTxnAttachment(txnState);
+            replayTxnAttachment(txnState);
             // cancel load job
             unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason), false);
         } finally {
@@ -787,7 +787,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnAborted(TransactionState txnState) {
         writeLock();
         try {
-            executeReplayTxnAttachment(txnState);
+            replayTxnAttachment(txnState);
             failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnState.getReason());
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
@@ -808,7 +808,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (!txnOperated) {
             return;
         }
-        executeReplayTxnAttachment(txnState);
+        replayTxnAttachment(txnState);
         updateState(JobState.FINISHED);
     }
 
@@ -816,7 +816,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnVisible(TransactionState txnState) {
         writeLock();
         try {
-            executeReplayTxnAttachment(txnState);
+            replayTxnAttachment(txnState);
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;
@@ -825,7 +825,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void executeReplayTxnAttachment(TransactionState txnState) {
+    protected void replayTxnAttachment(TransactionState txnState) {
     }
 
     @Override
