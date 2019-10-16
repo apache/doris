@@ -115,7 +115,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected int progress;
 
     // non-persistence
+    // This param is set true during txn is committing.
+    // During committing, the load job could not be cancelled.
     protected boolean isCommitting = false;
+    // This param is set true in mini load.
+    // The streaming mini load could not be cancelled by frontend.
     protected boolean isCancellable = true;
 
     // only for persistence param
