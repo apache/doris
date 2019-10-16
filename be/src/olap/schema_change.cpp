@@ -1310,6 +1310,8 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
         _reader_context.return_columns = &return_columns;
+        // for schema change, seek_columns is the same to return_columns
+        _reader_context.seek_columns = &return_columns;
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1589,6 +1591,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         _reader_context.need_ordered_result = true;
         _reader_context.delete_handler = &delete_handler;
         _reader_context.return_columns = &return_columns;
+        _reader_context.seek_columns = &return_columns;
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&_reader_context);
@@ -1696,6 +1699,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     _reader_context.need_ordered_result = true;
     _reader_context.delete_handler = &delete_handler;
     _reader_context.return_columns = &return_columns;
+    _reader_context.seek_columns = &return_columns;
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));

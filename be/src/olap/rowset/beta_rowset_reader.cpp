@@ -93,10 +93,12 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;
-    output_block_info.column_ids = schema.column_ids();
+    // the output block's schema should be seek_columns to comform to v1
+    // TODO(hkp): this should be optimized to use return_columns
+    output_block_info.column_ids = *(_context->seek_columns);
     RETURN_NOT_OK(_output_block->init(output_block_info));
     _row.reset(new RowCursor());
-    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), schema.column_ids()));
+    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
 
     return OLAP_SUCCESS;
 }
@@ -118,6 +120,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     for (size_t row_idx = 0; row_idx < _input_block->num_rows(); ++row_idx) {
         // shallow copy row from input block to output block
         _output_block->get_row(row_idx, _row.get());
+        // this copy function will copy return_columns' row to seek_columns's row_cursor
         s = _input_block->copy_to_row_cursor(row_idx, _row.get());
         if (!s.ok()) {
             LOG(WARNING) << "failed to copy row: " << s.to_string();

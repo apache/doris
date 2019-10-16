@@ -29,7 +29,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker*
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
-    _last_updated_time = time(nullptr);
+    _last_updated_time.store(time(nullptr));
 }
 
 LoadChannel::~LoadChannel() {
@@ -57,7 +57,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     RETURN_IF_ERROR(channel->open(params));
 
     _opened = true;
-    _last_updated_time = time(nullptr);
+    _last_updated_time.store(time(nullptr));
     return Status::OK();
 }
 
@@ -102,7 +102,7 @@ Status LoadChannel::add_batch(
             _finished_channel_ids.emplace(index_id);
         }
     }
-    _last_updated_time = time(nullptr);
+    _last_updated_time.store(time(nullptr));
     return st;
 }
 

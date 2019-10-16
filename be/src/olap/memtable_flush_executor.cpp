@@ -132,6 +132,8 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
 
         // if last flush of this tablet already failed, just skip
         if (ctx.flush_handler->is_cancelled()) {
+            // must release memtable before notifying
+            ctx.memtable.reset();
             ctx.flush_handler->on_flush_cancelled();
             continue;
         }
@@ -143,6 +145,8 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         res.flush_status = ctx.memtable->flush();
         res.flush_time_ns = timer.elapsed_time();
         res.flush_size_bytes = ctx.memtable->memory_usage();
+        // must release memtable before notifying
+        ctx.memtable.reset();
         // callback
         ctx.flush_handler->on_flush_finished(res);
     }
