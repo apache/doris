@@ -110,7 +110,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
         tablet->release_header_lock();
 
-        // generate schema hash path where files will be migrated
+        // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             res = OLAP_ERR_INVALID_ROOT_PATH;

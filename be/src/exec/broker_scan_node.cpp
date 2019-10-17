@@ -39,7 +39,7 @@ BrokerScanNode::BrokerScanNode(
             _tuple_desc(nullptr),
             _num_running_scanners(0),
             _scan_finished(false),
-            _max_buffered_batches(1024),
+            _max_buffered_batches(32),
             _wait_scanner_timer(nullptr) {
 }
 
@@ -360,7 +360,11 @@ Status BrokerScanNode::scanner_scan(
             while (_process_status.ok() && 
                    !_scan_finished.load() && 
                    !_runtime_state->is_cancelled() &&
-                   _batch_queue.size() >= _max_buffered_batches) {
+                    // stop pushing more batch if
+                    // 1. too many batches in queue, or
+                    // 2. at least one batch in queue and memory exceed limit.
+                   (_batch_queue.size() >= _max_buffered_batches
+                    || (mem_tracker()->limit_exceeded() && !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK
