@@ -41,6 +41,7 @@ namespace doris {
 class BetaRowsetTest : public testing::Test {
 protected:
     const string kRowsetDir = "./ut_dir/beta_rowset_test";
+    OlapReaderStatistics _stats;
 
     void SetUp() override {
         OLAPStatus s;
@@ -181,6 +182,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
         reader_context.seek_columns = &return_columns;
+        reader_context.stats = &_stats;
 
         RowsetReaderSharedPtr rowset_reader;
         create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
@@ -222,6 +224,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;
         reader_context.seek_columns = &return_columns;
+        reader_context.stats = &_stats;
 
         RowsetReaderSharedPtr rowset_reader;
         create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
@@ -253,15 +256,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 } // namespace doris
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    int ret = RUN_ALL_TESTS();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
+    return RUN_ALL_TESTS();
 }
 
