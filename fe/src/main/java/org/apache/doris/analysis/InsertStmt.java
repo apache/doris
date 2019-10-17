@@ -49,6 +49,7 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -93,6 +94,9 @@ public class InsertStmt extends DdlStmt {
     private Boolean isRepartition;
     private boolean isStreaming = false;
     private String label = null;
+    private boolean isUserSpecifiedLabel = false;
+    // uuid will be generated at analysis phase, and be used as loadid and query id of insert plan
+    private UUID uuid;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -128,6 +132,10 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
+
+        if (!Strings.isNullOrEmpty(label)) {
+            isUserSpecifiedLabel = true;
+        }
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -216,8 +224,12 @@ public class InsertStmt extends DdlStmt {
         return label;
     }
 
-    public boolean hasLabel() {
-        return label != null;
+    public boolean isUserSpecifiedLabel() {
+        return isUserSpecifiedLabel;
+    }
+
+    public UUID getUUID() {
+        return uuid;
     }
 
     // Only valid when this statement is streaming
@@ -260,19 +272,19 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
+        uuid = UUID.randomUUID();
+        if (Strings.isNullOrEmpty(label)) {
+            label = "insert_" + uuid.toString();
+        }
+
         if (targetTable instanceof OlapTable) {
             String dbName = tblName.getDb();
             // check exist
             db = analyzer.getCatalog().getDb(dbName);
-            // although the insert stmt maybe failed at next stage, but has to begin transaction here
-            // if get transactionid at add job stage, the transaction id maybe a little larger, it maybe error at alter job to check
-            // if all previous job finished
-            UUID uuid = UUID.randomUUID();
-            String jobLabel = "insert_" + uuid;
             LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
             long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
             transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    jobLabel, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
+                    label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             sink.init(loadId, transactionId, db.getId());

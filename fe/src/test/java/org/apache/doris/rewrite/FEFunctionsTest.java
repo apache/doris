@@ -54,6 +54,7 @@ public class FEFunctionsTest {
             timestamp = FEFunctions.unixTimestamp(new DateLiteral("2038-01-19 03:14:07", Type.DATETIME));
             // CST time zone
             Assert.assertEquals(Integer.MAX_VALUE - 8 * 3600, timestamp.getValue());
+
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
