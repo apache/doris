@@ -686,28 +686,6 @@ OLAPStatus DataDir::set_convert_finished() {
 
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
-    // check if this is an old data path
-    bool is_tablet_convert_finished = false;
-    OLAPStatus res = _meta->get_tablet_convert_finished(is_tablet_convert_finished);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "get convert flag from meta failed dir=" << _path;
-        return res;
-    }
-    _convert_old_data_success = false;
-    if (!is_tablet_convert_finished) {
-        _clean_unfinished_converting_data();
-        res = _convert_old_tablet();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "convert old tablet failed for  dir = " << _path;
-            return res;
-        }
-
-        _convert_old_data_success = true;
-    } else {
-        LOG(INFO) << "tablets have been converted, skip convert process";
-        _convert_old_data_success = true;
-    }
-
     LOG(INFO) << "start to load tablets from " << _path;
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
