@@ -203,7 +203,7 @@ public class DateLiteral extends LiteralExpr {
             second = dateTime.getSecondOfMinute();
             this.type = type;
         } catch (Exception ex) {
-            throw new AnalysisException("date literal [" + s + "] is valid");
+            throw new AnalysisException("date literal [" + s + "] is invalid");
         }
     }
 
@@ -542,7 +542,6 @@ public class DateLiteral extends LiteralExpr {
 
     public DateLiteral plusDays(int day) throws AnalysisException {
         LocalDateTime dateTime;
-        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         if (type == Type.DATE) {
             dateTime = DATE_FORMATTER.parseLocalDateTime(getStringValue()).plusDays(day);                                        
         } else {
