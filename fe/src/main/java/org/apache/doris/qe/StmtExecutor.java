@@ -592,14 +592,10 @@ public class StmtExecutor {
         }
 
         long createTime = System.currentTimeMillis();
-        UUID uuid = UUID.randomUUID();
-        String label = insertStmt.getLabel();
-        if (label == null) {
-            // if label is not set, use the uuid as label
-            label = uuid.toString();
-        }
-
         Throwable throwable = null;
+
+        UUID uuid = insertStmt.getUUID();
+        String label = insertStmt.getLabel();
 
         long loadedRows = 0;
         int filteredRows = 0;
@@ -676,7 +672,7 @@ public class StmtExecutor {
                 LOG.warn("errors when abort txn", abortTxnException);
             }
 
-            if (!Config.using_old_load_usage_pattern && !insertStmt.hasLabel()) {
+            if (!Config.using_old_load_usage_pattern && !insertStmt.isUserSpecifiedLabel()) {
                 // if not using old usage pattern, or user not specify label,
                 // the exception will be thrown to user directly without a label
                 StringBuilder sb = new StringBuilder(t.getMessage());
@@ -700,7 +696,7 @@ public class StmtExecutor {
         // 2. using_old_load_usage_pattern is set to true, means a label will be returned for user to show load.
         // 3. has filtered rows. so a label should be returned for user to show
         // 4. user specify a label for insert stmt
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0 || insertStmt.hasLabel()) {
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0 || insertStmt.isUserSpecifiedLabel()) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         label,

@@ -39,7 +39,7 @@ BrokerScanNode::BrokerScanNode(
             _tuple_desc(nullptr),
             _num_running_scanners(0),
             _scan_finished(false),
-            _max_buffered_batches(1024),
+            _max_buffered_batches(32),
             _wait_scanner_timer(nullptr) {
 }
 
