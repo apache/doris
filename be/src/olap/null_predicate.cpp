@@ -60,13 +60,13 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     }
 }
 
-void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const {
+void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
     uint16_t new_size = 0;
     if (!block->is_nullable() && _is_null) {
         *size = 0;
         return;
     }
-    for (int i = 0; i < *size; ++i) {
+    for (uint16_t i = 0; i < *size; ++i) {
         uint16_t idx = sel[i];
         sel[new_size] = idx;
         new_size += (block->cell(idx).is_null() == _is_null);

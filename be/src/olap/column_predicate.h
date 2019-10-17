@@ -35,7 +35,7 @@ public:
     virtual void evaluate(VectorizedRowBatch* batch) const = 0;
 
     // evaluate predicate on ColumnBlock
-    virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint32_t* size) const = 0;
+    virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
 
     uint32_t column_id() const { return _column_id; }
 

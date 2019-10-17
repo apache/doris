@@ -348,7 +348,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     // TODO(hkp): optimize column predicate to check column block once for one column
     if (_opts.column_predicates != nullptr) {
         // init selection position index
-        uint32_t selected_size = block->selected_size();
+        uint16_t selected_size = block->selected_size();
         for (auto column_predicate : *_opts.column_predicates) {
             auto column_block = block->column_block(column_predicate->column_id());
             column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
