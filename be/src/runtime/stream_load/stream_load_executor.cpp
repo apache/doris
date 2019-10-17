@@ -189,8 +189,8 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, id=" << ctx->id
-            << ", errmsg=" << status.get_error_msg();
+        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
+            << ctx->brief();
         return status;
     }
     // commit success, set need_rollback to false

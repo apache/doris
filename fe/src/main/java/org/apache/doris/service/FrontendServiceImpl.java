@@ -730,7 +730,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (UserException e) {
-            LOG.warn("failed to rollback: {}", e.getMessage());
+            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
