@@ -30,6 +30,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "olap/comparison_predicate.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
@@ -184,37 +185,75 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
-        RowsetReaderSharedPtr rowset_reader;
-        create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+            RowBlock* output_block;
+            uint32_t num_rows_read = 0;
+            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+                ASSERT_TRUE(output_block != nullptr);
+                ASSERT_GT(output_block->row_num(), 0);
+                ASSERT_EQ(0, output_block->pos());
+                ASSERT_EQ(output_block->row_num(), output_block->limit());
+                ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
+                // after sort merge segments, k1 will be 0, 1, 2, 10, 11, 12, 20, 21, 22, ..., 40950, 40951, 40952
+                for (int i = 0; i < output_block->row_num(); ++i) {
+                    char* field1 = output_block->field_ptr(i, 0);
+                    char* field2 = output_block->field_ptr(i, 1);
+                    // test null bit
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field1));
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field2));
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
+                    ASSERT_EQ(k1 * 10, k2);
 
-        RowBlock* output_block;
-        uint32_t num_rows_read = 0;
-        while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
-            ASSERT_TRUE(output_block != nullptr);
-            ASSERT_GT(output_block->row_num(), 0);
-            ASSERT_EQ(0, output_block->pos());
-            ASSERT_EQ(output_block->row_num(), output_block->limit());
-            ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
-            // after sort merge segments, k1 will be 0, 1, 2, 10, 11, 12, 20, 21, 22, ..., 40950, 40951, 40952
-            for (int i = 0; i < output_block->row_num(); ++i) {
-                char* field1 = output_block->field_ptr(i, 0);
-                char* field2 = output_block->field_ptr(i, 1);
-                // test null bit
-                ASSERT_FALSE(*reinterpret_cast<bool*>(field1));
-                ASSERT_FALSE(*reinterpret_cast<bool*>(field2));
-                uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
-                uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
-                ASSERT_EQ(k1 * 10, k2);
-
-                int rid = num_rows_read / 3;
-                int seg_id = num_rows_read % 3;
-                ASSERT_EQ(rid * 10 + seg_id, k1);
-                num_rows_read++;
+                    int rid = num_rows_read / 3;
+                    int seg_id = num_rows_read % 3;
+                    ASSERT_EQ(rid * 10 + seg_id, k1);
+                    num_rows_read++;
+                }
             }
+            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_TRUE(output_block == nullptr);
+            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
         }
-        EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
-        EXPECT_TRUE(output_block == nullptr);
-        EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+
+        // merge segments with predicates
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            // column predicate: k1 = 10
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            column_predicates.emplace_back(predicate.get());
+            reader_context.predicates = &column_predicates;
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+            RowBlock* output_block;
+            uint32_t num_rows_read = 0;
+            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+                ASSERT_TRUE(output_block != nullptr);
+                ASSERT_EQ(1, output_block->row_num());
+                ASSERT_EQ(0, output_block->pos());
+                ASSERT_EQ(output_block->row_num(), output_block->limit());
+                ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
+                // after sort merge segments, k1 will be 10
+                for (int i = 0; i < output_block->row_num(); ++i) {
+                    char* field1 = output_block->field_ptr(i, 0);
+                    char* field2 = output_block->field_ptr(i, 1);
+                    // test null bit
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field1));
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field2));
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
+                    ASSERT_EQ(10, k1);
+                    ASSERT_EQ(k1 * 10, k2);
+                    num_rows_read++;
+                }
+            }
+            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_TRUE(output_block == nullptr);
+            EXPECT_EQ(1, num_rows_read);
+        }
     }
 
     {   // test return unordered data and only k3
@@ -226,30 +265,66 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
-        RowsetReaderSharedPtr rowset_reader;
-        create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+        // without predicate
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
 
-        RowBlock* output_block;
-        uint32_t num_rows_read = 0;
-        while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
-            ASSERT_TRUE(output_block != nullptr);
-            ASSERT_GT(output_block->row_num(), 0);
-            ASSERT_EQ(0, output_block->pos());
-            ASSERT_EQ(output_block->row_num(), output_block->limit());
-            ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
-            // for unordered result, k3 will be 0, 1, 2, ..., 4096*3-1
-            for (int i = 0; i < output_block->row_num(); ++i) {
-                char* field3 = output_block->field_ptr(i, 2);
-                // test null bit
-                ASSERT_FALSE(*reinterpret_cast<bool*>(field3));
-                uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
-                ASSERT_EQ(num_rows_read, k3);
-                num_rows_read++;
+            RowBlock* output_block;
+            uint32_t num_rows_read = 0;
+            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+                ASSERT_TRUE(output_block != nullptr);
+                ASSERT_GT(output_block->row_num(), 0);
+                ASSERT_EQ(0, output_block->pos());
+                ASSERT_EQ(output_block->row_num(), output_block->limit());
+                ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
+                // for unordered result, k3 will be 0, 1, 2, ..., 4096*3-1
+                for (int i = 0; i < output_block->row_num(); ++i) {
+                    char* field3 = output_block->field_ptr(i, 2);
+                    // test null bit
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field3));
+                    uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
+                    ASSERT_EQ(num_rows_read, k3);
+                    num_rows_read++;
+                }
             }
+            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_TRUE(output_block == nullptr);
+            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
         }
-        EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
-        EXPECT_TRUE(output_block == nullptr);
-        EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+
+        // with predicate
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            // column predicate: k3 < 100
+            ColumnPredicate* predicate = new LessPredicate<int32_t>(2, 100);
+            column_predicates.emplace_back(predicate);
+            reader_context.predicates = &column_predicates;
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            RowBlock* output_block;
+            uint32_t num_rows_read = 0;
+            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+                ASSERT_TRUE(output_block != nullptr);
+                ASSERT_LE(output_block->row_num(), 100);
+                ASSERT_EQ(0, output_block->pos());
+                ASSERT_EQ(output_block->row_num(), output_block->limit());
+                ASSERT_EQ(return_columns, output_block->row_block_info().column_ids);
+                // for unordered result, k3 will be 0, 1, 2, ..., 99
+                for (int i = 0; i < output_block->row_num(); ++i) {
+                    char* field3 = output_block->field_ptr(i, 2);
+                    // test null bit
+                    ASSERT_FALSE(*reinterpret_cast<bool*>(field3));
+                    uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
+                    ASSERT_EQ(num_rows_read, k3);
+                    num_rows_read++;
+                }
+            }
+            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_TRUE(output_block == nullptr);
+            EXPECT_EQ(100, num_rows_read);
+        }
     }
 }
 
