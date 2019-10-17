@@ -24,8 +24,8 @@ namespace doris {
 
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS) \
 template<class type> \
-CLASS<type>::CLASS(int column_id, std::set<type>&& values) \
-    : _column_id(column_id), \
+CLASS<type>::CLASS(uint32_t column_id, std::set<type>&& values) \
+    : ColumnPredicate(column_id), \
       _values(std::move(values)) {} \
 
 IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
@@ -84,18 +84,43 @@ void CLASS<type>::evaluate(VectorizedRowBatch* batch) const { \
 IN_LIST_PRED_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
+    template<class type> \
+    void CLASS<type>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const { \
+        uint16_t new_size = 0; \
+        if (block->is_nullable()) { \
+            for (uint16_t i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = idx; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (!block->cell(idx).is_null() && _values.find(*cell_value) OP _values.end()); \
+            } \
+        } else { \
+            for (uint16_t i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = idx; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (_values.find(*cell_value) OP _values.end()); \
+            } \
+        } \
+        *size = new_size; \
+    } \
+
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, ==)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, !=)
+
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
-    template CLASS<int8_t>::CLASS(int column_id, std::set<int8_t>&& values); \
-    template CLASS<int16_t>::CLASS(int column_id, std::set<int16_t>&& values); \
-    template CLASS<int32_t>::CLASS(int column_id, std::set<int32_t>&& values); \
-    template CLASS<int64_t>::CLASS(int column_id, std::set<int64_t>&& values); \
-    template CLASS<int128_t>::CLASS(int column_id, std::set<int128_t>&& values); \
-    template CLASS<float>::CLASS(int column_id, std::set<float>&& values); \
-    template CLASS<double>::CLASS(int column_id, std::set<double>&& values); \
-    template CLASS<decimal12_t>::CLASS(int column_id, std::set<decimal12_t>&& values); \
-    template CLASS<StringValue>::CLASS(int column_id, std::set<StringValue>&& values); \
-    template CLASS<uint24_t>::CLASS(int column_id, std::set<uint24_t>&& values); \
-    template CLASS<uint64_t>::CLASS(int column_id, std::set<uint64_t>&& values); \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values); \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, std::set<int16_t>&& values); \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, std::set<int32_t>&& values); \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, std::set<int64_t>&& values); \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, std::set<int128_t>&& values); \
+    template CLASS<float>::CLASS(uint32_t column_id, std::set<float>&& values); \
+    template CLASS<double>::CLASS(uint32_t column_id, std::set<double>&& values); \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, std::set<decimal12_t>&& values); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, std::set<StringValue>&& values); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, std::set<uint24_t>&& values); \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, std::set<uint64_t>&& values); \
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
@@ -115,4 +140,21 @@ IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
 
 IN_LIST_PRED_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS) \
+    template void CLASS<int8_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int16_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int128_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<float>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<double>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(InListPredicate)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
+
 } //namespace doris
