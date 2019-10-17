@@ -119,6 +119,12 @@ public class InsertStmt extends DdlStmt {
 
     List<Column> targetColumns = Lists.newArrayList();
 
+    /*
+     * InsertStmt may be analyzed twice, but transaction must be only begun once.
+     * So use a boolean to check if transaction already begun.
+     */
+    private boolean isTransactionBegin = false;
+
     public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         List<String> tmpPartitions = target.getPartitions();
@@ -272,19 +278,26 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        uuid = UUID.randomUUID();
-        if (Strings.isNullOrEmpty(label)) {
-            label = "insert_" + uuid.toString();
+        db = analyzer.getCatalog().getDb(tblName.getDb());
+
+        // create label and begin transaction
+        if (!isTransactionBegin) {
+            uuid = UUID.randomUUID();
+            if (Strings.isNullOrEmpty(label)) {
+                label = "insert_" + uuid.toString();
+            }
+
+            if (targetTable instanceof OlapTable) {
+                LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
+                long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+                transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                        label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
+            }
+            isTransactionBegin = true;
         }
 
+        // init data sink
         if (targetTable instanceof OlapTable) {
-            String dbName = tblName.getDb();
-            // check exist
-            db = analyzer.getCatalog().getDb(dbName);
-            LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-            long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
-            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             sink.init(loadId, transactionId, db.getId());
