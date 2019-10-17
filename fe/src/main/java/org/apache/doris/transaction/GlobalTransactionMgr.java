@@ -758,7 +758,7 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                    LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
                             entry.getKey(), dbId, endTransactionId);
                     return false;
                 }

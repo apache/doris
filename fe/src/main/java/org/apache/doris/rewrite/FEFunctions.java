@@ -120,18 +120,28 @@ public class FEFunctions {
         return new IntLiteral(unixTime, Type.INT);
     }
 
+    @FEFunction(name = "unix_timestamp", argTypes = { "DATE" }, returnType = "INT")
+    public static IntLiteral unixTimestamp2(LiteralExpr arg) throws AnalysisException {
+        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
+        unixTime = unixTime < 0 ? 0 : unixTime;
+        unixTime = unixTime > Integer.MAX_VALUE ? 0 : unixTime;
+        return new IntLiteral(unixTime, Type.INT);
+    }
+
     @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
-        //if unixTime < 0, we should return null, throw a exception and let BE process
+        // if unixTime < 0, we should return null, throw a exception and let BE process
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
         return new StringLiteral(dl.getStringValue());
     }
+
     @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
-        //if unixTime < 0, we should return null, throw a exception and let BE process
+        // if unixTime < 0, we should return null, throw a exception and let BE process
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }

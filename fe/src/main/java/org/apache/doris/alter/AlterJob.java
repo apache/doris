@@ -289,8 +289,8 @@ public abstract class AlterJob implements Writable {
         if (isPreviousLoadFinished) {
             return true;
         } else {
-            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
-                    .isPreviousTransactionsFinished(transactionId, dbId);
+            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                    transactionId, dbId);
             return isPreviousLoadFinished;
         }
     }
