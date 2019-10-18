@@ -375,14 +375,14 @@ visible_functions = [
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_8FloatValE'],
     [['least'], 'DOUBLE', ['DOUBLE', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9DoubleValE'],
-    [['least'], 'VARCHAR', ['VARCHAR', '...'],
-            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
     [['least'], 'DATETIME', ['DATETIME', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
     [['least'], 'DECIMAL', ['DECIMAL', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
     [['least'], 'DECIMALV2', ['DECIMALV2', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
+    [['least'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
 
     [['greatest'], 'TINYINT', ['TINYINT', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10TinyIntValE'],
@@ -402,10 +402,10 @@ visible_functions = [
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
     [['greatest'], 'DECIMALV2', ['DECIMALV2', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
-    [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
-            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
     [['greatest'], 'DATETIME', ['DATETIME', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
+    [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
 
     # Conditional Functions
     # Some of these have empty symbols because the BE special-cases them based on the
@@ -419,9 +419,10 @@ visible_functions = [
     [['if'], 'FLOAT', ['BOOLEAN', 'FLOAT', 'FLOAT'], ''],
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
-    [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
+    # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
+    [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
 
     [['nullif'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], ''],
     [['nullif'], 'TINYINT', ['TINYINT', 'TINYINT'], ''],
@@ -431,10 +432,11 @@ visible_functions = [
     [['nullif'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['nullif'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
-    [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['nullif'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
+    # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
+    [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
 
     [['ifnull'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], ''],
     [['ifnull'], 'TINYINT', ['TINYINT', 'TINYINT'], ''],
@@ -444,10 +446,11 @@ visible_functions = [
     [['ifnull'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['ifnull'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['ifnull'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
-    [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
+    # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
+    [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
 
     [['coalesce'], 'BOOLEAN', ['BOOLEAN', '...'], ''],
     [['coalesce'], 'TINYINT', ['TINYINT', '...'], ''],
@@ -457,10 +460,11 @@ visible_functions = [
     [['coalesce'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['coalesce'], 'FLOAT', ['FLOAT', '...'], ''],
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
-    [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
+    # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
+    [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], ''],
 
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris11ESFunctions5matchEPN'
