@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 
