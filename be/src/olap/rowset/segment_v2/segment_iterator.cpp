@@ -121,6 +121,9 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            ColumnIteratorOptions iter_opts;
+            iter_opts.stats = _opts.stats;
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
 
@@ -168,7 +171,7 @@ Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ra
         // get row ranges by zone map of this column
         RowRanges column_zone_map_row_ranges;
         _segment->_column_readers[cid]->get_row_ranges_by_zone_map(_opts.conditions->get_column(cid),
-                column_delete_conditions[cid], &column_zone_map_row_ranges);
+                column_delete_conditions[cid], _opts.stats, &column_zone_map_row_ranges);
         // intersection different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
     }
@@ -184,6 +187,9 @@ Status SegmentIterator::_init_column_iterators() {
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            ColumnIteratorOptions iter_opts;
+            iter_opts.stats = _opts.stats;
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
 
         _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
@@ -302,6 +308,7 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 }
 
 Status SegmentIterator::next_batch(RowBlockV2* block) {
+    SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init());
         _inited = true;
@@ -339,6 +346,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
     _cur_rowid += rows_to_read;
     block->set_num_rows(rows_to_read);
+    block->set_selected_size(rows_to_read);
     // update raw_rows_read counter
     // judge nullptr for unit test case
     if (_opts.stats != nullptr) {
@@ -353,15 +361,18 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     if (_opts.column_predicates != nullptr) {
         // init selection position index
         uint16_t selected_size = block->selected_size();
+        uint16_t original_size = selected_size;
+        SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
         for (auto column_predicate : *_opts.column_predicates) {
             auto column_block = block->column_block(column_predicate->column_id());
             column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
         }
         block->set_selected_size(selected_size);
+        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
     }
+    ++_opts.stats->blocks_load;
     return Status::OK();
 }
-
 
 }
 }

@@ -96,9 +96,11 @@ TEST_F(SegmentReaderWriterTest, normal) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
 
@@ -153,6 +155,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -178,6 +181,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -207,6 +211,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -280,6 +285,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
+        OlapReaderStatistics stats;
         // test empty segment iterator
         {
             // the first two page will be read by this condition
@@ -293,6 +299,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -316,6 +323,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -374,6 +382,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             delete_conditions->append_condition(delete_condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
             read_opts.delete_conditions.push_back(delete_conditions.get());
 
@@ -544,9 +553,11 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
 
@@ -599,9 +610,11 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
 
@@ -693,10 +706,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
-
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
 
@@ -742,6 +756,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -772,6 +787,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -794,6 +810,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -844,6 +861,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;

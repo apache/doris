@@ -266,6 +266,9 @@ private:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
 
     RuntimeProfile::Counter* _index_load_timer = nullptr;
+
+    RuntimeProfile::Counter* _total_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 };
 
 } // namespace doris

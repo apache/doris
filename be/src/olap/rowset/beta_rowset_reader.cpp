@@ -108,32 +108,39 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     // read next input block
     _input_block->clear();
-    auto s = _iterator->next_batch(_input_block.get());
-    if (!s.ok()) {
-        if (s.is_end_of_file()) {
-            *block = nullptr;
-            return OLAP_ERR_DATA_EOF;
+    {
+        SCOPED_RAW_TIMER(&_context->stats->block_fetch_ns);
+        auto s = _iterator->next_batch(_input_block.get());
+        if (!s.ok()) {
+            if (s.is_end_of_file()) {
+                *block = nullptr;
+                return OLAP_ERR_DATA_EOF;
+            }
+            LOG(WARNING) << "failed to read next block: " << s.to_string();
+            return OLAP_ERR_ROWSET_READ_FAILED;
         }
-        LOG(WARNING) << "failed to read next block: " << s.to_string();
-        return OLAP_ERR_ROWSET_READ_FAILED;
     }
+
     // convert to output block
     _output_block->clear();
     size_t rows_read = 0;
     uint16_t* selection_vector = _input_block->selection_vector();
-    for (size_t i = 0; i < _input_block->selected_size(); ++i) {
-        uint16_t row_idx = selection_vector[i];
-        // deep copy row from input block to output block because
-        // RowBlock use MemPool and RowBlockV2 use Arena
-        // TODO(hkp): unify RowBlockV2 to use MemPool to boost performance
-        _output_block->get_row(row_idx, _row.get());
-        // convert return_columns to seek_columns
-        s = _input_block->deep_copy_to_row_cursor(row_idx, _row.get(), _output_block->mem_pool());
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to copy row: " << s.to_string();
-            return OLAP_ERR_ROWSET_READ_FAILED;
+    {
+        SCOPED_RAW_TIMER(&_context->stats->block_convert_ns);
+        for (size_t i = 0; i < _input_block->selected_size(); ++i) {
+            uint16_t row_idx = selection_vector[i];
+            // deep copy row from input block to output block because
+            // RowBlock use MemPool and RowBlockV2 use Arena
+            // TODO(hkp): unify RowBlockV2 to use MemPool to boost performance
+            _output_block->get_row(row_idx, _row.get());
+            // convert return_columns to seek_columns
+            auto s = _input_block->deep_copy_to_row_cursor(row_idx, _row.get(), _output_block->mem_pool());
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to copy row: " << s.to_string();
+                return OLAP_ERR_ROWSET_READ_FAILED;
+            }
+            ++rows_read;
         }
-        ++rows_read;
     }
     _output_block->set_pos(0);
     _output_block->set_limit(rows_read);
