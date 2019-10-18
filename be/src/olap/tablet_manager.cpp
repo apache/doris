@@ -1230,7 +1230,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
-            context.rowset_type = DEFAULT_ROWSET_TYPE;
+            context.rowset_type = config::default_rowset_type;
             context.rowset_path_prefix = tablet->tablet_path();
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;

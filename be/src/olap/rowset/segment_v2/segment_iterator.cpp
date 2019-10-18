@@ -362,6 +362,5 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     return Status::OK();
 }
 
-
 }
 }
