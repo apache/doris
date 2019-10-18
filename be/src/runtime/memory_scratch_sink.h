@@ -22,7 +22,16 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/result_queue_mgr.h"
+#include "util/arrow/row_batch.h"
 #include "util/blocking_queue.hpp"
+
+namespace arrow {
+
+class MemoryPool;
+class RecordBatch;
+class Schema;
+
+}
 
 namespace doris {
 
@@ -69,11 +78,12 @@ private:
 
     Status prepare_exprs(RuntimeState* state);
 
-    Status add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result);
+    // Status add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result);
 
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     shared_block_queue_t _queue;
 

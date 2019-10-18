@@ -17,6 +17,13 @@
 
 #include "service/backend_service.h"
 
+#include <arrow/io/memory.h>
+#include <arrow/buffer.h>
+#include <arrow/memory_pool.h>
+#include <arrow/record_batch.h>
+#include <arrow/status.h>
+#include <arrow/ipc/writer.h>
+#include <arrow/status.h>
 #include <boost/shared_ptr.hpp>
 #include <gperftools/heap-profiler.h>
 #include <memory>
@@ -318,15 +325,63 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         // during accessing, should disabled last_access_time
         context->last_access_time = -1;
         TUniqueId fragment_instance_id = context->fragment_instance_id;
-        std::shared_ptr<TScanRowBatch> rows_per_col;
+        // std::shared_ptr<TScanRowBatch> rows_per_col;
+        std::shared_ptr<arrow::RecordBatch> record_batch;
         bool eos;
-        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
+        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &record_batch, &eos);
         if (fetch_st.ok()) {
             result_.__set_eos(eos);
             // when eos = true  rows_per_col = nullptr
             if (!eos) {
-                result_.__set_rows(*rows_per_col);
-                context->offset += (*rows_per_col).num_rows;
+                std::shared_ptr<arrow::io::BufferOutputStream> sink;
+                // create sink memory buffer outputstream with the computed capacity
+                int64_t capacity;
+                arrow::ipc::GetRecordBatchSize(*record_batch, &capacity);
+                arrow::Status a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
+                if (!a_st.ok()) {
+                    std::stringstream msg;
+                    msg << "context_id: " << context_id << " initilize BufferOutputStream failure, reason: " << a_st.ToString(); 
+                    t_status.error_msgs.push_back(msg.str());
+                    t_status.status_code = TStatusCode::INTERNAL_ERROR;
+                    result_.status = t_status;
+                    return;
+                }
+                std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
+                // create RecordBatch Writer
+                a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch->schema(), &record_batch_writer);
+                if (!a_st.ok()) {
+                    std::stringstream msg;
+                    msg << "context_id: " << context_id << " initilize RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
+                    t_status.error_msgs.push_back(msg.str());
+                    t_status.status_code = TStatusCode::INTERNAL_ERROR;
+                    result_.status = t_status;
+                    return;
+                }
+                // write RecordBatch to memory buffer outputstream
+                a_st = record_batch_writer->WriteRecordBatch(*record_batch);
+                if (!a_st.ok()) {
+                    std::stringstream msg;
+                    msg << "context_id: " << context_id << " WriteRecordBatch failure, reason: " << a_st.ToString(); 
+                    t_status.error_msgs.push_back(msg.str());
+                    t_status.status_code = TStatusCode::INTERNAL_ERROR;
+                    result_.status = t_status;
+                    return;
+                }
+                record_batch_writer->Close();
+                std::shared_ptr<arrow::Buffer> buffer;
+                sink->Finish(&buffer);
+                if (!a_st.ok()) {
+                    std::stringstream msg;
+                    msg << "context_id: " << context_id << " allocate buffer failure, reason: " << a_st.ToString(); 
+                    t_status.error_msgs.push_back(msg.str());
+                    t_status.status_code = TStatusCode::INTERNAL_ERROR;
+                    result_.status = t_status;
+                    return;
+                }
+                result_.__set_rows(buffer->ToString());
+                context->offset += record_batch->num_rows();
+                // close the sink
+                sink->Close();
             }
         }
         fetch_st.to_thrift(&t_status);

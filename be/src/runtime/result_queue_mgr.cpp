@@ -31,7 +31,7 @@ ResultQueueMgr::ResultQueueMgr() : _max_sink_batch_count(config::max_memory_sink
 ResultQueueMgr::~ResultQueueMgr() {
 }
 
-Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos) {
+Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos) {
     shared_block_queue_t queue;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -67,7 +67,7 @@ void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, shared_
         *queue = iter->second;
     } else {
         // the blocking queue size = 20 (default), in this way, one queue have 20 * 1024 rows at most
-        shared_block_queue_t tmp(new BlockingQueue<std::shared_ptr<TScanRowBatch>>(_max_sink_batch_count));
+        shared_block_queue_t tmp(new BlockingQueue<std::shared_ptr<arrow::RecordBatch>>(_max_sink_batch_count));
         _fragment_queue_map.insert(std::make_pair(fragment_instance_id, tmp));
         *queue = tmp;
     }

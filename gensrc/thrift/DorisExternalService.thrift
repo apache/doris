@@ -137,9 +137,9 @@ struct TScanBatchResult {
   // getNext() won’t return any more results. Required.
   2: optional bool eos
 
-  // A batch of rows to return, if any exist. The number of rows in the batch
+  // A batch of rows of arrow format to return, if any exist. The number of rows in the batch
   // should be less than or equal to the batch_size specified in TOpenParams.
-  3: optional TScanRowBatch rows
+  3: optional binary rows
 }
 
 // Parameters to close()

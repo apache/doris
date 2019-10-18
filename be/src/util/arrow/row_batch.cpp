@@ -17,6 +17,7 @@
 
 #include "util/arrow/row_batch.h"
 
+#include <arrow/builder.h>
 #include <arrow/visitor.h>
 #include <arrow/visitor_inline.h>
 #include <arrow/type.h>
@@ -24,13 +25,18 @@
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/array/builder_primitive.h>
+#include <cstdlib>
+#include <ctime>
+#include <memory>
 
+#include "common/logging.h"
 #include "exprs/slot_ref.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/row_batch.h"
 #include "runtime/descriptors.h"
 #include "runtime/descriptor_helper.h"
 #include "util/arrow/utils.h"
+#include "util/types.h"
 
 namespace doris {
 
@@ -56,6 +62,23 @@ Status convert_to_arrow_type(const TypeDescriptor& type,
         break;
     case TYPE_DOUBLE:
         *result = arrow::float64();
+        break;
+    case TYPE_TIME:
+        *result = arrow::float64();
+        break;
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
+    case TYPE_HLL:
+    case TYPE_DECIMAL:
+    case TYPE_LARGEINT:
+        *result = arrow::utf8();
+        break;
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+        *result = arrow::date64();
+        break;
+    case TYPE_DECIMALV2:
+        *result = std::make_shared<arrow::Decimal128Type>(27, 9);
         break;
     default:
         return Status::InvalidArgument(Substitute("Unknown primitive type($0)", type.type));
@@ -149,9 +172,15 @@ public:
     FromRowBatchConverter(const RowBatch& batch,
                           const std::shared_ptr<arrow::Schema>& schema,
                           arrow::MemoryPool* pool)
-        : _batch(batch),
-        _schema(schema),
-        _pool(pool) { }
+        : _batch(batch), _schema(schema), _pool(pool) {
+        // obtain local time zone    
+        time_t ts = 0;
+        struct tm t;
+        char buf[16];
+        localtime_r(&ts, &t);
+        strftime(buf, sizeof(buf), "%Z", &t);
+        _time_zone = buf;
+    }
 
     ~FromRowBatchConverter() override { }
 
@@ -171,6 +200,98 @@ public:
     PRIMITIVE_VISIT(DoubleType);
 
 #undef PRIMITIVE_VISIT
+
+    // process string-transformable field
+    arrow::Status Visit(const arrow::StringType& type) override {
+        arrow::StringBuilder builder(_pool);
+        size_t num_rows = _batch.num_rows();
+        builder.Reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            PrimitiveType primitive_type = _cur_slot_ref->type().type;
+            switch (primitive_type) {
+                case TYPE_VARCHAR:
+                case TYPE_CHAR:
+                case TYPE_HLL: {
+                    const StringValue* string_val = (const StringValue*)(cell_ptr);
+                    if (string_val->ptr == NULL) {
+                        if (string_val->len == 0) {
+                            // 0x01 is a magic num, not usefull actually, just for present ""
+                            //char* tmp_val = reinterpret_cast<char*>(0x01);
+                            ARROW_RETURN_NOT_OK(builder.Append(""));        
+                        } else {
+                            ARROW_RETURN_NOT_OK(builder.AppendNull());
+                        }
+                    } else {
+                        ARROW_RETURN_NOT_OK(builder.Append(std::move(string_val->to_string())));
+                    }   
+                    break;
+                }
+                case TYPE_LARGEINT: {
+                    char buf[48];
+                    int len = 48;
+                    char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
+                    std::string temp(v, len);
+                    ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
+                    break;
+                }
+                case TYPE_DECIMAL: {
+                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
+                    std::string decimal_str = decimal_val->to_string();
+                    ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
+                    break;
+                }
+                default: {
+                    LOG(WARNING) << "can't convert this type = " << primitive_type << "to arrow type";
+                    return arrow::Status::TypeError("unsupported column type");
+                }
+            }
+        }
+        return builder.Finish(&_arrays[_cur_field_idx]);
+    }
+
+    // process date/datetime
+    arrow::Status Visit(const arrow::Date64Type& type) override {
+        arrow::Date64Builder builder(_pool);
+        size_t num_rows = _batch.num_rows();
+        builder.Reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            if (cell_ptr == nullptr) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+            } else {
+                const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
+                int64_t ts = 0;
+                if (time_val->unix_timestamp(&ts, _time_zone)) {
+                    ARROW_RETURN_NOT_OK(builder.Append(ts));
+                } else {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                }
+            }
+        }
+        return builder.Finish(&_arrays[_cur_field_idx]);
+    }
+
+    // process doris DecimalV2
+    arrow::Status Visit(const arrow::Decimal128Type& type) override {
+        std::shared_ptr<arrow::DataType> s_decimal_ptr = std::make_shared<arrow::Decimal128Type>(27, 9);
+        arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
+        size_t num_rows = _batch.num_rows();
+        builder.Reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            if (cell_ptr == nullptr) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+            } else {
+                PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
+                int64_t high = (p_value->value) >> 64;
+                uint64 low = p_value->value;
+                arrow::Decimal128 value(high, low);
+                ARROW_RETURN_NOT_OK(builder.Append(value));
+            }
+        }
+        return builder.Finish(&_arrays[_cur_field_idx]);
+    }
 
     Status convert(std::shared_ptr<arrow::RecordBatch>* out);
 
@@ -203,6 +324,8 @@ private:
 
     size_t _cur_field_idx;
     std::unique_ptr<SlotRef> _cur_slot_ref;
+
+    std::string _time_zone;
 
     std::vector<std::shared_ptr<arrow::Array>> _arrays;
 };
