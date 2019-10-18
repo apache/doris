@@ -29,16 +29,20 @@
 #include "olap/types.h"
 #include "olap/column_block.h"
 #include "util/file_utils.h"
-#include "util/arena.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() { }
+    ColumnReaderWriterTest() : _pool(&_tracker) { }
     virtual ~ColumnReaderWriterTest() {
     }
+private:
+    MemTracker _tracker;
+    MemPool _pool;
 };
 
 template<FieldType type, EncodingTypePB encoding>
@@ -119,11 +123,12 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             st = iter->seek_to_first();
             ASSERT_TRUE(st.ok());
 
-            Arena arena;
+            MemTracker tracker;
+            MemPool pool(&tracker);
             Type vals[1024];
             Type* vals_ = vals;
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &pool);
 
             int idx = 0;
             while (true) {
@@ -152,10 +157,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         }
         // random read
         {
-            Arena arena;
+            MemTracker tracker;
+            MemPool pool(&tracker);
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
@@ -224,8 +230,6 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
 }
 
 TEST_F(ColumnReaderWriterTest, test_types) {
-    Arena arena;
-
     size_t num_uint8_rows = 1024 * 1024;
     uint8_t* is_null = new uint8_t[num_uint8_rows];
 
@@ -241,8 +245,8 @@ TEST_F(ColumnReaderWriterTest, test_types) {
         datetime_vals[i] = i + 33;
         decimal_vals[i] = decimal12_t(i, i); // 1.000000001
 
-        set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &arena);
-        set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &arena, 8);
+        set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
+        set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
 
         BitmapChange(is_null, i, (i % 4) == 0);
     }

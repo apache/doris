@@ -28,7 +28,8 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/column_block.h"
-#include "util/arena.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
 
@@ -94,7 +95,9 @@ private:
     std::unordered_map<Slice, uint32_t, HashOfSlice> _dictionary;
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
-    Arena _arena;
+    // TODO(zc): rethink about this mem pool
+    MemTracker _tracker;
+    MemPool _pool;
     faststring _buffer;
 };
 

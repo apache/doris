@@ -22,7 +22,6 @@
 #include "olap/row_block2.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/row.h"
-#include "util/arena.h"
 
 namespace doris {
 
@@ -258,7 +257,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
 
         RowBlockRow dst_row = block->row(row_idx);
         // copy current row to block
-        copy_row(&dst_row, ctx->current_row(), block->arena());
+        copy_row(&dst_row, ctx->current_row(), block->pool());
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {

@@ -34,7 +34,6 @@
 namespace doris {
 
 class ColumnBlock;
-class Arena;
 class RandomAccessFile;
 class TypeInfo;
 class BlockCompressionCodec;
@@ -134,7 +133,7 @@ public:
 
     // After one seek, we can call this function many times to read data 
     // into ColumnBlock. when read string type data, memory will allocated
-    // from Arena
+    // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlock* dst) = 0;
 
     virtual rowid_t get_current_ordinal() const = 0;
@@ -151,8 +150,8 @@ public:
     //
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
-    // allocated in the dst column vector's arena.
-    Status scan(size_t* n, ColumnBlock* dst, Arena* arena);
+    // allocated in the dst column vector's MemPool.
+    Status scan(size_t* n, ColumnBlock* dst, MemPool* pool);
 
     // release next_batch related resource
     Status finish_batch();
