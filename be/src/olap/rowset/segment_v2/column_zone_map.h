@@ -25,6 +25,8 @@
 #include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -75,10 +77,13 @@ private:
 private:
     std::unique_ptr<BinaryPlainPageBuilder> _page_builder;
     Field* _field;
-    // memory will be managed by arena
+    // memory will be managed by MemPool
     ZoneMap _zone_map;
     ZoneMap _segment_zone_map;
-    Arena _arena;
+    // TODO(zc): we should replace this memory pool later, we only allocate min/max
+    // for field. But MemPool allocate 4KB least, it will a waste for most cases.
+    MemTracker _tracker;
+    MemPool _pool;
 };
 
 // ColumnZoneMap

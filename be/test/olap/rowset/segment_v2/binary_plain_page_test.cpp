@@ -25,6 +25,8 @@
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -59,13 +61,13 @@ public:
 
         //test1
         
-        size_t size = 3;
-        
-        Arena arena;
 
-        Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, size, &arena);
+        MemTracker tracker;
+        MemPool pool(&tracker);
+        size_t size = 3;
+        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, size, &pool);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
@@ -77,8 +79,8 @@ public:
         ASSERT_EQ (",", value[1].to_string());
         ASSERT_EQ ("Doris", value[2].to_string());
         
-        Slice* values2 = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
-        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, 1, &arena);
+        Slice* values2 = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
+        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, 1, &pool);
         ColumnBlockView column_block_view2(&block2);
 
         size_t fetch_num = 1;

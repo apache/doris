@@ -22,8 +22,9 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/rle_page.h"
-#include "util/arena.h"
 #include "util/logging.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -36,9 +37,10 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        Arena arena;
+        MemTracker tracker;
+        MemPool pool(&tracker);
         uint8_t null_bitmap = 0;
-        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &arena);
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;
@@ -66,11 +68,11 @@ public:
         ASSERT_EQ(0, rle_page_decoder.current_index());
         ASSERT_EQ(size, rle_page_decoder.count());
 
-        Arena arena;
-
-        CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &arena);
+        MemTracker tracker;
+        MemPool pool(&tracker);
+        CppType* values = reinterpret_cast<CppType*>(pool.allocate(size * sizeof(CppType)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &pool);
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
         status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);

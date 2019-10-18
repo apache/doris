@@ -44,7 +44,7 @@ private:
 
 public:
     // Create a new SkipList object that will use "cmp" for comparing keys,
-    // and will allocate memory using "*arena".  Objects allocated in the arena
+    // and will allocate memory using "*mem_pool".  Objects allocated in the mem_pool
     // must remain allocated for the lifetime of the skiplist object.
     explicit SkipList(Comparator cmp, MemPool* mem_pool);
 

@@ -22,14 +22,19 @@
 #include <string.h>
 
 #include "util/debug_util.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() { }
+    KeyCoderTest() : _pool(&_tracker) { }
     virtual ~KeyCoderTest() {
     }
+private:
+    MemTracker _tracker;
+    MemPool _pool;
 };
 
 template<FieldType type>
@@ -97,7 +102,7 @@ void test_integer_encode() {
     }
 }
 
-TEST(KeyCoderTest, test_int) {
+TEST_F(KeyCoderTest, test_int) {
     test_integer_encode<OLAP_FIELD_TYPE_TINYINT>();
     test_integer_encode<OLAP_FIELD_TYPE_SMALLINT>();
     test_integer_encode<OLAP_FIELD_TYPE_INT>();
@@ -108,7 +113,7 @@ TEST(KeyCoderTest, test_int) {
     test_integer_encode<OLAP_FIELD_TYPE_DATETIME>();
 }
 
-TEST(KeyCoderTest, test_date) {
+TEST_F(KeyCoderTest, test_date) {
     using CppType = uint24_t;
     auto key_coder = get_key_coder(OLAP_FIELD_TYPE_DATE);
 
@@ -168,7 +173,7 @@ TEST(KeyCoderTest, test_date) {
     }
 }
 
-TEST(KeyCoderTest, test_decimal) {
+TEST_F(KeyCoderTest, test_decimal) {
     auto key_coder = get_key_coder(OLAP_FIELD_TYPE_DECIMAL);
 
     decimal12_t val1(1, 100000000);
@@ -212,7 +217,7 @@ TEST(KeyCoderTest, test_decimal) {
     }
 }
 
-TEST(KeyCoderTest, test_char) {
+TEST_F(KeyCoderTest, test_char) {
     auto key_coder = get_key_coder(OLAP_FIELD_TYPE_CHAR);
 
     char buf[] = "1234567890";
@@ -223,9 +228,8 @@ TEST(KeyCoderTest, test_char) {
         key_coder->encode_ascending(&slice, 10, &key);
         Slice encoded_key(key);
 
-        Arena arena;
         Slice check_slice;
-        auto st = key_coder->decode_ascending(&encoded_key, 10, (uint8_t*)&check_slice, &arena);
+        auto st = key_coder->decode_ascending(&encoded_key, 10, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
         ASSERT_STREQ("1234567890", check_slice.data);
@@ -236,16 +240,15 @@ TEST(KeyCoderTest, test_char) {
         key_coder->encode_ascending(&slice, 5, &key);
         Slice encoded_key(key);
 
-        Arena arena;
         Slice check_slice;
-        auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &arena);
+        auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
         ASSERT_STREQ("12345", check_slice.data);
     }
 }
 
-TEST(KeyCoderTest, test_varchar) {
+TEST_F(KeyCoderTest, test_varchar) {
     auto key_coder = get_key_coder(OLAP_FIELD_TYPE_VARCHAR);
 
     char buf[] = "1234567890";
@@ -256,9 +259,8 @@ TEST(KeyCoderTest, test_varchar) {
         key_coder->encode_ascending(&slice, 15, &key);
         Slice encoded_key(key);
 
-        Arena arena;
         Slice check_slice;
-        auto st = key_coder->decode_ascending(&encoded_key, 15, (uint8_t*)&check_slice, &arena);
+        auto st = key_coder->decode_ascending(&encoded_key, 15, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
         ASSERT_STREQ("1234567890", check_slice.data);
@@ -269,9 +271,8 @@ TEST(KeyCoderTest, test_varchar) {
         key_coder->encode_ascending(&slice, 5, &key);
         Slice encoded_key(key);
 
-        Arena arena;
         Slice check_slice;
-        auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &arena);
+        auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
         ASSERT_STREQ("12345", check_slice.data);
