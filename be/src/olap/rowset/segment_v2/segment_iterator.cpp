@@ -339,7 +339,11 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
     _cur_rowid += rows_to_read;
     block->set_num_rows(rows_to_read);
-
+    // update raw_rows_read counter
+    // judge nullptr for unit test case
+    if (_opts.stats != nullptr) {
+        _opts.stats->raw_rows_read += block->num_rows();
+    }
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
     }
