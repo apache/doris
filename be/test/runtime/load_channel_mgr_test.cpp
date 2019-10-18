@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tablet_writer_mgr.h"
+#include "runtime/load_channel_mgr.h"
 
 #include <gtest/gtest.h>
 
@@ -43,7 +43,7 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _req(*req) {
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine) : _req(*req) {
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -53,11 +53,11 @@ OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
-    *writer = new DeltaWriter(req, nullptr);
+    *writer = new DeltaWriter(req, mem_tracker, nullptr);
     return open_status;
 }
 
@@ -82,20 +82,28 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-class TabletWriterMgrTest : public testing::Test {
+OLAPStatus DeltaWriter::flush_memtable_and_wait() {
+    return OLAP_SUCCESS;
+}
+
+int64_t DeltaWriter::partition_id() const { return 1L; }
+int64_t DeltaWriter::mem_consumption() const { return 1024L; }
+
+class LoadChannelMgrTest : public testing::Test {
 public:
-    TabletWriterMgrTest() { }
-    virtual ~TabletWriterMgrTest() { }
+    LoadChannelMgrTest() { }
+    virtual ~LoadChannelMgrTest() { }
     void SetUp() override {
         _k_tablet_recorder.clear();
         open_status = OLAP_SUCCESS;
         add_status = OLAP_SUCCESS;
         close_status = OLAP_SUCCESS;
+        config::streaming_load_rpc_max_alive_time_sec = 120;
     }
 private:
 };
 
-TEST_F(TabletWriterMgrTest, check_builder) {
+TEST_F(LoadChannelMgrTest, check_builder) {
     TDescriptorTableBuilder table_builder;
     {
         TTupleDescriptorBuilder tuple;
@@ -150,9 +158,10 @@ void create_schema(DescriptorTbl* desc_tbl, POlapTableSchemaParam* pschema) {
     indexes->set_schema_hash(123);
 }
 
-TEST_F(TabletWriterMgrTest, normal) {
+TEST_F(LoadChannelMgrTest, normal) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -238,9 +247,10 @@ TEST_F(TabletWriterMgrTest, normal) {
     ASSERT_EQ(_k_tablet_recorder[21], 1);
 }
 
-TEST_F(TabletWriterMgrTest, cancel) {
+TEST_F(LoadChannelMgrTest, cancel) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -280,9 +290,10 @@ TEST_F(TabletWriterMgrTest, cancel) {
     }
 }
 
-TEST_F(TabletWriterMgrTest, open_failed) {
+TEST_F(LoadChannelMgrTest, open_failed) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -313,9 +324,10 @@ TEST_F(TabletWriterMgrTest, open_failed) {
     }
 }
 
-TEST_F(TabletWriterMgrTest, add_failed) {
+TEST_F(LoadChannelMgrTest, add_failed) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -399,9 +411,10 @@ TEST_F(TabletWriterMgrTest, add_failed) {
     }
 }
 
-TEST_F(TabletWriterMgrTest, close_failed) {
+TEST_F(LoadChannelMgrTest, close_failed) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -490,9 +503,10 @@ TEST_F(TabletWriterMgrTest, close_failed) {
     }
 }
 
-TEST_F(TabletWriterMgrTest, unknown_tablet) {
+TEST_F(LoadChannelMgrTest, unknown_tablet) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;
@@ -575,9 +589,10 @@ TEST_F(TabletWriterMgrTest, unknown_tablet) {
     }
 }
 
-TEST_F(TabletWriterMgrTest, duplicate_packet) {
+TEST_F(LoadChannelMgrTest, duplicate_packet) {
     ExecEnv env;
-    TabletWriterMgr mgr(&env);
+    LoadChannelMgr mgr;
+    mgr.init(-1);
 
     auto tdesc_tbl = create_descriptor_table();
     ObjectPool obj_pool;

@@ -24,8 +24,8 @@ namespace doris {
 
 #define COMPARISON_PRED_CONSTRUCTOR(CLASS) \
     template<class type> \
-    CLASS<type>::CLASS(int column_id, const type& value) \
-        : _column_id(column_id), \
+    CLASS<type>::CLASS(uint32_t column_id, const type& value) \
+        : ColumnPredicate(column_id), \
           _value(value) \
         {} \
 
@@ -38,8 +38,8 @@ COMPARISON_PRED_CONSTRUCTOR(GreaterEqualPredicate)
 
 #define COMPARISON_PRED_CONSTRUCTOR_STRING(CLASS) \
     template<> \
-    CLASS<StringValue>::CLASS(int column_id, const StringValue& value) \
-        : _column_id(column_id) \
+    CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value) \
+        : ColumnPredicate(column_id) \
         { \
             _value.len = value.len; \
             _value.ptr = value.ptr; \
@@ -102,7 +102,6 @@ COMPARISON_PRED_CONSTRUCTOR_STRING(GreaterEqualPredicate)
         } \
     } \
 
-
 COMPARISON_PRED_EVALUATE(EqualPredicate, ==)
 COMPARISON_PRED_EVALUATE(NotEqualPredicate, !=)
 COMPARISON_PRED_EVALUATE(LessPredicate, <)
@@ -110,18 +109,47 @@ COMPARISON_PRED_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
 
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP) \
+    template<class type> \
+    void CLASS<type>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const { \
+        uint16_t new_size = 0; \
+        if (block->is_nullable()) { \
+            for (uint16_t i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = idx; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (!block->cell(idx).is_null() && (*cell_value OP _value)); \
+            } \
+        } else { \
+            for (uint16_t i = 0; i < *size; ++i) { \
+                uint16_t idx = sel[i]; \
+                sel[new_size] = idx; \
+                const type* cell_value = reinterpret_cast<const type*>(block->cell(idx).cell_ptr()); \
+                new_size += (*cell_value OP _value); \
+            } \
+        } \
+        *size = new_size; \
+    } \
+
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(EqualPredicate, ==)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(NotEqualPredicate, !=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessPredicate, <)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessEqualPredicate, <=)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
+
 #define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
-    template CLASS<int8_t>::CLASS(int column_id, const int8_t& value); \
-    template CLASS<int16_t>::CLASS(int column_id, const int16_t& value); \
-    template CLASS<int32_t>::CLASS(int column_id, const int32_t& value); \
-    template CLASS<int64_t>::CLASS(int column_id, const int64_t& value); \
-    template CLASS<int128_t>::CLASS(int column_id, const int128_t& value); \
-    template CLASS<float>::CLASS(int column_id, const float& value); \
-    template CLASS<double>::CLASS(int column_id, const double& value); \
-    template CLASS<decimal12_t>::CLASS(int column_id, const decimal12_t& value); \
-    template CLASS<StringValue>::CLASS(int column_id, const StringValue& value); \
-    template CLASS<uint24_t>::CLASS(int column_id, const uint24_t& value); \
-    template CLASS<uint64_t>::CLASS(int column_id, const uint64_t& value); \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value); \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value); \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, const int32_t& value); \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, const int64_t& value); \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, const int128_t& value); \
+    template CLASS<float>::CLASS(uint32_t column_id, const float& value); \
+    template CLASS<double>::CLASS(uint32_t column_id, const double& value); \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value); \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value); \
 
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(EqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(NotEqualPredicate)
@@ -149,5 +177,25 @@ COMPARISON_PRED_EVALUATE_DECLARATION(LessPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterEqualPredicate)
+
+#define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS) \
+    template void CLASS<int8_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int16_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<int128_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<float>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<double>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(EqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotEqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(LessPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(LessEqualPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterPredicate)
+COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterEqualPredicate)
 
 } //namespace doris

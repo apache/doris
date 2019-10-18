@@ -37,6 +37,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/interprocess/sync/file_lock.hpp>
 
+#include "env/env.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
@@ -472,7 +473,7 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path + TRASH_PREFIX;
     std::vector<std::string> sub_dirs;
-    FileUtils::scan_dir(trash_path, &sub_dirs);
+    FileUtils::list_files(Env::Default(), trash_path, &sub_dirs);
     for (auto& sub_dir : sub_dirs) {
         // sub dir is time_label
         std::string sub_path = trash_path + "/" + sub_dir;
@@ -685,28 +686,6 @@ OLAPStatus DataDir::set_convert_finished() {
 
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
-    // check if this is an old data path
-    bool is_tablet_convert_finished = false;
-    OLAPStatus res = _meta->get_tablet_convert_finished(is_tablet_convert_finished);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "get convert flag from meta failed dir=" << _path;
-        return res;
-    }
-    _convert_old_data_success = false;
-    if (!is_tablet_convert_finished) {
-        _clean_unfinished_converting_data();
-        res = _convert_old_tablet();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "convert old tablet failed for  dir = " << _path;
-            return res;
-        }
-
-        _convert_old_data_success = true;
-    } else {
-        LOG(INFO) << "tablets have been converted, skip convert process";
-        _convert_old_data_success = true;
-    }
-
     LOG(INFO) << "start to load tablets from " << _path;
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager

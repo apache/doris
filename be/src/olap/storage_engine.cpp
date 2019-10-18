@@ -139,30 +139,6 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     for (auto& thread : threads) {
         thread.join();
     }
-
-    // check whether all data dir convert successfully
-    for (auto data_dir : data_dirs) {
-        if (!data_dir->convert_old_data_success()) {
-            // if any dir convert failed, exit the process
-            LOG(FATAL) << "dir = " << data_dir->path() << "convert failed";
-        }
-    }
-
-    std::vector<std::thread> clean_old_file_threads;
-    for (auto data_dir : data_dirs) {
-        clean_old_file_threads.emplace_back([data_dir] {
-            data_dir->set_convert_finished();
-            auto res = data_dir->remove_old_meta_and_files();
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to clean old files dir = " << data_dir->path()
-                             << " res = " << res;
-            }
-        });
-    }
-
-    for (auto& thread : clean_old_file_threads) {
-        thread.detach();
-    }
 }
 
 OLAPStatus StorageEngine::open() {

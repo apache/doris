@@ -29,10 +29,12 @@
 #include <string>
 #include <sys/stat.h>
 
-#include "boost/filesystem.hpp"
-#include "boost/lexical_cast.hpp"
+#include <boost/filesystem.hpp>
+#include <boost/lexical_cast.hpp>
+
 #include "agent/status.h"
 #include "agent/utils.h"
+#include "env/env.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
 #include "http/http_client.h"
@@ -1552,7 +1554,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
                 std::stringstream ss;
                 ss << snapshot_path << "/" << snapshot_request.tablet_id
                     << "/" << snapshot_request.schema_hash << "/";
-                Status st = FileUtils::scan_dir(ss.str(), &snapshot_files); 
+                Status st = FileUtils::list_files(Env::Default(), ss.str(), &snapshot_files); 
                 if (!st.ok()) {
                     status_code = TStatusCode::RUNTIME_ERROR;
                     OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, version: %d,"

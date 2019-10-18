@@ -37,7 +37,7 @@ public:
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
         Arena arena;
         uint8_t null_bitmap = 0;
-        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, &arena);
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &arena);
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;
@@ -68,7 +68,7 @@ public:
 
         CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
         uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &arena);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);

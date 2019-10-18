@@ -45,6 +45,8 @@
         strict_mode: 用户指定此次导入是否开启严格模式，默认为开启。关闭方式为 -H "strict_mode: false"。
 
         timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
+        
+        exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段

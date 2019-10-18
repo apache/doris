@@ -17,35 +17,39 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 
-import org.apache.commons.lang.NotImplementedException;
+public class PartitionValue {
+    public static final PartitionValue MAX_VALUE = new PartitionValue();
 
-import java.util.List;
-import java.util.Map;
+    private String value;
 
-public class PartitionDesc {
+    private PartitionValue() {
 
-    protected PartitionType type;
-
-    public void analyze(List<ColumnDef> columnDefs, Map<String, String> otherProperties) throws AnalysisException {
-        throw new NotImplementedException();
     }
 
-    public PartitionType getType() {
-        return type;
+    public PartitionValue(String value) {
+        this.value = value;
     }
 
-    public String toSql() {
-        throw new NotImplementedException();
+    public LiteralExpr getValue(Type type) throws AnalysisException {
+        if (isMax()) {
+            return LiteralExpr.createInfinity(type, true);
+        } else {
+            return LiteralExpr.create(value, type);
+        }
     }
 
-    public PartitionInfo toPartitionInfo(List<Column> columns, Map<String, Long> partitionNameToId)
-            throws DdlException {
-        throw new NotImplementedException();
+    public boolean isMax() {
+        return this == MAX_VALUE;
+    }
+
+    public String getStringValue() {
+        if (isMax()) {
+            return "MAXVALUE";
+        } else {
+            return value;
+        }
     }
 }

@@ -63,7 +63,7 @@ Currently we only support routine imports from Kafka systems. This section detai
 
 ### Create routine import tasks
 
-After creating a detailed grammar for routine import tasks, you can connect to Doris and execute `HELP CREATE ROUTINE LOAD'; `Check grammar help. Here is a detailed description of the creation of the job note.
+After creating a detailed grammar for routine import tasks, you can connect to Doris and execute `HELP ROUTINE LOAD'; `Check grammar help. Here is a detailed description of the creation of the job note.
 
 * columns_mapping
 

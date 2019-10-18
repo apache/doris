@@ -52,6 +52,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         read_context->delete_handler->get_delete_conditions_after_version(_rowset->end_version(),
                 &read_options.delete_conditions);
     }
+    read_options.column_predicates = read_context->predicates;
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
@@ -93,10 +94,12 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;
-    output_block_info.column_ids = schema.column_ids();
+    // the output block's schema should be seek_columns to comform to v1
+    // TODO(hkp): this should be optimized to use return_columns
+    output_block_info.column_ids = *(_context->seek_columns);
     RETURN_NOT_OK(_output_block->init(output_block_info));
     _row.reset(new RowCursor());
-    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), schema.column_ids()));
+    RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
 
     return OLAP_SUCCESS;
 }
@@ -115,19 +118,26 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     }
     // convert to output block
     _output_block->clear();
-    for (size_t row_idx = 0; row_idx < _input_block->num_rows(); ++row_idx) {
+    size_t rows_read = 0;
+    uint16_t* selection_vector = _input_block->selection_vector();
+    for (size_t i = 0; i < _input_block->selected_size(); ++i) {
+        uint16_t row_idx = selection_vector[i];
         // shallow copy row from input block to output block
         _output_block->get_row(row_idx, _row.get());
+        // this copy function will copy return_columns' row to seek_columns's row_cursor
         s = _input_block->copy_to_row_cursor(row_idx, _row.get());
         if (!s.ok()) {
             LOG(WARNING) << "failed to copy row: " << s.to_string();
             return OLAP_ERR_ROWSET_READ_FAILED;
         }
+        ++rows_read;
     }
     _output_block->set_pos(0);
-    _output_block->set_limit(_input_block->num_rows());
-    _output_block->finalize(_input_block->num_rows());
+    _output_block->set_limit(rows_read);
+    _output_block->finalize(rows_read);
     *block = _output_block.get();
+    // update raw_rows_read counter
+    _context->stats->raw_rows_read += _input_block->num_rows();
     return OLAP_SUCCESS;
 }
 

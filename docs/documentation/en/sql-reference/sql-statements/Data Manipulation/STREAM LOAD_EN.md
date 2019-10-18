@@ -77,9 +77,13 @@ Specifies the timeout for the load. Unit seconds. The default is 600 seconds. Th
 
 The user specifies whether strict load mode is enabled for this load. The default is enabled. The shutdown mode is `-H "strict_mode: false"`.
 
-`Timezone`
+`timezone`
 
 Specifies the time zone used for this load. The default is East Eight District. This parameter affects all function results related to the time zone involved in the load.
+
+`exec_mem_limit`
+
+Memory limit. Default is 2GB. Unit is Bytes.
 
 RETURN VALUES
 

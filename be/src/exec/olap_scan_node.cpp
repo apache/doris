@@ -1199,7 +1199,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read OlapScanner failed!";
+            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status.to_string();
             eos = true;
             break;
         }

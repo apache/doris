@@ -26,6 +26,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 
 #include "common/logging.h"
+#include "env/env.h"
 #include "exec/broker_reader.h"
 #include "exec/broker_writer.h"
 #include "olap/file_helper.h"
@@ -771,7 +772,7 @@ Status SnapshotLoader::_get_existing_files_from_local(
     const std::string& local_path,
     std::vector<std::string>* local_files) {
 
-    Status status = FileUtils::scan_dir(local_path, local_files);
+    Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to list files in local path: " << local_path << ", msg: "
