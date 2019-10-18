@@ -72,6 +72,23 @@ Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
     return Status::OK();
 }
 
+Status RowBlockV2::deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool) {                                                                  
+    if (row_idx >= _num_rows) {
+        return Status::InvalidArgument(
+            Substitute("invalid row index $0 (num_rows=$1)", row_idx, _num_rows));
+    }   
+    for (auto cid : _schema.column_ids()) {
+        bool is_null = _schema.column(cid)->is_nullable() && BitmapTest(_column_null_bitmaps[cid], row_idx);
+        if (is_null) {
+            cursor->set_null(cid);
+        } else {
+            cursor->set_not_null(cid);
+            cursor->set_field_content(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)), mem_pool);
+        }   
+    }   
+    return Status::OK();
+}
+
 std::string RowBlockRow::debug_string() const {
     std::stringstream ss;
     ss << "[";

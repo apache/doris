@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 
@@ -75,6 +76,9 @@ public:
     // TODO(hkp): refactor the column predicate framework
     // to unify Conditions and ColumnPredicate
     const std::vector<ColumnPredicate*>* column_predicates = nullptr;
+
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one

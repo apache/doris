@@ -38,6 +38,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
+    read_options.stats = _context->stats;
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
@@ -122,10 +123,12 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     uint16_t* selection_vector = _input_block->selection_vector();
     for (size_t i = 0; i < _input_block->selected_size(); ++i) {
         uint16_t row_idx = selection_vector[i];
-        // shallow copy row from input block to output block
+        // deep copy row from input block to output block because
+        // RowBlock use MemPool and RowBlockV2 use Arena
+        // TODO(hkp): unify RowBlockV2 to use MemPool to boost performance
         _output_block->get_row(row_idx, _row.get());
-        // this copy function will copy return_columns' row to seek_columns's row_cursor
-        s = _input_block->copy_to_row_cursor(row_idx, _row.get());
+        // convert return_columns to seek_columns
+        s = _input_block->deep_copy_to_row_cursor(row_idx, _row.get(), _output_block->mem_pool());
         if (!s.ok()) {
             LOG(WARNING) << "failed to copy row: " << s.to_string();
             return OLAP_ERR_ROWSET_READ_FAILED;
@@ -136,8 +139,6 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     _output_block->set_limit(rows_read);
     _output_block->finalize(rows_read);
     *block = _output_block.get();
-    // update raw_rows_read counter
-    _context->stats->raw_rows_read += _input_block->num_rows();
     return OLAP_SUCCESS;
 }
 
