@@ -66,6 +66,11 @@ public:
     // notice the life time of returned value
     Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
 
+    // Copy the row_idx row's data into given row_cursor.
+    // This function will use deep copy.
+    // This function is used to convert RowBlockV2 to RowBlock
+    Status deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool);
+
     // Get the column block for one of the columns in this row block.
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
