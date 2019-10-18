@@ -146,7 +146,7 @@ enum TTaskType {
     CLONE,
     STORAGE_MEDIUM_MIGRATE,
     ROLLUP,
-    SCHEMA_CHANGE,
+    SCHEMA_CHANGE,  // Deprecated
     CANCEL_DELETE,  // Deprecated
     MAKE_SNAPSHOT,
     RELEASE_SNAPSHOT,
