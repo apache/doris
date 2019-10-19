@@ -271,9 +271,9 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
         _column_iterators[cid]->seek_to_ordinal(rowid);
     }
     size_t num_rows = 1;
-    // please note that usually RowBlockV2.clear() is called to free arena memory before reading the next block,
+    // please note that usually RowBlockV2.clear() is called to free MemPool memory before reading the next block,
     // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
-    // a single arena for all seeked keys.
+    // a single MemPool for all seeked keys.
     RETURN_IF_ERROR(_next_batch(_seek_block.get(), &num_rows));
     _seek_block->set_num_rows(num_rows);
     return Status::OK();
