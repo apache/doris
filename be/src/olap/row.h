@@ -134,16 +134,6 @@ void copy_row(DstRowType* dst, const SrcRowType& src, MemPool* pool) {
     }
 }
 
-// Deep copy src row to dst row. Schema of src and dst row must be same.
-template<typename DstRowType, typename SrcRowType>
-void copy_row(DstRowType* dst, const SrcRowType& src, Arena* arena) {
-    for (auto cid : dst->schema()->column_ids()) {
-        auto dst_cell = dst->cell(cid);
-        auto src_cell = src.cell(cid);
-        dst->schema()->column(cid)->deep_copy(&dst_cell, src_cell, arena);
-    }
-}
-
 template<typename DstRowType, typename SrcRowType>
 void agg_update_row(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool) {
     for (uint32_t cid = dst->schema()->num_key_columns(); cid < dst->schema()->num_columns(); ++cid) {

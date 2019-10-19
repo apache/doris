@@ -145,7 +145,6 @@ ${DORIS_TEST_BINARY_DIR}/util/new_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/doris_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/system_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/core_local_test
-${DORIS_TEST_BINARY_DIR}/util/arena_test
 ${DORIS_TEST_BINARY_DIR}/util/types_test
 ${DORIS_TEST_BINARY_DIR}/util/json_util_test
 ${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2

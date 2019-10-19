@@ -23,15 +23,15 @@ namespace doris {
 
 namespace segment_v2 {
 
-ColumnZoneMapBuilder::ColumnZoneMapBuilder(Field* field) : _field(field) {
+ColumnZoneMapBuilder::ColumnZoneMapBuilder(Field* field) : _field(field), _pool(&_tracker) {
     PageBuilderOptions options;
     options.data_page_size = 0;
     _page_builder.reset(new BinaryPlainPageBuilder(options));
-    _zone_map.min_value = _field->allocate_value_from_arena(&_arena);
-    _zone_map.max_value = _field->allocate_value_from_arena(&_arena);
+    _zone_map.min_value = _field->allocate_value(&_pool);
+    _zone_map.max_value = _field->allocate_value(&_pool);
     _reset_page_zone_map();
-    _segment_zone_map.min_value = _field->allocate_value_from_arena(&_arena);
-    _segment_zone_map.max_value = _field->allocate_value_from_arena(&_arena);
+    _segment_zone_map.min_value = _field->allocate_value(&_pool);
+    _segment_zone_map.max_value = _field->allocate_value(&_pool);
     _reset_segment_zone_map();
 }
 
