@@ -24,14 +24,14 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "olap/types.h"
-#include "util/arena.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
 using strings::Substitute;
 
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
-using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, Arena* arena);
+using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool);
 
 // Helper class that is used to encode types of value in memory format
 // into a sorted binary. For example, this class will encode unsigned
@@ -44,8 +44,8 @@ public:
     void encode_ascending(const void* value, size_t index_size, std::string* buf) const {
         _encode_ascending(value, index_size, buf);
     }
-    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, Arena* arena) const {
-        return _decode_ascending(encoded_key, index_size, cell_ptr, arena);
+    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool) const {
+        return _decode_ascending(encoded_key, index_size, cell_ptr, pool);
     }
 
 private:
@@ -97,7 +97,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, Arena* arena) {
+                                   uint8_t* cell_ptr, MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument(
                 Substitute("Key too short, need=$0 vs real=$1",
@@ -131,7 +131,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, Arena* arena) {
+                                   uint8_t* cell_ptr, MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument(
                 Substitute("Key too short, need=$0 vs real=$1",
@@ -161,12 +161,12 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, Arena* arena) {
+                                   uint8_t* cell_ptr, MemPool* pool) {
         decimal12_t decimal_val;
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, arena));
+                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, arena));
+                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, pool));
         memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
         return Status::OK();
     }
@@ -182,14 +182,14 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, Arena* arena) {
+                                   uint8_t* cell_ptr, MemPool* pool) {
         if (encoded_key->size < index_size) {
             return Status::InvalidArgument(
                 Substitute("Key too short, need=$0 vs real=$1",
                            index_size, encoded_key->size));
         }
         Slice* slice = (Slice*)cell_ptr;
-        slice->data = arena->Allocate(index_size);
+        slice->data = (char*)pool->allocate(index_size);
         slice->size = index_size;
         memcpy(slice->data, encoded_key->data, index_size);
         encoded_key->remove_prefix(index_size);
@@ -207,13 +207,13 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, Arena* arena) {
+                                   uint8_t* cell_ptr, MemPool* pool) {
         CHECK(encoded_key->size <= index_size)
             << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
             << ", index_size=" << index_size;
         auto copy_size = encoded_key->size;
         Slice* slice = (Slice*)cell_ptr;
-        slice->data = arena->Allocate(copy_size);
+        slice->data = (char*)pool->allocate(copy_size);
         slice->size = copy_size;
         memcpy(slice->data, encoded_key->data, copy_size);
         encoded_key->remove_prefix(copy_size);

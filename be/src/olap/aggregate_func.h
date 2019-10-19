@@ -42,7 +42,7 @@ public:
     // Init function will initialize aggregation execute environment in dst with source
     // and convert the source raw data to storage aggregate format
     //
-    // Memory Note: For plain memory can be allocated from arena, whose lifetime
+    // Memory Note: For plain memory can be allocated from *mem_pool, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize functioin to avoid memory leak.
     inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const {
@@ -66,7 +66,7 @@ public:
     // saved in src.
     //
     // Memory Note: All heap memory allocated in init and update function should be freed
-    // before this function return. Memory allocated from arena will be still available
+    // before this function return. Memory allocated from *mem_pool will be still available
     // and will be freed by client.
     inline void finalize(RowCursorCell* src, MemPool* mem_pool) const {
         _finalize_fn(src, mem_pool);
