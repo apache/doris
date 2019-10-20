@@ -192,7 +192,7 @@ SUMMARY: AddressSanitizer: heap-buffer-overflow /home/ssd0/zc/palo/doris/core/be
 
 **注意：开启这个选项是要影响程序的执行性能的，请慎重对线上的实例开启**
 
-**注意：如果开启了LSAN开关的话，tcmalloc就会被自动关闭**
+**注意：如果开启了ASAN开关的话，tcmalloc就会被自动关闭**
 
 另外，如果be.out中输出了堆栈信息，但是并没有函数符号，那么这个时候需要我们手动的处理下才能获得可读的堆栈信息。具体的处理方法需要借助一个脚本来解析ASAN的输出。这个时候我们需要使用[asan_symbolize](https://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/asan/scripts/asan_symbolize.py)来帮忙解析下。具体的使用方式如下：
 
@@ -223,7 +223,7 @@ pprof --svg --seconds=60 http://be_host:be_webport/pprof/profile > be.svg
 这个是相当通用的一种CPU分析方式，相比于`pprof`，这中方式必须要求能够登陆到分析对象的物理机上。但是相比于pprof只能定时采点，perf是能够通过不同的事件来完成堆栈信息采集的。具体的的使用方式如下：
 
 ```
- perf record -g -p be_pid -- sleep 60
+perf record -g -p be_pid -- sleep 60
 ```
 
 这条命令会统计60秒钟BE的CPU运行情况，并且生成perf.data。对于perf.data的分析，可以通过perf的命令来进行分析

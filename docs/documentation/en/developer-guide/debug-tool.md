@@ -223,7 +223,7 @@ In this way, a CPU consumption graph of be execution can be generated.
 This is a quite common CPU analysis method. Compared with `pprof`, this method must be able to log in to the physical machine of the analysis object. However, compared with pprof, which can only collect points on time, perf can collect stack information through different events. The specific usage is as follows:
 
 ```
- perf record -g -p be_pid -- sleep 60
+perf record -g -p be_pid -- sleep 60
 ```
 
 This command counts the CPU operation of be for 60 seconds and generates perf.data. For the analysis of perf.data, the command of perf can be used for analysis.
