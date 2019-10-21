@@ -90,7 +90,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.tablet_id = _tablet->tablet_id();
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
-    context.rowset_type = DEFAULT_ROWSET_TYPE;
+    context.rowset_type = StorageEngine::instance()->compaction_rowset_type();
     context.rowset_path_prefix = _tablet->tablet_path();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;

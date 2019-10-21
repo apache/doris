@@ -115,7 +115,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_report_tablet_already(false), 
         _tablet_manager(new TabletManager()),
         _txn_manager(new TxnManager()),
-        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)) {
+        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
+        _default_rowset_type(ALPHA_ROWSET),
+        _compaction_rowset_type(ALPHA_ROWSET) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -201,6 +203,8 @@ OLAPStatus StorageEngine::open() {
 
     _memtable_flush_executor = new MemTableFlushExecutor();
     _memtable_flush_executor->init(dirs);
+
+    _parse_default_rowset_type();
 
     return OLAP_SUCCESS;
 }
@@ -731,6 +735,25 @@ OLAPStatus StorageEngine::_do_sweep(
     }
 
     return res;
+}
+
+// invalid rowset type config will return ALPHA_ROWSET for system to run smoothly
+void StorageEngine::_parse_default_rowset_type() {
+    std::string default_rowset_type_config = config::default_rowset_type;
+    boost::to_upper(default_rowset_type_config);
+    if (default_rowset_type_config == "BETA") {
+        _default_rowset_type = BETA_ROWSET;
+    } else {
+        _default_rowset_type = ALPHA_ROWSET;
+    }
+
+    std::string compaction_rowset_type_config = config::compaction_rowset_type;
+    boost::to_upper(compaction_rowset_type_config);
+    if (compaction_rowset_type_config == "BETA") {
+        _compaction_rowset_type = BETA_ROWSET;
+    } else {
+        _compaction_rowset_type = BETA_ROWSET;
+    }
 }
 
 void StorageEngine::start_delete_unused_rowset() {
