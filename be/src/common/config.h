@@ -481,6 +481,11 @@ namespace config {
     // config for tablet meta checkpoint
     CONF_Int32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
     CONF_Int32(tablet_meta_checkpoint_min_interval_secs, "600");
+
+    // config for default rowset type
+    // Valid configs: ALPHA, BETA
+    CONF_String(default_rowset_type, "ALPHA");
+    CONF_String(compaction_rowset_type, "ALPHA");
 } // namespace config
 
 } // namespace doris
