@@ -84,7 +84,7 @@ public:
         slot_desc.__set_isMaterialized(true);
         thrift_desc_tbl.slotDescriptors.push_back(slot_desc);
         EXPECT_TRUE(DescriptorTbl::create(&_pool, thrift_desc_tbl, &_desc_tbl).ok());
-        _runtime_state.set_desc_tbl(_desc_tbl);
+        _runtime_state->set_desc_tbl(_desc_tbl);
 
         vector<TTupleId> row_tids;
         row_tids.push_back(0);
