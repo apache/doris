@@ -97,8 +97,6 @@ public:
     virtual ~MemoryScratchSinkTest() {
         delete _runtime_state;
         delete _mem_tracker;
-        delete _desc_tbl;
-        delete _row_desc;
     }
 
 protected:
