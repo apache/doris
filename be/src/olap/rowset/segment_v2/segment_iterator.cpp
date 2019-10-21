@@ -304,7 +304,7 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
     return Status::OK();
 }
 
-Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
+Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
     SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     for (auto cid : column_ids) {
         RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));

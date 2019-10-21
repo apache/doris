@@ -267,7 +267,11 @@ private:
 
     RuntimeProfile::Counter* _index_load_timer = nullptr;
 
+    // total pages read
+    // used by segment v2
     RuntimeProfile::Counter* _total_pages_num_counter = nullptr;
+    // page read from cache
+    // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 };
 
