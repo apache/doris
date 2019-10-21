@@ -145,7 +145,7 @@ enum TTaskType {
     PUSH,
     CLONE,
     STORAGE_MEDIUM_MIGRATE,
-    ROLLUP,
+    ROLLUP, // Deprecated
     SCHEMA_CHANGE,  // Deprecated
     CANCEL_DELETE,  // Deprecated
     MAKE_SNAPSHOT,
@@ -154,7 +154,7 @@ enum TTaskType {
     UPLOAD,
     DOWNLOAD,
     CLEAR_REMOTE_FILE,
-    MOVE
+    MOVE,
     REALTIME_PUSH,
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,

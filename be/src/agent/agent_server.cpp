@@ -327,7 +327,6 @@ void AgentServer::submit_tasks(
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
             break;
-        case TTaskType::ROLLUP:
         case TTaskType::ALTER:
             if (task.__isset.alter_tablet_req || task.__isset.alter_tablet_req_v2) {
                 _alter_tablet_workers->submit_task(task);
