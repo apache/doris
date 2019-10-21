@@ -100,7 +100,6 @@ add_library(Olap STATIC
     task/engine_checksum_task.cpp
     task/engine_clear_alter_task.cpp
     task/engine_clone_task.cpp
-    task/engine_schema_change_task.cpp
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
