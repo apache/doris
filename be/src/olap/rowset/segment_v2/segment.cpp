@@ -33,13 +33,22 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
+Status Segment::open(std::string filename,
+                     uint32_t segment_id,
+                     const TabletSchema* tablet_schema,
+                     std::shared_ptr<Segment>* output) {
+    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema));
+    RETURN_IF_ERROR(segment->_open());
+    output->swap(segment);
+    return Status::OK();
+}
+
 Segment::Segment(
         std::string fname, uint32_t segment_id,
         const TabletSchema* tablet_schema)
         : _fname(std::move(fname)),
         _segment_id(segment_id),
-        _tablet_schema(tablet_schema),
-        _index_loaded(false) {
+        _tablet_schema(tablet_schema) {
 }
 
 Segment::~Segment() {
@@ -48,11 +57,12 @@ Segment::~Segment() {
     }
 }
 
-Status Segment::open() {
+Status Segment::_open() {
     RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
     // parse footer to get meta
     RETURN_IF_ERROR(_parse_footer());
-
+    // initial all column reader
+    RETURN_IF_ERROR(_initial_column_readers());
     return Status::OK();
 }
 
@@ -61,6 +71,7 @@ Status Segment::new_iterator(
         const StorageReadOptions& read_options,
         std::unique_ptr<RowwiseIterator>* iter) {
 
+    // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
             int32_t column_id = column_condition.first;
@@ -104,14 +115,7 @@ Status Segment::new_iterator(
         }
     }
 
-
-    if(!_index_loaded) {
-        // parse short key index
-        RETURN_IF_ERROR(_parse_index());
-        // initial all column reader
-        RETURN_IF_ERROR(_initial_column_readers());
-        _index_loaded = true;
-    }
+    RETURN_IF_ERROR(_load_index());
     iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     iter->get()->init(read_options);
     return Status::OK();
@@ -165,17 +169,18 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
-// load and parse short key index
-Status Segment::_parse_index() {
-    // read short key index content
-    _sk_index_buf.resize(_footer.short_key_index_page().size());
-    Slice slice(_sk_index_buf.data(), _sk_index_buf.size());
-    RETURN_IF_ERROR(_input_file->read_at(_footer.short_key_index_page().offset(), slice));
+Status Segment::_load_index() {
+    return _load_index_once.call([this] {
+        // read short key index content
+        _sk_index_buf.resize(_footer.short_key_index_page().size());
+        Slice slice(_sk_index_buf.data(), _sk_index_buf.size());
+        RETURN_IF_ERROR(_input_file->read_at(_footer.short_key_index_page().offset(), slice));
 
-    // Parse short key index
-    _sk_index_decoder.reset(new ShortKeyIndexDecoder(_sk_index_buf));
-    RETURN_IF_ERROR(_sk_index_decoder->parse());
-    return Status::OK();
+        // Parse short key index
+        _sk_index_decoder.reset(new ShortKeyIndexDecoder(_sk_index_buf));
+        RETURN_IF_ERROR(_sk_index_decoder->parse());
+        return Status::OK();
+    });
 }
 
 Status Segment::_initial_column_readers() {
