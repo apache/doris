@@ -339,6 +339,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
     _cur_rowid += rows_to_read;
     block->set_num_rows(rows_to_read);
+    block->set_selected_size(rows_to_read);
     // update raw_rows_read counter
     // judge nullptr for unit test case
     if (_opts.stats != nullptr) {
