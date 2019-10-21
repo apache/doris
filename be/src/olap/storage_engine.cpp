@@ -733,6 +733,25 @@ OLAPStatus StorageEngine::_do_sweep(
     return res;
 }
 
+// invalid rowset type config will return ALPHA_ROWSET for system to run smoothly
+void StorageEngine::_parse_default_rowset_type() {
+    std::string default_rowset_type_config = config::default_rowset_type;
+    boost::to_upper(default_rowset_type_config);
+    if (default_rowset_type_config == "BETA_ROWSET") {
+        _default_rowset_type = BETA_ROWSET;
+    } else {
+        _default_rowset_type = ALPHA_ROWSET;
+    }
+
+    std::string compaction_rowset_type_config = config::compaction_rowset_type;
+    boost::to_upper(compaction_rowset_type_config);
+    if (compaction_rowset_type_config == "BETA_ROWSET") {
+        _compaction_rowset_type = BETA_ROWSET;
+    } else {
+        _compaction_rowset_type = BETA_ROWSET;
+    }
+}
+
 void StorageEngine::start_delete_unused_rowset() {
     _gc_mutex.lock();
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {

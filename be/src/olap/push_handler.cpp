@@ -315,7 +315,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.rowset_type = (RowsetTypePB)config::default_rowset_type;
+        context.rowset_type = StorageEngine::instance()->default_rowset_type();
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
