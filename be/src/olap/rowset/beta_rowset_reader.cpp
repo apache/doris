@@ -127,7 +127,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     uint16_t* selection_vector = _input_block->selection_vector();
     {
         SCOPED_RAW_TIMER(&_context->stats->block_convert_ns);
-        for (size_t i = 0; i < _input_block->selected_size(); ++i) {
+        for (uint16_t i = 0; i < _input_block->selected_size(); ++i) {
             uint16_t row_idx = selection_vector[i];
             // deep copy row from input block to output block because
             // RowBlock use MemPool and RowBlockV2 use Arena

@@ -191,9 +191,8 @@ Status SegmentIterator::_init_column_iterators() {
             iter_opts.stats = _opts.stats;
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
-
-        _column_iterators[cid]->seek_to_ordinal(_cur_rowid);
     }
+    _seek_columns(_schema.column_ids(), _cur_rowid);
     return Status::OK();
 }
 
@@ -273,9 +272,7 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include,
 
 // seek to the row and load that row to _key_cursor
 Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
-    for (auto cid : _seek_schema->column_ids()) {
-        _column_iterators[cid]->seek_to_ordinal(rowid);
-    }
+    _seek_columns(_seek_schema->column_ids(), rowid);
     size_t num_rows = 1;
     // please note that usually RowBlockV2.clear() is called to free arena memory before reading the next block,
     // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
@@ -307,6 +304,14 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
     return Status::OK();
 }
 
+Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
+    SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
+    for (auto cid : column_ids) {
+        RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::next_batch(RowBlockV2* block) {
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
@@ -334,9 +339,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
                 continue;
             }
             _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
-            for (auto cid : block->schema()->column_ids()) {
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_cur_rowid));
-            }
+            _seek_columns(block->schema()->column_ids(), _cur_rowid);
             break;
         }
     }
@@ -349,9 +352,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     block->set_selected_size(rows_to_read);
     // update raw_rows_read counter
     // judge nullptr for unit test case
-    if (_opts.stats != nullptr) {
-        _opts.stats->raw_rows_read += block->num_rows();
-    }
+    _opts.stats->raw_rows_read += block->num_rows();
     if (block->num_rows() == 0) {
         return Status::EndOfFile("no more data in segment");
     }

@@ -290,7 +290,6 @@ FileColumnIterator::~FileColumnIterator() {
 }
 
 Status FileColumnIterator::seek_to_first() {
-    SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
 
     _page.reset(new ParsedPage());
@@ -303,7 +302,6 @@ Status FileColumnIterator::seek_to_first() {
 }
 
 Status FileColumnIterator::seek_to_ordinal(rowid_t rid) {
-    SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     // if current page contains this row, we don't need to seek
     if (_page == nullptr || !_page->contains(rid)) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
