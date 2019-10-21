@@ -85,6 +85,10 @@ ColumnReader::~ColumnReader() {
 }
 
 Status ColumnReader::init() {
+    return _init_once.call([this] { return _do_init_once(); });
+}
+
+Status ColumnReader::_do_init_once() {
     _type_info = get_type_info((FieldType)_meta.type());
     if (_type_info == nullptr) {
         return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.type()));

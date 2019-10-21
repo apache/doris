@@ -31,20 +31,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
     : Rowset(schema, std::move(rowset_path), data_dir, std::move(rowset_meta)) {
 }
 
-OLAPStatus AlphaRowset::init() {
-    if (is_inited()) {
-        return OLAP_SUCCESS;
-    }
-    OLAPStatus status = _init_segment_groups();
-    set_inited(true);
-    return status;
-}
-
-OLAPStatus AlphaRowset::load(bool use_cache) {
-    DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
-    if (is_loaded()) {
-        return OLAP_SUCCESS;
-    }
+OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
     for (auto& segment_group: _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -62,17 +49,11 @@ OLAPStatus AlphaRowset::load(bool use_cache) {
             return res;
         }
     }
-    set_loaded(true);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    if (!is_loaded()) {
-        OLAPStatus status = load();
-        if (status != OLAP_SUCCESS) {
-            return OLAP_ERR_ROWSET_CREATE_READER;
-        }
-    }
+    RETURN_NOT_OK(load());
     result->reset(new AlphaRowsetReader(
         _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
@@ -290,7 +271,7 @@ bool AlphaRowset::check_path(const std::string& path) {
     return valid_paths.find(path) != valid_paths.end();
 }
 
-OLAPStatus AlphaRowset::_init_segment_groups() {
+OLAPStatus AlphaRowset::init() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
@@ -369,9 +350,7 @@ std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
 }
 
 OLAPStatus AlphaRowset::reset_sizeinfo() {
-    if (!is_loaded()) {
-        RETURN_NOT_OK(load());
-    }
+    RETURN_NOT_OK(load());
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     alpha_rowset_meta->get_segment_groups(&segment_group_metas);

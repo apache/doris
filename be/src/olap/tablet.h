@@ -264,7 +264,7 @@ private:
     std::string _tablet_path;
     RowsetGraph _rs_graph;
 
-    DorisInitOnce _init_once;
+    DorisCallOnce<OLAPStatus> _init_once;
     RWMutex _meta_lock;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
@@ -286,7 +286,7 @@ private:
 };
 
 inline bool Tablet::init_succeeded() {
-    return _init_once.init_succeeded();
+    return _init_once.has_called() && _init_once.stored_result() == OLAP_SUCCESS;
 }
 
 inline DataDir* Tablet::data_dir() const {

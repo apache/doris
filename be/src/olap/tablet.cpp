@@ -125,7 +125,7 @@ OLAPStatus Tablet::_init_once_action() {
 }
 
 OLAPStatus Tablet::init() {
-    return _init_once.init([this] { return _init_once_action(); });
+    return _init_once.call([this] { return _init_once_action(); });
 }
 
 bool Tablet::is_used() {

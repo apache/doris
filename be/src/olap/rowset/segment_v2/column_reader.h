@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
+#include "util/once.h"
 
 namespace doris {
 
@@ -61,6 +62,7 @@ public:
             uint64_t num_rows, RandomAccessFile* file);
     ~ColumnReader();
 
+    // May be called multiple times, subsequent calls will no op.
     Status init();
 
     // create a new column iterator. Client should delete returned iterator
@@ -88,6 +90,8 @@ public:
     PagePointer get_dict_page_pointer() const;
 
 private:
+    Status _do_init_once();
+
     Status _init_ordinal_index();
 
     Status _init_column_zone_map();
@@ -103,6 +107,7 @@ private:
     uint64_t _num_rows;
     RandomAccessFile* _file = nullptr;
 
+    DorisCallOnce<Status> _init_once;
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
