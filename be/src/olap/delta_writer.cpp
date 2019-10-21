@@ -130,7 +130,7 @@ OLAPStatus DeltaWriter::init() {
     writer_context.tablet_id = _req.tablet_id;
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
-    writer_context.rowset_type = DEFAULT_ROWSET_TYPE;
+    writer_context.rowset_type = _storage_engine->default_rowset_type();
     writer_context.rowset_path_prefix = _tablet->tablet_path();
     writer_context.tablet_schema = &(_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
