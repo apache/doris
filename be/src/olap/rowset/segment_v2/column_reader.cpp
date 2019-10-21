@@ -214,19 +214,17 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, OlapReaderStatis
                     rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
                     rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
                     stats->rows_del_filtered =+ page_last_id - page_first_id + 1;
-                    LOG(INFO) << "delete index:" << i;
                     break;
                 }
             }
             if (should_read) {
                 page_indexes->push_back(i);
             }
-            LOG(INFO) << "get index:" << i;
         } else {
             // page filtered by zone map
             rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
             rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
-            stats->rows_stats_filtered =+ page_last_id - page_first_id + 1;
+            stats->rows_stats_filtered += page_last_id - page_first_id + 1;
         }
     }
 }

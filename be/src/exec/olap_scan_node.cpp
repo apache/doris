@@ -140,7 +140,11 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _scan_timer = ADD_TIMER(_runtime_profile, "ScanTime");
 
+    // total pages read
+    // used by segment v2
     _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
+    // page read from cache
+    // used by segment v2
     _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
 }
 
