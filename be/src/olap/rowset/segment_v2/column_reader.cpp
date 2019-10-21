@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
+#include "common/logging.h"
 #include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
@@ -71,37 +72,34 @@ struct ParsedPage {
     size_t remaining() const { return num_rows - offset_in_page; }
 };
 
+Status ColumnReader::create(const ColumnReaderOptions& opts,
+                            const ColumnMetaPB& meta,
+                            uint64_t num_rows,
+                            RandomAccessFile* file,
+                            std::unique_ptr<ColumnReader>* reader) {
+    std::unique_ptr<ColumnReader> reader_local(
+        new ColumnReader(opts, meta, num_rows, file));
+    RETURN_IF_ERROR(reader_local->init());
+    *reader = std::move(reader_local);
+    return Status::OK();
+}
+
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
                            const ColumnMetaPB& meta,
                            uint64_t num_rows,
                            RandomAccessFile* file)
-        : _opts(opts),
-        _meta(meta),
-        _num_rows(num_rows),
-        _file(file) {
+        : _opts(opts), _meta(meta), _num_rows(num_rows), _file(file) {
 }
 
-ColumnReader::~ColumnReader() {
-}
+ColumnReader::~ColumnReader() = default;
 
 Status ColumnReader::init() {
-    return _init_once.call([this] { return _do_init_once(); });
-}
-
-Status ColumnReader::_do_init_once() {
     _type_info = get_type_info((FieldType)_meta.type());
     if (_type_info == nullptr) {
         return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
-
-    // Get compress codec
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
-
-    RETURN_IF_ERROR(_init_ordinal_index());
-
-    RETURN_IF_ERROR(_init_column_zone_map());
-
     return Status::OK();
 }
 
@@ -175,20 +173,22 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
     return Status::OK();
 }
 
-void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
-        const std::vector<CondColumn*>& delete_conditions, OlapReaderStatistics* stats,
-        RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                                const std::vector<CondColumn*>& delete_conditions,
+                                                OlapReaderStatistics* stats,
+                                                RowRanges* row_ranges) {
+    DCHECK(has_zone_map());
     std::vector<uint32_t> page_indexes;
-    _get_filtered_pages(cond_column, stats, delete_conditions, &page_indexes);
-    _calculate_row_ranges(page_indexes, row_ranges);
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, &page_indexes));
+    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
+    return Status::OK();
 }
 
-PagePointer ColumnReader::get_dict_page_pointer() const {
-    return _meta.dict_page();
-}
-
-void ColumnReader::_get_filtered_pages(CondColumn* cond_column, OlapReaderStatistics* stats,
-        const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes) {
+Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+                                         const std::vector<CondColumn*>& delete_conditions,
+                                         OlapReaderStatistics* stats,
+                                         std::vector<uint32_t>* page_indexes) {
+    RETURN_IF_ERROR(_ensure_zone_map_loaded());
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
@@ -231,19 +231,23 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column, OlapReaderStatis
             stats->rows_stats_filtered += page_last_id - page_first_id + 1;
         }
     }
+    return Status::OK();
 }
 
-void ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+    if (page_indexes.size() > 0) {
+        RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
+    }
     for (auto i : page_indexes) {
         rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
         rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
         RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
         RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
     }
+    return Status::OK();
 }
 
-// initial ordinal index
-Status ColumnReader::_init_ordinal_index() {
+Status ColumnReader::_load_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
     OlapReaderStatistics stats;
@@ -251,12 +255,10 @@ Status ColumnReader::_init_ordinal_index() {
 
     _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
-
     return Status::OK();
 }
 
-// initialize column zone map
-Status ColumnReader::_init_column_zone_map() {
+Status ColumnReader::_load_zone_map() {
     if (_meta.has_zone_map_page()) {
         PagePointer pp = _meta.zone_map_page();
         PageHandle ph;
@@ -272,6 +274,7 @@ Status ColumnReader::_init_column_zone_map() {
 }
 
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
+    RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to first rowid");
@@ -280,6 +283,7 @@ Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
 }
 
 Status ColumnReader::seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter) {
+    RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(rowid);
     if (!iter->valid()) {
         return Status::NotFound(Substitute("Failed to seek to rowid $0, ", rowid));
@@ -290,8 +294,7 @@ Status ColumnReader::seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 }
 
-FileColumnIterator::~FileColumnIterator() {
-}
+FileColumnIterator::~FileColumnIterator() = default;
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
