@@ -206,9 +206,9 @@ public:
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
-    RowsetTypePB default_rowset_type() { return _default_rowset_type; }
+    RowsetTypePB default_rowset_type() const { return _default_rowset_type; }
 
-    RowsetTypePB compaction_rowset_type() { return _compaction_rowset_type; }
+    RowsetTypePB compaction_rowset_type() const { return _compaction_rowset_type; }
 
 private:
 
