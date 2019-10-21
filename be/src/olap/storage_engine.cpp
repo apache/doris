@@ -202,6 +202,8 @@ OLAPStatus StorageEngine::open() {
     _memtable_flush_executor = new MemTableFlushExecutor();
     _memtable_flush_executor->init(dirs);
 
+    _parse_default_rowset_type();
+
     return OLAP_SUCCESS;
 }
 
