@@ -46,7 +46,6 @@
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clear_alter_task.h"
 #include "olap/task/engine_clone_task.h"
-#include "olap/task/engine_schema_change_task.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_storage_migration_task.h"
@@ -564,8 +563,6 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             TFinishTaskRequest finish_task_request;
             TTaskType::type task_type = agent_task_req.task_type;
             switch (task_type) {
-            case TTaskType::SCHEMA_CHANGE:
-            case TTaskType::ROLLUP:
             case TTaskType::ALTER:
                 worker_pool_this->_alter_tablet(worker_pool_this,
                                             agent_task_req,
@@ -598,12 +595,6 @@ void TaskWorkerPool::_alter_tablet(
 
     string process_name;
     switch (task_type) {
-    case TTaskType::ROLLUP:
-        process_name = "roll up";
-        break;
-    case TTaskType::SCHEMA_CHANGE:
-        process_name = "schema change";
-        break;
     case TTaskType::ALTER:
         process_name = "alter";
         break;
@@ -622,18 +613,10 @@ void TaskWorkerPool::_alter_tablet(
     TTabletId new_tablet_id;
     TSchemaHash new_schema_hash = 0;
     if (status == DORIS_SUCCESS) {
-        OLAPStatus sc_status = OLAP_SUCCESS;
-        if (task_type == TTaskType::ALTER) {
-            new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
-            new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-            EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type, &error_msgs, process_name);
-            sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-        } else {
-            new_tablet_id = agent_task_req.alter_tablet_req.new_tablet_req.tablet_id;
-            new_schema_hash = agent_task_req.alter_tablet_req.new_tablet_req.tablet_schema.schema_hash;
-            EngineSchemaChangeTask engine_task(agent_task_req.alter_tablet_req, signature, task_type, &error_msgs, process_name);
-            sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-        }
+        new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
+        new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
+        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2, signature, task_type, &error_msgs, process_name);
+        OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
         if (sc_status != OLAP_SUCCESS) {
             status = DORIS_ERROR;
         } else {
