@@ -38,8 +38,6 @@ public:
 
     static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
-    OLAPStatus load(bool use_cache = true) override;
-
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
     OLAPStatus split_range(const RowCursor& start_key,
@@ -69,6 +67,8 @@ protected:
                RowsetMetaSharedPtr rowset_meta);
 
     OLAPStatus init() override;
+
+    OLAPStatus do_load_once(bool use_cache) override ;
 
 private:
     friend class BetaRowsetReader;

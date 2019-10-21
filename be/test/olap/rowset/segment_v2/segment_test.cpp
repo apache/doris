@@ -92,8 +92,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
     ASSERT_TRUE(st.ok());
     // reader
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         LOG(INFO) << "segment open, msg=" << st.to_string();
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
@@ -277,8 +277,8 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
 
     // reader with condition
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
@@ -541,8 +541,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         new_tablet_schema_1->_cols.push_back(
             create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "NULL"));
 
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, new_tablet_schema_1.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
@@ -596,8 +596,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         new_tablet_schema_1->_cols.push_back(create_int_value(4));
         new_tablet_schema_1->_cols.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "10086"));
 
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, new_tablet_schema_1.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
@@ -691,8 +691,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     ASSERT_TRUE(st.ok());
 
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);

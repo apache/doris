@@ -38,42 +38,28 @@ BetaRowset::BetaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus BetaRowset::init() {
-    if (is_inited()) {
-        return OLAP_SUCCESS;
-    }
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
-        _segments.emplace_back(new segment_v2::Segment(seg_path, seg_id, _schema));
-    }
-    set_inited(true);
-    return OLAP_SUCCESS;
+    return OLAP_SUCCESS; // no op
 }
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
-OLAPStatus BetaRowset::load(bool use_cache) {
-    DCHECK(is_inited()) << "should init() rowset " << unique_id() << " before load()";
-    if (is_loaded()) {
-        return OLAP_SUCCESS;
-    }
-    for (auto& seg : _segments) {
-        auto s = seg->open();
+OLAPStatus BetaRowset::do_load_once(bool use_cache) {
+    // open all segments under the current rowset
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        auto s = segment_v2::Segment::open(seg_path, seg_id, _schema, &segment);
         if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment " << seg->id() << " under rowset " << unique_id()
+            LOG(WARNING) << "failed to open segment " << seg_path << " under rowset " << unique_id()
                          << " : " << s.to_string();
             return OLAP_ERR_ROWSET_LOAD_FAILED;
         }
+        _segments.push_back(std::move(segment));
     }
-    set_loaded(true);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
-    if (!is_loaded()) {
-        OLAPStatus status = load();
-        if (status != OLAP_SUCCESS) {
-            return OLAP_ERR_ROWSET_CREATE_READER;
-        }
-    }
+    RETURN_NOT_OK(load());
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
