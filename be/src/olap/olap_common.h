@@ -229,6 +229,7 @@ struct OlapReaderStatistics {
     int64_t decompress_ns = 0;
     int64_t uncompressed_bytes_read = 0;
 
+    // total read bytes in memory
     int64_t bytes_read = 0;
 
     int64_t block_load_ns = 0;
@@ -246,6 +247,9 @@ struct OlapReaderStatistics {
     int64_t rows_del_filtered = 0;
 
     int64_t index_load_ns = 0;
+
+    int64_t total_pages_num = 0;
+    int64_t cached_pages_num = 0;
 };
 
 typedef uint32_t ColumnId;

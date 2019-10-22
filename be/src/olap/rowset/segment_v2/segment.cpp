@@ -215,7 +215,8 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
                 new DefaultValueColumnIterator(tablet_column.default_value(),
                 tablet_column.is_nullable(), tablet_column.type()));
-        RETURN_IF_ERROR(default_value_iter->init());
+        ColumnIteratorOptions iter_opts;
+        RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();
         return Status::OK();
     }

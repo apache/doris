@@ -71,6 +71,8 @@ private:
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
 
+    Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
+
 private:
     std::shared_ptr<Segment> _segment;
     // TODO(zc): rethink if we need copy it
