@@ -141,7 +141,20 @@ Status ScrollParser::parse(const std::string& scroll_result) {
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
-    _total = field_total.GetInt();
+    // after es 7.x "total": { "value": 1, "relation": "eq" }
+    if (field_total.IsObject()) {
+        const rapidjson::Value &field_relation_value = field_total["relation"];
+        std::string relation = field_relation_value.GetString();
+        // maybe not happend on scoll sort mode, for logically rigorous
+        if ("eq" != relation) {
+            return Status::InternalError("Could not identify exact hit count for search response");
+        }
+        const rapidjson::Value &field_total_value = field_total["value"];
+        _total = field_total_value.GetInt();
+    } else {
+        _total = field_total.GetInt();
+    }
+
     if (_total == 0) {
         return Status::OK();
     }
