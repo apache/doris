@@ -287,8 +287,6 @@ public class Catalog {
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
-    // if set to true, non master FE will ignore the replay error
-    private boolean ignoreMetaCheck = false;
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // false if default_cluster is not created.
@@ -682,8 +680,7 @@ public class Catalog {
     }
     
     public boolean isReady() {
-        return (feType == FrontendNodeType.MASTER || feType == FrontendNodeType.FOLLOWER
-                || feType == FrontendNodeType.OBSERVER) && isReady.get();
+        return isReady.get();
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -1167,16 +1164,12 @@ public class Catalog {
             Preconditions.checkState(newType == FrontendNodeType.UNKNOWN);
             LOG.warn("{} to UNKNOWN, still offer read service", feType.name());
             // not set canRead here, leave canRead as what is was.
-            // set `ignore_meta_check` to true so that replay thread will not check replay result
-            ignoreMetaCheck = true;
+            // if meta out of date, canRead will be set to false in replayer thread.
             metaReplayState.setTransferToUnknown();
             return;
         }
 
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
-        if (!Config.ignore_meta_check) {
-            ignoreMetaCheck = false;
-        }
 
         // add helper sockets
         if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
@@ -2106,7 +2099,7 @@ public class Catalog {
             return;
         }
 
-        if (ignoreMetaCheck) {
+        if (Config.ignore_meta_check) {
             // can still offer read, but is not ready
             canRead.set(true);
             isReady.set(false);
@@ -2167,13 +2160,10 @@ public class Catalog {
                     }
 
                     /*
-                     * INIT -> MASTER: transferToMaster
-                     * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
-                     * UNKNOWN -> MASTER: transferToMaster
-                     * UNKNOWN -> FOLLOWER/OBSERVER: transferToNonMaster
-                     * FOLLOWER -> MASTER: transferToMaster
-                     * FOLLOWER -> INIT/UNKNOWN: do nothing
-                     * OBSERVER -> INIT/UNKNOWN: do nothing
+                     * INIT -> MASTER: transferToMaster INIT -> FOLLOWER/OBSERVER:
+                     * transferToNonMaster UNKNOWN -> MASTER: transferToMaster UNKNOWN ->
+                     * FOLLOWER/OBSERVER: transferToNonMaster FOLLOWER -> MASTER: transferToMaster
+                     * FOLLOWER/OBSERVER -> INIT/UNKNOWN: set isReady to false
                      */
                     switch (feType) {
                         case INIT: {
