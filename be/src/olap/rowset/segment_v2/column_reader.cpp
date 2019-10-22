@@ -110,13 +110,15 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
+Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle) {
+    stats->total_pages_num++;
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
     if (cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
+        stats->cached_pages_num++;
         return Status::OK();
     }
     // Now we read this from file.
@@ -129,7 +131,11 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
     // this buffer will assigned uncompressed page, and origin content will be freed.
     std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
     Slice page_slice(page.get(), page_size);
-    RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+    {
+        SCOPED_RAW_TIMER(&stats->io_ns);
+        RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+        stats->compressed_bytes_read += page_size;
+    }
 
     size_t data_size = page_size - 4;
     if (_opts.verify_checksum) {
@@ -148,7 +154,10 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
         PageDecompressor decompressor(page_slice, _compress_codec);
 
         Slice uncompressed_page;
-        RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
+        {
+            SCOPED_RAW_TIMER(&stats->decompress_ns);
+            RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
+        }
 
         // If decompressor create new heap memory for uncompressed data,
         // assign this uncompressed page to page and page slice
@@ -156,6 +165,7 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
             page.reset((uint8_t*)uncompressed_page.data);
         }
         page_slice = uncompressed_page;
+        stats->uncompressed_bytes_read += page_slice.size;
     }
     // insert this into cache and return the cache handle
     cache->insert(cache_key, page_slice, &cache_handle);
@@ -166,10 +176,10 @@ Status ColumnReader::read_page(const PagePointer& pp, PageHandle* handle) {
 }
 
 void ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
-        const std::vector<CondColumn*>& delete_conditions,
+        const std::vector<CondColumn*>& delete_conditions, OlapReaderStatistics* stats,
         RowRanges* row_ranges) {
     std::vector<uint32_t> page_indexes;
-    _get_filtered_pages(cond_column, delete_conditions, &page_indexes);
+    _get_filtered_pages(cond_column, stats, delete_conditions, &page_indexes);
     _calculate_row_ranges(page_indexes, row_ranges);
 }
 
@@ -177,7 +187,7 @@ PagePointer ColumnReader::get_dict_page_pointer() const {
     return _meta.dict_page();
 }
 
-void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+void ColumnReader::_get_filtered_pages(CondColumn* cond_column, OlapReaderStatistics* stats,
         const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
@@ -200,20 +210,25 @@ void ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                 max_value->set_null();
             }
         }
-        bool should_read = false;
         if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
-            should_read = true;
-        }
-        if (should_read) {
+            bool should_read = true;
             for (auto& col_cond : delete_conditions) {
                 if (col_cond->del_eval({min_value.get(), max_value.get()}) == DEL_SATISFIED) {
                     should_read = false;
+                    rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+                    rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+                    stats->rows_del_filtered =+ page_last_id - page_first_id + 1;
                     break;
                 }
             }
-        }
-        if (should_read) {
-            page_indexes->push_back(i);
+            if (should_read) {
+                page_indexes->push_back(i);
+            }
+        } else {
+            // page filtered by zone map
+            rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+            rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+            stats->rows_stats_filtered += page_last_id - page_first_id + 1;
         }
     }
 }
@@ -231,7 +246,8 @@ void ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_index
 Status ColumnReader::_init_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
-    RETURN_IF_ERROR(read_page(pp, &ph));
+    OlapReaderStatistics stats;
+    RETURN_IF_ERROR(read_page(pp, &stats, &ph));
 
     _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
@@ -244,7 +260,9 @@ Status ColumnReader::_init_column_zone_map() {
     if (_meta.has_zone_map_page()) {
         PagePointer pp = _meta.zone_map_page();
         PageHandle ph;
-        RETURN_IF_ERROR(read_page(pp, &ph));
+        // tmp statistics
+        OlapReaderStatistics stats;
+        RETURN_IF_ERROR(read_page(pp, &stats, &ph));
         _column_zone_map.reset(new ColumnZoneMap(ph.data()));
         RETURN_IF_ERROR(_column_zone_map->load());
     } else {
@@ -382,6 +400,9 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
         remaining -= nrows_in_page;
     }
     *n -= remaining;
+    // TODO(hkp): for string type, the bytes_read should be passed to page decoder
+    // bytes_read = data size + null bitmap size
+    _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(dst->nrows());
     return Status::OK();
 }
 
@@ -402,7 +423,7 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 // it ready to read
 Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page) {
     page->page_pointer = iter.page();
-    RETURN_IF_ERROR(_reader->read_page(page->page_pointer, &page->page_handle));
+    RETURN_IF_ERROR(_reader->read_page(page->page_pointer, _opts.stats, &page->page_handle));
     // TODO(zc): read page from file
     Slice data = page->page_handle.data();
 
@@ -444,7 +465,7 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
         if (binary_dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 PagePointer pp = _reader->get_dict_page_pointer();
-                RETURN_IF_ERROR(_reader->read_page(pp, &_dict_page_handle));
+                RETURN_IF_ERROR(_reader->read_page(pp, _opts.stats, &_dict_page_handle));
 
                 _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
                 RETURN_IF_ERROR(_dict_decoder->init());
@@ -458,7 +479,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     return Status::OK();
 }
 
-Status DefaultValueColumnIterator::init() {
+Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
     // be consistent with segment v1
     if (_default_value == "NULL" && _is_nullable) {
         _is_default_value_null = true;
