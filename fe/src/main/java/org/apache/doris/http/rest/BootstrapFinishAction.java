@@ -54,11 +54,11 @@ public class BootstrapFinishAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        boolean canRead = Catalog.getInstance().canRead();
+        boolean isReady = Catalog.getInstance().isReady();
 
         // to json response
         BootstrapResult result = null;
-        if (canRead) {
+        if (isReady) {
             result = new BootstrapResult();
             String clusterIdStr = request.getSingleParameter(CLUSTER_ID);
             String token = request.getSingleParameter(TOKEN);
@@ -95,7 +95,7 @@ public class BootstrapFinishAction extends RestBaseAction {
                 }
             }
         } else {
-            result = new BootstrapResult("unfinished");
+            result = new BootstrapResult("not ready");
         }
 
         // send result

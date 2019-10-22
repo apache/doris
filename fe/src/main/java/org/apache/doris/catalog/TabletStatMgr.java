@@ -60,8 +60,7 @@ public class TabletStatMgr extends Daemon {
     @Override
     protected void runOneCycle() {
         // We should wait Frontend finished replaying logs, then begin to get tablet status
-        while (!Catalog.getInstance().canRead()) {
-            LOG.info("Frontend's canRead flag is false, waiting...");
+        while (!Catalog.getInstance().isReady()) {
             try {
                 // sleep here, not return. because if we return, we have to wait until next round, which may
                 // take a long time(default is tablet_stat_update_interval_second: 5 min)

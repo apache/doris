@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlServer;
 
 import org.apache.logging.log4j.LogManager;
@@ -50,18 +49,6 @@ public class QeService {
     }
 
     public void start() throws IOException {
-        while (true) {
-            if (!Catalog.getInstance().canRead()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                continue;
-            }
-            break;
-        }
-
         if (!mysqlServer.start()) {
             LOG.error("mysql server start failed");
             System.exit(-1);

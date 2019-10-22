@@ -135,6 +135,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
         }
 
         feInfo.put("can_read", String.valueOf(Catalog.getInstance().canRead()));
+        feInfo.put("is_ready", String.valueOf(Catalog.getInstance().isReady()));
         try {
             Storage storage = new Storage(Config.meta_dir + "/image");
             feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));

@@ -406,5 +406,9 @@ public class Util {
             throw new AnalysisException(hintMsg);
         }
     }
+
+    public static void stdoutWithTime(String msg) {
+        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
+    }
 }
 
