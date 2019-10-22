@@ -63,7 +63,7 @@ struct ColumnIteratorOptions {
 // This will cache data shared by all reader
 class ColumnReader {
 public:
-    // Create a initialized ColumnReader in *reader.
+    // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts,
                          const ColumnMetaPB& meta,
@@ -108,18 +108,16 @@ private:
                  RandomAccessFile* file);
     Status init();
 
-    // Read and load the column zone map index into memory if it hasn't been loaded.
-    // Subsequent calls will no op.
-    Status _ensure_zone_map_loaded() {
-        return _zone_map_once.call([this] { return _load_zone_map(); });
+    // Read and load necessary column indexes into memory if it hasn't been loaded.
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_index_loaded() {
+        return _load_index_once.call([this] {
+            RETURN_IF_ERROR(_load_zone_map_index());
+            RETURN_IF_ERROR(_load_ordinal_index());
+            return Status::OK();
+        });
     }
-    Status _load_zone_map();
-
-    // Read and load the column ordinal index into memory if it hasn't been loaded.
-    // Subsequent calls will no op.
-    Status _ensure_ordinal_index_loaded() {
-        return _ordinal_index_once.call([this] { return _load_ordinal_index(); });
-    }
+    Status _load_zone_map_index();
     Status _load_ordinal_index();
 
     Status _get_filtered_pages(CondColumn* cond_column,
@@ -140,10 +138,8 @@ private:
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
-    DorisCallOnce<Status> _zone_map_once;
+    DorisCallOnce<Status> _load_index_once;
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
-
-    DorisCallOnce<Status> _ordinal_index_once;
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
 };
 

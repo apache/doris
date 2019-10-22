@@ -178,6 +178,8 @@ Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                 OlapReaderStatistics* stats,
                                                 RowRanges* row_ranges) {
     DCHECK(has_zone_map());
+    RETURN_IF_ERROR(_ensure_index_loaded());
+
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
@@ -188,7 +190,6 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                                          const std::vector<CondColumn*>& delete_conditions,
                                          OlapReaderStatistics* stats,
                                          std::vector<uint32_t>* page_indexes) {
-    RETURN_IF_ERROR(_ensure_zone_map_loaded());
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
@@ -235,9 +236,6 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
 }
 
 Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
-    if (page_indexes.size() > 0) {
-        RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
-    }
     for (auto i : page_indexes) {
         rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
         rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
@@ -258,7 +256,7 @@ Status ColumnReader::_load_ordinal_index() {
     return Status::OK();
 }
 
-Status ColumnReader::_load_zone_map() {
+Status ColumnReader::_load_zone_map_index() {
     if (_meta.has_zone_map_page()) {
         PagePointer pp = _meta.zone_map_page();
         PageHandle ph;
@@ -274,7 +272,7 @@ Status ColumnReader::_load_zone_map() {
 }
 
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
+    RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to first rowid");
@@ -283,7 +281,7 @@ Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
 }
 
 Status ColumnReader::seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(_ensure_ordinal_index_loaded());
+    RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(rowid);
     if (!iter->valid()) {
         return Status::NotFound(Substitute("Failed to seek to rowid $0, ", rowid));
