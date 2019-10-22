@@ -131,6 +131,8 @@ public:
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
 
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
+    
+    bool is_io_error() const {return code() == TStatusCode::IO_ERROR; }
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>
