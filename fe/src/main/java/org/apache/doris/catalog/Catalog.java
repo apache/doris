@@ -2138,10 +2138,10 @@ public class Catalog {
 
     public void notifyNewFETypeTransfer(FrontendNodeType newType) {
         try {
-            this.typeTransferQueue.put(newType);
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
             Util.stdoutWithTime(msg);
+            this.typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
         }
@@ -2153,7 +2153,14 @@ public class Catalog {
             protected synchronized void runOneCycle() {
 
                 while (true) {
-                    FrontendNodeType newType = typeTransferQueue.poll();
+                    FrontendNodeType newType = null;
+                    try {
+                        newType = typeTransferQueue.take();
+                    } catch (InterruptedException e) {
+                        LOG.error("got exception when take FE type from queue", e);
+                        return;
+                    }
+                    Preconditions.checkNotNull(newType);
                     LOG.info("begin to transfer FE type from {} to {}", feType, newType);
                     if (feType == newType) {
                         return;
