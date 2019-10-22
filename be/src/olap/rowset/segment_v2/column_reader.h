@@ -52,6 +52,11 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
 };
 
+struct ColumnIteratorOptions {
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr;
+};
+
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
@@ -73,7 +78,7 @@ public:
     Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
-    Status read_page(const PagePointer& pp, PageHandle* handle);
+    Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -84,8 +89,8 @@ public:
     // get row ranges with zone map
     // cond_column is user's query predicate
     // delete_conditions is a vector of delete predicate of different version
-    void get_row_ranges_by_zone_map(CondColumn* cond_column,
-            const std::vector<CondColumn*>& delete_conditions, RowRanges* row_ranges);
+    void get_row_ranges_by_zone_map(CondColumn* cond_column, const std::vector<CondColumn*>& delete_conditions,
+            OlapReaderStatistics* stats, RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const;
 
@@ -96,7 +101,7 @@ private:
 
     Status _init_column_zone_map();
 
-    void _get_filtered_pages(CondColumn* cond_column,
+    void _get_filtered_pages(CondColumn* cond_column, OlapReaderStatistics* stats,
             const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes);
 
     void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
@@ -125,7 +130,10 @@ public:
     ColumnIterator() { }
     virtual ~ColumnIterator() { }
 
-    virtual Status init() { return Status::OK(); }
+    virtual Status init(const ColumnIteratorOptions& opts) {
+        _opts = opts;
+        return Status::OK();
+    }
 
     // Seek to the first entry in the column.
     virtual Status seek_to_first() = 0;
@@ -161,12 +169,9 @@ public:
     // release next_batch related resource
     Status finish_batch();
 #endif
+protected:
+    ColumnIteratorOptions _opts;
 };
-
-#if 0
-class DefaultValueIterator : public ColumnIterator {
-};
-#endif
 
 // This iterator is used to read column data from file
 class FileColumnIterator : public ColumnIterator {
@@ -220,7 +225,7 @@ public:
           _is_default_value_null(false),
           _value_size(0) { }
 
-    Status init() override;
+    Status init(const ColumnIteratorOptions& opts) override;
 
     Status seek_to_first() override {
         _current_rowid = 0;
