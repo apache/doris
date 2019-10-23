@@ -752,7 +752,7 @@ void StorageEngine::_parse_default_rowset_type() {
     if (compaction_rowset_type_config == "BETA") {
         _compaction_rowset_type = BETA_ROWSET;
     } else {
-        _compaction_rowset_type = BETA_ROWSET;
+        _compaction_rowset_type = ALPHA_ROWSET;
     }
 }
 
