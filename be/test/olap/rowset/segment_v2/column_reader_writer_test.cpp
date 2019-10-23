@@ -107,15 +107,12 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
 
         ColumnReaderOptions reader_opts;
-        ColumnReader reader(reader_opts, meta, num_rows, rfile.get());
-
-        st = reader.init();
+        std::unique_ptr<ColumnReader> reader;
+        st = ColumnReader::create(reader_opts, meta, num_rows, rfile.get(), &reader);
         ASSERT_TRUE(st.ok());
 
-        ASSERT_EQ(reader._ordinal_index->num_pages(), reader._column_zone_map->get_column_zone_map().size());
-
         ColumnIterator* iter = nullptr;
-        st = reader.new_iterator(&iter);
+        st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
@@ -137,7 +134,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             int idx = 0;
             while (true) {
                 size_t rows_read = 1024;
-                auto st = iter->next_batch(&rows_read, &col);
+                st = iter->next_batch(&rows_read, &col);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     // LOG(INFO) << "is_null=" << is_null[j] << ", src_is_null[]=" << src_is_null[idx]

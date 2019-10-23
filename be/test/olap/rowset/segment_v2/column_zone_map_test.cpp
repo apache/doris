@@ -29,13 +29,15 @@ public:
     void test_string(Field* field) {
         ColumnZoneMapBuilder builder(field);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
-        for (auto value : values1) {
-            builder.add((const uint8_t*)&value, 1);
+        for (auto& value : values1) {
+            Slice slice(value);
+            builder.add((const uint8_t*)&slice, 1);
         }
         builder.flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
-        for (auto value : values2) {
-            builder.add((const uint8_t*)&value, 1);
+        for (auto& value : values2) {
+            Slice slice(value);
+            builder.add((const uint8_t*)&slice, 1);
         }
         builder.add(nullptr, 1);
         builder.flush();
