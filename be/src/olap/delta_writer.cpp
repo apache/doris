@@ -30,7 +30,7 @@ namespace doris {
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
     *writer = new DeltaWriter(req, mem_tracker, StorageEngine::instance());
-    return (*writer)->init();
+    return OLAP_SUCCESS;
 }
 
 DeltaWriter::DeltaWriter(
@@ -47,12 +47,16 @@ DeltaWriter::DeltaWriter(
 }
 
 DeltaWriter::~DeltaWriter() {
-    if (!_delta_written_success) {
+    if (_is_init && !_delta_written_success) {
         _garbage_collection();
     }
 
     _mem_table.reset();
     SAFE_DELETE(_schema);
+
+    if (!_is_init) {
+        return;
+    }
 
     if (_flush_handler != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
@@ -192,7 +196,8 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 
 OLAPStatus DeltaWriter::close() {
     if (!_is_init) {
-        RETURN_NOT_OK(init());
+        // not init, means this writer wrote nothing
+        return OLAP_SUCCESS;
     }
 
     RETURN_NOT_OK(_flush_memtable_async());
@@ -200,6 +205,9 @@ OLAPStatus DeltaWriter::close() {
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+    if (!_is_init) {
+        return OLAP_SUCCESS;
+    }
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_handler->wait());
 
@@ -259,6 +267,9 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
+    if (!_is_init) {
+        return OLAP_SUCCESS;
+    }
     if (_flush_handler != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
         _flush_handler->cancel();
