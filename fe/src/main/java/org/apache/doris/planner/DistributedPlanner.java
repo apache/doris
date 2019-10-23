@@ -297,10 +297,12 @@ public class DistributedPlanner {
             rhsDataSize = Math.round((double) rhsTree.getCardinality() * rhsTree.getAvgRowSize());
             broadcastCost = rhsDataSize * leftChildFragment.getNumNodes();
         }
-        LOG.info("broadcast: cost=" + Long.toString(broadcastCost));
-        LOG.info("card=" + Long.toString(rhsTree.getCardinality())
-                + " row_size=" + Float.toString(rhsTree.getAvgRowSize())
-                + " #nodes=" + Integer.toString(leftChildFragment.getNumNodes()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
+            LOG.debug("card=" + Long.toString(rhsTree.getCardinality()) + " row_size="
+                    + Float.toString(rhsTree.getAvgRowSize()) + " #nodes="
+                    + Integer.toString(leftChildFragment.getNumNodes()));
+        }
 
         // repartition: both left- and rightChildFragment are partitioned on the
         // join exprs
@@ -313,14 +315,14 @@ public class DistributedPlanner {
                     (double) lhsTree.getCardinality() * lhsTree.getAvgRowSize() + (double) rhsTree
                             .getCardinality() * rhsTree.getAvgRowSize());
         }
-        LOG.info("partition: cost=" + Long.toString(partitionCost));
-        LOG.info(
-                "lhs card=" + Long.toString(lhsTree.getCardinality()) + " row_size=" + Float.toString(
-                        lhsTree.getAvgRowSize()));
-        LOG.info(
-                "rhs card=" + Long.toString(rhsTree.getCardinality()) + " row_size=" + Float.toString(
-                        rhsTree.getAvgRowSize()));
-        LOG.info(rhsTree.getExplainString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partition: cost=" + Long.toString(partitionCost));
+            LOG.debug("lhs card=" + Long.toString(lhsTree.getCardinality()) + " row_size="
+                    + Float.toString(lhsTree.getAvgRowSize()));
+            LOG.debug("rhs card=" + Long.toString(rhsTree.getCardinality()) + " row_size="
+                    + Float.toString(rhsTree.getAvgRowSize()));
+            LOG.debug(rhsTree.getExplainString());
+        }
 
         boolean doBroadcast;
         // we do a broadcast join if
