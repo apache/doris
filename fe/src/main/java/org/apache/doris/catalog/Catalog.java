@@ -1151,7 +1151,6 @@ public class Catalog {
         // load and export job label cleaner thread
         labelCleaner.start();
         // ES state store
-        esStateStore.loadTableFromCatalog();
         esStateStore.start();
         // domain resolver
         domainResolver.start();
@@ -1316,6 +1315,9 @@ public class Catalog {
             checksum = loadDb(dis, checksum);
             // ATTN: this should be done after load Db, and before loadAlterJob
             recreateTabletInvertIndex();
+            // rebuild es state state
+            esStateStore.loadTableFromCatalog();
+
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
             checksum = loadAccessService(dis, checksum);
@@ -1331,6 +1333,8 @@ public class Catalog {
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
+
+
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -2041,6 +2045,7 @@ public class Catalog {
 
     public void createLabelCleaner() {
         labelCleaner = new Daemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
+            @Override
             protected void runOneCycle() {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
@@ -2243,6 +2248,7 @@ public class Catalog {
                                 default:
                                     break;
                             }
+                            break;
                         }
                         case MASTER: {
                             // exit if master changed to any other type

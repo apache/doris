@@ -107,11 +107,15 @@ public class EsStateStore extends Daemon {
         }
     }
     
-    // when fe is start to load image, should call this method to init the state store
+    // should call this method to init the state store after loading image
+    // the rest of tables will be added or removed by replaying edit log
     public void loadTableFromCatalog() {
+        if (Catalog.isCheckpointThread()) {
+            return;
+        }
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for(Long dbId : dbIds) {
-            Database database = Catalog.getInstance().getDb(dbId);
+            Database database = Catalog.getCurrentCatalog().getDb(dbId);
             List<Table> tables = database.getTables();
             for (Table table : tables) {
                 if (table.getType() == TableType.ELASTICSEARCH) {

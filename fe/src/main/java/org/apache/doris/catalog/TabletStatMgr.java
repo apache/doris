@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -44,17 +43,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TabletStatMgr extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
-    private AtomicBoolean isStart = new AtomicBoolean(false);
-
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
-    }
-
-    @Override
-    public synchronized void start() {
-        if (isStart.compareAndSet(false, true)) {
-            super.start();
-        }
     }
 
     @Override
