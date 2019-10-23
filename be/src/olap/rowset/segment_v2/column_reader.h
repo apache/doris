@@ -63,12 +63,15 @@ struct ColumnIteratorOptions {
 // This will cache data shared by all reader
 class ColumnReader {
 public:
-    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-            uint64_t num_rows, RandomAccessFile* file);
-    ~ColumnReader();
+    // Create an initialized ColumnReader in *reader.
+    // This should be a lightweight operation without I/O.
+    static Status create(const ColumnReaderOptions& opts,
+                         const ColumnMetaPB& meta,
+                         uint64_t num_rows,
+                         RandomAccessFile* file,
+                         std::unique_ptr<ColumnReader>* reader);
 
-    // May be called multiple times, subsequent calls will no op.
-    Status init();
+    ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
@@ -81,47 +84,63 @@ public:
     Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
+
     const EncodingInfo* encoding_info() const { return _encoding_info; }
+
     const TypeInfo* type_info() const { return _type_info; }
 
-    bool has_zone_map() { return _meta.has_zone_map_page(); }
+    bool has_zone_map() const { return _meta.has_zone_map_page(); }
 
     // get row ranges with zone map
-    // cond_column is user's query predicate
-    // delete_conditions is a vector of delete predicate of different version
-    void get_row_ranges_by_zone_map(CondColumn* cond_column, const std::vector<CondColumn*>& delete_conditions,
-            OlapReaderStatistics* stats, RowRanges* row_ranges);
+    // - cond_column is user's query predicate
+    // - delete_conditions is a vector of delete predicate of different version
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                      const std::vector<CondColumn*>& delete_conditions,
+                                      OlapReaderStatistics* stats,
+                                      RowRanges* row_ranges);
 
-    PagePointer get_dict_page_pointer() const;
+    PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
 private:
-    Status _do_init_once();
+    ColumnReader(const ColumnReaderOptions& opts,
+                 const ColumnMetaPB& meta,
+                 uint64_t num_rows,
+                 RandomAccessFile* file);
+    Status init();
 
-    Status _init_ordinal_index();
+    // Read and load necessary column indexes into memory if it hasn't been loaded.
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_index_loaded() {
+        return _load_index_once.call([this] {
+            RETURN_IF_ERROR(_load_zone_map_index());
+            RETURN_IF_ERROR(_load_ordinal_index());
+            return Status::OK();
+        });
+    }
+    Status _load_zone_map_index();
+    Status _load_ordinal_index();
 
-    Status _init_column_zone_map();
+    Status _get_filtered_pages(CondColumn* cond_column,
+                               const std::vector<CondColumn*>& delete_conditions,
+                               OlapReaderStatistics* stats,
+                               std::vector<uint32_t>* page_indexes);
 
-    void _get_filtered_pages(CondColumn* cond_column, OlapReaderStatistics* stats,
-            const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes);
-
-    void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
+    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     ColumnReaderOptions _opts;
     ColumnMetaPB _meta;
     uint64_t _num_rows;
-    RandomAccessFile* _file = nullptr;
+    RandomAccessFile* _file;
 
-    DorisCallOnce<Status> _init_once;
+    // initialized in init()
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
-    // get page pointer from index
-    std::unique_ptr<OrdinalPageIndex> _ordinal_index;
-
-    // column zone map info
+    DorisCallOnce<Status> _load_index_once;
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
+    std::unique_ptr<OrdinalPageIndex> _ordinal_index;
 };
 
 // Base iterator to read one column data

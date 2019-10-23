@@ -170,8 +170,12 @@ Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ra
         }
         // get row ranges by zone map of this column
         RowRanges column_zone_map_row_ranges;
-        _segment->_column_readers[cid]->get_row_ranges_by_zone_map(_opts.conditions->get_column(cid),
-                column_delete_conditions[cid], _opts.stats, &column_zone_map_row_ranges);
+        RETURN_IF_ERROR(
+            _segment->_column_readers[cid]->get_row_ranges_by_zone_map(
+                _opts.conditions->get_column(cid),
+                column_delete_conditions[cid],
+                _opts.stats,
+                &column_zone_map_row_ranges));
         // intersection different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
     }

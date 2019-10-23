@@ -83,7 +83,7 @@ private:
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
-    Status _initial_column_readers();
+    Status _create_column_readers();
 
     Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
@@ -122,10 +122,15 @@ private:
     SegmentFooterPB _footer;
     std::unique_ptr<RandomAccessFile> _input_file;
 
+    // Map from column unique id to column ordinal in footer's ColumnMetaPB
+    // If we can't find unique id from it, it means this segment is created
+    // with an old schema.
+    std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
+
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
-    std::vector<ColumnReader*> _column_readers;
+    std::vector<std::unique_ptr<ColumnReader>> _column_readers;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
@@ -133,11 +138,6 @@ private:
     faststring _sk_index_buf;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-
-    // Map from column unique id to column ordinal in footer's ColumnMetaPB
-    // If we can't find unique id from it, it means this segment is created
-    // with an old schema.
-    std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
 };
 
 }
