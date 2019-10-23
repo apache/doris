@@ -135,6 +135,7 @@ private:
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
+    int64_t _compressed_bytes_read = 0;
 
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     // number rows filtered by pushed condition
