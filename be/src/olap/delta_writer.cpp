@@ -267,7 +267,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    if (_is_init) {
+    if (!_is_init) {
         return OLAP_SUCCESS;
     }
     if (_flush_handler != nullptr) {
