@@ -109,9 +109,18 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
         HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
         if (haProtocol != null) {
-            InetSocketAddress master = haProtocol.getLeader();
+
+            InetSocketAddress master = null;
+            try {
+                master = haProtocol.getLeader();
+            } catch (Exception e) {
+                // this may happen when majority of FOLLOWERS are down and no MASTER right now.
+                LOG.warn("failed to get leader: {}", e.getMessage());
+            }
             if (master != null) {
                 feInfo.put("master", master.getHostString());
+            } else {
+                feInfo.put("master", "unknown");
             }
 
             List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(false);
@@ -120,8 +129,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
                 for (InetSocketAddress node : electableNodes) {
                     electableNodeNames.add(node.getHostString());
                 }
-                feInfo.put("electable_nodes",
-                        StringUtils.join(electableNodeNames.toArray(), ","));
+                feInfo.put("electable_nodes", StringUtils.join(electableNodeNames.toArray(), ","));
             }
 
             List<InetSocketAddress> observerNodes = haProtocol.getObserverNodes();

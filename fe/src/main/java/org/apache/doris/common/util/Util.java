@@ -353,7 +353,7 @@ public class Util {
                 sb.append(line);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
+            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
             return null;
         } finally {
             if (stream != null) {
