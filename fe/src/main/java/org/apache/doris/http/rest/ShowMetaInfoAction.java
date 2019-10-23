@@ -125,7 +125,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
             List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(false);
             ArrayList<String> electableNodeNames = new ArrayList<String>();
-            if (electableNodes != null) {
+            if (!electableNodes.isEmpty()) {
                 for (InetSocketAddress node : electableNodes) {
                     electableNodeNames.add(node.getHostString());
                 }
