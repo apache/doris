@@ -51,18 +51,12 @@ Segment::Segment(
         _tablet_schema(tablet_schema) {
 }
 
-Segment::~Segment() {
-    for (auto reader : _column_readers) {
-        delete reader;
-    }
-}
+Segment::~Segment() = default;
 
 Status Segment::_open() {
     RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
-    // parse footer to get meta
     RETURN_IF_ERROR(_parse_footer());
-    // initial all column reader
-    RETURN_IF_ERROR(_initial_column_readers());
+    RETURN_IF_ERROR(_create_column_readers());
     return Status::OK();
 }
 
@@ -161,11 +155,6 @@ Status Segment::_parse_footer() {
     if (!_footer.ParseFromString(footer_buf)) {
         return Status::Corruption(Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
     }
-
-    for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
-        auto& column_pb = _footer.columns(ordinal);
-        _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
-    }
     return Status::OK();
 }
 
@@ -183,12 +172,13 @@ Status Segment::_load_index() {
     });
 }
 
-Status Segment::_initial_column_readers() {
-    // TODO(zc): Lazy init()?
-    // There may be too many columns, majority of them would not be used
-    // in query, so we should not init them here.
-    _column_readers.resize(_tablet_schema->columns().size(), nullptr);
+Status Segment::_create_column_readers() {
+    for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
+        auto& column_pb = _footer.columns(ordinal);
+        _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
+    }
 
+    _column_readers.resize(_tablet_schema->columns().size());
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         auto& column = _tablet_schema->columns()[ordinal];
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
@@ -197,11 +187,10 @@ Status Segment::_initial_column_readers() {
         }
 
         ColumnReaderOptions opts;
-        std::unique_ptr<ColumnReader> reader(
-            new ColumnReader(opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get()));
-        RETURN_IF_ERROR(reader->init());
-
-        _column_readers[ordinal] = reader.release();
+        std::unique_ptr<ColumnReader> reader;
+        RETURN_IF_ERROR(ColumnReader::create(
+            opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get(), &reader));
+        _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();
 }
