@@ -4,65 +4,42 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的commiter，
 
 发布的大致流程如下：
 
-1. 在社区发起 DISCUSS;
-2. 准备分支和打 tag;
-3. 将 tag 打包签名；
-4. 上传签名的软件包到 Apache SVN 的 DEV 目录
-3. 发社区投票邮件
-4. 投票通过后，发 Result 邮件
-5. 发邮件到 general@incubator.apache.org 进行投票
-6. 发 Result 邮件到 general@incubator.apache.org
-7. 上传签名的软件包到 Apache SVN 的 release 目录，并生成相关链接
-8. 准备 release note 并发 Announce 邮件到 general@incubator.apache.org
-9. 在 Doris 官网和 github 发布下载链接
+1. 环境准备
+2. 发布准备
+	1. 社区发起 DISCUSS 并与社区交流具体发布计划
+	2. 创建分支用于发布
+	3. 清理 issue
+	4. 将必要的 Patch 合并到发布的分支
+3. 社区发布投票流程
+	1. 将 tag 打包，签名并上传到[Apache Dev svn 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
+	2. 在 [Doris 社区](dev@doris.apache.org)发起投票
+	3. 投票通过后，在Doris社区发 Result 邮件
+	4. 在 [Incubator 社区](general@incubator.apache.org) 发起新一轮投票
+	5. 发 Result 邮件到 general@incubator.apache.org
+4. 完成工作
+	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
+	2. 准备 release note 并发 Announce 邮件到 general@incubator.apache.org
+	3. 在 Doris 官网和 github 发布下载链接
+
+## 准备环境
+
+如果这是你第一次发布，那么你需要在你的环境中准备如下工具
+
+1. release signing https://www.apache.org/dev/release-signing.html
+2. gpg https://www.apache.org/dev/openpgp.html
+3. svn https://www.apache.org/dev/openpgp.html
+
+### 准备gpg key
 
 Release manager 在发布前需要先生成自己的签名公钥，并上传到公钥服务器，之后就可以用这个公钥对准备发布的软件包进行签名。
+如果在[KEY](https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS)里已经存在了你的KEY，那么你可以跳过这个步骤了。
 
-## 1. 准备发布
+#### 签名软件 GnuPG 的安装配置
+##### GnuPG
 
-###  1.1 在社区发起 DISCUSS
+1991年，程序员 Phil Zimmermann 为了避开政府监视，开发了加密软件PGP。这个软件非常好用，迅速流传开来，成了许多程序员的必备工具。但是，它是商业软件，不能自由使用。所以，自由软件基金会决定，开发一个PGP的替代品，取名为GnuPG。这就是GPG的由来。
 
-如果觉得已经修复了很多bug，开发了比较重要的 feature，任何 IPMC 成员都可以发起 DISCUSS 讨论发布新版本。
-可以发起一个标题为 [DISCUSS] x.y.z release 的邮件，在社区内部进行讨论，说明已经修复了哪些bug，开发了哪些 features。
-如果 DISCUSS 邮件得到大家支持就可以进行下一步。
-
-###  1.2 准备分支
-
-发布前需要先新建一个分支，这个分支要进行比较充分的测试，使得功能可用，bug收敛，重要bug都得到修复。
-
-例如：
-
-```
-$ git checkout -b branch-0.9
-
-```
-
-###  1.3 打 tag
-
-当上述分支已经比较稳定后，就可以在此分支上打 tag。
-记得在创建 tag 时，修改 `gensrc/script/gen_build_version.sh` 中的 `build_version` 变量。如 `build_version="0.10.0-release"`
-
-例如：
-
-```
-$ git checkout branch-0.9
-$ git tag -a 0.9.0-rc01 -m "0.9.0 release candidate 01"
-$ git push origin 0.9.0-rc01
-Counting objects: 1, done.
-Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
-Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris.git
- * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
-
-$ git tag
-```
-
-## 2. 签名软件 GnuPG 的安装配置
-###  2.1 GnuPG
-
-1991年，程序员Phil Zimmermann为了避开政府监视，开发了加密软件PGP。这个软件非常好用，迅速流传开来，成了许多程序员的必备工具。但是，它是商业软件，不能自由使用。所以，自由软件基金会决定，开发一个PGP的替代品，取名为GnuPG。这就是GPG的由来。
-
-###  2.2 安装配置
+##### 安装配置
 
 CentOS 安装命令：
 
@@ -90,10 +67,9 @@ personal-digest-preferences SHA512
 cert-digest-algo SHA512
 default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
 ```
+#### 生成新的签名
 
-## 3. 生成新的签名
-
-### 3.1 准备签名
+##### 准备签名
 
 推荐的生成新签名的设置：
 
@@ -119,7 +95,7 @@ Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
 Compression: Uncompressed, ZIP, ZLIB, BZIP2
 ```
 
-### 3.2 生成新的签名
+##### 生成新的签名
 
 ```
 $ gpg --gen-key
@@ -162,7 +138,7 @@ Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 其中 Real name 需保持和 id.apache.org 中显示的 id 一致。
 Email address 为 apache 的邮箱。
 
-### 3.3 查看和输出
+##### 查看和输出
 
 第一行显示公钥文件名（pubring.gpg），第二行显示公钥特征（4096位，Hash字符串和生成时间），第三行显示"用户ID"，第四行显示私钥特征。
 
@@ -177,7 +153,9 @@ sub   4096R/0E8182E6 2018-12-06
 
 其中 xxx-yyy 就是用户ID。
 
+```
 gpg --armor --output public-key.txt --export [用户ID]
+```
 
 ```
 $ gpg --armor --output public-key.txt --export xxx-yyy
@@ -189,26 +167,24 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 9opMWNplvmK+3+gNlRlFpiZ7EvHsF/YJOAP59HmI2Z...
 ```
 
-## 4. 上传签名公钥
+#### 上传签名公钥
+
 公钥服务器是网络上专门储存用户公钥的服务器。send-keys 参数可以将公钥上传到服务器。
 
+```
 gpg --send-keys xxxx
 
-其中 xxxx 为上一步 --list-keys 结果中 pub 后面的字符串，如上为：33DBF2E0
-
-也可以通过下面的网址上传上述 public-key.txt 的内容：
-
 ```
-http://keys.gnupg.net
-```
+其中 xxxx 为上一步 `--list-keys` 结果中 pub 后面的字符串，如上为：33DBF2E0
 
-上传成功之后，可以通过查询这个网站，输入 0x33DBF2E0 查询：
+也可以通过[网站](https://keys.gnupg.net)上传上述 public-key.txt 的内容：
 
-http://keys.gnupg.net
+上传成功之后，可以通过查询这个[网站](https://keys.gnupg.net)，输入 0x33DBF2E0 查询：
 
 该网站查询有延迟，可能需要等1个小时。
 
-## 5. 生成 fingerprint 并上传到 apache 用户信息中
+#### 生成 fingerprint 并上传到 apache 用户信息中
+
 由于公钥服务器没有检查机制，任何人都可以用你的名义上传公钥，所以没有办法保证服务器上的公钥的可靠性。通常，你可以在网站上公布一个公钥指纹，让其他人核对下载到的公钥是否为真。
 
 fingerprint参数生成公钥指纹：
@@ -228,41 +204,70 @@ sub   4096R/0E8182E6 2018-12-06
 将上面的 fingerprint （即 07AA E690 B01D 1A4B 469B  0BEF 5E29 CE39 33DB F2E0）粘贴到自己的用户信息中：
 
 https://id.apache.org
+
 OpenPGP Public Key Primary Fingerprint:
 
-## 6. 生成 keys
-
-新建一个名为 KEYS 的文件，写入如下内容（无需做任何修改）：
+#### 生成 keys
 
 ```
-This file contains the PGP keys of various developers.
-
-Users: pgp < KEYS
-or
-       gpg --import KEYS
-
-Developers:
-    pgp -kxa <your name> and append it to this file.
-or
-    (pgpk -ll <your name> && pgpk -xa <your name>) >> this file.
-or
-    (gpg --list-sigs <your name>
-    && gpg --armor --export <your name>) >> this file.
+svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+# edit doris/KEY file
+gpg --list-sigs [用户 ID] >> doris/KEYS
+gpg --armor --export [用户 ID] >> doris/KEYS
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 
-然后生成将 签名信息追加写入：
+## 准备发布
+
+### 在社区发起 DISCUSS
+
+如果觉得已经修复了很多bug，开发了比较重要的 feature，任何 IPMC 成员都可以发起 DISCUSS 讨论发布新版本。
+可以发起一个标题为 [DISCUSS] x.y.z release 的邮件，在社区内部进行讨论，说明已经修复了哪些bug，开发了哪些 features。
+如果 DISCUSS 邮件得到大家支持就可以进行下一步。
+
+### 准备分支
+
+发布前需要先新建一个分支。例如：
 
 ```
-gpg --list-sigs [用户 ID] >> KEYS
-```
-
-最后，将 public key 追加导入：
+$ git checkout -b branch-0.9
 
 ```
-gpg --armor --export [用户 ID] >> KEYS
+
+这个分支要进行比较充分的测试，使得功能可用，bug收敛，重要bug都得到修复。
+这个过程需要等待社区，看看是否有必要的patch需要在这个版本合入，如果有，需要把它 cherry-pick 到发布分支。
+
+### 清理issue
+
+将属于这个版本的所有 issue 都过一遍，关闭已经完成的，如果没法完成的，推迟到更晚的版本。
+
+### 合并必要的Patch
+
+在发布等待过程中，可能会有比较重要的Patch合入，如果社区有人说要有重要的Bug需要合入，那么 Release Manager 需要评估并将重要的Patch合入到发布分支中。
+
+## 社区发布投票流程
+
+### 打 tag
+
+当上述分支已经比较稳定后，就可以在此分支上打 tag。
+记得在创建 tag 时，修改 `gensrc/script/gen_build_version.sh` 中的 `build_version` 变量。如 `build_version="0.10.0-release"`
+
+例如：
+
+```
+$ git checkout branch-0.9
+$ git tag -a 0.9.0-rc01 -m "0.9.0 release candidate 01"
+$ git push origin 0.9.0-rc01
+Counting objects: 1, done.
+Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
+Total 1 (delta 0), reused 0 (delta 0)
+To git@github.com:apache/incubator-doris.git
+ * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
+
+$ git tag
 ```
 
-## 7. 打包签名
+### 打包、签名上传
 
 如下步骤，也需要通过 SecureCRT 等终端直接登录用户账户，不能通过 su - user 或者 ssh 转，否则密码输入 box 会显示不出来而报错。
 
@@ -280,9 +285,7 @@ $ sha512sum apache-doris-0.9.0-incubating-src.tar.gz > apache-doris-0.9.0-incuba
 $ sha512sum --check apache-doris-0.9.0-incubating-src.tar.gz.sha512
 ```
 
-## 8. 上传签名的软件包和 KEYS 文件到 DEV svn
-
-首先，下载 svn 库：
+然后将打包的内容上传到svn仓库中，首先下载 svn 库：
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
@@ -292,22 +295,21 @@ svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 
 ```
 ./doris/
-├── 0.9
-│   └── 0.9.0-rc1
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz.asc
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz.sha512
-│       └── KEYS
+|-- 0.11.0-rc1
+|   |-- apache-doris-0.11.0-incubating-src.tar.gz
+|   |-- apache-doris-0.11.0-incubating-src.tar.gz.asc
+|   `-- apache-doris-0.11.0-incubating-src.tar.gz.sha512
+`-- KEYS
 ```
 
 上传这些文件
 
 ```
-svn add 0.9.0-rc1
-svn commit -m "Release Apache Doris (incubating) 0.9.0 rc1"
+svn add 0.11.0-rc1
+svn commit -m "Add 0.11.0-rc1"
 ```
 
-## 9. 发社区投票邮件
+### 发社区投票邮件
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -320,12 +322,8 @@ The release candidate has been tagged in GitHub as 0.9.0-rc01, available
 here:
 https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
-===== CHANGE LOG =====
-
-New Features:
-....
-
-======================
+Release Notes are here:
+https://github.com/apache/incubator-doris/issues/1891
 
 Thanks to everyone who has contributed to this release.
 
@@ -351,9 +349,19 @@ The vote will be open for at least 72 hours.
 
 Best Regards,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
-## 10. 投票通过后，发 Result 邮件
+### 投票通过后，发 Result 邮件
 
 [Result][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -373,7 +381,7 @@ xxx
 
 ```
 
-## 11. 发邮件到 general@incubator.apache.org 进行投票
+### 发邮件到 general@incubator.apache.org 进行投票
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -436,6 +444,16 @@ $ sh build.sh
 
 Best Regards,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
 邮件的 thread 连接可以在这里找到：
@@ -443,7 +461,7 @@ xxx
 `https://lists.apache.org/list.html?dev@doris.apache.org`
 
 
-## 12. 发 Result 邮件到 general@incubator.apache.org
+### 发 Result 邮件到 general@incubator.apache.org
 
 [RESULT][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -468,7 +486,9 @@ Best Regards,
 xxx
 ```
 
-## 13. 上传 package 到 release
+## 完成发布流程
+
+### 上传 package 到 release
 
 当正式发布投票成功后，先发[Result]邮件，然后就准备 release package。
 将之前在dev下发布的对应rc文件夹下的源码包、签名文件和hash文件拷贝到另一个目录 0.9.0-incubating，注意文件名字中不要rcxx (可以rename，但不要重新计算签名，hash可以重新计算，结果不会变)
@@ -484,8 +504,7 @@ http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 
 ```
 
-
-## 14. 发 Announce 邮件到 general@incubator.apache.org
+### 发 Announce 邮件到 general@incubator.apache.org
 
 Title:
 
@@ -519,11 +538,21 @@ Best Regards,
 
 On behalf of the Doris team,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
-## 15. 在 Doris 官网和 github 发布链接
+### 在 Doris 官网和 github 发布链接
 
-### 15.1 创建下载链接
+#### 创建下载链接
 
 下载链接：
 http://www.apache.org/dyn/closer.cgi?filename=incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz&action=download
@@ -549,7 +578,7 @@ http://archive.apache.org/dist/incubator/doris/KEYS
 
 refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
-### 15.2 准备 release note
+#### 准备 release note
 
 需要修改如下两个地方：
 
