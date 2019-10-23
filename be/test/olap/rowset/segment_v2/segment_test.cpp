@@ -32,6 +32,8 @@
 #include "olap/types.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -90,16 +92,19 @@ TEST_F(SegmentReaderWriterTest, normal) {
     ASSERT_TRUE(st.ok());
     // reader
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         LOG(INFO) << "segment open, msg=" << st.to_string();
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            read_opts.stats = &stats;
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -152,8 +157,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -176,8 +183,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -204,8 +213,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -271,11 +282,37 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
 
     // reader with condition
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(64 * 1024, segment->num_rows());
         Schema schema(*tablet_schema);
+        OlapReaderStatistics stats;
+        // test empty segment iterator
+        {
+            // the first two page will be read by this condition
+            TCondition condition;
+            condition.__set_column_name("3");
+            condition.__set_condition_op("<");
+            std::vector<std::string> vals = {"2"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+
+            StorageReadOptions read_opts;
+            read_opts.stats = &stats;
+            read_opts.conditions = conditions.get();
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1);
+
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
         // scan all rows
         {
             TCondition condition;
@@ -288,9 +325,11 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -345,10 +384,12 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             delete_conditions->append_condition(delete_condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
             read_opts.delete_conditions.push_back(delete_conditions.get());
 
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -509,15 +550,18 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         new_tablet_schema_1->_cols.push_back(
             create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "NULL"));
 
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, new_tablet_schema_1.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            read_opts.stats = &stats;
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -563,15 +607,18 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         new_tablet_schema_1->_cols.push_back(create_int_value(4));
         new_tablet_schema_1->_cols.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "10086"));
 
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, new_tablet_schema_1.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, new_tablet_schema_1.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*new_tablet_schema_1);
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            read_opts.stats = &stats;
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -606,32 +653,10 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     }
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena* _arena, size_t _length = 0) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
-        char* src_value = &std::to_string(src)[0];
-        int src_len = strlen(src_value);
-
-        auto* dest_slice = (Slice*)target;
-        dest_slice->size = _length;
-        dest_slice->data = _arena->Allocate(dest_slice->size);
-        memcpy(dest_slice->data, src_value, src_len);
-        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
-        char* src_value = &std::to_string(src)[0];
-        int src_len = strlen(src_value);
-
-        auto* dest_slice = (Slice*)target;
-        dest_slice->size = src_len;
-        dest_slice->data = _arena->Allocate(src_len);
-        std::memcpy(dest_slice->data, src_value, src_len);
-    } else {
-        *(int*)target = src;
-    }
-}
-
 TEST_F(SegmentReaderWriterTest, TestStringDict) {
     size_t num_rows_per_block = 10;
-    Arena _arena;
+    MemTracker tracker;
+    MemPool pool(&tracker);
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
     tablet_schema->_num_columns = 4;
@@ -668,7 +693,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
-            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[j]._length);
+            set_column_value_by_type(tablet_schema->_cols[j]._type, i * 10 + j, (char*)cell.mutable_cell_ptr(), &pool, tablet_schema->_cols[j]._length);
         }
         Status status = writer.append_row(row);
         ASSERT_TRUE(status.ok());
@@ -679,16 +704,18 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     ASSERT_TRUE(st.ok());
 
     {
-        std::shared_ptr<Segment> segment(new Segment(fname, 0, tablet_schema.get()));
-        st = segment->open();
+        std::shared_ptr<Segment> segment;
+        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
-
+        OlapReaderStatistics stats;
         // scan all rows
         {
             StorageReadOptions read_opts;
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            read_opts.stats = &stats;
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 
@@ -712,7 +739,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
 
                         Slice expect;
-                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &pool, tablet_schema->_cols[j]._length);
                         ASSERT_EQ(expect.to_string(), actual->to_string());
                     }
                 }
@@ -728,12 +755,14 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, 40970, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, 40970, (char*)cell.mutable_cell_ptr(), &pool, tablet_schema->_cols[0]._length);
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -749,7 +778,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = lower_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -2, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -2, (char*)cell.mutable_cell_ptr(), &pool, tablet_schema->_cols[0]._length);
             }
 
             std::unique_ptr<RowCursor> upper_bound(new RowCursor());
@@ -757,12 +786,14 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             {
                 auto cell = upper_bound->cell(0);
                 cell.set_not_null();
-                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -1, (char*)cell.mutable_cell_ptr(), &_arena, tablet_schema->_cols[0]._length);
+                set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, -1, (char*)cell.mutable_cell_ptr(), &pool, tablet_schema->_cols[0]._length);
             }
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -782,9 +813,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
             int left = 4 * 1024;
@@ -807,7 +840,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
                         Slice expect;
-                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &_arena, tablet_schema->_cols[j]._length);
+                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid, reinterpret_cast<char*>(&expect), &pool, tablet_schema->_cols[j]._length);
                         ASSERT_EQ(expect.to_string(), actual->to_string()) << "rid:" << rid << ", i:" << i;;
                     }
                 }
@@ -831,9 +864,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             conditions->append_condition(condition);
 
             StorageReadOptions read_opts;
+            read_opts.stats = &stats;
             read_opts.conditions = conditions.get();
 
-            std::unique_ptr<SegmentIterator> iter = segment->new_iterator(schema, read_opts);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
 

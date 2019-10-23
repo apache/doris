@@ -30,6 +30,7 @@ namespace doris {
 
 class FlushHandler;
 class MemTable;
+class MemTracker;
 class Schema;
 class SegmentGroup;
 class StorageEngine;
@@ -55,9 +56,9 @@ struct WriteRequest {
 
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
 
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
+    DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine);
 
     OLAPStatus init();
 
@@ -71,7 +72,14 @@ public:
 
     OLAPStatus cancel();
 
-    int64_t partition_id() const { return _req.partition_id; }
+    // submit current memtable to flush queue, and wait all memtables in flush queue
+    // to be flushed.
+    // This is currently for reducing mem consumption of this delta writer.
+    OLAPStatus flush_memtable_and_wait();
+
+    int64_t partition_id() const;
+
+    int64_t mem_consumption() const;
 
 private:
     // push a full memtable to flush executor
@@ -94,6 +102,7 @@ private:
 
     StorageEngine* _storage_engine;
     std::shared_ptr<FlushHandler> _flush_handler;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 }  // namespace doris

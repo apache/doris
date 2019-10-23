@@ -25,10 +25,13 @@
 #include "olap/column_block.h"
 #include "olap/schema.h"
 #include "olap/types.h"
+#include "olap/selection_vector.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
-class Arena;
+class MemPool;
 class RowCursor;
 
 // This struct contains a block of rows, in which each column's data is stored
@@ -46,14 +49,18 @@ public:
     // return the maximum number of rows that can be contained in this block.
     // invariant: 0 <= num_rows() <= capacity()
     size_t capacity() const { return _capacity; }
-    Arena* arena() const { return _arena.get(); }
+    MemPool* pool() const { return _pool.get(); }
 
     // reset the state of the block so that it can be reused for write.
     // all previously returned ColumnBlocks are invalidated after clear(), accessing them
     // will result in undefined behavior.
     void clear() {
         _num_rows = 0;
-        _arena.reset(new Arena);
+        _pool->clear();
+        _selected_size = _capacity;
+        for (int i = 0; i < _selected_size; ++i) {
+            _selection_vector[i] = i;
+        }
     }
 
     // Copy the row_idx row's data into given row_cursor.
@@ -61,33 +68,56 @@ public:
     // notice the life time of returned value
     Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
 
+    // Copy the row_idx row's data into given row_cursor.
+    // This function will use deep copy.
+    // This function is used to convert RowBlockV2 to RowBlock
+    Status deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool);
+
     // Get the column block for one of the columns in this row block.
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
         const TypeInfo* type_info = _schema.column(cid)->type_info();
         uint8_t* data = _column_datas[cid];
         uint8_t* null_bitmap = _column_null_bitmaps[cid];
-        return ColumnBlock(type_info, data, null_bitmap, _arena.get());
+        return ColumnBlock(type_info, data, null_bitmap, _capacity, _pool.get());
     }
 
     RowBlockRow row(size_t row_idx) const;
 
     const Schema* schema() const { return &_schema; }
 
+    uint16_t* selection_vector() const {
+        return _selection_vector;
+    }
+
+    uint16_t selected_size() const {
+        return _selected_size;
+    }
+
+    void set_selected_size(uint16_t selected_size) {
+        _selected_size = selected_size;
+    }
+
 private:
     Schema _schema;
     size_t _capacity;
     // keeps fixed-size (field_size x capacity) data vector for each column,
     // _column_datas[cid] == null if cid is not in `_schema`.
-    // memory are not allocated from `_arena` because we don't wan't to reallocate them in clear()
+    // memory are not allocated from `_pool` because we don't wan't to reallocate them in clear()
     std::vector<uint8_t*> _column_datas;
     // keeps null bitmap for each column,
     // _column_null_bitmaps[cid] == null if cid is not in `_schema` or the column is not null.
-    // memory are not allocated from `_arena` because we don't wan't to reallocate them in clear()
+    // memory are not allocated from `_pool` because we don't wan't to reallocate them in clear()
     std::vector<uint8_t*> _column_null_bitmaps;
     size_t _num_rows;
     // manages the memory for slice's data
-    std::unique_ptr<Arena> _arena;
+    MemTracker _tracker;
+    std::unique_ptr<MemPool> _pool;
+
+    // index of selected rows for rows passed the predicate
+    uint16_t* _selection_vector;
+    // selected rows number
+    uint16_t _selected_size;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

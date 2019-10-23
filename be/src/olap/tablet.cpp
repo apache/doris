@@ -125,7 +125,7 @@ OLAPStatus Tablet::_init_once_action() {
 }
 
 OLAPStatus Tablet::init() {
-    return _init_once.init([this] { return _init_once_action(); });
+    return _init_once.call([this] { return _init_once_action(); });
 }
 
 bool Tablet::is_used() {
@@ -138,6 +138,16 @@ TabletUid Tablet::tablet_uid() {
 
 string Tablet::tablet_path() const {
     return _tablet_path;
+}
+
+OLAPStatus Tablet::set_tablet_state(TabletState state) {
+    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
+        LOG(WARNING) << "could not change tablet state from shutdown to " << state;
+        return OLAP_ERR_META_INVALID_ARGUMENT;
+    }
+    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
+    _state = state;
+    return OLAP_SUCCESS;
 }
 
 // should save tablet meta to remote meta store
@@ -163,7 +173,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(TabletMetaManager::get_meta(_data_dir, tablet_id(), schema_hash(), new_tablet_meta));
+        RETURN_NOT_OK(generate_tablet_meta_copy(new_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -240,13 +250,50 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
     return _data_dir->deregister_tablet(this);
 }
 
-OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
+OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     WriteLock wrlock(&_meta_lock);
+    // if the rowset already exist, should not return version already exist
+    // should return OLAP_SUCCESS
+    if (contains_rowset(rowset->rowset_id())) {
+        return OLAP_SUCCESS;
+    }
     RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
-    RETURN_NOT_OK(save_meta());
+
+    vector<RowsetSharedPtr> rowsets_to_delete;
+    // yiguolei: temp code, should remove the rowset contains by this rowset
+    // but it should be removed in multi path version
+    for (auto& it : _rs_version_map) {
+        if ((it.first.first >= rowset->start_version() && it.first.second < rowset->end_version())
+            || (it.first.first > rowset->start_version() && it.first.second <= rowset->end_version())) {
+            if (it.second == nullptr) {
+                LOG(FATAL) << "there exist a version "
+                           << " start_version=" << it.first.first
+                           << " end_version=" << it.first.second
+                           << " contains the input rs with version "
+                           << " start_version=" << rowset->start_version()
+                           << " end_version=" << rowset->end_version()
+                           << " but the related rs is null";
+                return OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
+            } else {
+                rowsets_to_delete.push_back(it.second);
+            }
+        }
+    }
+    modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
+
+    if (need_persist) {
+        RowsetMetaPB rowset_meta_pb;
+        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
+        OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), 
+            rowset->rowset_id(), rowset_meta_pb);
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
+        }
+    }
+    ++_newly_created_rowset_num;
     return OLAP_SUCCESS;
 }
 
@@ -269,7 +316,8 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     }
 
     for (auto& rs : to_add) {
-        _rs_version_map[rs->version()] = rs;;
+        _rs_version_map[rs->version()] = rs;
+        ++_newly_created_rowset_num;
     }
 
     _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
@@ -284,6 +332,20 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
     if (iter == _rs_version_map.end()) {
         LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
                 << ", tablet: " << full_name();
+        return nullptr;
+    }
+    RowsetSharedPtr rowset = iter->second;
+    return rowset;
+}
+
+// This function only be called by SnapshotManager to perform incremental clone.
+// Interal data structure will be protected in SnapSshotManager.
+// There is no necessity to add lock in this place.
+const RowsetSharedPtr Tablet::get_inc_rowset_by_version(const Version& version) const {
+    auto iter = _inc_rs_version_map.find(version);
+    if (iter == _inc_rs_version_map.end()) {
+        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+                  << ", tablet: " << full_name();
         return nullptr;
     }
     RowsetSharedPtr rowset = iter->second;
@@ -336,8 +398,12 @@ RowsetSharedPtr Tablet::rowset_with_largest_size() {
     return largest_rowset;
 }
 
+// add inc rowset should not persist tablet meta, because the 
 OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
+    if (contains_rowset(rowset->rowset_id())) {
+        return OLAP_SUCCESS;
+    }
     // check if the rowset id is valid
     RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
@@ -345,7 +411,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _inc_rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
-    RETURN_NOT_OK(_tablet_meta->save_meta(_data_dir));
+    ++_newly_created_rowset_num;
     return OLAP_SUCCESS;
 }
 
@@ -707,6 +773,10 @@ void Tablet::calc_missed_versions_unlock(int64_t spec_version,
 
 OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
     ReadLock rdlock(&_meta_lock);
+    return _max_continuous_version_from_begining(version, v_hash);
+}
+
+OLAPStatus Tablet::_max_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
     vector<pair<Version, VersionHash>> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version() , rs->version_hash());
@@ -972,6 +1042,120 @@ void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedP
             candidate_rowsets->push_back(it.second);
         }
     }
+}
+
+OLAPStatus Tablet::do_tablet_meta_checkpoint() {
+    WriteLock store_lock(&_meta_store_lock);
+    if (_newly_created_rowset_num == 0) {
+        return OLAP_SUCCESS;
+    }
+    if (UnixMillis() - _last_checkpoint_time < config::tablet_meta_checkpoint_min_interval_secs * 1000
+        && _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
+        return OLAP_SUCCESS;
+    }
+    // hold read lock not write lock, because it will not modify meta structure
+    ReadLock rdlock(&_meta_lock);
+    if (tablet_state() != TABLET_RUNNING) {
+        LOG(INFO) << "tablet is under state=" << tablet_state()
+                  << ", not running, skip do checkpoint"
+                  << ", tablet=" << full_name();
+        return OLAP_SUCCESS;
+    }
+    LOG(INFO) << "start to do tablet meta checkpoint, tablet=" << full_name();
+    RETURN_NOT_OK(save_meta());
+    // if save meta successfully, then should remove the rowset meta existing in tablet
+    // meta from rowset meta store
+    for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
+        if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id())) {
+            RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
+            LOG(INFO) << "remove rowset id from meta store because it is already persistent with tablet meta"
+                       << ", rowset_id=" << rs_meta->rowset_id();
+        }
+    }
+    _newly_created_rowset_num = 0;
+    _last_checkpoint_time = UnixMillis();
+    return OLAP_SUCCESS;
+}
+
+bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
+    ReadLock rdlock(&_meta_lock);
+    bool find_rowset_id = false;
+    bool find_version = false;
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+            find_rowset_id = true;
+        }
+        if (version_rowset.second->contains_version(rowset_meta->version())) {
+            find_version = true;
+        }
+    }
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        if (inc_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+            find_rowset_id = true;
+        }
+        if (inc_version_rowset.second->contains_version(rowset_meta->version())) {
+            find_version = true;
+        }
+    }
+    if (find_rowset_id || !find_version) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool Tablet::contains_rowset(const RowsetId rowset_id) {
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+    ReadLock rdlock(&_meta_lock);
+    tablet_info->tablet_id = _tablet_meta->tablet_id();
+    tablet_info->schema_hash = _tablet_meta->schema_hash();
+    tablet_info->row_count = _tablet_meta->num_rows();
+    tablet_info->data_size = _tablet_meta->tablet_footprint();
+    Version version = { -1, 0 };
+    VersionHash v_hash = 0;
+    _max_continuous_version_from_begining(&version, &v_hash);
+    auto max_rowset = rowset_with_max_version();
+    if (max_rowset != nullptr) {
+        if (max_rowset->version() != version) {
+            tablet_info->__set_version_miss(true);
+        }
+    } else {
+        // if the tablet is in running state, it is not under schema change
+        // and could not get rowset, it is bad should clone it
+        if (tablet_state() == TABLET_RUNNING) {
+            tablet_info->__set_used(false);
+        }
+    }
+    tablet_info->version = version.second;
+    tablet_info->version_hash = v_hash;
+    tablet_info->__set_partition_id(_tablet_meta->partition_id());
+    tablet_info->__set_storage_medium(_data_dir->storage_medium());
+    tablet_info->__set_version_count(_tablet_meta->version_count());
+    tablet_info->__set_path_hash(_data_dir->path_hash());
+    return;
+}
+
+// should use this method to get a copy of current tablet meta
+// there are some rowset meta in local meta store and in in-memory tablet meta
+// but not in tablet meta in local meta store
+OLAPStatus Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
+    TabletMetaPB tablet_meta_pb;
+    RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
+    RETURN_NOT_OK(new_tablet_meta->init_from_pb(tablet_meta_pb));
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

@@ -171,7 +171,7 @@ ADD COLUMN k5 INT default "1" to rollup2;
 
     如修改列 `k1 INT SUM NULL DEFAULT "1"` 类型为 BIGINT，则需执行命令如下：
     
-    ```ALTER TABLE tbl1 MODIFY COLUMN `k1 BIGINT SUM NULL DEFAULT "1";```
+    ```ALTER TABLE tbl1 MODIFY COLUMN `k1` BIGINT SUM NULL DEFAULT "1";```
     
     注意，除新的列类型外，如聚合方式，Nullable 属性，以及默认值都要按照原信息补全。
     

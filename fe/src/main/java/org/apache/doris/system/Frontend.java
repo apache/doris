@@ -29,7 +29,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class Frontend implements Writable {
-    
     private FrontendNodeType role;
     private String nodeName;
     private String host;
@@ -45,9 +44,6 @@ public class Frontend implements Writable {
     private boolean isAlive = false;
 
     public Frontend() {
-        role = FrontendNodeType.UNKNOWN;
-        host = "";
-        editLogPort = 0;
     }
     
     public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
@@ -56,17 +52,9 @@ public class Frontend implements Writable {
         this.host = host;
         this.editLogPort = editLogPort;
     }
-    
-    public void setRole(FrontendNodeType role) {
-        this.role = role;
-    }
-    
+
     public FrontendNodeType getRole() {
         return this.role;
-    }
-    
-    public void setHost(String host) {
-        this.host = host;
     }
     
     public String getHost() {
@@ -87,10 +75,6 @@ public class Frontend implements Writable {
 
     public boolean isAlive() {
         return isAlive;
-    }
-
-    public void setEditLogPort(int editLogPort) {
-        this.editLogPort = editLogPort;
     }
     
     public int getEditLogPort() {

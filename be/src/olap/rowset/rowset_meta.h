@@ -293,6 +293,10 @@ public:
         *rs_meta_pb = _rowset_meta_pb;
     }
 
+    bool is_singleton_delta() {
+        return  has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
+    }
+
 private:
     friend class AlphaRowsetMeta;
     bool _deserialize_from_pb(const std::string& value) {

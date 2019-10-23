@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/iterators.h"
 #include "olap/schema.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/column_zone_map.h"
@@ -71,6 +70,8 @@ private:
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
+
+    Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
 
 private:
     std::shared_ptr<Segment> _segment;

@@ -4,65 +4,45 @@ Apache publishing must be at least an IPMC member, a commiter with Apache mailbo
 
 The general process of publication is as follows:
 
-1. Launching DISCUSS in the community;
-2. Preparing branches and tagging;
-3. Packing tag for signature;
-4. Upload the signature package to the DEV directory of Apache SVN
-3. Send community voting email
-4. Result e-mail after the vote is passed
-5. Send an email to general@incubator.apache.org for a vote.
-6. Email Result to general@incubator.apache.org
-7. Upload the signature package to the release directory of Apache SVN and generate relevant links
-8. Prepare release note and send Announce mail to general@incubator.apache.org
-9. Publish download links on Doris website and GitHub
+1. Preparing your setup
+2. Preparing for release candidates
+	1. launching DISCUSS in the community
+	2. cutting a release branch
+	3. clean up issues
+	4. merging necessary patch to release branch
+3. Running the voting process for a release
+	1. singing a tag and upload it to [Apache dev svn repo](https://dist.apache.org/repos/dist/dev/incubator/doris)
+	2. calling votes from [Doris community](dev@doris.apache.org)
+	3. send result email to [Doris community](dev@doris.apache.org)
+	4. calling votes from [Incubator community](general@incubator.apache.org)
+	5. send result email to general@incubator.apache.org
+4. Finalizing and posting a release
+	1. Upload the signature package to [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris) and generate relevant links
+	2. Prepare release note and send Announce mail to general@incubator.apache.org
+	3. Publish download links on Doris website and GitHub
 
-Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key server. Then he can use this public key to sign the package ready for publication.
 
-## 1. Prepare for release
+## prepare setup
 
-### 1.1 Launching DISCUSS in the Community
+If you are a new Release Manager, you can read up on the process from the followings:
 
-If you think you've fixed a lot of bugs and developed more important features, any IPMC member can initiate DISCUSS discussions to release a new version.
-An e-mail entitled [DISCUSS] x.y.z release can be launched to discuss within the community what bugs have been fixed and what features have been developed.
-If DISCUSS mail is supported, we can proceed to the next step.
+1. release signing https://www.apache.org/dev/release-signing.html
+2. gpg for signing https://www.apache.org/dev/openpgp.html
+3. svn https://www.apache.org/dev/version-control.html#https-svn
 
-### 1.2 Preparatory Branch
+### preparing gpg key
 
-Before publishing, we need to build a new branch, which needs to be fully tested to make functions available, bug convergence, and important bugs repaired.
+Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key 
+server. Then he can use this public key to sign the package ready for publication.
+If your key already exists in [key] (https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
 
-For example:
 
-```
-$ git checkout -b branch-0.9
-
-```
-
-### 1.3 dozen Tags
-
-When the above branches are stable, tags can be made on them.
-Remember to modify the `build_version` variable in `gensrc/script/gen_build_version.sh` when creating tags. For example, `build_version='0.10.0-release'.`
-
-For example:
-
-```
-$ git checkout branch-0.9
-$ git tag -a 0.9.0-rc01 -m "0.9.0 release candidate 01"
-$ git push origin 0.9.0-rc01
-Counting objects: 1, done.
-Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
-Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris.git
- * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
-
-$ git tag
-```
-
-## 2. Installation and configuration of signature software GnuPG
-###  2.1 GnuPG
+#### Installation and configuration of signature software GnuPG
+##### GnuPG
 
 In 1991, programmer Phil Zimmermann developed the encryption software PGP to avoid government surveillance. This software is very useful, spread quickly, has become a necessary tool for many programmers. However, it is commercial software and cannot be used freely. So the Free Software Foundation decided to develop a replacement for PGP, called GnuPG. This is the origin of GPG.
 
-### 2.2 Installation Configuration
+##### Installation Configuration
 
 CentOS installation command:
 
@@ -91,9 +71,9 @@ cert -digest -something SHA512
 default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
 ```
 
-## 3. Generating new signatures
+#### Generating new signatures
 
-### 3.1 Prepare to Sign
+##### Prepare to Sign
 
 Recommended settings for generating new signatures:
 
@@ -119,7 +99,7 @@ Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
 Compression: Uncompressed, ZIP, ZLIB, BZIP2
 ```
 
-### 3.2 Generating new signatures
+##### Generating new signatures
 
 ```
 $ gpg --gen-key
@@ -162,7 +142,7 @@ Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 Real name needs to be consistent with the ID shown in ID. apache. org.
 Email address is apache's mailbox.
 
-### 3.3 View and Output
+##### View and Output
 
 The first line shows the name of the public key file (pubring. gpg), the second line shows the public key characteristics (4096 bits, Hash string and generation time), the third line shows the "user ID", and the fourth line shows the private key characteristics.
 
@@ -177,7 +157,9 @@ sub   4096R/0E8182E6 2018-12-06
 
 xxx-yy is the user ID.
 
+```
 gpg --armor --output public-key.txt --export [用户ID]
+```
 
 ```
 $ gpg --armor --output public-key.txt --export xxx-yyy
@@ -189,10 +171,13 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 9opMWNplvmK+3+gNlRlFpiZ7EvHsF/YJOAP59HmI2Z...
 ```
 
-## 4. Upload signature public key
+#### Upload signature public key
+
 Public key servers are servers that store users'public keys exclusively on the network. The send-keys parameter uploads the public key to the server.
 
+```
 gpg --send-keys xxxx
+```
 
 Where XXX is the last step -- the string after pub in the list-keys result, as shown above: 33DBF2E0
 
@@ -208,7 +193,9 @@ http://keys.gnupg.net
 
 Queries on the site are delayed and may take an hour.
 
-## 5. Generate fingerprint and upload it to Apache user information
+
+#### Generate fingerprint and upload it to Apache user information
+
 Because the public key server has no checking mechanism, anyone can upload the public key in your name, so there is no way to guarantee the reliability of the public key on the server. Usually, you can publish a public key fingerprint on the website and let others check whether the downloaded public key is true or not.
 
 Fingerprint parameter generates public key fingerprints:
@@ -230,39 +217,68 @@ Paste the fingerprint above (i.e. 07AA E690 B01D 1A4B 469B 0BEF 5E29 CE39 33DB F
 https://id.apache.org
 OpenPGP Public Key Primary Fingerprint:
 
-## 6. Generating keys
-
-Create a new file named KEYS and write it as follows (without any modification):
+#### Generating keys
 
 ```
-This file contains the PGP keys of various developers.
-
-Users: pgp < KEYS
-or
-       gpg --import KEYS
-
-Developers:
-    pgp -kxa <your name> and append it to this file.
-or
-    (pgpk -ll <your name> && pgpk -xa <your name>) >> this file.
-or
-    (gpg --list-sigs <your name>
-    && gpg --armor --export <your name>) >> this file.
+svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+# edit doris/KEY file
+gpg --list-sigs [用户 ID] >> doris/KEYS
+gpg --armor --export [用户 ID] >> doris/KEYS
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 
-Then the generation adds the signature information to write:
+## Prepare for release
+
+### Launching DISCUSS in the Community
+
+If you think you've fixed a lot of bugs and developed more important features, any IPMC member can initiate DISCUSS discussions to release a new version.
+An e-mail entitled [DISCUSS] x.y.z release can be launched to discuss within the community what bugs have been fixed and what features have been developed.
+If DISCUSS mail is supported, we can proceed to the next step.
+
+### Preparatory Branch
+
+Before publishing, we need to build a new branch, For example:
 
 ```
-gpg --list-sigs [User ID] >> KEYS
-```
-
-Finally, the public key addition is imported:
+$ git checkout -b branch-0.9
 
 ```
-gpg --armor --export [User ID] >> KEYS
+
+This branch needs to be fully tested to make functions available, bug convergence, and important bugs fixed.
+
+This process needs to wait for the community to see if a necessary patch needs to be merged in this version, and if so, it needs to be cherry picked to the release branch.
+
+### clean up issue
+
+Go through all the issues belonging to this version, close those that have been completed, and if they cannot be completed, postpone them to a later version.
+
+### Merge necessary patches
+
+During the release waiting process, there may be more important patch merging. If someone in the community says that there is an important bug to merge, then release manager needs to evaluate and merge the important patches into the release branch.
+
+## Running the voting process for a release
+
+### dozen Tags
+
+When the above branches are stable, tags can be made on them.
+Remember to modify the `build_version` variable in `gensrc/script/gen_build_version.sh` when creating tags. For example, `build_version='0.10.0-release'.`
+
+For example:
+
+```
+$ git checkout branch-0.9
+$ git tag -a 0.9.0-rc01 -m "0.9.0 release candidate 01"
+$ git push origin 0.9.0-rc01
+Counting objects: 1, done.
+Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
+Total 1 (delta 0), reused 0 (delta 0)
+To git@github.com:apache/incubator-doris.git
+ * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
+
+$ git tag
 ```
 
-## 7. Packing Signature
+### Packing Signature
 
 The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
@@ -280,7 +296,7 @@ $ sha512sum apache-doris-0.9.0-incubating-src.tar.gz > apache-doris-0.9.0-incuba
 $ sha512sum --check apache-doris-0.9.0-incubating-src.tar.gz.sha512
 ```
 
-## 8. Upload signature packages and KEYS files to DEV SVN
+### Upload signature packages and KEYS files to DEV SVN
 
 First, download the SVN library:
 
@@ -292,12 +308,11 @@ Organize all previous files into the following SVN paths
 
 ```
 ./doris/
-├── 0.9
-│   └── 0.9.0-rc1
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz.asc
-│       ├── apache-doris-0.9.0-incubating-src.tar.gz.sha512
-│       └── KEYS
+|-- 0.11.0-rc1
+|   |-- apache-doris-0.11.0-incubating-src.tar.gz
+|   |-- apache-doris-0.11.0-incubating-src.tar.gz.asc
+|   `-- apache-doris-0.11.0-incubating-src.tar.gz.sha512
+`-- KEYS
 ```
 
 Upload these files
@@ -307,7 +322,7 @@ svn add 0.9.0-rc1
 svn commit -m "Release Apache Doris (incubating) 0.9.0 rc1"
 ```
 
-## 9. Send community voting emails
+### Send community voting emails
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -352,9 +367,19 @@ The vote will be open for at least 72 hours.
 
 Best Regards,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
-## 10. Email Result after the vote is passed
+### Email Result after the vote is passed
 
 [Result][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -374,7 +399,7 @@ xxx
 
 ```
 
-## 11. Send an e-mail to general@incubator.apache.org for a vote.
+### Send an e-mail to general@incubator.apache.org for a vote.
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -437,6 +462,16 @@ $ sh build.sh
 
 Best Regards,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
 The threaded connection for mail can be found here:
@@ -444,7 +479,7 @@ The threaded connection for mail can be found here:
 `https://lists.apache.org/list.html?dev@doris.apache.org`
 
 
-## 12. Email Result to general@incubator.apache.org
+### Email Result to general@incubator.apache.org
 
 [RESULT][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -468,7 +503,9 @@ Best Regards,
 xxx
 ```
 
-## 13. Upload package to release
+## Finalizing release
+
+### Upload package to release
 
 When the formal voting is successful, email [Result] first, and then prepare the release package.
 Copy the source package, signature file and hash file from the corresponding RC folder published under dev to another directory 0.9.0-incubating. Note that the file name does not need rcxx (rename, but do not recalculate signatures, hash can recalculate, the results will not change)
@@ -485,7 +522,7 @@ http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 ```
 
 
-## 14. Send Announce e-mail to general@incubator.apache.org
+### Send Announce e-mail to general@incubator.apache.org
 
 Title:
 
@@ -519,11 +556,21 @@ Best Regards,
 
 On behalf of the Doris team,
 xxx
+
+----
+DISCLAIMER: 
+Apache Doris(incubating) is an effort undergoing incubation at The Apache
+Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
+required of all newly accepted projects until a further review indicates that
+the infrastructure, communications, and decision making process have stabilized
+in a manner consistent with other successful ASF projects. While incubation
+status is not necessarily a reflection of the completeness or stability of the
+code, it does indicate that the project has yet to be fully endorsed by the ASF.
 ```
 
-## 15. Publish links on Doris website and GitHub
+### Publish links on Doris website and GitHub
 
-### 15.1 Create Download Links
+#### Create Download Links
 
 Download link:
 http://www.apache.org/dyn/closer.cgi?filename=incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz&action=download
@@ -549,7 +596,7 @@ http://archive.apache.org /dist /incubator /doris /KEYS
 
 refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
-### 15.2 Prepare release note
+#### Prepare release note
 
 The following two areas need to be modified:
 

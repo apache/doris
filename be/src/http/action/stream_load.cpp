@@ -107,14 +107,14 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // status already set to fail
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx);
-        if (!ctx->status.ok()) {
+        if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
                 << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
 
-    if (!ctx->status.ok()) {
+    if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;
@@ -346,6 +346,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    }
+    if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
+        try {
+            request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT))); 
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid mem limit format");
+        }
     }
 
     // plan this load

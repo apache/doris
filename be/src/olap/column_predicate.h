@@ -18,16 +18,29 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_PREDICATE_H
 #define DORIS_BE_SRC_OLAP_COLUMN_PREDICATE_H
 
+#include "olap/column_block.h"
+#include "olap/selection_vector.h"
+
 namespace doris {
 
 class VectorizedRowBatch;
 
 class ColumnPredicate {
 public:
+    explicit ColumnPredicate(uint32_t column_id) : _column_id(column_id) { }
+
     virtual ~ColumnPredicate() {}
 
     //evaluate predicate on VectorizedRowBatch
     virtual void evaluate(VectorizedRowBatch* batch) const = 0;
+
+    // evaluate predicate on ColumnBlock
+    virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
+
+    uint32_t column_id() const { return _column_id; }
+
+protected:
+    uint32_t _column_id;
 };
 
 } //namespace doris

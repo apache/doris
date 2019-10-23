@@ -188,9 +188,7 @@ The following is a detailed explanation of some parameters of the import operati
 
 * exec\_mem\_limit
 
-	The upper limit of memory usage for import tasks. When the memory used by the import task exceeds the set upper limit, the import task will be CANCEL. The default is 2G in bytes.
-
-	When `Memory exceed limit` error occurs in the import, this parameter can be adjusted appropriately, such as 4G, 8G, etc.
+	Memory limit. Default is 2GB. Unit is Bytes.
 
 + strict\_mode
 

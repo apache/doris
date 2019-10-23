@@ -145,7 +145,6 @@ ${DORIS_TEST_BINARY_DIR}/util/new_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/doris_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/system_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/core_local_test
-${DORIS_TEST_BINARY_DIR}/util/arena_test
 ${DORIS_TEST_BINARY_DIR}/util/types_test
 ${DORIS_TEST_BINARY_DIR}/util/json_util_test
 ${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2
@@ -209,7 +208,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/free_list_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_buffer_test
 ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
-${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
+${DORIS_TEST_BINARY_DIR}/runtime/load_channel_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
@@ -278,6 +277,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/short_key_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
 ${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/hll_test
+${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test

@@ -255,9 +255,13 @@ public class Column implements Writable {
         if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR)
                 || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR)
                 || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
-            if (getStrLen() >= other.getStrLen()) {
+            if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
+        }
+
+        if (getDataType() == PrimitiveType.DATETIME && other.getDataType() == PrimitiveType.DATE) {
+            throw new DdlException("Cannot change from DATETIME to DATE");
         }
 
         if (this.getPrecision() != other.getPrecision()) {

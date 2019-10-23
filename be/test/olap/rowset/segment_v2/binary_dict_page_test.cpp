@@ -27,6 +27,8 @@
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/debug_util.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -70,11 +72,12 @@ public:
         ASSERT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        Arena arena;
+        MemTracker tracker;
+        MemPool pool(&tracker);
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
-        Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
-        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
+        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, size, &pool);
         ColumnBlockView block_view(&column_block);
 
         status = page_decoder.next_batch(&size, &block_view);
@@ -161,10 +164,11 @@ public:
             ASSERT_TRUE(status.ok());
 
             //check values
-            Arena arena;
+            MemTracker tracker;
+            MemPool pool(&tracker);
             TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
-            Slice* values = reinterpret_cast<Slice*>(arena.Allocate(sizeof(Slice)));
-            ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, &arena);
+            Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
+            ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, 1, &pool);
             ColumnBlockView block_view(&column_block);
 
             size_t num = 1;

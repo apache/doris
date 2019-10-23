@@ -180,7 +180,24 @@ enum ReaderType {
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
-typedef std::pair<int64_t, int64_t> Version;
+
+struct Version {
+    int64_t first;  
+    int64_t second;
+
+    Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
+
+    Version() : first(0), second(0) {}
+
+    bool operator!=(const Version& rhs) const {
+        return first != rhs.first || second != rhs.second;
+    }
+
+    bool operator==(const Version& rhs) const {
+        return first == rhs.first && second == rhs.second;
+    }
+};
+
 typedef std::vector<Version> Versions;
 
 
@@ -212,6 +229,7 @@ struct OlapReaderStatistics {
     int64_t decompress_ns = 0;
     int64_t uncompressed_bytes_read = 0;
 
+    // total read bytes in memory
     int64_t bytes_read = 0;
 
     int64_t block_load_ns = 0;
@@ -229,6 +247,9 @@ struct OlapReaderStatistics {
     int64_t rows_del_filtered = 0;
 
     int64_t index_load_ns = 0;
+
+    int64_t total_pages_num = 0;
+    int64_t cached_pages_num = 0;
 };
 
 typedef uint32_t ColumnId;

@@ -305,6 +305,8 @@ struct TTableStatus {
     2: required string type
     3: required string comment
     4: optional string engine
+    5: optional i64 last_check_time
+    6: optional i64 create_time
 }
 
 struct TListTableStatusResult {
@@ -531,6 +533,7 @@ struct TStreamLoadPutRequest {
     18: optional i32 timeout
     19: optional bool strictMode
     20: optional string timezone
+    21: optional i64 execMemLimit
 }
 
 struct TStreamLoadPutResult {

@@ -22,7 +22,6 @@
 #include "olap/row_block2.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/row.h"
-#include "util/arena.h"
 
 namespace doris {
 
@@ -94,6 +93,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
         _rows_returned++;
     }
     block->set_num_rows(row_idx);
+    block->set_selected_size(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     }
@@ -125,7 +125,8 @@ public:
     // Before call this function, Client must assure that
     // valid() return true
     RowBlockRow current_row() const {
-        return RowBlockRow(&_block, _index_in_block);
+        uint16_t* selection_vector = _block.selection_vector();
+        return RowBlockRow(&_block, selection_vector[_index_in_block]);
     }
 
     // Advance internal row index to next valid row
@@ -148,22 +149,23 @@ private:
     RowBlockV2 _block;
 
     bool _valid = false;
-    size_t _index_in_block = 0;
+    size_t _index_in_block = -1;
 };
 
 Status MergeIteratorContext::init(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(_load_next_block());
+    if (valid()) {
+        RETURN_IF_ERROR(advance());
+    }
     return Status::OK();
 }
 
 Status MergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
-    _index_in_block++;
     do {
-        for (; _index_in_block < _block.num_rows(); ++_index_in_block) {
-            // TODO(zc): we can skip rows that is fitered by conjunts here
-            // Now we return directly
+        _index_in_block++;
+        if (_index_in_block < _block.selected_size()) {
             return Status::OK();
         }
         // current batch has no data, load next batch
@@ -186,7 +188,7 @@ Status MergeIteratorContext::_load_next_block() {
             }
         }
     } while (_block.num_rows() == 0);
-    _index_in_block = 0;
+    _index_in_block = -1;
     _valid = true;
     return Status::OK();
 }
@@ -258,7 +260,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
 
         RowBlockRow dst_row = block->row(row_idx);
         // copy current row to block
-        copy_row(&dst_row, ctx->current_row(), block->arena());
+        copy_row(&dst_row, ctx->current_row(), block->pool());
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
@@ -266,6 +268,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         }
     }
     block->set_num_rows(row_idx);
+    block->set_selected_size(row_idx);
     if (row_idx > 0) {
         return Status::OK();
     } else {

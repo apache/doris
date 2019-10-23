@@ -74,6 +74,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import io.netty.bootstrap.ServerBootstrap;
@@ -197,6 +198,9 @@ public class HttpServer {
             try {
                 serverBootstrap = new ServerBootstrap();
                 serverBootstrap.option(ChannelOption.SO_BACKLOG, Config.http_backlog_num);
+                // reused address and port to avoid bind already exception
+                serverBootstrap.option(ChannelOption.SO_REUSEADDR, true);
+                serverBootstrap.childOption(ChannelOption.SO_REUSEADDR, true);
                 serverBootstrap.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
                         .childHandler(new PaloHttpServerInitializer());
@@ -216,7 +220,13 @@ public class HttpServer {
     // used for test, release bound port
     public void shutDown() {
         if (serverBootstrap != null) {
-            serverBootstrap.config().group().shutdownGracefully(0, 5, TimeUnit.SECONDS).awaitUninterruptibly();
+            Future future = serverBootstrap.config().group().shutdownGracefully(0, 1, TimeUnit.SECONDS).syncUninterruptibly();
+            try {
+                future.get();
+                LOG.info("HttpServer was closed completely");
+            } catch (Throwable e) {
+                LOG.warn("Exception happened when close HttpServer", e);
+            }
             serverBootstrap = null;
         }
     }

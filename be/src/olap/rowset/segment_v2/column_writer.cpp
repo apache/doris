@@ -72,13 +72,13 @@ private:
 };
 
 ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
-                           const TypeInfo* typeinfo,
+                           std::unique_ptr<Field> field,
                            bool is_nullable,
                            WritableFile* output_file)
         : _opts(opts),
-        _type_info(typeinfo),
         _is_nullable(is_nullable),
-        _output_file(output_file) {
+        _output_file(output_file),
+        _field(std::move(field)) {
 }
 
 ColumnWriter::~ColumnWriter() {
@@ -92,7 +92,7 @@ ColumnWriter::~ColumnWriter() {
 }
 
 Status ColumnWriter::init() {
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _opts.encoding_type, &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_field->type_info(), _opts.encoding_type, &_encoding_info));
     if (_opts.compression_type != NO_COMPRESSION) {
         RETURN_IF_ERROR(get_block_compression_codec(_opts.compression_type, &_compress_codec));
     }
@@ -105,7 +105,7 @@ Status ColumnWriter::init() {
     if (page_builder == nullptr) {
         return Status::NotSupported(
             Substitute("Failed to create page builder for type $0 and encoding $1",
-                       _type_info->type(), _opts.encoding_type));
+                       _field->type(), _opts.encoding_type));
     }
     _page_builder.reset(page_builder);
     // create ordinal builder
@@ -115,7 +115,7 @@ Status ColumnWriter::init() {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
     }
     if (_opts.need_zone_map) {
-        _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_type_info));
+        _column_zone_map_builder.reset(new ColumnZoneMapBuilder(_field.get()));
     }
     return Status::OK();
 }
@@ -148,7 +148,7 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         bool is_page_full = (num_written < remaining);
         remaining -= num_written;
         _next_rowid += num_written;
-        *ptr += _type_info->size() * num_written;
+        *ptr += _field->size() * num_written;
         // we must write null bits after write data, because we don't
         // know how many rows can be written into current page
         if (_is_nullable) {
@@ -240,13 +240,14 @@ Status ColumnWriter::write_zone_map() {
 }
 
 void ColumnWriter::write_meta(ColumnMetaPB* meta) {
-    meta->set_type(_type_info->type());
+    meta->set_type(_field->type());
     meta->set_encoding(_opts.encoding_type);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
     if (_opts.need_zone_map) {
         _zone_map_pp.to_proto(meta->mutable_zone_map_page());
+        _column_zone_map_builder->fill_segment_zone_map(meta->mutable_zone_map());
     }
     if (_encoding_info->encoding() == DICT_ENCODING) {
         _dict_page_pp.to_proto(meta->mutable_dict_page());

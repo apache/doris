@@ -15,10 +15,14 @@
     partition 支持如下几种修改方式
     1. 增加分区
         语法：
-            ADD PARTITION [IF NOT EXISTS] partition_name VALUES LESS THAN [MAXVALUE|("value1")] ["key"="value"]
+            ADD PARTITION [IF NOT EXISTS] partition_name 
+            partition_desc ["key"="value"]
             [DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]]
         注意：
-            1) 分区为左闭右开区间，用户指定右边界，系统自动确定左边界
+            1) partition_desc 支持一下两种写法：
+                * VALUES LESS THAN [MAXVALUE|("value1", ...)]
+                * VALUES [("value1", ...), ("value1", ...))
+            1) 分区为左闭右开区间，如果用户仅指定右边界，系统会自动确定左边界
             2) 如果没有指定分桶方式，则自动使用建表使用的分桶方式
             3) 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列
             4) ["key"="value"] 部分可以设置分区的一些属性，具体说明见 CREATE TABLE
@@ -66,7 +70,7 @@
             [PROPERTIES ("key"="value", ...)]
         注意：
             1) 聚合模型如果增加 value 列，需要指定 agg_type
-            2) 非聚合模型如果增加key列，需要指定KEY关键字
+            2) 非聚合模型（如 DUPLICATE KEY）如果增加key列，需要指定KEY关键字
             3) 不能在 rollup index 中增加 base index 中已经存在的列
                 如有需要，可以重新创建一个 rollup index）
             
@@ -158,6 +162,11 @@
     5. 删除分区
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
+        
+    6. 增加一个指定上下界的分区
+
+        ALTER TABLE example_db.my_table
+        ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
 
     [rollup]
     1. 创建 index: example_rollup_index，基于 base index（k1,k2,k3,v1,v2）。列式存储。

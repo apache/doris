@@ -206,6 +206,10 @@ public:
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
+    RowsetTypePB default_rowset_type() const { return _default_rowset_type; }
+
+    RowsetTypePB compaction_rowset_type() const { return _compaction_rowset_type; }
+
 private:
 
     OLAPStatus _check_file_descriptor_number();
@@ -227,6 +231,8 @@ private:
     OLAPStatus _start_bg_worker();
 
     void _clean_unused_txns();
+
+    void _clean_unused_rowset_metas();
     
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const int32_t expire);
@@ -254,6 +260,11 @@ private:
     void* _path_gc_thread_callback(void* arg);
 
     void* _path_scan_thread_callback(void* arg);
+
+    void* _tablet_checkpoint_callback(void* arg);
+
+    // parse the default rowset type config to RowsetTypePB
+    void _parse_default_rowset_type();
 
 private:
 
@@ -333,6 +344,9 @@ private:
     // thread to scan disk paths
     std::vector<std::thread> _path_scan_threads;
 
+    // thread to run tablet checkpoint
+    std::vector<std::thread> _tablet_checkpoint_threads;
+
     static atomic_t _s_request_number;
 
     // for tablet and disk report
@@ -349,6 +363,13 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     MemTableFlushExecutor* _memtable_flush_executor;
+
+    // default rowset type for load
+    // used to decide the type of new loaded data
+    RowsetTypePB _default_rowset_type;
+    // default rowset type for compaction.
+    // used to control the the process of converting old data
+    RowsetTypePB _compaction_rowset_type;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

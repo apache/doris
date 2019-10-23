@@ -49,6 +49,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -79,7 +80,7 @@ public class BrokerLoadJob extends LoadJob {
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyze when the log is replayed
-    private String originStmt;
+    private String originStmt = "";
 
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
@@ -96,7 +97,7 @@ public class BrokerLoadJob extends LoadJob {
         super(dbId, label);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.brokerDesc = brokerDesc;
-        this.originStmt = originStmt;
+        this.originStmt = Strings.nullToEmpty(originStmt);
         this.jobType = EtlJobType.BROKER;
         this.authorizationInfo = gatherAuthInfo();
     }
@@ -258,7 +259,7 @@ public class BrokerLoadJob extends LoadJob {
      */
     @Override
     public void analyze() {
-        if (originStmt == null) {
+        if (Strings.isNullOrEmpty(originStmt)) {
             return;
         }
         // Reset dataSourceInfo, it will be re-created in analyze
@@ -484,18 +485,13 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    protected void executeReplayOnAborted(TransactionState txnState) {
+    protected void replayTxnAttachment(TransactionState txnState) {
         if (txnState.getTxnCommitAttachment() == null) {
             // The txn attachment maybe null when broker load has been cancelled without attachment.
             // The end log of broker load has been record but the callback id of txnState hasn't been removed
             // So the callback of txn is executed when log of txn aborted is replayed.
             return;
         }
-        unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
-    }
-
-    @Override
-    protected void executeReplayOnVisible(TransactionState txnState) {
         unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
     }
 
@@ -516,6 +512,8 @@ public class BrokerLoadJob extends LoadJob {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
             originStmt = Text.readString(in);
+        } else {
+            originStmt = "";
         }
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.

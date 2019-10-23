@@ -17,14 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Map;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+
+import java.util.Map;
 
 public class AlterClusterClause extends AlterClause {
     private AlterClusterType type;
@@ -60,32 +57,11 @@ public class AlterClusterClause extends AlterClause {
         return super.toSql();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // TODO Auto-generated method stub
-        super.write(out);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        // TODO Auto-generated method stub
-        super.readFields(in);
-    }
-
     public int getInstanceNum() {
         return instanceNum;
-    }
-
-    public void setInstanceNum(int instanceNum) {
-        this.instanceNum = instanceNum;
     }
 
     public String getPassword() {
         return password;
     }
-
-    public void setPassword(String password) {
-        this.password = password;
-    }
-
 }

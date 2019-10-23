@@ -21,6 +21,7 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -167,7 +168,9 @@ Status EncodingInfoResolver::get(
     auto key = std::make_pair(data_type, encoding_type);
     auto it = _encoding_map.find(key);
     if (it == std::end(_encoding_map)) {
-        return Status::InternalError("fail to find valid type encoding");
+        return Status::InternalError(
+                strings::Substitute("fail to find valid type encoding, type:$0, encoding:$1",
+                data_type, encoding_type));
     }
     *out = it->second;
     return Status::OK();

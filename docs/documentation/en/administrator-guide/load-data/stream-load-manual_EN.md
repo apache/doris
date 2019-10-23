@@ -114,6 +114,10 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 	Tmp_* is a placeholder, representing two original columns in the original file.
 	```
 
++ exec\_mem\_limit
+
+    Memory limit. Default is 2GB. Unit is Bytes
+
 ### Return results
 
 Since Stream load is a synchronous import method, the result of the import is directly returned to the user by creating the return value of the import.

@@ -66,6 +66,25 @@ typedef void (*UpdateFn7)(FunctionContext*, const AnyVal&, const AnyVal&,
 typedef void (*UpdateFn8)(FunctionContext*, const AnyVal&, const AnyVal&,
     const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&,
     const AnyVal&, AnyVal*);
+
+typedef void (*VarargUpdateFn0)(FunctionContext*, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn1)(FunctionContext*, const AnyVal&, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn2)(FunctionContext*, const AnyVal&, const AnyVal&, int num_varargs,
+        const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn3)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn4)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        const AnyVal&, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn5)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        const AnyVal&, const AnyVal&, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn6)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        const AnyVal&, const AnyVal&, const AnyVal&, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn7)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, int num_varargs, const AnyVal*, AnyVal*);
+typedef void (*VarargUpdateFn8)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
+        const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, int num_varargs,
+        const AnyVal*,  AnyVal*);
+
 typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
@@ -390,62 +409,145 @@ void NewAggFnEvaluator::Update(const TupleRow* row, Tuple* dst, void* fn) {
       DCHECK(input_evals_[i]->root() == agg_fn_.get_child(i));
       AnyValUtil::set_any_val(src_slot, agg_fn_.get_child(i)->type(), staging_input_vals_[i]);
   }
+  if (agg_fn_.is_merge()) {
+      reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], staging_intermediate_val_);
+      SetDstSlot(staging_intermediate_val_, slot_desc, dst);
+      return;
+  }
 
   // TODO: this part is not so good and not scalable. It can be replaced with
   // codegen but we can also consider leaving it for the first few cases for
   // debugging.
-    switch (input_evals_.size()) {
-      case 0:
-        reinterpret_cast<UpdateFn0>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
-        break;
-      case 1:
-        reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], staging_intermediate_val_);
-        break;
-      case 2:
-        reinterpret_cast<UpdateFn2>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1], staging_intermediate_val_);
-        break;
-      case 3:
-        reinterpret_cast<UpdateFn3>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], staging_intermediate_val_);
-        break;
-      case 4:
-        reinterpret_cast<UpdateFn4>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], *staging_input_vals_[3], staging_intermediate_val_);
-        break;
-      case 5:
-        reinterpret_cast<UpdateFn5>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], *staging_input_vals_[3],
-            *staging_input_vals_[4], staging_intermediate_val_);
-        break;
-      case 6:
-        reinterpret_cast<UpdateFn6>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], *staging_input_vals_[3],
-            *staging_input_vals_[4], *staging_input_vals_[5], staging_intermediate_val_);
-        break;
-      case 7:
-        reinterpret_cast<UpdateFn7>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], *staging_input_vals_[3],
-            *staging_input_vals_[4], *staging_input_vals_[5],
-            *staging_input_vals_[6], staging_intermediate_val_);
-        break;
-      case 8:
-        reinterpret_cast<UpdateFn8>(fn)(agg_fn_ctx_.get(),
-            *staging_input_vals_[0], *staging_input_vals_[1],
-            *staging_input_vals_[2], *staging_input_vals_[3],
-            *staging_input_vals_[4], *staging_input_vals_[5],
-            *staging_input_vals_[6], *staging_input_vals_[7],
-            staging_intermediate_val_);
-        break;
-      default:
-        DCHECK(false) << "NYI";
-    }
+  if (agg_fn_.get_vararg_start_idx() == -1) {
+      switch (input_evals_.size()) {
+          case 0:
+              reinterpret_cast<UpdateFn0>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
+              break;
+          case 1:
+              reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], staging_intermediate_val_);
+              break;
+          case 2:
+              reinterpret_cast<UpdateFn2>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              staging_intermediate_val_);
+              break;
+          case 3:
+              reinterpret_cast<UpdateFn3>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], staging_intermediate_val_);
+              break;
+          case 4:
+              reinterpret_cast<UpdateFn4>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], *staging_input_vals_[3],
+                                              staging_intermediate_val_);
+              break;
+          case 5:
+              reinterpret_cast<UpdateFn5>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], *staging_input_vals_[3],
+                                              *staging_input_vals_[4], staging_intermediate_val_);
+              break;
+          case 6:
+              reinterpret_cast<UpdateFn6>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], *staging_input_vals_[3],
+                                              *staging_input_vals_[4], *staging_input_vals_[5],
+                                              staging_intermediate_val_);
+              break;
+          case 7:
+              reinterpret_cast<UpdateFn7>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], *staging_input_vals_[3],
+                                              *staging_input_vals_[4], *staging_input_vals_[5],
+                                              *staging_input_vals_[6], staging_intermediate_val_);
+              break;
+          case 8:
+              reinterpret_cast<UpdateFn8>(fn)(agg_fn_ctx_.get(),
+                                              *staging_input_vals_[0], *staging_input_vals_[1],
+                                              *staging_input_vals_[2], *staging_input_vals_[3],
+                                              *staging_input_vals_[4], *staging_input_vals_[5],
+                                              *staging_input_vals_[6], *staging_input_vals_[7],
+                                              staging_intermediate_val_);
+              break;
+          default:
+              DCHECK(false) << "NYI";
+      }
+  } else {
+      int num_varargs = input_evals_.size() - agg_fn_.get_vararg_start_idx();
+      const AnyVal* varargs = *(staging_input_vals_.data() + agg_fn_.get_vararg_start_idx());
+      switch (agg_fn_.get_vararg_start_idx()) {
+          case 0:
+              reinterpret_cast<VarargUpdateFn0>(fn)(agg_fn_ctx_.get(),
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 1:
+              reinterpret_cast<VarargUpdateFn1>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 2:
+              reinterpret_cast<VarargUpdateFn2>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 3:
+              reinterpret_cast<VarargUpdateFn3>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 4:
+              reinterpret_cast<VarargUpdateFn4>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2], *staging_input_vals_[3],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 5:
+              reinterpret_cast<VarargUpdateFn5>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2], *staging_input_vals_[3],
+                                                    *staging_input_vals_[4],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 6:
+              reinterpret_cast<VarargUpdateFn6>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2], *staging_input_vals_[3],
+                                                    *staging_input_vals_[4], *staging_input_vals_[5],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 7:
+              reinterpret_cast<VarargUpdateFn7>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2], *staging_input_vals_[3],
+                                                    *staging_input_vals_[4], *staging_input_vals_[5],
+                                                    *staging_input_vals_[6],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          case 8:
+              reinterpret_cast<VarargUpdateFn8>(fn)(agg_fn_ctx_.get(),
+                                                    *staging_input_vals_[0], *staging_input_vals_[1],
+                                                    *staging_input_vals_[2], *staging_input_vals_[3],
+                                                    *staging_input_vals_[4], *staging_input_vals_[5],
+                                                    *staging_input_vals_[6], *staging_input_vals_[7],
+                                                    num_varargs, varargs,
+                                                    staging_intermediate_val_);
+              break;
+          default:
+              DCHECK(false) << "NYI";
+      }
+  }
   SetDstSlot(staging_intermediate_val_, slot_desc, dst);
 }
 

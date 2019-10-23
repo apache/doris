@@ -25,6 +25,8 @@
 #include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -50,11 +52,13 @@ struct ZoneMap {
 // The binary is encoded by BinaryPlainPageBuilder
 class ColumnZoneMapBuilder {
 public:
-    ColumnZoneMapBuilder(const TypeInfo* type_info);
+    ColumnZoneMapBuilder(Field* field);
 
     Status add(const uint8_t* vals, size_t count);
 
     Status flush();
+
+    void fill_segment_zone_map(ZoneMapPB* const to);
 
     uint64_t size() {
         return _page_builder->size();
@@ -65,15 +69,21 @@ public:
     }
 
 private:
-    void _reset_zone_map();
+    void _reset_zone_map(ZoneMap* zone_map);
+    void _reset_page_zone_map() { _reset_zone_map(&_zone_map); }
+    void _reset_segment_zone_map() { _reset_zone_map(&_segment_zone_map); }
+    void _fill_zone_map_to_pb(const ZoneMap& from, ZoneMapPB* const to);
 
 private:
-    const TypeInfo* _type_info;
     std::unique_ptr<BinaryPlainPageBuilder> _page_builder;
-    std::unique_ptr<Field> _field;
-    // memory will be managed by arena
+    Field* _field;
+    // memory will be managed by MemPool
     ZoneMap _zone_map;
-    Arena _arena;
+    ZoneMap _segment_zone_map;
+    // TODO(zc): we should replace this memory pool later, we only allocate min/max
+    // for field. But MemPool allocate 4KB least, it will a waste for most cases.
+    MemTracker _tracker;
+    MemPool _pool;
 };
 
 // ColumnZoneMap

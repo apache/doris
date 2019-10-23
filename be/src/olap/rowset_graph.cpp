@@ -248,16 +248,16 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
 
         // tmp_start_vertex_value mustn't be equal to tmp_end_vertex_value
         if (tmp_start_vertex_value <= tmp_end_vertex_value) {
-            version_path->push_back(std::make_pair(tmp_start_vertex_value, tmp_end_vertex_value - 1));
+            version_path->emplace_back(tmp_start_vertex_value, tmp_end_vertex_value - 1);
         } else {
-            version_path->push_back(std::make_pair(tmp_end_vertex_value, tmp_start_vertex_value - 1));
+            version_path->emplace_back(tmp_end_vertex_value, tmp_start_vertex_value - 1);
         }
 
         shortest_path_for_debug << (*version_path)[version_path->size() - 1].first << '-'
             << (*version_path)[version_path->size() - 1].second << ' ';
     }
 
-    VLOG(3) << "success to find path for spec_version. "
+    VLOG(10) << "success to find path for spec_version. "
             << "spec_version=" << spec_version.first << "-" << spec_version.second
             << ", path=" << shortest_path_for_debug.str();
 

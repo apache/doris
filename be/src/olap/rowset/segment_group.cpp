@@ -217,18 +217,24 @@ bool SegmentGroup::delete_all_files() {
 
         LOG(INFO) << "delete index file. path=" << index_path;
         if (remove(index_path.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete index file. err=" << strerror_r(errno, errmsg, 64)
-                         << ", path=" << index_path;
-            success = false;
+            // if the errno is not ENOENT, log the error msg.
+            // ENOENT stands for 'No such file or directory'
+            if (errno != ENOENT) {
+                char errmsg[64];
+                LOG(WARNING) << "fail to delete index file. err=" << strerror_r(errno, errmsg, 64)
+                        << ", path=" << index_path;
+                success = false;
+            }
         }
 
         LOG(INFO) << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
-                         << ", path=" << data_path;
-            success = false;
+            if (errno != ENOENT) {
+                char errmsg[64];
+                LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
+                        << ", path=" << data_path;
+                success = false;
+            }
         }
     }
     return success;

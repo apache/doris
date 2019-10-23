@@ -271,7 +271,6 @@ Status OlapScanner::get_batch(
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
-                _update_realtime_counter();
                 break;
             }
 
@@ -456,6 +455,7 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_io_timer, _reader->stats().io_ns);
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
+    _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     COUNTER_UPDATE(_parent->_decompressor_timer, _reader->stats().decompress_ns);
     COUNTER_UPDATE(_parent->_read_uncompressed_counter, _reader->stats().uncompressed_bytes_read);
     COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
@@ -470,7 +470,6 @@ void OlapScanner::update_counter() {
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);
-
     COUNTER_UPDATE(_parent->_vec_cond_timer, _reader->stats().vec_cond_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, _reader->stats().rows_vec_cond_filtered);
 
@@ -479,17 +478,23 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
-    DorisMetrics::query_scan_bytes.increment(_reader->stats().compressed_bytes_read);
-    DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
+    COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
+    COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
+
+    DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
+    DorisMetrics::query_scan_rows.increment(_raw_rows_read);
 
     _has_update_counter = true;
 }
 
 void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
-    COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
+    _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     _reader->mutable_stats()->compressed_bytes_read = 0;
-    _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
+    
+    COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
+    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+    _raw_rows_read += _reader->stats().raw_rows_read;
     _reader->mutable_stats()->raw_rows_read = 0;
 }
 

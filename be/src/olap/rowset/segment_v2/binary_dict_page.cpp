@@ -34,7 +34,8 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options) 
     _finished(false),
     _data_page_builder(nullptr),
     _dict_builder(nullptr),
-    _encoding_type(DICT_ENCODING) {
+    _encoding_type(DICT_ENCODING),
+    _pool(&_tracker) {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
@@ -69,12 +70,14 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (_dict_builder->is_page_full()) {
                     break;
                 }
-                char* item_mem = _arena.Allocate(src->size);
-                if (item_mem == nullptr) {
-                    return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
-                }
                 Slice dict_item(src->data, src->size);
-                dict_item.relocate(item_mem);
+                if (src->size > 0) {
+                    char* item_mem = (char*)_pool.allocate(src->size);
+                    if (item_mem == nullptr) {
+                        return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
+                    }
+                    dict_item.relocate(item_mem);
+                }
                 value_code = _dictionary.size();
                 _dictionary.emplace(dict_item, value_code);
                 _dict_items.push_back(dict_item);
@@ -125,7 +128,7 @@ size_t BinaryDictPageBuilder::count() const {
 }
 
 uint64_t BinaryDictPageBuilder::size() const {
-    return _arena.MemoryUsage() + _data_page_builder->size();
+    return _pool.total_allocated_bytes() + _data_page_builder->size();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
@@ -204,18 +207,21 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     // And then copy the strings corresponding to the codewords to the destination buffer
     TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_INT);
     // the data in page is not null
-    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, dst->column_block()->arena());
+    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, *n, dst->column_block()->pool());
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {
         int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
-        char* destination = dst->column_block()->arena()->Allocate(element.size);
-        if (destination == nullptr) {
-            return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", element.size));
+        if (element.size > 0) {
+            char* destination = (char*)dst->column_block()->pool()->allocate(element.size);
+            if (destination == nullptr) {
+                return Status::MemoryAllocFailed(Substitute(
+                    "memory allocate failed, size:$0", element.size));
+            }
+            element.relocate(destination);
         }
-        element.relocate(destination);
         *out = element;
         ++out;
     }

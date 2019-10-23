@@ -30,7 +30,9 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
     : _schema(schema),
       _capacity(capacity),
       _column_datas(_schema.num_columns(), nullptr),
-      _column_null_bitmaps(_schema.num_columns(), nullptr) {
+      _column_null_bitmaps(_schema.num_columns(), nullptr),
+      _pool(new MemPool(&_tracker)),
+      _selection_vector(nullptr) {
     auto bitmap_size = BitmapSize(capacity);
     for (auto cid : _schema.column_ids()) {
         size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;
@@ -40,6 +42,7 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
             _column_null_bitmaps[cid] = new uint8_t[bitmap_size];;
         }
     }
+    _selection_vector = new uint16_t[_capacity];
     clear();
 }
 
@@ -50,6 +53,7 @@ RowBlockV2::~RowBlockV2() {
     for (auto null_bitmap : _column_null_bitmaps) {
         delete[] null_bitmap;
     }
+    delete[] _selection_vector;
 }
 
 Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
@@ -66,6 +70,23 @@ Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
             cursor->set_field_content_shallow(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
         }
     }
+    return Status::OK();
+}
+
+Status RowBlockV2::deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool) {                                                                  
+    if (row_idx >= _num_rows) {
+        return Status::InvalidArgument(
+            Substitute("invalid row index $0 (num_rows=$1)", row_idx, _num_rows));
+    }   
+    for (auto cid : _schema.column_ids()) {
+        bool is_null = _schema.column(cid)->is_nullable() && BitmapTest(_column_null_bitmaps[cid], row_idx);
+        if (is_null) {
+            cursor->set_null(cid);
+        } else {
+            cursor->set_not_null(cid);
+            cursor->set_field_content(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)), mem_pool);
+        }   
+    }   
     return Status::OK();
 }
 

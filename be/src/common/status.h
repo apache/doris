@@ -129,6 +129,8 @@ public:
     bool is_thrift_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
 
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
+
+    bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>

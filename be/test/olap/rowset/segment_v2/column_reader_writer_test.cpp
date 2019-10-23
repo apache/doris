@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/tablet_schema_helper.h"
 #include "olap/decimal12.h"
 
 #include <gtest/gtest.h>
@@ -28,16 +29,20 @@
 #include "olap/types.h"
 #include "olap/column_block.h"
 #include "util/file_utils.h"
-#include "util/arena.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() { }
+    ColumnReaderWriterTest() : _pool(&_tracker) { }
     virtual ~ColumnReaderWriterTest() {
     }
+private:
+    MemTracker _tracker;
+    MemPool _pool;
 };
 
 template<FieldType type, EncodingTypePB encoding>
@@ -62,9 +67,16 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         writer_opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
         writer_opts.need_zone_map = true;
 
-        ColumnWriter writer(writer_opts, type_info, true, wfile.get());
+        TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
+        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+            column = create_varchar_key(1);
+        } else if (type == OLAP_FIELD_TYPE_CHAR) {
+            column = create_char_key(1);
+        }
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ColumnWriter writer(writer_opts, std::move(field), true, wfile.get());
         st = writer.init();
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         for (int i = 0; i < num_rows; ++i) {
             st = writer.append(BitmapTest(src_is_null, i), src + i);
@@ -95,38 +107,47 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
 
         ColumnReaderOptions reader_opts;
-        ColumnReader reader(reader_opts, meta, num_rows, rfile.get());
-
-        st = reader.init();
+        std::unique_ptr<ColumnReader> reader;
+        st = ColumnReader::create(reader_opts, meta, num_rows, rfile.get(), &reader);
         ASSERT_TRUE(st.ok());
-
-        ASSERT_EQ(reader._ordinal_index->num_pages(), reader._column_zone_map->get_column_zone_map().size());
 
         ColumnIterator* iter = nullptr;
-        st = reader.new_iterator(&iter);
+        st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
-
+        ColumnIteratorOptions iter_opts;
+        OlapReaderStatistics stats;
+        iter_opts.stats = &stats;
+        st = iter->init(iter_opts);
+        ASSERT_TRUE(st.ok());
         // sequence read
         {
             st = iter->seek_to_first();
-            ASSERT_TRUE(st.ok());
+            ASSERT_TRUE(st.ok()) << st.to_string();
 
-            Arena arena;
+            MemTracker tracker;
+            MemPool pool(&tracker);
             Type vals[1024];
+            Type* vals_ = vals;
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
 
             int idx = 0;
             while (true) {
                 size_t rows_read = 1024;
-                auto st = iter->next_batch(&rows_read, &col);
+                st = iter->next_batch(&rows_read, &col);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     // LOG(INFO) << "is_null=" << is_null[j] << ", src_is_null[]=" << src_is_null[idx]
                         // << ", src[idx]=" << src[idx] << ", vals[j]=" << vals[j];
                     ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
                     if (!BitmapTest(is_null, j)) {
-                        ASSERT_EQ(src[idx], vals[j]);
+                        if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
+                            Slice* src_slice = (Slice*)src_data;
+                            Slice* dst_slice = (Slice*)vals_;
+                            ASSERT_EQ(src_slice[idx].to_string(), dst_slice[j].to_string()) << "j:" << j;
+                        } else {
+                            ASSERT_EQ(src[idx], vals[j]);
+                        }
                     }
                     idx++;
                 }
@@ -137,10 +158,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         }
         // random read
         {
-            Arena arena;
+            MemTracker tracker;
+            MemPool pool(&tracker);
             Type vals[1024];
             uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, &arena);
+            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
@@ -155,7 +177,13 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                         // << ", src[idx]=" << src[idx] << ", vals[j]=" << vals[j];
                     ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
                     if (!BitmapTest(is_null, j)) {
-                        ASSERT_EQ(src[idx], vals[j]);
+                        if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
+                            Slice* src_slice = (Slice*)src_data;
+                            Slice* dst_slice = (Slice*)vals;
+                            ASSERT_EQ(src_slice[idx].to_string(), dst_slice[j].to_string());
+                        } else {
+                            ASSERT_EQ(src[idx], vals[j]);
+                        }
                     }
                     idx++;
                 }
@@ -210,13 +238,21 @@ TEST_F(ColumnReaderWriterTest, test_types) {
     uint24_t* date_vals = new uint24_t[num_uint8_rows];
     uint64_t* datetime_vals = new uint64_t[num_uint8_rows];
     decimal12_t* decimal_vals = new decimal12_t[num_uint8_rows];
+    Slice* varchar_vals = new Slice[num_uint8_rows];
+    Slice* char_vals = new Slice[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         bool_vals[i] = i % 2;
         date_vals[i] = i + 33;
         datetime_vals[i] = i + 33;
         decimal_vals[i] = decimal12_t(i, i); // 1.000000001
+
+        set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
+        set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
+
         BitmapChange(is_null, i, (i % 4) == 0);
     }
+    test_nullable_data<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>((uint8_t*)char_vals, is_null, num_uint8_rows, "null_char_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>((uint8_t*)varchar_vals, is_null, num_uint8_rows, "null_varchar_bs");
     test_nullable_data<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>((uint8_t*)bool_vals, is_null, num_uint8_rows, "null_bool_bs");
     test_nullable_data<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>((uint8_t*)date_vals, is_null, num_uint8_rows / 3, "null_date_bs");
 
@@ -230,6 +266,8 @@ TEST_F(ColumnReaderWriterTest, test_types) {
     }
     test_nullable_data<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>((uint8_t*)decimal_vals, is_null, num_uint8_rows / 12, "null_decimal_bs");
 
+    delete[] char_vals;
+    delete[] varchar_vals;
     delete[] is_null;
     delete[] bool_vals;
     delete[] date_vals;

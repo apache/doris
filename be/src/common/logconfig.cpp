@@ -125,12 +125,13 @@ bool init_glog(const char* basename, bool install_signal_handler) {
         return false;
     }
 
-    // set verbose modules. only use vlog(0)
+    // set verbose modules.
     FLAGS_v = -1;
     std::vector<std::string>& verbose_modules = config::sys_log_verbose_modules;
+    int32_t vlog_level = config::sys_log_verbose_level;
     for (size_t i = 0; i < verbose_modules.size(); i++) {
         if (verbose_modules[i].size() != 0) {
-            google::SetVLOGLevel(verbose_modules[i].c_str(), 10);
+            google::SetVLOGLevel(verbose_modules[i].c_str(), vlog_level);
         }
     }
 

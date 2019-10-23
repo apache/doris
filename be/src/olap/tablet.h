@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
 #include "olap/tuple.h"
@@ -64,7 +65,7 @@ public:
 
     // operation for TabletState
     TabletState tablet_state() const { return _state; }
-    inline OLAPStatus set_tablet_state(TabletState state);
+    OLAPStatus set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
     inline const TabletMetaSharedPtr tablet_meta();
@@ -107,10 +108,15 @@ public:
     inline size_t field_index(const string& field_name) const;
 
     // operation in rowsets
-    OLAPStatus add_rowset(RowsetSharedPtr rowset);
+    OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
     OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
+
+    // _rs_version_map and _inc_rs_version_map should be protected by _meta_lock
+    // The caller must call hold _meta_lock when call this two function.
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
+    const RowsetSharedPtr get_inc_rowset_by_version(const Version& version) const;
+
     size_t get_rowset_size_by_version(const Version& version);
     const RowsetSharedPtr rowset_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
@@ -233,10 +239,21 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
+    OLAPStatus do_tablet_meta_checkpoint();
+
+    bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
+
+    bool contains_rowset(const RowsetId rowset_id);
+
+    void build_tablet_report_info(TTabletInfo* tablet_info);
+
+    OLAPStatus generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
+    OLAPStatus _max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
 private:
     TabletState _state;
@@ -247,8 +264,11 @@ private:
     std::string _tablet_path;
     RowsetGraph _rs_graph;
 
-    DorisInitOnce _init_once;
+    DorisCallOnce<OLAPStatus> _init_once;
     RWMutex _meta_lock;
+    // meta store lock is used for prevent 2 threads do checkpoint concurrently
+    // it will be used in econ-mode in the future
+    RWMutex _meta_store_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
@@ -260,21 +280,17 @@ private:
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 
     std::atomic<int64_t> _cumulative_point;
+    std::atomic<int32_t> _newly_created_rowset_num;
+    std::atomic<int64_t> _last_checkpoint_time;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
 inline bool Tablet::init_succeeded() {
-    return _init_once.init_succeeded();
+    return _init_once.has_called() && _init_once.stored_result() == OLAP_SUCCESS;
 }
 
 inline DataDir* Tablet::data_dir() const {
     return _data_dir;
-}
-
-inline OLAPStatus Tablet::set_tablet_state(TabletState state) {
-    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
-    _state = state;
-    return OLAP_SUCCESS;
 }
 
 inline const TabletMetaSharedPtr Tablet::tablet_meta() {

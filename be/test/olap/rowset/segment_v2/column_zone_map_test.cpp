@@ -19,23 +19,25 @@
 #include <memory>
 
 #include "olap/rowset/segment_v2/column_zone_map.h"
+#include "olap/tablet_schema_helper.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class ColumnZoneMapTest : public testing::Test {
 public:
-    void test_string(FieldType type) {
-        TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_CHAR);
-        ColumnZoneMapBuilder builder(type_info);
+    void test_string(Field* field) {
+        ColumnZoneMapBuilder builder(field);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
-        for (auto value : values1) {
-            builder.add((const uint8_t*)&value, 1);
+        for (auto& value : values1) {
+            Slice slice(value);
+            builder.add((const uint8_t*)&slice, 1);
         }
         builder.flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
-        for (auto value : values2) {
-            builder.add((const uint8_t*)&value, 1);
+        for (auto& value : values2) {
+            Slice slice(value);
+            builder.add((const uint8_t*)&slice, 1);
         }
         builder.add(nullptr, 1);
         builder.flush();
@@ -67,8 +69,10 @@ public:
 
 // Test for int
 TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
-    TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_INT);
-    ColumnZoneMapBuilder builder(type_info);
+    TabletColumn int_column = create_int_key(0);
+    Field* field = FieldFactory::create(int_column);
+
+    ColumnZoneMapBuilder builder(field);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
         builder.add((const uint8_t*)&value, 1);
@@ -108,12 +112,16 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
-    test_string(OLAP_FIELD_TYPE_VARCHAR);
+    TabletColumn varchar_column = create_varchar_key(0);
+    Field* field = FieldFactory::create(varchar_column);
+    test_string(field);
 }
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
-    test_string(OLAP_FIELD_TYPE_CHAR);
+    TabletColumn char_column = create_char_key(0);
+    Field* field = FieldFactory::create(char_column);
+    test_string(field);
 }
 
 }

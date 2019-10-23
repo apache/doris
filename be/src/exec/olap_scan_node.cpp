@@ -139,6 +139,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _index_load_timer = ADD_TIMER(_runtime_profile, "IndexLoadTime");
 
     _scan_timer = ADD_TIMER(_runtime_profile, "ScanTime");
+
+    _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
+    _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -1199,7 +1202,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read OlapScanner failed!";
+            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status.to_string();
             eos = true;
             break;
         }

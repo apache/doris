@@ -37,6 +37,10 @@ Rowset::Rowset(const TabletSchema *schema,
     }
 }
 
+OLAPStatus Rowset::load(bool use_cache) {
+    return _load_once.call([this, use_cache] { return do_load_once(use_cache); });
+}
+
 void Rowset::make_visible(Version version, VersionHash version_hash) {
     _is_pending = false;
     _rowset_meta->set_version(version);

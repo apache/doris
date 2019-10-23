@@ -28,7 +28,6 @@
 
 #pragma once
 
-#include "util/arena.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"
@@ -36,6 +35,7 @@
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/types.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -181,9 +181,11 @@ public:
         
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            out->data = reinterpret_cast<char*>(dst->arena()->Allocate(elem.size * sizeof(uint8_t)));
             out->size = elem.size;
-            memcpy(out->data, elem.data, elem.size);
+            if (elem.size != 0) {
+                out->data = reinterpret_cast<char*>(dst->pool()->allocate(elem.size * sizeof(uint8_t)));
+                memcpy(out->data, elem.data, elem.size);
+            }
         }
 
         *n = max_fetch;

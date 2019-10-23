@@ -34,7 +34,6 @@
 #include "util/mem_util.hpp"
 #include "util/slice.h"
 #include "util/types.h"
-#include "util/arena.h"
 
 namespace doris {
 
@@ -56,16 +55,8 @@ public:
         _deep_copy(dest, src, mem_pool);
     }
 
-    inline void deep_copy_with_arena(void* dest, const void* src, Arena* arena) const {
-        _deep_copy_with_arena(dest, src, arena);
-    }
-
     inline void direct_copy(void* dest, const void* src) const {
         _direct_copy(dest, src);
-    }
-
-    inline char* allocate_value_from_arena(Arena* arena) const {
-        return _allocate_value_from_arena(arena);
     }
 
     OLAPStatus from_string(void* buf, const std::string& scan_key) const {
@@ -87,9 +78,7 @@ private:
 
     void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
-    void (*_deep_copy_with_arena)(void* dest, const void* src, Arena* arena);
     void (*_direct_copy)(void* dest, const void* src);
-    char* (*_allocate_value_from_arena)(Arena* arena);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -198,10 +187,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
-        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
-    }
-
     static inline void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
@@ -216,10 +201,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline uint32_t hash_code(const void* data, uint32_t seed) {
         return HashUtil::hash(data, sizeof(CppType), seed);
-    }
-
-    static inline char* allocate_value_from_arena(Arena* arena) {
-        return arena->Allocate(sizeof(CppType));
     }
 
     static std::string to_string(const void* src) {
@@ -350,9 +331,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
-        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
-    }
-    static void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -550,25 +528,16 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void deep_copy_with_arena(void* dest, const void* src, Arena* arena) {
-        auto l_slice = reinterpret_cast<Slice*>(dest);
-        auto r_slice = reinterpret_cast<const Slice*>(src);
-        l_slice->data = reinterpret_cast<char*>(arena->Allocate(r_slice->size));
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
-        l_slice->size = r_slice->size;
-    }
     static void direct_copy(void* dest, const void* src) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
-    static void set_to_max(void* buf) {
-        // this function is used by scan key,
-        // the size may be greater than length in schema.
-        auto slice = reinterpret_cast<Slice*>(buf);
-        memset(slice->data, 0xff, slice->size);
-    }
+
+    // using field.set_to_max to set varchar/char,not here
+    static void (*set_to_max)(void*);
+
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
@@ -576,13 +545,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     static uint32_t hash_code(const void* data, uint32_t seed) {
         auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
-    }
-    static char* allocate_value_from_arena(Arena* arena) {
-        char* type_value = arena->Allocate(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = OLAP_CHAR_MAX_LENGTH;
-        slice->data = arena->Allocate(OLAP_CHAR_MAX_LENGTH);
-        return type_value;
     }
 };
 
@@ -601,21 +563,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         slice->size = value_len;
         return OLAP_SUCCESS;
     }
-    static void set_to_max(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 1;
-        memset(slice->data, 0xFF, 1);
-    }
+
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
-    }
-    static char* allocate_value_from_arena(Arena* arena) {
-        char* type_value = arena->Allocate(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = OLAP_STRING_MAX_LENGTH;
-        slice->data = arena->Allocate(OLAP_STRING_MAX_LENGTH);
-        return type_value;
     }
 };
 

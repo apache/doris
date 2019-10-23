@@ -20,6 +20,8 @@
 #include <string>
 #include "olap/tablet_schema.h"
 
+#include "runtime/mem_pool.h"
+
 namespace doris {
 
 TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
@@ -74,9 +76,34 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
     column._type = OLAP_FIELD_TYPE_VARCHAR;
     column._is_key = true;
     column._is_nullable = is_nullable;
-    column._length = 4;
+    column._length = 8;
     column._index_length = 4;
     return column;
+}
+
+void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool, size_t _length = 0) {
+    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+        std::string s = std::to_string(src);
+        char* src_value = &s[0];
+        int src_len = s.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = _length;
+        dest_slice->data = (char*)pool->allocate(dest_slice->size);
+        memcpy(dest_slice->data, src_value, src_len);
+        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+        std::string s = std::to_string(src);
+        char* src_value = &s[0];
+        int src_len = s.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = (char*)pool->allocate(src_len);
+        memcpy(dest_slice->data, src_value, src_len);
+    } else {
+        *(int*)target = src;
+    }
 }
 
 }

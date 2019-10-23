@@ -21,17 +21,18 @@
 #include <stdio.h>
 #include <sstream>
 
+#include <boost/algorithm/string/split.hpp> // boost::split
+#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
+#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
+
 #include "common/status.h"
+#include "env/env.h"
+#include "gen_cpp/HeartbeatService.h"
 #include "http/http_client.h"
 #include "runtime/exec_env.h"
 #include "util/file_utils.h"
 #include "util/md5.h"
 
-#include <boost/algorithm/string/split.hpp> // boost::split
-#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-
-#include "gen_cpp/HeartbeatService.h"
 
 namespace doris {
 
@@ -53,15 +54,18 @@ Status SmallFileMgr::init() {
 Status SmallFileMgr::_load_local_files() {
     RETURN_IF_ERROR(FileUtils::create_dir(_local_path));
 
-    auto scan_cb = [this] (const std::string& dir, const std::string& file) {
-        auto st = _load_single_file(dir, file);
+    auto scan_cb = [this] (const char* file) {
+        if (is_dot_or_dotdot(file)) {
+            return true;
+        }
+        auto st = _load_single_file(_local_path, file);
         if (!st.ok()) {
             LOG(WARNING) << "load small file failed: " << st.get_error_msg();
         }
         return true;
     };
 
-    RETURN_IF_ERROR(FileUtils::scan_dir(_local_path, scan_cb));
+    RETURN_IF_ERROR(Env::Default()->iterate_dir(_local_path, scan_cb));
     return Status::OK();
 }
 

@@ -110,7 +110,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
         tablet->release_header_lock();
 
-        // generate schema hash path where files will be migrated
+        // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             res = OLAP_ERR_INVALID_ROOT_PATH;
@@ -162,12 +162,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
-
+        tablet->obtain_header_rdlock();
         res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
+            tablet->release_header_lock();
             LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
             break;
         }
+        tablet->release_header_lock();
         std::string new_meta_file = schema_hash_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
         if (res != OLAP_SUCCESS) {
@@ -233,11 +235,9 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
-    OLAPStatus res = OLAP_SUCCESS;
-    res = TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-    if (res == OLAP_ERR_META_KEY_NOT_FOUND) {
-        LOG(WARNING) << "tablet_meta has already been dropped. "
-                     << "data_dir:" << tablet->data_dir()->path()
+    OLAPStatus res = tablet->generate_tablet_meta_copy(new_tablet_meta);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "could not generate new tablet meta. "
                      << "tablet:" << tablet->full_name();
         return res;
     }

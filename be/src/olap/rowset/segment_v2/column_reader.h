@@ -30,11 +30,11 @@
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
+#include "util/once.h"
 
 namespace doris {
 
 class ColumnBlock;
-class Arena;
 class RandomAccessFile;
 class TypeInfo;
 class BlockCompressionCodec;
@@ -52,17 +52,26 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
 };
 
+struct ColumnIteratorOptions {
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr;
+};
+
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
 // This will cache data shared by all reader
 class ColumnReader {
 public:
-    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-            uint64_t num_rows, RandomAccessFile* file);
-    ~ColumnReader();
+    // Create an initialized ColumnReader in *reader.
+    // This should be a lightweight operation without I/O.
+    static Status create(const ColumnReaderOptions& opts,
+                         const ColumnMetaPB& meta,
+                         uint64_t num_rows,
+                         RandomAccessFile* file,
+                         std::unique_ptr<ColumnReader>* reader);
 
-    Status init();
+    ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
@@ -72,47 +81,66 @@ public:
     Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
-    Status read_page(const PagePointer& pp, PageHandle* handle);
+    Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
+
     const EncodingInfo* encoding_info() const { return _encoding_info; }
+
     const TypeInfo* type_info() const { return _type_info; }
 
-    bool has_zone_map() { return _meta.has_zone_map_page(); }
+    bool has_zone_map() const { return _meta.has_zone_map_page(); }
 
     // get row ranges with zone map
-    // cond_column is user's query predicate
-    // delete_conditions is a vector of delete predicate of different version
-    void get_row_ranges_by_zone_map(CondColumn* cond_column,
-            const std::vector<CondColumn*>& delete_conditions, RowRanges* row_ranges);
+    // - cond_column is user's query predicate
+    // - delete_conditions is a vector of delete predicate of different version
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                      const std::vector<CondColumn*>& delete_conditions,
+                                      OlapReaderStatistics* stats,
+                                      RowRanges* row_ranges);
 
-    PagePointer get_dict_page_pointer() const;
+    PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
 private:
-    Status _init_ordinal_index();
+    ColumnReader(const ColumnReaderOptions& opts,
+                 const ColumnMetaPB& meta,
+                 uint64_t num_rows,
+                 RandomAccessFile* file);
+    Status init();
 
-    Status _init_column_zone_map();
+    // Read and load necessary column indexes into memory if it hasn't been loaded.
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_index_loaded() {
+        return _load_index_once.call([this] {
+            RETURN_IF_ERROR(_load_zone_map_index());
+            RETURN_IF_ERROR(_load_ordinal_index());
+            return Status::OK();
+        });
+    }
+    Status _load_zone_map_index();
+    Status _load_ordinal_index();
 
-    void _get_filtered_pages(CondColumn* cond_column,
-            const std::vector<CondColumn*>& delete_conditions, std::vector<uint32_t>* page_indexes);
+    Status _get_filtered_pages(CondColumn* cond_column,
+                               const std::vector<CondColumn*>& delete_conditions,
+                               OlapReaderStatistics* stats,
+                               std::vector<uint32_t>* page_indexes);
 
-    void _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
+    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     ColumnReaderOptions _opts;
     ColumnMetaPB _meta;
     uint64_t _num_rows;
-    RandomAccessFile* _file = nullptr;
+    RandomAccessFile* _file;
 
+    // initialized in init()
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
-    // get page pointer from index
-    std::unique_ptr<OrdinalPageIndex> _ordinal_index;
-
-    // column zone map info
+    DorisCallOnce<Status> _load_index_once;
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
+    std::unique_ptr<OrdinalPageIndex> _ordinal_index;
 };
 
 // Base iterator to read one column data
@@ -121,7 +149,10 @@ public:
     ColumnIterator() { }
     virtual ~ColumnIterator() { }
 
-    virtual Status init() { return Status::OK(); }
+    virtual Status init(const ColumnIteratorOptions& opts) {
+        _opts = opts;
+        return Status::OK();
+    }
 
     // Seek to the first entry in the column.
     virtual Status seek_to_first() = 0;
@@ -134,7 +165,7 @@ public:
 
     // After one seek, we can call this function many times to read data 
     // into ColumnBlock. when read string type data, memory will allocated
-    // from Arena
+    // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlock* dst) = 0;
 
     virtual rowid_t get_current_ordinal() const = 0;
@@ -151,18 +182,15 @@ public:
     //
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
-    // allocated in the dst column vector's arena.
-    Status scan(size_t* n, ColumnBlock* dst, Arena* arena);
+    // allocated in the dst column vector's MemPool.
+    Status scan(size_t* n, ColumnBlock* dst, MemPool* pool);
 
     // release next_batch related resource
     Status finish_batch();
 #endif
+protected:
+    ColumnIteratorOptions _opts;
 };
-
-#if 0
-class DefaultValueIterator : public ColumnIterator {
-};
-#endif
 
 // This iterator is used to read column data from file
 class FileColumnIterator : public ColumnIterator {
@@ -216,7 +244,7 @@ public:
           _is_default_value_null(false),
           _value_size(0) { }
 
-    Status init() override;
+    Status init(const ColumnIteratorOptions& opts) override;
 
     Status seek_to_first() override {
         _current_rowid = 0;

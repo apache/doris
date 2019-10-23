@@ -234,6 +234,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setType(table.getMysqlType());
                     status.setEngine(table.getEngine());
                     status.setComment(table.getComment());
+                    status.setCreate_time(table.getCreateTime());
+                    status.setLast_check_time(table.getLastCheckTime());
 
                     tablesResult.add(status);
                 }
@@ -728,7 +730,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (UserException e) {
-            LOG.warn("failed to rollback: {}", e.getMessage());
+            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
