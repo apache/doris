@@ -44,7 +44,6 @@
 #include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/task/engine_checksum_task.h"
-#include "olap/task/engine_clear_alter_task.h"
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
@@ -134,10 +133,6 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::PUBLISH_VERSION:
         _worker_count = config::publish_version_worker_count;
         _callback_function = _publish_version_worker_thread_callback;
-        break;
-    case TaskWorkerType::CLEAR_ALTER_TASK:
-        _worker_count = config::clear_alter_task_worker_count;
-        _callback_function = _clear_alter_task_worker_thread_callback;
         break;
     case TaskWorkerType::CLEAR_TRANSACTION_TASK:
         _worker_count = config::clear_transaction_task_worker_count;
@@ -860,57 +855,6 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_report_version(_s_report_version);
-
-        worker_pool_this->_finish_task(finish_task_request);
-        worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
-#ifndef BE_TEST
-    }
-#endif
-    return (void*)0;
-}
-
-void* TaskWorkerPool::_clear_alter_task_worker_thread_callback(void* arg_this) {
-
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
-#ifndef BE_TEST
-    while (true) {
-#endif
-        TAgentTaskRequest agent_task_req;
-        TClearAlterTaskRequest clear_alter_task_req;
-        {
-            lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
-            while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
-            }
-
-            agent_task_req = worker_pool_this->_tasks.front();
-            clear_alter_task_req = agent_task_req.clear_alter_task_req;
-            worker_pool_this->_tasks.pop_front();
-        }
-        LOG(INFO) << "get clear alter task task, signature:" << agent_task_req.signature;
-
-        TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
-        TStatus task_status;
-        EngineClearAlterTask engine_task(clear_alter_task_req);
-        OLAPStatus clear_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-        if (clear_status != OLAPStatus::OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("clear alter task failed. [signature: %ld status=%d]",
-                             agent_task_req.signature, clear_status);
-            error_msgs.push_back("clear alter task failed");
-            status_code = TStatusCode::RUNTIME_ERROR;
-        } else {
-            LOG(INFO) << "clear alter task success. signature:" << agent_task_req.signature;
-        }
-
-        task_status.__set_status_code(status_code);
-        task_status.__set_error_msgs(error_msgs);
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_task_status(task_status);
-        finish_task_request.__set_backend(worker_pool_this->_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");

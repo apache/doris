@@ -198,8 +198,6 @@ OLAPStatus StorageEngine::open() {
 
     auto dirs = get_stores();
     load_data_dirs(dirs);
-    // 取消未完成的SchemaChange任务
-    _tablet_manager->cancel_unfinished_schema_change();
 
     _memtable_flush_executor = new MemTableFlushExecutor();
     _memtable_flush_executor->init(dirs);
