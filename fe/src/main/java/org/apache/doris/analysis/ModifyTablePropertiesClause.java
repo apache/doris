@@ -60,6 +60,9 @@ public class ModifyTablePropertiesClause extends AlterClause {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK + " should be set to true");
             }
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            // do nothing, these 2 properties will be analyzed when creating alter job
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
