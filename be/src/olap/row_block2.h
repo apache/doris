@@ -26,6 +26,7 @@
 #include "olap/schema.h"
 #include "olap/types.h"
 #include "olap/selection_vector.h"
+#include "olap/row_block.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -63,15 +64,8 @@ public:
         }
     }
 
-    // Copy the row_idx row's data into given row_cursor.
-    // This function will use shallow copy, so the client should
-    // notice the life time of returned value
-    Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
-
-    // Copy the row_idx row's data into given row_cursor.
-    // This function will use deep copy.
-    // This function is used to convert RowBlockV2 to RowBlock
-    Status deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool);
+    // convert RowBlockV2 to RowBlock
+    Status convert_to_row_block(RowCursor* helper, RowBlock* dst);
 
     // Get the column block for one of the columns in this row block.
     // `cid` must be one of `schema()->column_ids()`.
