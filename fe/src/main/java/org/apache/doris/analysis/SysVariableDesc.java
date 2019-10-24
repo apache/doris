@@ -17,7 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -63,6 +67,10 @@ public class SysVariableDesc extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
+        if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            setType(Type.VARCHAR);
+            setStringValue(SqlModeHelper.parseValue(intValue));
+        }
     }
 
     public String getName() {

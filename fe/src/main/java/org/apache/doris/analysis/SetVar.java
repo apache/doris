@@ -27,6 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -100,6 +101,15 @@ public class SetVar {
         // For the case like "set character_set_client = utf8", we change SlotRef to StringLiteral.
         if (value instanceof SlotRef) {
             value = new StringLiteral(((SlotRef) value).getColumnName());
+        }
+
+        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            if (value instanceof StringLiteral) {
+                Long sqlModeValue = SqlModeHelper.parseString(((StringLiteral) value).getStringValue());
+                value = new StringLiteral(sqlModeValue.toString());
+            } else {
+                value = new StringLiteral();
+            }
         }
 
         value.analyze(analyzer);
