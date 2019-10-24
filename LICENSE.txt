@@ -414,22 +414,6 @@ be/src/olap/skiplist.h : BSD-style license
 
 --------------------------------------------------------------------------------
 
-be/src/olap/new_status.h : BSD-style license
-
-  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-  Use of this source code is governed by a BSD-style license that can be
-  found in the LICENSE file. See the AUTHORS file for names of contributors.
-
---------------------------------------------------------------------------------
-
-be/src/olap/new_status.cpp : BSD-style license
-
-  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-  Use of this source code is governed by a BSD-style license that can be
-  found in the LICENSE file. See the AUTHORS file for names of contributors.
-
---------------------------------------------------------------------------------
-
 be/src/util/murmur_hash3.h : licensed under the following terms:
 
   MurmurHash3 was written by Austin Appleby, and is placed in the public
