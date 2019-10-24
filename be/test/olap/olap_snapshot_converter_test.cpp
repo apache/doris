@@ -29,7 +29,6 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/txn_manager.h"
-#include "olap/new_status.h"
 #include <boost/algorithm/string.hpp>
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
