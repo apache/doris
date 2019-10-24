@@ -211,46 +211,6 @@ OLAPStatus TabletManager::_add_tablet_to_map(TTabletId tablet_id, SchemaHash sch
     return res;                              
 }
 
-// this method is called when engine restarts so that not add any locks
-void TabletManager::cancel_unfinished_schema_change() {
-    // Schema Change在引擎退出时schemachange信息还保存在在Header里，
-    // 引擎重启后，需清除schemachange信息，上层会重做
-    uint64_t canceled_num = 0;
-    LOG(INFO) << "begin to cancel unfinished schema change.";
-
-    for (const auto& tablet_instance : _tablet_map) {
-        for (TabletSharedPtr tablet : tablet_instance.second.table_arr) {
-            if (tablet == nullptr) {
-                LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_instance.first;
-                continue;
-            }
-            AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
-            // if alter task's state == finished, could not do anything
-            if (alter_task == nullptr || alter_task->alter_state() == ALTER_FINISHED) {
-                continue;
-            }
-
-            OLAPStatus res = tablet->set_alter_state(ALTER_FAILED);
-            if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to set alter state. res=" << res
-                        << ", base_tablet=" << tablet->full_name();
-                return;
-            }
-            res = tablet->save_meta();
-            if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save base tablet meta. res=" << res
-                        << ", base_tablet=" << tablet->full_name();
-                return;
-            }
-
-            LOG(INFO) << "cancel unfinished alter tablet task. base_tablet=" << tablet->full_name();
-            ++canceled_num;
-        }
-    }
-
-    LOG(INFO) << "finish to cancel unfinished schema change! canceled_num=" << canceled_num;
-}
-
 bool TabletManager::check_tablet_id_exist(TTabletId tablet_id) {
     ReadLock rlock(&_tablet_map_lock);
     return _check_tablet_id_exist_unlock(tablet_id);
