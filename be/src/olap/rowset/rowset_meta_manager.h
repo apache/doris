@@ -22,7 +22,6 @@
 
 #include "olap/rowset/rowset_meta.h"
 #include "olap/olap_meta.h"
-#include "olap/new_status.h"
 
 using std::string;
 

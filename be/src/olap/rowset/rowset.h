@@ -23,7 +23,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
-#include "olap/new_status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/once.h"
 

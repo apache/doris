@@ -24,7 +24,6 @@
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
-#include "olap/new_status.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
 
