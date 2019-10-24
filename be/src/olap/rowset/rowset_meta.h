@@ -24,7 +24,6 @@
 #include <string>
 #include <vector>
 
-#include "olap/new_status.h"
 #include "olap/olap_common.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"

@@ -38,8 +38,9 @@
 #include <stdarg.h>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "util/errno.h"
 #include "gutil/strings/substitute.h"
-#include "olap/new_status.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -1424,6 +1425,24 @@ int Errno::no() {
     return errno;
 }
 
+static Status disk_error(const std::string& context, int16_t err) {
+    switch (err) {
+        case ENOENT:
+            return Status::NotFound(context, err, errno_to_string(err));
+        case EEXIST:
+            return Status::AlreadyExist(context, err, errno_to_string(err));
+        case EOPNOTSUPP:
+            return Status::NotSupported(context, err, errno_to_string(err));
+        case EIO:
+        case ENODEV:
+        case ENXIO:
+        case EROFS:
+            return Status::IOError(context, err, errno_to_string(err));
+        default:
+            return Status::InternalError(context, err, errno_to_string(err));
+    }
+}
+
 OLAPStatus dir_walk(const string& root,
                     set<string>* dirs,
                     set<string>* files) {
@@ -1432,9 +1451,10 @@ OLAPStatus dir_walk(const string& root,
     struct dirent* direntp = NULL;
     dirp = opendir(root.c_str());
     if (dirp == nullptr) {
-        NewStatus status = IOError(strings::Substitute("opendir $0 failed", root), errno);
-        LOG(WARNING) << status.ToString();
-        if (status.IsDiskFailure()) {
+        Status status = disk_error("opendir failed", errno);
+        
+        LOG(WARNING) << status.to_string();
+        if (status.is_io_error()) {
             return OLAP_ERR_DISK_FAILURE;
         } else {
             return OLAP_ERR_INIT_FAILED;
