@@ -79,9 +79,9 @@ public class SqlModeHelper {
 
 
 
-    public static String parseValue(Long sqlMode) throws AnalysisException {
+    public static String parseValue(Long sqlMode) {
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
-            throw new AnalysisException("Unsupported sql mode found while parsing value");
+            return null;
         }
 
         List<String> names = new ArrayList<String>();
@@ -94,22 +94,37 @@ public class SqlModeHelper {
         return Joiner.on(',').join(names);
     }
 
-    public static Long parseString(String sqlMode) throws AnalysisException {
+    public static Long parseString(String sqlMode) {
         Long value = 0L;
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
         for (String key : names) {
-            if (getSupportedSqlMode().containsKey(key)) {
+            if (getSupportedSqlMode().containsKey(key.toUpperCase())) {
                 value |= getSupportedSqlMode().get(key);
-            } else {
-                throw new AnalysisException("Unsupported sql mode found while parsing string");
             }
         }
 
         return value;
     }
 
+    public static boolean checkValid(String sqlMode) {
+        List<String> values =
+                Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
+        for (String key : values) {
+            if (!getSupportedSqlMode().containsKey(key.toUpperCase())) {
+                return false;
+            }
+        }
 
+        return true;
+    }
+
+    public static boolean checkValid(Long sqlMode) {
+        if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+            return false;
+        }
+        return true;
+    }
 
     public static ImmutableMap<String, Long> getSupportedSqlMode() {
         return sqlModeSet;

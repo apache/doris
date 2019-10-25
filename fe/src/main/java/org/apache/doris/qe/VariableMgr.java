@@ -420,6 +420,10 @@ public class VariableMgr {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
                 }
 
+                if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+                    row.set(1, SqlModeHelper.parseValue(Long.valueOf(row.get(1))));
+                }
+
                 rows.add(row);
             }
         } finally {
