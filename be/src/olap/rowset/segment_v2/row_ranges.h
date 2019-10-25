@@ -257,7 +257,7 @@ private:
     // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
     // the last one or might be overlapped with some of the last ones.
     void add(const RowRange& range) {
-        if (range.is_empty()) {
+        if (range.count() == 0) {
             return;
         }
         RowRange range_to_add = range;
