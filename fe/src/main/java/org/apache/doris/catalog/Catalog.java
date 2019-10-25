@@ -2959,7 +2959,12 @@ public class Catalog {
 
                 // check partition name
                 if (olapTable.getPartition(partitionName) != null) {
-                    throw new DdlException("Partition " + partitionName + " already exists");
+                    if (singlePartitionDesc.isSetIfNotExists()) {
+                        LOG.debug("add partition[{}] which already exists", partitionName);
+                        return null;
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
+                    }
                 }
 
                 // check if meta changed
