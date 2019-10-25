@@ -2163,7 +2163,8 @@ public class Catalog {
                         newType = typeTransferQueue.take();
                     } catch (InterruptedException e) {
                         LOG.error("got exception when take FE type from queue", e);
-                        return;
+                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
                     LOG.info("begin to transfer FE type from {} to {}", feType, newType);
@@ -2314,7 +2315,8 @@ public class Catalog {
     }
 
     public void createTimePrinter() {
-        timePrinter = new Daemon("timePrinter", (long) (Config.meta_delay_toleration_second / 2.0) * 1000L) {
+        // time printer will write timestamp edit log every 10 seconds
+        timePrinter = new Daemon("timePrinter", 10 * 1000L) {
             protected void runOneCycle() {
                 Timestamp stamp = new Timestamp();
                 editLog.logTimestamp(stamp);
