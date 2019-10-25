@@ -62,7 +62,7 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
         if (is_nullable) {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 uint16_t row_idx = _selection_vector[i];
-                dst->get_row(row_idx, helper);
+                dst->get_row(i, helper);
                 bool is_null = BitmapTest(_column_null_bitmaps[cid], row_idx);
                 if (is_null) {
                     helper->set_null(cid);
@@ -75,7 +75,7 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
         } else {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 uint16_t row_idx = _selection_vector[i];
-                dst->get_row(row_idx, helper);
+                dst->get_row(i, helper);
                 helper->set_not_null(cid);
                 helper->set_field_content_shallow(cid,
                         reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
