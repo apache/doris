@@ -21,7 +21,6 @@ package org.apache.doris.qe;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
-import org.apache.doris.common.AnalysisException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,7 +47,7 @@ public class SqlModeHelper {
     public static final Long MODE_STRICT_ALL_TABLES = 1L << 22;
 
 
-    public final static Long MODE_DEFAULT = 1L << 32;
+    public final static Long MODE_DEFAULT = 1L << 32; //4294967296L;
     public final static Long MODE_LAST = 1L << 33;
 
     public final static Long MODE_ALLOWED_MASK =
@@ -95,12 +94,12 @@ public class SqlModeHelper {
     }
 
     public static Long parseString(String sqlMode) {
-        Long value = 0L;
+        long value = 0L;
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
         for (String key : names) {
             if (getSupportedSqlMode().containsKey(key.toUpperCase())) {
-                value |= getSupportedSqlMode().get(key);
+                value |= getSupportedSqlMode().get(key.toUpperCase());
             }
         }
 

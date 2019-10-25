@@ -107,7 +107,7 @@ public class SetVar {
             if (value instanceof StringLiteral) {
                 String sqlMode = ((StringLiteral) value).getStringValue();
                 if (!SqlModeHelper.checkValid(sqlMode)) {
-                    throw new AnalysisException("Unsupported sql mode found, check your sql mode");
+                    throw new AnalysisException("Unsupported sql mode found");
                 }
                 value = new StringLiteral(SqlModeHelper.parseString(sqlMode).toString());
             } else {
