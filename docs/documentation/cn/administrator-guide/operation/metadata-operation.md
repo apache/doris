@@ -232,7 +232,26 @@ FE 目前有以下几个端口
 
     修改配置后，直接重启 FE 即可。这个只影响到 mysql 的连接目标。
 
-    
+
+### 从 FE 内存中恢复元数据
+
+在某些极端情况下，磁盘上 image 文件可能会损坏，但是内存中的元数据是完好的，此时我们可以先从内存中 dump 出元数据，再替换掉磁盘上的 image 文件，来恢复元数据，整个**不停查询服务**的操作步骤如下：
+1. 集群停止所有 Load,Create,Alter 操作
+2. 执行以下命令，从 Master FE 内存中 dump 出元数据：(下面称为 image_mem)
+```
+curl -u $root_user:$password http://$master_hostname:8410/dump
+```
+3. 用 image_mem 文件替换掉 OBSERVER FE 节点上`meta_dir/image`目录下的 image 文件，重启 OBSERVER FE 节点，
+验证 image_mem 文件的完整性和正确性（可以在 FE Web 页面查看 DB 和 Table 的元数据是否正常，查看fe.log 是否有异常，是否在正常 replayed journal）
+4. 依次用 image_mem 文件替换掉 FOLLOWER FE 节点上`meta_dir/image`目录下的 image 文件，重启 FOLLOWER FE 节点，
+确认元数据和查询服务都正常
+5. 用 image_mem 文件替换掉 Master FE 节点上`meta_dir/image`目录下的 image 文件，重启 Master FE 节点，
+确认 FE Master 切换正常， Master FE 节点可以通过 checkpoint 正常生成新的 image 文件
+6. 集群恢复所有 Load,Create,Alter 操作
+
+**注意：如果 Image 文件很大，整个操作过程耗时可能会很长，所以在此期间，要确保 Master FE 不会通过 checkpoint 生成新的 image 文件。
+当观察到 Master FE 节点上 `meta_dir/image`目录下的 `image.ckpt` 文件快和 `image.xxx` 文件一样大时，可以直接删除掉`image.ckpt` 文件。**
+
 ## 最佳实践
 
 FE 的部署推荐，在 [安装与部署文档](../../installing/install-deploy.md) 中有介绍，这里再做一些补充。
