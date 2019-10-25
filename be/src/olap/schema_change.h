@@ -267,8 +267,6 @@ private:
 private:
     RowsetReaderContext _reader_context;
 
-    OlapReaderStatistics _stats;
-
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);
 };
 
