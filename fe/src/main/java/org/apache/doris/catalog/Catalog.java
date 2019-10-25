@@ -2960,7 +2960,7 @@ public class Catalog {
                 // check partition name
                 if (olapTable.getPartition(partitionName) != null) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        LOG.info("add partition[{}] which already exists", partitionName);
+                        LOG.debug("add partition[{}] which already exists", partitionName);
                         return null;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
