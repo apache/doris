@@ -196,8 +196,12 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 
 OLAPStatus DeltaWriter::close() {
     if (!_is_init) {
-        // not init, means this writer wrote nothing
-        return OLAP_SUCCESS;
+        // if this delta writer is not initialized, but close() is called.
+        // which means this tablet has no data loaded, but at least one tablet
+        // in same partition has data loaded.
+        // so we have to also init this DeltaWriter, so that it can create a empty rowset
+        // for this tablet when being closd.
+        RETURN_NOT_OK(init());
     }
 
     RETURN_NOT_OK(_flush_memtable_async());
@@ -205,9 +209,7 @@ OLAPStatus DeltaWriter::close() {
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-    if (!_is_init) {
-        return OLAP_SUCCESS;
-    }
+    DCHECK(_is_init) << "delta writer is supposed be to initialized before close_wait() being called";
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_handler->wait());
 
