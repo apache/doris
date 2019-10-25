@@ -71,6 +71,7 @@ public class VariableMgrTest {
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
         Assert.assertEquals(false, var.isReportSucc());
+        Assert.assertEquals(4294967296L, var.getSqlMode());
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -82,7 +83,7 @@ public class VariableMgrTest {
             } else if (row.get(0).equalsIgnoreCase("query_timeout")) {
                 Assert.assertEquals("300", row.get(1));
             } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
-                Assert.assertEquals("", row.get(1));
+                Assert.assertEquals("4294967296", row.get(1));
             }
         }
 
@@ -117,6 +118,16 @@ public class VariableMgrTest {
         // Get from name
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
+
+        SetVar setVar4 = new SetVar(SetType.GLOBAL, "sql_mode", new StringLiteral(
+                SqlModeHelper.parseString("PIPES_AS_CONCAT").toString()));
+        VariableMgr.setVar(var, setVar4);
+        Assert.assertEquals(2L, var.getSqlMode());
+
+        setVar4 = new SetVar("sql_mode", new StringLiteral(
+                SqlModeHelper.parseString("WRONG_MODE").toString()));
+        VariableMgr.setVar(var, setVar4);
+        Assert.assertEquals(0L, setVar4);
     }
 
     @Test(expected = DdlException.class)

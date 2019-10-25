@@ -93,7 +93,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set sqlMode to DEFAULT MODE (1 << 32L)
     @VariableMgr.VarAttr(name = SQL_MODE)
-    public long sqlMode = 4294967296L;
+    private long sqlMode = 4294967296L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     private String resourceGroup = "normal";
@@ -214,11 +214,11 @@ public class SessionVariable implements Serializable, Writable {
         return waitTimeout;
     }
 
-    public Long getSqlMode() {
+    public long getSqlMode() {
         return sqlMode;
     }
 
-    public void setSqlMode(Long sqlMode) {
+    public void setSqlMode(long sqlMode) {
         this.sqlMode = sqlMode;
     }
 

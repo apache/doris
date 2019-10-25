@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,8 +80,8 @@ public class SqlModeHelper {
 
 
     public static String parseValue(Long sqlMode) {
-        if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
-            return null;
+        if (sqlMode == 0L || (sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+            return "";
         }
 
         List<String> names = new ArrayList<String>();
@@ -107,6 +108,10 @@ public class SqlModeHelper {
     }
 
     public static boolean checkValid(String sqlMode) {
+        if (Strings.isNullOrEmpty(sqlMode)) {
+            return false;
+        }
+
         List<String> values =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
         for (String key : values) {

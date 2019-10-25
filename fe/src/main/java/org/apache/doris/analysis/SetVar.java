@@ -111,7 +111,7 @@ public class SetVar {
                 }
                 value = new StringLiteral(SqlModeHelper.parseString(sqlMode).toString());
             } else {
-                value = new StringLiteral();
+                throw new AnalysisException("Sql mode only support string literal");
             }
         }
 
