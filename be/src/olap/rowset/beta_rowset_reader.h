@@ -54,7 +54,6 @@ private:
 
     RowsetReaderContext* _context;
     OlapReaderStatistics _owned_stats;
-    OlapReaderStatistics* _stats = &_owned_stats;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
