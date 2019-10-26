@@ -1111,9 +1111,8 @@ public class Coordinator {
             return;
         }
 
-        boolean done = false;
         BackendExecState execState = backendExecStates.get(params.backend_num);
-        if (execState.updateProfile(params)) {
+        if (!execState.updateProfile(params)) {
             return;
         }
 
@@ -1136,7 +1135,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), DebugUtil.printId(params.getFragment_instance_id()));
             updateStatus(status, params.getFragment_instance_id());
         }
-        if (done) {
+        if (execState.done) {
             if (params.isSetDelta_urls()) {
                 updateDeltas(params.getDelta_urls());
             }
@@ -1296,7 +1295,6 @@ public class Coordinator {
             if (params.isSetProfile()) {
                 profile.update(params.profile);
             }
-            done = params.done;
             this.done = params.done;
             return true;
         }
