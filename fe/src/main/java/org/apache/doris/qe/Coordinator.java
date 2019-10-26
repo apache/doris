@@ -497,7 +497,7 @@ public class Coordinator {
                             throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
                         case THRIFT_RPC_ERROR:
                             SimpleScheduler.updateBlacklistBackends(pair.first.backend.getId());
-                            throw new RpcException("rpc failed. backend id: " + pair.first.backend.getId());
+                            throw new RpcException(pair.first.backend.getHost(), "rpc failed");
                         default:
                             throw new UserException(errMsg);
                         }
@@ -640,7 +640,7 @@ public class Coordinator {
                 copyStatus.rewriteErrorMsg();
             }
             if (copyStatus.isRpcError()) {
-                throw new RpcException(copyStatus.getErrorMsg());
+                throw new RpcException("unknown", copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
