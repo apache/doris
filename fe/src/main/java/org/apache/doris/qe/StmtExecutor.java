@@ -616,6 +616,8 @@ public class StmtExecutor {
                 ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
             }
 
+            Thread.sleep(100000);
+
             if (!coord.getExecStatus().ok()) {
                 String errMsg = coord.getExecStatus().getErrorMsg();
                 LOG.warn("insert failed: {}", errMsg);
