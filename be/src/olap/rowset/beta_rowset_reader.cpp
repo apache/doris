@@ -32,16 +32,20 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
-    if (_context->stats != nullptr) {
-        _stats = _context->stats;
-    }
 
     // SegmentIterator will load seek columns on demand
     Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
-    read_options.stats = _stats;
+    if (_context->stats == nullptr) {
+        // schema change/compaction should use owned_stats
+        // When doing schema change/compaction,
+        // only statistics of this RowsetReader is necessary.
+        read_options.stats = &_owned_stats;
+    } else {
+        read_options.stats = _context->stats;
+    }
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
