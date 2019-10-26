@@ -456,6 +456,8 @@ public class Coordinator {
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
                         needCheckBackendExecStates.add(execState);
+                        LOG.debug("add need check backend {} for fragment, {} job: {}", execState.backend.getId(),
+                                fragment.getFragmentId().asInt(), jobId);
                     }
                     futures.add(Pair.create(execState, execState.execRemoteFragmentAsync()));
 
