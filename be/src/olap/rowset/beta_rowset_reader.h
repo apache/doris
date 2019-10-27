@@ -53,6 +53,8 @@ private:
     BetaRowsetSharedPtr _rowset;
 
     RowsetReaderContext* _context;
+    OlapReaderStatistics _owned_stats;
+
     std::unique_ptr<RowwiseIterator> _iterator;
 
     std::unique_ptr<RowBlockV2> _input_block;

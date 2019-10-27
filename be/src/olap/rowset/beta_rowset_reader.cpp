@@ -38,7 +38,14 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
-    read_options.stats = _context->stats;
+    if (_context->stats == nullptr) {
+        // schema change/compaction should use owned_stats
+        // When doing schema change/compaction,
+        // only statistics of this RowsetReader is necessary.
+        read_options.stats = &_owned_stats;
+    } else {
+        read_options.stats = _context->stats;
+    }
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
