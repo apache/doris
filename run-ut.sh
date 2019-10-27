@@ -233,6 +233,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/lru_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/bloom_filter_test
 ${DORIS_TEST_BINARY_DIR}/olap/bloom_filter_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_block_test
+${DORIS_TEST_BINARY_DIR}/olap/row_block_v2_test
 ${DORIS_TEST_BINARY_DIR}/olap/comparison_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/in_list_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/null_predicate_test

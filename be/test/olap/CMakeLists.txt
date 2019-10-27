@@ -22,6 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/olap")
 
 ADD_BE_TEST(row_block_test)
+ADD_BE_TEST(row_block_v2_test)
 ADD_BE_TEST(bit_field_test)
 ADD_BE_TEST(byte_buffer_test)
 ADD_BE_TEST(run_length_byte_test)
