@@ -238,9 +238,8 @@ public class InsertStmt extends DdlStmt {
         return uuid;
     }
 
-    // Only valid when this statement is streaming
-    public OlapTableSink getOlapTableSink() {
-        return (OlapTableSink) dataSink;
+    public DataSink getDataSink() {
+        return dataSink;
     }
 
     public Database getDbObj() {
@@ -706,7 +705,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    public DataSink createDataSink() throws AnalysisException {
+    private DataSink createDataSink() throws AnalysisException {
         if (dataSink != null) {
             return dataSink;
         }
