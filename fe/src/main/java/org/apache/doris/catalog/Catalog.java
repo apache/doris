@@ -4639,7 +4639,7 @@ public class Catalog {
 
     public String getMasterIp() {
         if (!isReady()) {
-            return null;
+            return "";
         }
         return this.masterIp;
     }

@@ -624,7 +624,7 @@ public class DeployManager extends Daemon {
     }
 
     private boolean isSelf(String ip, Integer port) {
-        if (catalog.getMasterIp() == ip && Config.edit_log_port == port) {
+        if (catalog.getMasterIp().equals(ip) && Config.edit_log_port == port) {
             return true;
         }
         return false;
