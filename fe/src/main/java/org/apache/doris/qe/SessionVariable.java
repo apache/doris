@@ -541,7 +541,11 @@ public class SessionVariable implements Serializable, Writable {
         txIsolation = Text.readString(in);
         autoCommit = in.readBoolean();
         resourceGroup = Text.readString(in);
-        sqlMode = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
+            sqlMode = in.readLong();
+        } else {
+            sqlMode = SqlModeHelper.parseString(Text.readString(in));
+        }
         isReportSucc = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();

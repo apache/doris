@@ -34,7 +34,7 @@ public class SqlModeHelperTest {
         Assert.assertEquals(new Long(2L), SqlModeHelper.parseString(sqlMode));
 
         sqlMode = "";
-        Assert.assertEquals(false, SqlModeHelper.checkValid(sqlMode));
+        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlMode));
         Assert.assertEquals(new Long(0L), SqlModeHelper.parseString(sqlMode));
 
         long sqlModeValue = 2L;
@@ -46,7 +46,7 @@ public class SqlModeHelperTest {
         Assert.assertEquals("", SqlModeHelper.parseValue(sqlModeValue));
 
         sqlModeValue = 0L;
-        Assert.assertEquals(false, SqlModeHelper.checkValid(sqlModeValue));
+        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlModeValue));
         Assert.assertEquals("", SqlModeHelper.parseValue(sqlModeValue));
     }
 }
