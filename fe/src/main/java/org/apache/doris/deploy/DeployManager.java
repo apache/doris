@@ -323,12 +323,6 @@ public class DeployManager extends Daemon {
             return;
         }
 
-        if (!catalog.isMaster()) {
-            LOG.warn("This is not the Master FE. Exit deply manager");
-            exit();
-            return;
-        }
-
         // 0. init
         if (!init()) {
             return;
