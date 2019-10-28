@@ -124,7 +124,7 @@ public class SqlModeHelper {
     }
 
     public static boolean checkValid(Long sqlMode) {
-        if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+        if (sqlMode == 0 && (sqlMode & ~MODE_ALLOWED_MASK) != 0) {
             return false;
         }
         return true;

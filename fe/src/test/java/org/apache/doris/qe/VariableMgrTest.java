@@ -127,7 +127,7 @@ public class VariableMgrTest {
         setVar4 = new SetVar("sql_mode", new StringLiteral(
                 SqlModeHelper.parseString("WRONG_MODE").toString()));
         VariableMgr.setVar(var, setVar4);
-        Assert.assertEquals(0L, setVar4);
+        Assert.assertEquals(0L, var.getSqlMode());
     }
 
     @Test(expected = DdlException.class)
