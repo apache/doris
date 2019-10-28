@@ -203,7 +203,7 @@ Status DataDir::_init_extension_and_capacity() {
     }
 
     std::string data_path = _path + DATA_PREFIX;
-    if (!check_dir_existed(data_path) && create_dir(data_path) != OLAP_SUCCESS) {
+    if (!check_dir_existed(data_path) && !FileUtils::create_dir(data_path).ok()) {
         LOG(WARNING) << "failed to create data root path. path=" << data_path;
         return Status::InternalError("invalid store path: failed to create data directory");
     }
@@ -397,8 +397,7 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
     if (!check_dir_existed(shard_path)) {
-        res = create_dir(shard_path);
-        if (res != OLAP_SUCCESS) {
+        if (!FileUtils::create_dir(shard_path).ok()) {
             LOG(WARNING) << "fail to create path. [path='" << shard_path << "']";
             return res;
         }

@@ -101,12 +101,12 @@ public:
                                       const std::string& fname,
                                       std::unique_ptr<RandomRWFile>* result) = 0;
 
-    // Returns OK if the named file exists.
+    // Returns OK if the path exists.
     //         NotFound if the named file does not exist,
     //                  the calling process does not have permission to determine
     //                  whether this file exists, or if the path is invalid.
     //         IOError if an IO Error was encountered
-    virtual Status file_exists(const std::string& fname) = 0;
+    virtual Status path_exists(const std::string& fname) = 0;
 
     // Store in *result the names of the children of the specified directory.
     // The names are relative to "dir".

@@ -32,6 +32,7 @@
 #include <boost/algorithm/string.hpp>
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -63,7 +64,7 @@ public:
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
-        create_dirs(_engine_data_path);
+        FileUtils::create_dir(_engine_data_path);
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();

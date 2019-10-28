@@ -34,6 +34,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -50,8 +51,7 @@ protected:
             s = remove_all_dir(kRowsetDir);
             ASSERT_EQ(OLAP_SUCCESS, s);
         }
-        s = create_dir(kRowsetDir);
-        ASSERT_EQ(OLAP_SUCCESS, s);
+        ASSERT_TRUE(FileUtils::create_dir(kRowsetDir).ok());
     }
     void TearDown() override {
         if (check_dir_existed(kRowsetDir)) {

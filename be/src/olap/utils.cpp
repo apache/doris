@@ -29,6 +29,7 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <lz4/lz4.h>
+#include "util/file_utils.h"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -996,7 +997,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     string new_file_dir = new_file_dir_stream.str();
     string new_file_path = new_file_dir + "/" + old_file_name;
     // create target dir, or the rename() function will fail.
-    if (!check_dir_existed(new_file_dir) && create_dirs(new_file_dir) != OLAP_SUCCESS) {
+    if (!check_dir_existed(new_file_dir) && !FileUtils::create_dir(new_file_dir).ok()) {
         OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
                 old_file_path.c_str(), new_file_dir.c_str());
         return OLAP_ERR_OS_ERROR;
@@ -1236,45 +1237,6 @@ bool check_dir_existed(const string& path) {
     return false;
 }
 
-OLAPStatus create_dirs(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::create_directories(p)) {
-            VLOG(3) << "create dir success. [path='" << path << "']";
-            return OLAP_SUCCESS;
-        }
-    } catch (const boost::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "error message: [err_msg='" << e.code().message() << "']";
-    } catch (std::exception& e) { 
-        LOG(WARNING) << "error message: [exception='" << e.what() << "']";
-    } catch (...) {
-        // do nothing
-        OLAP_LOG_WARNING("unknown exception.");
-    }
-
-    LOG(WARNING) << "fail to create dir. [path='" << path << "']";
-    
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
-OLAPStatus create_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::create_directory(p)) {
-            VLOG(3) << "create dir success. [path='" << path << "']";
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to create dir. [path='" << path << "']";
-    
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
 OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     boost::filesystem::path src_path(src_dir.c_str());
     boost::filesystem::path dst_path(dst_dir.c_str());
@@ -1369,24 +1331,6 @@ OLAPStatus remove_dir(const string& path) {
     LOG(WARNING) << "fail to del dir. [path='" << path << "' errno=" << Errno::no() << "]";
 
     return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
-OLAPStatus remove_parent_dir(const string& path) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    try {
-        boost::filesystem::path path_name(path);
-        boost::filesystem::path parent_path = path_name.parent_path();
-
-        if (boost::filesystem::exists(parent_path)) {
-            boost::filesystem::remove(parent_path);
-        }
-    } catch (...) {
-        LOG(WARNING) << "fail to del parent path. [chile path='" << path << "']";
-        res = OLAP_ERR_STL_ERROR;
-    }
-
-    return res;
 }
 
 // remove all files or dirs under the dir.
@@ -1484,44 +1428,6 @@ OLAPStatus dir_walk(const string& root,
         }
     }
     closedir(dirp);
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus remove_unused_files(const string& schema_hash_root,
-                           const set<string>& files,
-                           const string& header,
-                           const set<string>& indices,
-                           const set<string>& datas) {
-    // 从列表中去掉使用的的index文件
-    set<string> tmp_set;
-    set_difference(files.begin(),
-                   files.end(),
-                   indices.begin(),
-                   indices.end(),
-                   inserter(tmp_set, tmp_set.end()));
-    
-    // 从列表中去掉使用的的data文件
-    set<string> different_set;
-    set_difference(tmp_set.begin(),
-                   tmp_set.end(),
-                   datas.begin(),
-                   datas.end(),
-                   inserter(different_set, different_set.end()));
-    
-    // 从列表中去掉使用的header文件
-    different_set.erase(header);
-    // 遍历所有没有使用的文件
-    for (set<string>::const_iterator it = different_set.begin(); it != different_set.end(); ++it) {
-        if (ENDSWITH(*it, ".hdr") || ENDSWITH(*it, ".idx") || ENDSWITH(*it, ".dat")) {
-            LOG(INFO) << "delete unused file. [file='" << schema_hash_root + "/" + *it << "']";
-            move_to_trash(boost::filesystem::path(schema_hash_root),
-                          boost::filesystem::path(schema_hash_root + "/" + *it));
-        } else {
-            // 除了.hdr, .idx, .dat其他文件均忽略
-            continue;
-        }
-    }
 
     return OLAP_SUCCESS;
 }
