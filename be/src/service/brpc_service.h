@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-
 #include "common/status.h"
 
 namespace brpc {
