@@ -291,6 +291,7 @@ public class Coordinator {
                 this.exportFiles = Lists.newArrayList();
             }
             this.exportFiles.clear();
+            this.needCheckBackendExecStates.clear();
         } finally {
             lock.unlock();
         }
