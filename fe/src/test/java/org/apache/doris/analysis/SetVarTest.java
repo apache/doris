@@ -65,6 +65,10 @@ public class SetVarTest {
         var = new SetVar("times", new IntLiteral(100L));
         var.analyze(analyzer);
         Assert.assertEquals("DEFAULT times = 100", var.toString());
+
+        var = new SetVar("sql_mode", new StringLiteral("PIPES_AS_CONCAT"));
+        var.analyze(analyzer);
+        Assert.assertEquals("DEFAULT sql_mode = '2'", var.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -72,5 +76,12 @@ public class SetVarTest {
         SetVar var = new SetVar(SetType.DEFAULT, "", new StringLiteral("utf-8"));
         var.analyze(analyzer);
         Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidTypeSqlMode() throws UserException, AnalysisException {
+        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new IntLiteral(10L));
+        var.analyze(analyzer);
+        Assert.fail("No exception throws");
     }
 }
