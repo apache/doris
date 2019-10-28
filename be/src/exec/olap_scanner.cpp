@@ -478,9 +478,6 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
-    COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
-    COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
-
     DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
     DorisMetrics::query_scan_rows.increment(_raw_rows_read);
 
