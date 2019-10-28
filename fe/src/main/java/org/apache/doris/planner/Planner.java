@@ -132,21 +132,21 @@ public class Planner {
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
-    public void createPlanFragments(StatementBase statment, Analyzer analyzer, TQueryOptions queryOptions)
+    public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
             throws NotImplementedException, UserException, AnalysisException {
         QueryStmt queryStmt;
-        if (statment instanceof InsertStmt) {
-            queryStmt = ((InsertStmt) statment).getQueryStmt();
+        if (statement instanceof InsertStmt) {
+            queryStmt = ((InsertStmt) statement).getQueryStmt();
         } else {
-            queryStmt = (QueryStmt) statment;
+            queryStmt = (QueryStmt) statement;
         }
 
-        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statment);
+        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        if (statment instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) statment;
+        if (statement instanceof InsertStmt) {
+            InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
         }
 
@@ -176,13 +176,12 @@ public class Planner {
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
-        if (statment instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) statment;
-
+        if (statement instanceof InsertStmt) {
+            InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
-            rootFragment.setSink(insertStmt.createDataSink());
+            rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.finalize();
-            ArrayList<Expr> exprs = ((InsertStmt) statment).getResultExprs();
+            ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);

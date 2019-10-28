@@ -138,8 +138,8 @@ public class RoutineLoadTaskScheduler extends Daemon {
             // todo(ml): if cluster has been deleted, the job will be cancelled.
             needScheduleTasksQueue.put(routineLoadTaskInfo);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
-                             .add("error_msg", "put task to the rear of queue with error " + e.getMessage())
-                             .build(), e);
+                    .add("error_msg", "put task to the rear of queue with error " + e.getMessage())
+                    .build());
             return;
         }
 

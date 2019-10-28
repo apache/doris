@@ -88,6 +88,8 @@ public class Backend implements Writable {
     // after init it, this variable is set to true.
     private boolean initPathInfo = false;
 
+    long lastMissingHeartbeatTime = -1;
+
     public Backend() {
         this.host = "";
         this.lastUpdateMs = new AtomicLong();
@@ -233,6 +235,10 @@ public class Backend implements Writable {
 
     public void setLastStartTime(long currentTime) {
         this.lastStartTime.set(currentTime);
+    }
+
+    public long getLastMissingHeartbeatTime() {
+        return lastMissingHeartbeatTime;
     }
 
     public boolean isAlive() {
@@ -426,8 +432,6 @@ public class Backend implements Writable {
             // log disk changing
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
         }
-        
-
     }
 
     public static Backend read(DataInput in) throws IOException {
@@ -607,6 +611,7 @@ public class Backend implements Writable {
             }
 
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
+            lastMissingHeartbeatTime = System.currentTimeMillis();
         }
 
         return isChanged;
