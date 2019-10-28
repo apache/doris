@@ -68,7 +68,7 @@ public class SetVarTest {
 
         var = new SetVar("sql_mode", new StringLiteral("PIPES_AS_CONCAT"));
         var.analyze(analyzer);
-        Assert.assertEquals("DEFAULT sql_mode = 2", var.toString());
+        Assert.assertEquals("DEFAULT sql_mode = '2'", var.toString());
     }
 
     @Test(expected = AnalysisException.class)

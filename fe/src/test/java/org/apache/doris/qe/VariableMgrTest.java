@@ -83,7 +83,7 @@ public class VariableMgrTest {
             } else if (row.get(0).equalsIgnoreCase("query_timeout")) {
                 Assert.assertEquals("300", row.get(1));
             } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
-                Assert.assertEquals("4294967296", row.get(1));
+                Assert.assertEquals("DEFAULT", row.get(1));
             }
         }
 
