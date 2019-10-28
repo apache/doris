@@ -138,11 +138,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
-    if (_opts.conditions != nullptr) {
-        RowRanges zone_map_row_ranges;
-        RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
-        RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
-        // TODO(hkp): get row ranges from bloom filter and secondary index
+    if (_opts.conditions != nullptr || _opts.delete_conditions.size() > 0) {
+        RowRanges condition_row_ranges;
+        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
+        RowRanges::ranges_intersection(_row_ranges, condition_row_ranges, &_row_ranges);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -150,7 +149,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     return Status::OK();
 }
 
-Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
+Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
     std::set<int32_t> cids;
     for (auto& column_condition : _opts.conditions->columns()) {
@@ -165,23 +164,18 @@ Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ra
         }
     }
     for (auto& cid : cids) {
-        // get row ranges from zone map
-        if (!_segment->_column_readers[cid]->has_zone_map()) {
-            // there is no zone map for this column
-            continue;
-        }
-        // get row ranges by zone map of this column
-        RowRanges column_zone_map_row_ranges = RowRanges::create_single(num_rows());
+        // get row ranges by conditions against zone map/bf indexes of this column,
+        RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         RETURN_IF_ERROR(
-            _column_iterators[cid]->get_row_ranges_by_zone_map(
+            _column_iterators[cid]->get_row_ranges_by_conditions(
                 _opts.conditions->get_column(cid),
                 column_delete_conditions[cid],
-                &column_zone_map_row_ranges));
-        // intersection different columns's row ranges to get final row ranges by zone map
-        RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
+                &column_row_ranges));
+        // intersection different columns's row ranges to get final row ranges by conditions
+        RowRanges::ranges_intersection(origin_row_ranges, column_row_ranges, &origin_row_ranges);
     }
-    *zone_map_row_ranges = std::move(origin_row_ranges);
-    DorisMetrics::segment_rows_read_by_zone_map.increment(zone_map_row_ranges->count());
+    *condition_row_ranges = std::move(origin_row_ranges);
+    DorisMetrics::segment_rows_read_by_zone_map.increment(condition_row_ranges->count());
     return Status::OK();
 }
 

@@ -140,7 +140,7 @@ public:
     // will return a valid row
     bool valid() const { return _valid; }
 
-    int is_partial_delete() { return _block.delete_state() == DEL_PARTIAL_SATISFIED; }
+    int is_partial_delete() const { return _block.delete_state() == DEL_PARTIAL_SATISFIED; }
 
 private:
     // Load next block into _block

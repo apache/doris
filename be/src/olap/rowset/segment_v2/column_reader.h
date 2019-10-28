@@ -20,7 +20,6 @@
 #include <cstdint> // for uint32_t
 #include <cstddef> // for size_t
 #include <memory> // for unique_ptr
-#include  <unordered_set>
 
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
@@ -92,25 +91,16 @@ public:
 
     bool has_zone_map() const { return _meta.has_zone_map_page(); }
 
+    // get row ranges with zone map
+    // - cond_column is user's query predicate
+    // - delete_conditions is a vector of delete predicate of different version
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                      const std::vector<CondColumn*>& delete_conditions,
+                                      OlapReaderStatistics* stats,
+                                      std::vector<uint32_t>* delete_partial_filtered_pages,
+                                      RowRanges* row_ranges);
+
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
-
-    ColumnZoneMap* column_zone_map() {
-        return _column_zone_map.get();
-    }
-
-    OrdinalPageIndex* ordinal_index() {
-        return _ordinal_index.get();
-    }
-
-    // Read and load necessary column indexes into memory if it hasn't been loaded.
-    // May be called multiple times, subsequent calls will no op.
-    Status ensure_index_loaded() {
-        return _load_index_once.call([this] {
-            RETURN_IF_ERROR(_load_zone_map_index());
-            RETURN_IF_ERROR(_load_ordinal_index());
-            return Status::OK();
-        });
-    }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts,
@@ -119,8 +109,26 @@ private:
                  RandomAccessFile* file);
     Status init();
 
+    // Read and load necessary column indexes into memory if it hasn't been loaded.
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_index_loaded() {
+        return _load_index_once.call([this] {
+            RETURN_IF_ERROR(_load_zone_map_index());
+            RETURN_IF_ERROR(_load_ordinal_index());
+            return Status::OK();
+        });
+    }
+
     Status _load_zone_map_index();
     Status _load_ordinal_index();
+
+    Status _get_filtered_pages(CondColumn* cond_column,
+                               const std::vector<CondColumn*>& delete_conditions,
+                               OlapReaderStatistics* stats,
+                               std::vector<uint32_t>* delete_partial_filtered_pages,
+                               std::vector<uint32_t>* page_indexes);
+
+    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     ColumnReaderOptions _opts;
@@ -165,9 +173,9 @@ public:
 
     virtual rowid_t get_current_ordinal() const = 0;
 
-    virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                              const std::vector<CondColumn*>& delete_conditions,
-                                              RowRanges* row_ranges) { return Status::OK(); }
+    virtual Status get_row_ranges_by_conditions(CondColumn* cond_column,
+                                                const std::vector<CondColumn*>& delete_conditions,
+                                                RowRanges* row_ranges) { return Status::OK(); }
 
 #if 0
     // Call this function every time before next_batch.
@@ -205,10 +213,10 @@ public:
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
-    // get row ranges with zone map
+    // get row ranges by conditions
     // - cond_column is user's query predicate
     // - delete_conditions is a vector of delete predicate of different version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
+    Status get_row_ranges_by_conditions(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) override;
 
@@ -216,12 +224,6 @@ private:
     void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
     Status _load_next_page(bool* eos);
     Status _read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page);
-
-    Status _get_filtered_pages(CondColumn* cond_column,
-                               const std::vector<CondColumn*>& delete_conditions,
-                               std::vector<uint32_t>* page_indexes);
-
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
     ColumnReader* _reader;
@@ -246,7 +248,7 @@ private:
     rowid_t _current_rowid = 0;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
+    std::vector<uint32_t> _delete_partial_statisfied_pages;
 };
 
 // This iterator is used to read default value column

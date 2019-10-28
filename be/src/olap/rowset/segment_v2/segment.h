@@ -75,22 +75,8 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-private:
-    friend class SegmentIterator;
-
-    DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
-    // open segment file and read the minimum amount of necessary information (footer)
-    Status _open();
-    Status _parse_footer();
-    Status _create_column_readers();
-
     Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
-
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
 
     uint32_t num_rows_per_block() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -113,6 +99,17 @@ private:
         DCHECK(num_rows() > 0);
         return _sk_index_decoder->num_items() - 1;
     }
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(Segment);
+    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
+    // open segment file and read the minimum amount of necessary information (footer)
+    Status _open();
+    Status _parse_footer();
+    Status _create_column_readers();
+    // Load and decode short key index.
+    // May be called multiple times, subsequent calls will no op.
+    Status _load_index();
 
 private:
     std::string _fname;

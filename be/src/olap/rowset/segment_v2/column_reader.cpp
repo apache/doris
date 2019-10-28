@@ -175,6 +175,83 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
     return Status::OK();
 }
 
+Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                                const std::vector<CondColumn*>& delete_conditions,
+                                                OlapReaderStatistics* stats,
+                                                std::vector<uint32_t>* delete_partial_filtered_pages,
+                                                RowRanges* row_ranges) {
+    RETURN_IF_ERROR(_ensure_index_loaded());
+
+    std::vector<uint32_t> page_indexes;
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, delete_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
+    return Status::OK();
+}
+
+Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
+                                         const std::vector<CondColumn*>& delete_conditions,
+                                         OlapReaderStatistics* stats,
+                                         std::vector<uint32_t>* delete_partial_filtered_pages,
+                                         std::vector<uint32_t>* page_indexes) {
+    FieldType type = _type_info->type();
+    const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
+    int32_t page_size = _column_zone_map->num_pages();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+    for (int32_t i = 0; i < page_size; ++i) {
+        // min value and max value are valid if has_not_null is true
+        if (zone_maps[i].has_not_null()) {
+            min_value->from_string(zone_maps[i].min());
+            max_value->from_string(zone_maps[i].max());
+        }
+        // for compatible original Cond eval logic
+        // TODO(hkp): optimize OlapCond
+        if (zone_maps[i].has_null()) {
+            // for compatible, if exist null, original logic treat null as min
+            min_value->set_null();
+            if (!zone_maps[i].has_not_null()) {
+                // for compatible OlapCond's 'is not null'
+                max_value->set_null();
+            }
+        }
+        if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
+            bool should_read = true;
+            for (auto& col_cond : delete_conditions) {
+                int state = col_cond->del_eval({min_value.get(), max_value.get()});
+                if (state == DEL_SATISFIED) {
+                    should_read = false;
+                    rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+                    rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+                    stats->rows_del_filtered += page_last_id - page_first_id + 1;
+                    break;
+                } else if (state == DEL_PARTIAL_SATISFIED) {
+                    delete_partial_filtered_pages->push_back(i);
+                }
+            }
+            if (should_read) {
+                page_indexes->push_back(i);
+            }
+        } else {
+            // page filtered by zone map
+            rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+            rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+            stats->rows_stats_filtered += page_last_id - page_first_id + 1;
+        }
+    }
+    return Status::OK();
+}
+
+Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+    row_ranges->clear();
+    for (auto i : page_indexes) {
+        rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
+        rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
+        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
+        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+    }
+    return Status::OK();
+}
+
 Status ColumnReader::_load_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
@@ -202,7 +279,7 @@ Status ColumnReader::_load_zone_map_index() {
 }
 
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(ensure_index_loaded());
+    RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to first rowid");
@@ -211,7 +288,7 @@ Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
 }
 
 Status ColumnReader::seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(ensure_index_loaded());
+    RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(rowid);
     if (!iter->valid()) {
         return Status::NotFound(Substitute("Failed to seek to rowid $0, ", rowid));
@@ -288,8 +365,9 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
             }
         }
 
-        bool is_partial = (_delete_partial_statisfied_pages.find(_page->page_index)
-                != _delete_partial_statisfied_pages.end());
+        auto iter = std::find(_delete_partial_statisfied_pages.begin(),
+                _delete_partial_statisfied_pages.end(), _page->page_index);
+        bool is_partial = iter != _delete_partial_statisfied_pages.end();
         if (is_partial) {
             dst->set_delete_state(DEL_PARTIAL_SATISFIED);
         } else {
@@ -417,77 +495,16 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     return Status::OK();
 }
 
-Status FileColumnIterator::_get_filtered_pages(CondColumn* cond_column,
-                                         const std::vector<CondColumn*>& delete_conditions,
-                                         std::vector<uint32_t>* page_indexes) {
-    FieldType type = _reader->type_info()->type();
-    const std::vector<ZoneMapPB>& zone_maps = _reader->column_zone_map()->get_column_zone_map();
-    int32_t page_size = _reader->column_zone_map()->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
-    for (int32_t i = 0; i < page_size; ++i) {
-        // min value and max value are valid if has_not_null is true
-        if (zone_maps[i].has_not_null()) {
-            min_value->from_string(zone_maps[i].min());
-            max_value->from_string(zone_maps[i].max());
-        }
-        // for compatible original Cond eval logic
-        // TODO(hkp): optimize OlapCond
-        if (zone_maps[i].has_null()) {
-            // for compatible, if exist null, original logic treat null as min
-            min_value->set_null();
-            if (!zone_maps[i].has_not_null()) {
-                // for compatible OlapCond's 'is not null'
-                max_value->set_null();
-            }
-        }
-        if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
-            bool should_read = true;
-            for (auto& col_cond : delete_conditions) {
-                int state = col_cond->del_eval({min_value.get(), max_value.get()});
-                if (state == DEL_SATISFIED) {
-                    should_read = false;
-                    rowid_t page_first_id = _reader->ordinal_index()->get_first_row_id(i);
-                    rowid_t page_last_id = _reader->ordinal_index()->get_last_row_id(i);
-                    _opts.stats->rows_del_filtered =+ page_last_id - page_first_id + 1;
-                    break;
-                } else if (state == DEL_PARTIAL_SATISFIED) {
-                    _delete_partial_statisfied_pages.insert(i);
-                }
-            }
-            if (should_read) {
-                page_indexes->push_back(i);
-            }
-        } else {
-            // page filtered by zone map
-            rowid_t page_first_id = _reader->ordinal_index()->get_first_row_id(i);
-            rowid_t page_last_id = _reader->ordinal_index()->get_last_row_id(i);
-            _opts.stats->rows_stats_filtered += page_last_id - page_first_id + 1;
-        }
-    }
-    return Status::OK();
-}
-
-Status FileColumnIterator::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
-    row_ranges->clear();
-    for (auto i : page_indexes) {
-        rowid_t page_first_id = _reader->ordinal_index()->get_first_row_id(i);
-        rowid_t page_last_id = _reader->ordinal_index()->get_last_row_id(i);
-        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
-    }
-    return Status::OK();
-}
-
-Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
+Status FileColumnIterator::get_row_ranges_by_conditions(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) {
-    DCHECK(_reader->has_zone_map());
-    RETURN_IF_ERROR(_reader->ensure_index_loaded());
+    if (!_reader->has_zone_map()) {
+        return Status::OK();
+    }
 
-    std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, &page_indexes));
-    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
+    RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions, 
+            _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
+    // TODO(hkp): get row ranges from bloom filter and secondary index
     return Status::OK();
 }
 
