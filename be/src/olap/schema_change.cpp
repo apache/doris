@@ -798,6 +798,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             result = false;
             goto DIRECTLY_PROCESS_ERR;
         }
+        // rows filtered by delete handler one by one
         add_filtered_rows(filtered_rows);
 
         if (!_write_row_block(rowset_writer, new_row_block)) {
@@ -815,6 +816,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         goto DIRECTLY_PROCESS_ERR;
     }
 
+    // rows filtered by zone map against delete handler
     add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
