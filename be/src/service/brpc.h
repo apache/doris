@@ -56,4 +56,3 @@
 #include <brpc/closure_guard.h>
 #include <brpc/reloadable_flags.h>
 #include <brpc/protocol.h>
-#include <gflags/gflags_declare.h>
