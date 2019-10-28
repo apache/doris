@@ -23,3 +23,4 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/udf")
 
 #ADD_BE_TEST(udf_test)
 #ADD_BE_TEST(uda_test)
+ADD_BE_TEST(record_store_test)
