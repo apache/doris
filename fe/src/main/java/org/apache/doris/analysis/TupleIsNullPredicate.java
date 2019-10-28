@@ -119,16 +119,25 @@ public class TupleIsNullPredicate extends Predicate {
      * if required to make expr nullable. Otherwise, returns expr.
      */
     public static Expr wrapExpr(Expr expr, List<TupleId> tids, Analyzer analyzer)
-        throws UserException {
-    if (!requiresNullWrapping(expr, analyzer)) {
-        return expr;
-    }
+            throws UserException {
+        if (!requiresNullWrapping(expr, analyzer)) {
+            return expr;
+        }
         List<Expr> params = Lists.newArrayList();
         params.add(new TupleIsNullPredicate(tids));
         params.add(new NullLiteral());
         params.add(expr);
         Expr ifExpr = new FunctionCallExpr("if", params);
         ifExpr.analyzeNoThrow(analyzer);
+        // The type of function which is different from the type of expr will return the incorrect result in query.
+        // Example:
+        //   the type of expr is date
+        //   the type of function is int
+        //   So, the upper fragment will receive a int value instead of date while the result expr is date.
+        // If there is no cast function, the result of query will be incorrect.
+        if (expr.getType() != ifExpr.getType()) {
+            ifExpr = ifExpr.uncheckedCastTo(expr.getType());
+        }
         return ifExpr;
     }
 
