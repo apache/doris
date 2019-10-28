@@ -1015,7 +1015,7 @@ public class Catalog {
         }
     }
 
-    private void transferToMaster() throws IOException {
+    private void transferToMaster() {
         // stop replayer
         if (replayer != null) {
             replayer.exit();
@@ -2173,20 +2173,18 @@ public class Catalog {
                     }
 
                     /*
-                     * INIT -> MASTER: transferToMaster INIT -> FOLLOWER/OBSERVER:
-                     * transferToNonMaster UNKNOWN -> MASTER: transferToMaster UNKNOWN ->
-                     * FOLLOWER/OBSERVER: transferToNonMaster FOLLOWER -> MASTER: transferToMaster
+                     * INIT -> MASTER: transferToMaster
+                     * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
+                     * UNKNOWN -> MASTER: transferToMaster
+                     * UNKNOWN -> FOLLOWER/OBSERVER: transferToNonMaster
+                     * FOLLOWER -> MASTER: transferToMaster
                      * FOLLOWER/OBSERVER -> INIT/UNKNOWN: set isReady to false
                      */
                     switch (feType) {
                         case INIT: {
                             switch (newType) {
                                 case MASTER: {
-                                    try {
-                                        transferToMaster();
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                    }
+                                    transferToMaster();
                                     break;
                                 }
                                 case FOLLOWER:
@@ -2204,11 +2202,7 @@ public class Catalog {
                         case UNKNOWN: {
                             switch (newType) {
                                 case MASTER: {
-                                    try {
-                                        transferToMaster();
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                    }
+                                    transferToMaster();
                                     break;
                                 }
                                 case FOLLOWER:
@@ -2224,11 +2218,7 @@ public class Catalog {
                         case FOLLOWER: {
                             switch (newType) {
                                 case MASTER: {
-                                    try {
-                                        transferToMaster();
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                    }
+                                    transferToMaster();
                                     break;
                                 }
                                 case UNKNOWN: {
