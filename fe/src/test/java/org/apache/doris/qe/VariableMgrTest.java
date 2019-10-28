@@ -119,7 +119,7 @@ public class VariableMgrTest {
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
 
-        SetVar setVar4 = new SetVar(SetType.GLOBAL, "sql_mode", new StringLiteral(
+        SetVar setVar4 = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral(
                 SqlModeHelper.parseString("PIPES_AS_CONCAT").toString()));
         VariableMgr.setVar(var, setVar4);
         Assert.assertEquals(2L, var.getSqlMode());
