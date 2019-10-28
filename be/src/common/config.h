@@ -481,6 +481,9 @@ namespace config {
     // config for tablet meta checkpoint
     CONF_Int32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
     CONF_Int32(tablet_meta_checkpoint_min_interval_secs, "600");
+
+    // brpc config
+    CONF_Int64(brpc_max_body_size, "67108864")
 } // namespace config
 
 } // namespace doris
