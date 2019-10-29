@@ -555,7 +555,8 @@ public class FunctionCallExpr extends Expr {
         } else {
             // now first find function in built-in functions
             if (Strings.isNullOrEmpty(fnName.getDb())) {
-                fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
+                Type[] childTypes = collectChildReturnTypes();
+                fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }
 
@@ -638,7 +639,8 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < argTypes.length; ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(args.length - 1, i);
-                if (!argTypes[i].matchesType(args[ix]) && !(argTypes[i].isDateType() && args[ix].isDateType())) {
+                if (!argTypes[i].matchesType(args[ix]) && !(
+                        argTypes[i].isDateType() && args[ix].isDateType())) {
                     uncheckedCastChild(args[ix], i);
                     //if (argTypes[i] != args[ix]) castChild(args[ix], i);
                 }
@@ -722,5 +724,14 @@ public class FunctionCallExpr extends Expr {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + Objects.hashCode(opcode);
+        result = 31 * result + Objects.hashCode(fnName);
+        result = 31 * result + Objects.hashCode(fnParams);
+        return result;
     }
 }
