@@ -63,8 +63,6 @@ public:
 
     virtual RowsetId rowset_id() = 0;
 
-    virtual DataDir* data_dir() = 0;
-
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };

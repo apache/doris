@@ -63,7 +63,6 @@ protected:
 
     BetaRowset(const TabletSchema* schema,
                std::string rowset_path,
-               DataDir* data_dir,
                RowsetMetaSharedPtr rowset_meta);
 
     OLAPStatus init() override;

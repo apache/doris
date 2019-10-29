@@ -217,7 +217,6 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     RowsetSharedPtr rowset;
     auto status = RowsetFactory::create_rowset(_rowset_writer_context.tablet_schema,
                                                _rowset_writer_context.rowset_path_prefix,
-                                               _rowset_writer_context.data_dir,
                                                _current_rowset_meta,
                                                &rowset);
     if (status != OLAP_SUCCESS) {

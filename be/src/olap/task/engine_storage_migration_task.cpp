@@ -185,7 +185,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
         // it will change rowset id and its create time
         // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-        res = SnapshotManager::instance()->convert_rowset_ids(*(stores[0]), schema_hash_path, tablet_id, schema_hash, nullptr);
+        res = SnapshotManager::instance()->convert_rowset_ids(schema_hash_path, tablet_id, schema_hash, nullptr);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert rowset id when do storage migration"
                          << " path = " << schema_hash_path;

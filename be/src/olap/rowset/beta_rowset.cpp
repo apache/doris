@@ -32,9 +32,8 @@ std::string BetaRowset::segment_file_path(const std::string& dir, const RowsetId
 
 BetaRowset::BetaRowset(const TabletSchema* schema,
                        string rowset_path,
-                       DataDir* data_dir,
                        RowsetMetaSharedPtr rowset_meta)
-    : Rowset(schema, std::move(rowset_path), data_dir, std::move(rowset_meta)) {
+    : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
 }
 
 OLAPStatus BetaRowset::init() {

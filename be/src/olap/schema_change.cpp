@@ -1095,7 +1095,6 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.rowset_path_prefix = new_tablet->tablet_path();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
-    context.data_dir = new_tablet->data_dir();
     context.version = version;
     context.version_hash = version_hash;
     VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()
