@@ -39,28 +39,12 @@
 
 namespace doris {
 
+Status FileUtils::create_dir(const std::string& dir_path, Env* env) {
+    return env->create_dir(dir_path);
+}
+
 Status FileUtils::create_dir(const std::string& dir_path) {
-    try {
-        if (boost::filesystem::exists(dir_path.c_str())) {
-            // No need to create one
-            if (!boost::filesystem::is_directory(dir_path.c_str())) {
-                std::stringstream ss;
-                ss << "Path(" << dir_path << ") already exists, but not a directory.";
-                return Status::InternalError(ss.str());
-            }
-        } else {
-            if (!boost::filesystem::create_directories(dir_path.c_str())) {
-                std::stringstream ss;
-                ss << "make directory failed. path=" << dir_path;
-                return Status::InternalError(ss.str());
-            }
-        }
-    } catch (...) {
-        std::stringstream ss;
-        ss << "make directory failed. path=" << dir_path;
-        return Status::InternalError(ss.str());
-    }
-    return Status::OK();
+    return create_dir(dir_path, Env::Default());
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {

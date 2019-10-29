@@ -34,6 +34,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
 
@@ -53,7 +54,7 @@ void set_up() {
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = std::string(buffer) + "/data_test";
     remove_all_dir(config::storage_root_path);
-    create_dir(config::storage_root_path);
+    FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
