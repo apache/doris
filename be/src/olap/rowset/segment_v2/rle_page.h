@@ -97,15 +97,6 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
-        _finished = true;
-        // here should Flush first and then encode the count header
-        // or it will lead to a bug if the header is less than 8 byte and the data is small
-        _rle_encoder->Flush();
-        encode_fixed32_le(&_buf[0], _count);
-        return Slice(_buf.data(), _buf.size());
-    }
-
     void reset() override {
         _count = 0;
         _rle_encoder->Clear();
@@ -122,11 +113,14 @@ public:
 
     // this api will release the memory ownership of encoded data
     // Note:
-    //     release() should be called after finish
     //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buf.release();
-        (void)ret;
+    OwnedSlice release() override {
+        _finished = true;
+        // here should Flush first and then encode the count header
+        // or it will lead to a bug if the header is less than 8 byte and the data is small
+        _rle_encoder->Flush();
+        encode_fixed32_le(&_buf[0], _count);
+        return OwnedSlice(Slice(_buf.release(), _buf.size()));
     }
 
 private:

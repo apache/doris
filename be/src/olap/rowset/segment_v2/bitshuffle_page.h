@@ -26,6 +26,7 @@
 
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "util/owned_slice.h"
 #include "gutil/port.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
@@ -105,10 +106,6 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
-        return _finish(SIZE_OF_TYPE);
-    }
-
     void reset() override {
         auto block_size = _options.data_page_size;
         _count = 0;
@@ -132,15 +129,13 @@ public:
 
     // this api will release the memory ownership of encoded data
     // Note:
-    //     release() should be called after finish
     //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buffer.release();
-        (void)ret;
+    OwnedSlice release() override {
+        return _release(SIZE_OF_TYPE);
     }
 
 private:
-    Slice _finish(int final_size_of_type) {
+    OwnedSlice _release(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
@@ -163,13 +158,14 @@ private:
             warn_with_bitshuffle_error(bytes);
             // It does not matter what will be returned here,
             // since we have logged fatal in warn_with_bitshuffle_error().
-            return Slice();
+            return OwnedSlice(Slice((const uint8_t*)nullptr, 0));
         }
         encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
-        return Slice(_buffer.data(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+
+        return OwnedSlice(Slice(_buffer.release(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes));
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;

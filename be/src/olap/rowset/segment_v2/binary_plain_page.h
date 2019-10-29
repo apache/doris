@@ -78,18 +78,6 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
-        _finished = true;
-
-        // Set up trailer
-        for (int i = 0; i < _offsets.size(); i++) {
-            put_fixed32_le(&_buffer, _offsets[i]);
-        }
-        put_fixed32_le(&_buffer, _offsets.size());
-
-        return Slice(_buffer);
-    }
-
     void reset() override {
         _offsets.clear();
         _buffer.clear();
@@ -109,12 +97,19 @@ public:
 
     // this api will release the memory ownership of encoded data
     // Note:
-    //     release() should be called after finish
     //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buffer.release();
+    OwnedSlice release() override {
+        _finished = true;
+
+        // Set up trailer
+        for (int i = 0; i < _offsets.size(); i++) {
+            put_fixed32_le(&_buffer, _offsets[i]);
+        }
+        put_fixed32_le(&_buffer, _offsets.size());
+
+        Slice slice(_buffer.release(), _buffer.size());
         _buffer.reserve(_options.data_page_size);
-        (void) ret;
+        return OwnedSlice(slice);
     }
 
     void update_prepared_size(size_t added_size) {

@@ -102,14 +102,13 @@ private:
     struct Page {
         int32_t first_rowid;
         int32_t num_rows;
-        Slice null_bitmap = Slice((uint8_t*)nullptr, 0);
-        Slice data = Slice((uint8_t*)nullptr, 0);
+        Slice null_bitmap = Slice((const uint8_t*)nullptr, 0);
+        OwnedSlice data = OwnedSlice(Slice((const uint8_t*)nullptr, 0));
 
         Page* next = nullptr;
 
         ~Page() {
             delete[] null_bitmap.data;
-            delete[] data.data;
         }
     };
 

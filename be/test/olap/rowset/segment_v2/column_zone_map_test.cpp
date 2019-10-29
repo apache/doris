@@ -45,8 +45,8 @@ public:
             builder.add(nullptr, 1);
         }
         builder.flush();
-        Slice zone_map_page = builder.finish();
-        ColumnZoneMap column_zone_map(zone_map_page);
+        OwnedSlice zone_map_page = builder.finish();
+        ColumnZoneMap column_zone_map(zone_map_page.slice);
         Status status = column_zone_map.load();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(3, column_zone_map.num_pages());
@@ -88,8 +88,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
         builder.add(nullptr, 1);
     }
     builder.flush();
-    Slice zone_map_page = builder.finish();
-    ColumnZoneMap column_zone_map(zone_map_page);
+    OwnedSlice zone_map_page = builder.finish();
+    ColumnZoneMap column_zone_map(zone_map_page.slice);
     Status status = column_zone_map.load();
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(3, column_zone_map.num_pages());
