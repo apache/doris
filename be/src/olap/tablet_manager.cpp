@@ -52,6 +52,7 @@
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "util/file_utils.h"
 
 using apache::thrift::ThriftDebugString;
 using boost::filesystem::canonical;
@@ -437,8 +438,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
             continue;
         } else {
             data_dir->add_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
-            res = create_dirs(schema_hash_dir);
-            if (res != OLAP_SUCCESS) {
+            if(!FileUtils::create_dir(schema_hash_dir).ok()) {
                 LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
                 continue;
             }

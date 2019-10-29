@@ -35,13 +35,21 @@ inline bool is_dot_or_dotdot(const char* name) {
 class FileUtils {
 public:
 
-    // Create directory of dir_path, 
+    // Create directory of dir_path by default Env, 
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
     //
     // RETURNS:
     //  Status::OK()      if create directory success or directory already exists
     static Status create_dir(const std::string& dir_path);
+
+    // Create directory of dir_path, 
+    // This function will create directory recursively,
+    // if dir's parent directory doesn't exist
+    //
+    // RETURNS:
+    //  Status::OK()      if create directory success or directory already exists
+    static Status create_dir(const std::string& dir_path, Env* env);
 
     // Delete file recursively.
     static Status remove_all(const std::string& dir_path);

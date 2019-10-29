@@ -333,7 +333,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         VLOG(10) << "remove the old schema_full_path.";
         remove_all_dir(schema_full_path);
     }
-    create_dirs(schema_full_path);
+    FileUtils::create_dir(schema_full_path);
     path boost_path(snapshot_id_path);
     string snapshot_id = canonical(boost_path).string();
     do {

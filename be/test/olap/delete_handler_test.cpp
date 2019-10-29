@@ -33,6 +33,7 @@
 #include "olap/utils.h"
 #include "olap/options.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 
 using namespace std;
 using namespace doris;
@@ -50,7 +51,7 @@ void set_up() {
     config::storage_root_path = string(buffer) + "/data_test";
     remove_all_dir(config::storage_root_path);
     remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
-    create_dir(config::storage_root_path);
+    FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
     config::min_file_descriptor_number = 1000;
@@ -164,7 +165,7 @@ protected:
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -273,7 +274,7 @@ protected:
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -610,7 +611,7 @@ protected:
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
