@@ -21,7 +21,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -133,7 +132,7 @@ public abstract class RoutineLoadTaskInfo {
         return isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs;
     }
 
-    abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
+    abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
 
     // begin the txn of this task
     // return true if begin successfully, return false if begin failed.

@@ -32,6 +32,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -98,7 +100,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
-            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < MIN_SCHEDULE_INTERVAL_MS) {
+            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < routineLoadTaskInfo.getTimeoutMs()) {
                 // delay this schedule, to void too many failure
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
                 return;
@@ -179,7 +181,11 @@ public class RoutineLoadTaskScheduler extends Daemon {
         // set the executeStartTimeMs of task
         routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
         
-        submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
+        if (!submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask)) {
+            // submit failed. push it back to the queue to wait next scheduling
+            routineLoadTaskInfo.setBeId(-1);
+            needScheduleTasksQueue.put(routineLoadTaskInfo);
+        }
     }
 
     private void updateBackendSlotIfNecessary() {
@@ -203,11 +209,11 @@ public class RoutineLoadTaskScheduler extends Daemon {
         LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
-    private void submitTask(long beId, TRoutineLoadTask tTask) {
+    private boolean submitTask(long beId, TRoutineLoadTask tTask) {
         Backend backend = Catalog.getCurrentSystemInfo().getBackend(beId);
         if (backend == null) {
             LOG.warn("failed to send tasks to backend {} because not exist", beId);
-            return;
+            return false;
         }
 
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
@@ -215,11 +221,20 @@ public class RoutineLoadTaskScheduler extends Daemon {
         BackendService.Client client = null;
         try {
             client = ClientPool.backendPool.borrowObject(address);
-            client.submit_routine_load_task(Lists.newArrayList(tTask));
-            LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
+            TStatus tStatus = client.submit_routine_load_task(Lists.newArrayList(tTask));
             ok = true;
+
+            if (tStatus.getStatus_code() == TStatusCode.OK) {
+                LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
+                return true;
+            } else {
+                LOG.info("failed to submit task {}, BE: {}, error code: {}",
+                        DebugUtil.printId(tTask.getId()), beId, tStatus.getStatus_code());
+                return false;
+            }
         } catch (Exception e) {
             LOG.warn("task send error. backend[{}]", beId, e);
+            return false;
         } finally {
             if (ok) {
                 ClientPool.backendPool.returnObject(address, client);
