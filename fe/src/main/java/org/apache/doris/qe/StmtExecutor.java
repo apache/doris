@@ -585,6 +585,11 @@ public class StmtExecutor {
         } else {
             insertStmt = (InsertStmt) parsedStmt;
         }
+
+        // assign request_id
+        UUID uuid = insertStmt.getUUID();
+        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
         if (insertStmt.getQueryStmt().isExplain()) {
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
             handleExplainStmt(explainString);
@@ -594,15 +599,11 @@ public class StmtExecutor {
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
 
-        UUID uuid = insertStmt.getUUID();
         String label = insertStmt.getLabel();
 
         long loadedRows = 0;
         int filteredRows = 0;
         try {
-            // assign request_id
-            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
-
             coord = new Coordinator(context, analyzer, planner);
             coord.setQueryType(TQueryType.LOAD);
 

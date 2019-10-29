@@ -278,10 +278,10 @@ public class InsertStmt extends DdlStmt {
         createDataSink();
 
         db = analyzer.getCatalog().getDb(tblName.getDb());
+        uuid = UUID.randomUUID();
 
         // create label and begin transaction
-        if (!isTransactionBegin) {
-            uuid = UUID.randomUUID();
+        if (!isExplain() && !isTransactionBegin) {
             if (Strings.isNullOrEmpty(label)) {
                 label = "insert_" + uuid.toString();
             }
@@ -296,7 +296,7 @@ public class InsertStmt extends DdlStmt {
         }
 
         // init data sink
-        if (targetTable instanceof OlapTable) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             sink.init(loadId, transactionId, db.getId());
@@ -733,7 +733,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void finalize() throws UserException {
-        if (targetTable instanceof OlapTable) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).finalize();
             // add table indexes to transaction state
             TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
@@ -761,5 +761,14 @@ public class InsertStmt extends DdlStmt {
         dataSink = null;
         dataPartition = null;
         targetColumns.clear();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (isExplain()) {
+            return null;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }
