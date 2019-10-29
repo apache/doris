@@ -135,7 +135,7 @@ public class TupleIsNullPredicate extends Predicate {
         //   the type of function is int
         //   So, the upper fragment will receive a int value instead of date while the result expr is date.
         // If there is no cast function, the result of query will be incorrect.
-        if (expr.getType() != ifExpr.getType()) {
+        if (expr.getType().getPrimitiveType() != ifExpr.getType().getPrimitiveType()) {
             ifExpr = ifExpr.uncheckedCastTo(expr.getType());
         }
         return ifExpr;
