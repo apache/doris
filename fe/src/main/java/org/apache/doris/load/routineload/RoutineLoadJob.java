@@ -420,9 +420,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if (routineLoadTaskInfo.isRunning()
-                        && ((System.currentTimeMillis() - routineLoadTaskInfo.getExecuteStartTimeMs())
-                        > maxBatchIntervalS * 2 * 1000)) {
+                if (routineLoadTaskInfo.isTimeout()) {
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -707,6 +705,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // txn will be aborted but progress will be update
     // progress will be update otherwise the progress will be hung
     // *** Please do not call after individually. It must be combined use with before ***
+    // Case A:
+    // If this task is aborted by timeout checker in GlobalTransactionMgr, it does not hold the writelock
+    // so when unlock the write lock, we should check if the current thread holding the lock.
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReasonString)
             throws UserException {
@@ -757,7 +758,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                              .add("error_msg", "change job state to paused when task has been aborted with error " + e.getMessage())
                              .build(), e);
         } finally {
-            writeUnlock();
+            if (lock.isWriteLockedByCurrentThread()) {
+                // case A.
+                writeUnlock();
+            }
         }
     }
 

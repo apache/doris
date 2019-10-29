@@ -87,8 +87,8 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
-                .stream().collect(Collectors.toMap(beId -> beId, beId -> Config.max_concurrent_task_num_per_be));
+        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true).stream().collect(
+                Collectors.toMap(beId -> beId, beId -> Config.max_concurrent_task_num_per_be));
     }
 
     // this is not real-time number
@@ -323,6 +323,9 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
+    // get the BE id with minimum running task on it
+    // return -1 if no BE is available.
+    // throw exception if unrecoverable error happend.
     public long getMinTaskBeId(String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -351,15 +354,15 @@ public class RoutineLoadManager implements Writable {
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
             }
-            if (result < 0) {
-                throw new LoadException("There is no empty slot in cluster");
-            }
             return result;
         } finally {
             readUnlock();
         }
     }
 
+    // check if the specified BE is available for running task
+    // return true if it is available. return false if otherwise.
+    // throw exception if unrecoverable errors happen.
     public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {

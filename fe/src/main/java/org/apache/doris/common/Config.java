@@ -829,14 +829,15 @@ public class Config extends ConfigBase {
     @ConfField public static boolean enable_metric_calculator = true;
 
     /*
-     * the max concurrent task num of a routine load task
+     * the max concurrent routine load task num of a routine load task
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;
 
     /*
-     * the max concurrent task num per be
-     * The cluster max concurrent task num = max_concurrent_task_num_per_be * number of be
+     * the max concurrent routine load task num per BE.
+     * This is to limit the num of routine load tasks sending to a BE, and it should also less or equal
+     * than 10, which is the routine load task thread pool size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_concurrent_task_num_per_be = 10;

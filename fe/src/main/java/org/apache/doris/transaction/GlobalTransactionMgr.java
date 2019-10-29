@@ -37,7 +37,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.load.Load;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
@@ -156,7 +155,7 @@ public class GlobalTransactionMgr {
                 throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
             }
             if (runningTxnNums.get(dbId) != null
-                    && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
+                    && runningTxnNums.get(dbId) >= Config.max_running_txn_num_per_db) {
                 throw new BeginTransactionException("current running txns on db " + dbId + " is "
                         + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
             }
@@ -770,49 +769,11 @@ public class GlobalTransactionMgr {
     }
     
     /**
-     * in this method should get db lock or load lock first then get txn manager lock , or there will be dead lock
+     * in this method should get db lock first then get txn manager lock , or there will be dead lock
      */
-    public void removeOldTransactions() {
+    public void removeOldAndTimeoutTransactions() {
         long currentMillis = System.currentTimeMillis();
 
-        // TODO(cmy): the following 3 steps are no needed anymore, we can only use the last step to check
-        // the timeout txn. Because, now we set timeout for each txn same as timeout of their job's.
-        // But we keep the 1 and 2 step for compatibility. They should be deleted in 0.11.0
-
-        // to avoid dead lock (transaction lock and load lock), we do this in 3 phases
-        // 1. get all related db ids of txn in idToTransactionState
-        Set<Long> dbIds = Sets.newHashSet();
-        readLock();
-        try {
-            for (TransactionState transactionState : idToTransactionState.values()) {
-                if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED
-                        || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    if ((currentMillis - transactionState.getFinishTime()) / 1000 > Config.label_keep_max_second) {
-                        dbIds.add(transactionState.getDbId());
-                    }
-                } else {
-                    // check if job is also deleted
-                    // streaming insert stmt not add to fe load job, should use this method to
-                    // recycle the timeout insert stmt load job
-                    if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
-                        dbIds.add(transactionState.getDbId());
-                    }
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        // 2. get all load jobs' txn id of these databases
-        Map<Long, Set<Long>> dbIdToTxnIds = Maps.newHashMap();
-        Load loadInstance = Catalog.getCurrentCatalog().getLoadInstance();
-        for (Long dbId : dbIds) {
-            Set<Long> txnIds = loadInstance.getTxnIdsByDb(dbId);
-            dbIdToTxnIds.put(dbId, txnIds);
-        }
-
-        // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
         List<TransactionState> abortedTxns = Lists.newArrayList();
         writeLock();
         try {
@@ -821,39 +782,31 @@ public class GlobalTransactionMgr {
                 if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED
                         || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                     if ((currentMillis - transactionState.getFinishTime()) / 1000 > Config.label_keep_max_second) {
-                        // if this txn is not from front end then delete it immediately
-                        // if this txn is from front end but could not find in job list, then delete it immediately
-                        if (transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
-                            transactionsToDelete.add(transactionState.getTransactionId());
-                        }
+                        // remove the txn which labels are expired
+                        transactionsToDelete.add(transactionState.getTransactionId());
                     }
                 } else {
-                    // check if job is also deleted
-                    // streaming insert stmt not add to fe load job, should use this method to
-                    // recycle the timeout insert stmt load job
                     if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
                             && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
-                        if ((transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))) {
-                            transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                            transactionState.setFinishTime(System.currentTimeMillis());
-                            transactionState.setReason("transaction is timeout and is cancelled automatically");
-                            unprotectUpsertTransactionState(transactionState);
-                            abortedTxns.add(transactionState);
-                        }
+                        // txn is running but timeout, abort it.
+                        transactionState.setTransactionStatus(TransactionStatus.ABORTED);
+                        transactionState.setFinishTime(System.currentTimeMillis());
+                        transactionState.setReason("transaction is timeout and is cancelled automatically");
+                        unprotectUpsertTransactionState(transactionState);
+                        abortedTxns.add(transactionState);
                     }
                 }
             }
             
             for (Long transId : transactionsToDelete) {
                 deleteTransaction(transId);
-                LOG.info("transaction [" + transId + "] is expired, remove it from transaction table");
+                LOG.info("transaction [" + transId + "] is expired, remove it from transaction manager");
             }
         } finally {
             writeUnlock();
         }
 
+        // handle aborted txns
         for (TransactionState abortedTxn : abortedTxns) {
             try {
                 abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
@@ -862,19 +815,6 @@ public class GlobalTransactionMgr {
                 LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);
             }
         }
-    }
-    
-    private boolean checkTxnHasRelatedJob(TransactionState txnState, Map<Long, Set<Long>> dbIdToTxnIds) {
-        // TODO: put checkTxnHasRelatedJob into Load
-        Set<Long> txnIds = dbIdToTxnIds.get(txnState.getDbId());
-        if (txnIds == null) {
-            // We can't find the related load job of this database.
-            // But dbIdToTxnIds is not a up-to-date results.
-            // So we return true to assume that we find a related load job, to avoid mistaken delete
-            return true;
-        }
-
-        return txnIds.contains(txnState.getTransactionId());
     }
 
     public TransactionState getTransactionState(long transactionId) {

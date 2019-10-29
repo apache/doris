@@ -337,11 +337,12 @@ public class RoutineLoadManagerTest {
         routineLoadJobMap.put(1l, routineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
 
+
         try {
-            routineLoadManager.getMinTaskBeId("default");
-            Assert.fail();
+            Assert.assertEquals(-1, routineLoadManager.getMinTaskBeId("default"));
         } catch (LoadException e) {
-            // do nothing
+            e.printStackTrace();
+            Assert.fail();
         }
     }
 

@@ -152,7 +152,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                     ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                         }
                     }
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName, taskKafkaProgress);
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
+                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
