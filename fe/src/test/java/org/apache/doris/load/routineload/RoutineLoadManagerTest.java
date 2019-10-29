@@ -282,7 +282,7 @@ public class RoutineLoadManagerTest {
         beIdToConcurrentTaskMap.put(1L, 1);
 
         new Expectations(routineLoadManager) {{
-            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
             result = beIdToConcurrentTaskMap;
         }};
         Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
@@ -365,7 +365,7 @@ public class RoutineLoadManagerTest {
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 1);
         new Expectations(routineLoadManager) {{
-            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
             result = beIdToConcurrentTaskMap;
         }};
         Assert.assertEquals(DEFAULT_BE_CONCURRENT_TASK_NUM * 2 - 1, routineLoadManager.getClusterIdleSlotNum());
@@ -690,7 +690,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+        Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
         Assert.assertEquals(1, (int) result.get(1l));
 
     }
