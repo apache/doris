@@ -91,9 +91,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS)
     private boolean isReportSucc = false;
 
-    // Set sqlMode to DEFAULT MODE (1 << 32L)
+    // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE)
-    private long sqlMode = 4294967296L;
+    private long sqlMode = 0L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     private String resourceGroup = "normal";

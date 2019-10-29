@@ -20,7 +20,7 @@ package org.apache.doris.qe;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,54 +31,89 @@ import java.util.Map;
 public class SqlModeHelper {
     private static final Logger LOG = LogManager.getLogger(SqlModeHelper.class);
 
+    // TODO(xuyang): these mode types are copy from MYSQL mode types, which are example
+    //  of how they works and to be compatible with MySQL, so for now they are not
+    //  really meaningful.
     /* Bits for different SQL MODE modes, you can add custom SQL MODE here */
-    public static final Long MODE_REAL_AS_FLOAT = 1L;
-    public static final Long MODE_PIPES_AS_CONCAT = 2L;
-    public static final Long MODE_ANSI_QUOTES = 4L;
-    public static final Long MODE_IGNORE_SPACE = 8L;
-    public static final Long MODE_NOT_USED = 16L;
-    public static final Long MODE_ONLY_FULL_GROUP_BY = 32L;
-    public static final Long MODE_NO_UNSIGNED_SUBTRACTION = 64L;
-    public static final Long MODE_NO_DIR_IN_CREATE = 128L;
+    public static final long MODE_REAL_AS_FLOAT = 1L;
+    public static final long MODE_PIPES_AS_CONCAT = 2L;
+    public static final long MODE_ANSI_QUOTES = 4L;
+    public static final long MODE_IGNORE_SPACE = 8L;
+    public static final long MODE_NOT_USED = 16L;
+    public static final long MODE_ONLY_FULL_GROUP_BY = 32L;
+    public static final long MODE_NO_UNSIGNED_SUBTRACTION = 64L;
+    public static final long MODE_NO_DIR_IN_CREATE = 128L;
+    public static final long MODE_NO_AUTO_VALUE_ON_ZERO = 1L << 19;
+    public static final long MODE_NO_BACKSLASH_ESCAPES = 1L << 20;
+    public static final long MODE_STRICT_TRANS_TABLES = 1L << 21;
+    public static final long MODE_STRICT_ALL_TABLES = 1L << 22;
+    // NO_ZERO_IN_DATE and NO_ZERO_DATE are removed in mysql 5.7 and merged into STRICT MODE.
+    // However, for backward compatibility during upgrade, these modes are kept.
+    @Deprecated
+    public static final long MODE_NO_ZERO_IN_DATE = 1L << 23;
+    @Deprecated
+    public static final long MODE_NO_ZERO_DATE = 1L << 24;
+    public static final long MODE_INVALID_DATES = 1L << 25;
+    public static final long MODE_ERROR_FOR_DIVISION_BY_ZERO = 1L << 26;
+    public static final long MODE_HIGH_NOT_PRECEDENCE = 1L <<29;
+    public static final long MODE_NO_ENGINE_SUBSTITUTION = 1L << 30;
+    public static final long MODE_PAD_CHAR_TO_FULL_LENGTH = 1L << 31;
+    public static final long MODE_TIME_TRUNCATE_FRACTIONAL = 1L << 32;
+
+    /* Bits for different COMBINE MODE modes, you can add custom COMBINE MODE here */
     public static final Long MODE_ANSI = 1L << 18;
-    public static final Long MODE_NO_AUTO_VALUE_ON_ZERO = 1L << 19;
-    public static final Long MODE_NO_BACKSLASH_ESCAPES = 1L << 20;
-    public static final Long MODE_STRICT_TRANS_TABLES = 1L << 21;
-    public static final Long MODE_STRICT_ALL_TABLES = 1L << 22;
+    public static final Long MODE_TRADITIONAL = 1L << 27;
 
-
-    public final static Long MODE_DEFAULT = 1L << 32; //4294967296L;
     public final static Long MODE_LAST = 1L << 33;
 
     public final static Long MODE_ALLOWED_MASK =
             (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
                     MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
-                    MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE | MODE_ANSI |
+                    MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
                     MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES |
-                    MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_DEFAULT);
+                    MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE |
+                    MODE_NO_ZERO_DATE | MODE_INVALID_DATES | MODE_ERROR_FOR_DIVISION_BY_ZERO |
+                    MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
+                    MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
+                    MODE_TIME_TRUNCATE_FRACTIONAL);
 
-    private final static ImmutableMap<String, Long> sqlModeSet =
-            ImmutableMap.<String, Long>builder()
-                    .put("REAL_AS_FLOAT", MODE_REAL_AS_FLOAT)
-                    .put("PIPES_AS_CONCAT", MODE_PIPES_AS_CONCAT)
-                    .put("ANSI_QUOTES", MODE_ANSI_QUOTES)
-                    .put("IGNORE_SPACE", MODE_IGNORE_SPACE)
-                    .put("NOT_USED", MODE_NOT_USED)
-                    .put("ONLY_FULL_GROUP_BY", MODE_ONLY_FULL_GROUP_BY)
-                    .put("NO_UNSIGNED_SUBTRACTION", MODE_NO_UNSIGNED_SUBTRACTION)
-                    .put("NO_DIR_IN_CREATE", MODE_NO_DIR_IN_CREATE)
-                    .put("ANSI", MODE_ANSI)
-                    .put("NO_AUTO_VALUE_ON_ZERO", MODE_NO_AUTO_VALUE_ON_ZERO)
-                    .put("NO_BACKSLASH_ESCAPES", MODE_NO_BACKSLASH_ESCAPES)
-                    .put("STRICT_TRANS_TABLES", MODE_STRICT_TRANS_TABLES)
-                    .put("STRICT_ALL_TABLES", MODE_STRICT_ALL_TABLES)
-                    .put("DEFAULT", MODE_DEFAULT)
-                    .build();
+    private final static Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
+    private final static Map<String, Long> combineModeSet = Maps.newTreeMap();
 
+    static {
+        sqlModeSet.put("REAL_AS_FLOAT", MODE_REAL_AS_FLOAT);
+        sqlModeSet.put("PIPES_AS_CONCAT", MODE_PIPES_AS_CONCAT);
+        sqlModeSet.put("ANSI_QUOTES", MODE_ANSI_QUOTES);
+        sqlModeSet.put("IGNORE_SPACE", MODE_IGNORE_SPACE);
+        sqlModeSet.put("NOT_USED", MODE_NOT_USED);
+        sqlModeSet.put("ONLY_FULL_GROUP_BY", MODE_ONLY_FULL_GROUP_BY);
+        sqlModeSet.put("NO_UNSIGNED_SUBTRACTION", MODE_NO_UNSIGNED_SUBTRACTION);
+        sqlModeSet.put("NO_DIR_IN_CREATE", MODE_NO_DIR_IN_CREATE);
+        sqlModeSet.put("ANSI", MODE_ANSI);
+        sqlModeSet.put("NO_AUTO_VALUE_ON_ZERO", MODE_NO_AUTO_VALUE_ON_ZERO);
+        sqlModeSet.put("NO_BACKSLASH_ESCAPES", MODE_NO_BACKSLASH_ESCAPES);
+        sqlModeSet.put("STRICT_TRANS_TABLES", MODE_STRICT_TRANS_TABLES);
+        sqlModeSet.put("STRICT_ALL_TABLES", MODE_STRICT_ALL_TABLES);
+        sqlModeSet.put("MODE_NO_ZERO_IN_DATE", MODE_NO_ZERO_IN_DATE);
+        sqlModeSet.put("MODE_NO_ZERO_DATE", MODE_NO_ZERO_DATE);
+        sqlModeSet.put("MODE_INVALID_DATES", MODE_INVALID_DATES);
+        sqlModeSet.put("MODE_ERROR_FOR_DIVISION_BY_ZERO", MODE_ERROR_FOR_DIVISION_BY_ZERO);
+        sqlModeSet.put("MODE_TRADITIONAL", MODE_TRADITIONAL);
+        sqlModeSet.put("MODE_HIGH_NOT_PRECEDENCE", MODE_HIGH_NOT_PRECEDENCE);
+        sqlModeSet.put("MODE_NO_ENGINE_SUBSTITUTION", MODE_NO_ENGINE_SUBSTITUTION);
+        sqlModeSet.put("MODE_PAD_CHAR_TO_FULL_LENGTH", MODE_PAD_CHAR_TO_FULL_LENGTH);
+        sqlModeSet.put("MODE_TIME_TRUNCATE_FRACTIONAL", MODE_TIME_TRUNCATE_FRACTIONAL);
 
+        combineModeSet.put("MODE_ANSI", (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT |
+                MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_ONLY_FULL_GROUP_BY));
+        combineModeSet.put("MODE_TRADITIONAL", (MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES |
+                MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_ERROR_FOR_DIVISION_BY_ZERO |
+                MODE_NO_ENGINE_SUBSTITUTION));
+    }
 
     public static String parseValue(Long sqlMode) {
+        //0 parse to empty string
         if (sqlMode == 0 || (sqlMode & ~MODE_ALLOWED_MASK) != 0) {
             return "";
         }
@@ -94,12 +129,16 @@ public class SqlModeHelper {
     }
 
     public static Long parseString(String sqlMode) {
+        //empty string parse to 0
         long value = 0L;
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
         for (String key : names) {
-            if (getSupportedSqlMode().containsKey(key.toUpperCase())) {
-                value |= getSupportedSqlMode().get(key.toUpperCase());
+            if (getSupportedSqlMode().containsKey(key)) {
+                value |= getSupportedSqlMode().get(key);
+                if (isCombineMode(key)) {
+                    value |= getCombineMode().get(key);
+                }
             }
         }
 
@@ -107,6 +146,7 @@ public class SqlModeHelper {
     }
 
     public static boolean checkValid(String sqlMode) {
+        //empty string is valid and parse to 0
         if (sqlMode == null) {
             return false;
         }
@@ -114,7 +154,7 @@ public class SqlModeHelper {
         List<String> values =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
         for (String key : values) {
-            if (!getSupportedSqlMode().containsKey(key.toUpperCase())) {
+            if (!getSupportedSqlMode().containsKey(key)) {
                 return false;
             }
         }
@@ -123,14 +163,23 @@ public class SqlModeHelper {
     }
 
     public static boolean checkValid(Long sqlMode) {
+        //0 is valid and parse to empty string
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
             return false;
         }
         return true;
     }
 
-    public static ImmutableMap<String, Long> getSupportedSqlMode() {
+    public static Map<String, Long> getSupportedSqlMode() {
         return sqlModeSet;
+    }
+
+    public static Map<String, Long> getCombineMode() {
+        return combineModeSet;
+    }
+
+    public static boolean isCombineMode(String key) {
+        return combineModeSet.containsKey(key);
     }
 
 }
