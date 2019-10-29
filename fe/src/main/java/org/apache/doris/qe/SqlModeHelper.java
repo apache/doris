@@ -79,7 +79,7 @@ public class SqlModeHelper {
 
     private final static Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
-    private final static Map<String, Long> combineModeSet = Maps.newTreeMap();
+    private final static Map<String, Long> combineModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     static {
         sqlModeSet.put("REAL_AS_FLOAT", MODE_REAL_AS_FLOAT);
