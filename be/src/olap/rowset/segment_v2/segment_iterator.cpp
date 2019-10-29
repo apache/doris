@@ -334,7 +334,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             // step to next row range
             ++_cur_range_id;
             // current row range is read over, trying to read from next range
-            if (_cur_range_id >= _row_ranges.range_size() - 1) {
+            if (_cur_range_id > _row_ranges.range_size() - 1) {
                 block->set_num_rows(0);
                 return Status::EndOfFile("no more data in segment");
             }
