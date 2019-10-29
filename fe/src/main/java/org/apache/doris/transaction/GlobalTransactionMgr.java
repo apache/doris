@@ -810,6 +810,7 @@ public class GlobalTransactionMgr {
         for (TransactionState abortedTxn : abortedTxns) {
             try {
                 abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
+                LOG.warn("abort txn due to timeout: {}", abortedTxn.getTransactionId());
             } catch (UserException e) {
                 // just print a log, it does not matter.
                 LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);

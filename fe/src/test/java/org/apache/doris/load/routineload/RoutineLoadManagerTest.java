@@ -324,7 +324,7 @@ public class RoutineLoadManagerTest {
                 result = beIds;
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
-                routineLoadJob.getBeIdToConcurrentTaskNum();
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrentTaskMap;
                 routineLoadJob.getState();
                 result = RoutineLoadJob.JobState.RUNNING;
@@ -685,7 +685,7 @@ public class RoutineLoadManagerTest {
             {
                 routineLoadJob.getState();
                 result = RoutineLoadJob.JobState.RUNNING;
-                routineLoadJob.getBeIdToConcurrentTaskNum();
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrenTaskNum;
             }
         };

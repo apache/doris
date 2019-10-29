@@ -96,19 +96,20 @@ public class RoutineLoadManager implements Writable {
         return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
     }
 
-    private Map<Long, Integer> getBeIdConcurrentTaskMaps() {
-        Map<Long, Integer> beIdToConcurrentTasks = Maps.newHashMap();
+    // return the map of be id -> running tasks num
+    private Map<Long, Integer> getBeCurrentTasksNumMap() {
+        Map<Long, Integer> beCurrentTaskNumMap = Maps.newHashMap();
         for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING)) {
-            Map<Long, Integer> jobBeIdToConcurrentTaskNum = routineLoadJob.getBeIdToConcurrentTaskNum();
-            for (Map.Entry<Long, Integer> entry : jobBeIdToConcurrentTaskNum.entrySet()) {
-                if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
-                    beIdToConcurrentTasks.put(entry.getKey(), beIdToConcurrentTasks.get(entry.getKey()) + entry.getValue());
+            Map<Long, Integer> jobBeCurrentTasksNumMap = routineLoadJob.getBeCurrentTasksNumMap();
+            for (Map.Entry<Long, Integer> entry : jobBeCurrentTasksNumMap.entrySet()) {
+                if (beCurrentTaskNumMap.containsKey(entry.getKey())) {
+                    beCurrentTaskNumMap.put(entry.getKey(), beCurrentTaskNumMap.get(entry.getKey()) + entry.getValue());
                 } else {
-                    beIdToConcurrentTasks.put(entry.getKey(), entry.getValue());
+                    beCurrentTaskNumMap.put(entry.getKey(), entry.getValue());
                 }
             }
         }
-        return beIdToConcurrentTasks;
+        return beCurrentTaskNumMap;
 
     }
 
@@ -309,7 +310,7 @@ public class RoutineLoadManager implements Writable {
         try {
             int result = 0;
             updateBeIdToMaxConcurrentTasks();
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
                     result += entry.getValue() - beIdToConcurrentTasks.get(entry.getKey());
@@ -325,7 +326,7 @@ public class RoutineLoadManager implements Writable {
 
     // get the BE id with minimum running task on it
     // return -1 if no BE is available.
-    // throw exception if unrecoverable error happend.
+    // throw exception if unrecoverable errors happen.
     public long getMinTaskBeId(String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -337,7 +338,7 @@ public class RoutineLoadManager implements Writable {
             long result = -1L;
             int maxIdleSlotNum = 0;
             updateBeIdToMaxConcurrentTasks();
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Long beId : beIdsInCluster) {
                 if (beIdToMaxConcurrentTasks.containsKey(beId)) {
                     int idleTaskNum = 0;
@@ -377,7 +378,7 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             int idleTaskNum = 0;
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             if (beIdToConcurrentTasks.containsKey(beId)) {
                 idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
             } else {

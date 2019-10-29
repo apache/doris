@@ -436,7 +436,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return 0;
     }
 
-    public Map<Long, Integer> getBeIdToConcurrentTaskNum() {
+    public Map<Long, Integer> getBeCurrentTasksNumMap() {
         Map<Long, Integer> beIdConcurrentTasksNum = Maps.newHashMap();
         readLock();
         try {

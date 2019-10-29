@@ -128,6 +128,8 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     public boolean isTimeout() {
+        LOG.debug("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
+                TimeUtils.longToTimeString(executeStartTimeMs), timeoutMs);
         return isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs;
     }
 
