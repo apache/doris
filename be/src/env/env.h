@@ -140,6 +140,18 @@ public:
     // Create the specified directory. Returns error if directory exists.
     virtual Status create_dir(const std::string& dirname) = 0;
 
+    // Checks if the file is a directory. Returns an error if it doesn't
+    // exist, otherwise writes true or false into 'is_dir' appropriately.
+    virtual Status is_directory(const std::string& path, bool* is_dir) = 0;
+
+    // Canonicalize 'path' by applying the following conversions:
+    // - Converts a relative path into an absolute one using the cwd.
+    // - Converts '.' and '..' references.
+    // - Resolves all symbolic links.
+    //
+    // All directory entries in 'path' must exist on the filesystem.
+    virtual Status canonicalize(const std::string& path, std::string* result) = 0;
+
     // Creates directory if missing. Return Ok if it exists, or successful in
     // Creating.
     virtual Status create_dir_if_missing(const std::string& dirname) = 0;

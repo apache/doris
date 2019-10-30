@@ -33,14 +33,57 @@
 
 #include <openssl/md5.h>
 
+#include "gutil/strings/substitute.h"
+
 #include "env/env.h"
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
 
 namespace doris {
 
-Status FileUtils::create_dir(const std::string& dir_path, Env* env) {
-    return env->create_dir(dir_path);
+using strings::Substitute;
+
+Status FileUtils::create_dir(const std::string& path, Env* env) {
+    if (path.empty()) {
+        return Status::InvalidArgument(Substitute("Unknown primitive type($0)", path));
+    }
+
+    boost::filesystem::path p(path);
+
+    string partial_path;
+    for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
+        partial_path = partial_path.empty() ? it->string() : partial_path + "/" + it->string();
+        bool is_dir;
+        
+        Status s = env->is_directory(partial_path, &is_dir);
+        if (s.ok()) {
+            if (is_dir) {
+                // It's a normal directory.
+                continue;
+            }
+
+            // Maybe a file or a symlink. Let's try to follow the symlink.
+            string real_partial_path;
+            s = env->canonicalize(partial_path, &real_partial_path);
+            
+            if (!s.ok()) {
+                return s;
+            }
+            
+            s = env->is_directory(real_partial_path, &is_dir);
+            if (s.ok() && is_dir) {
+                // It's a symlink to a directory.
+                continue;
+            } 
+        }
+        
+        s = env->create_dir(partial_path);
+        if (!s.ok()) {
+            return s;
+        }
+    }
+
+    return Status::OK();
 }
 
 Status FileUtils::create_dir(const std::string& dir_path) {
@@ -87,17 +130,17 @@ Status FileUtils::get_children_count(Env* env, const std::string& dir, int64_t* 
     return env->iterate_dir(dir, cb);
 }
 
-bool FileUtils::is_dir(const std::string& path) {
-    struct stat path_stat;    
-    if (stat(path.c_str(), &path_stat) != 0) {
-        return false;
+bool FileUtils::is_dir(const std::string& file_path, Env *env) {
+    bool ret;
+    if (env->is_directory(file_path, &ret).ok()) {
+        return ret;   
     }
-
-    if (path_stat.st_mode & S_IFDIR) {
-        return true;
-    }
-
+    
     return false;
+}
+
+bool FileUtils::is_dir(const std::string& path) {
+    return is_dir(path, Env::Default());
 }
 
 // Through proc filesystem
