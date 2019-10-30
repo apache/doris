@@ -1,21 +1,73 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
-// Created by 刘航源 on 2019/10/22.
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 #ifndef DORIS_RECORD_STORE_IMP_H
 #define DORIS_RECORD_STORE_IMP_H
 
-#include "record_store_impl.h"
+#include "runtime/free_pool.hpp"
+#include "runtime/runtime_state.h"
+#include "runtime/descriptors.h"
+#include "udf/udf_internal.h"
 
 namespace doris {
 
-RecordStore* RecordStoreImpl::create_record_store(MemPool* pool, TupleDescriptor* descriptor) {
-    RecordStore* store = new RecordStore();
-    store->_impl->_free_pool = new FreePool(pool);
-    store->_impl->_mem_pool = pool;
+doris_udf::RecordStore* RecordStoreImpl::create_record_store(FreePool* free_pool, TupleDescriptor* descriptor) {
+    doris_udf::RecordStore *store = new doris_udf::RecordStore();
+    store->_impl->_free_pool = free_pool;
     store->_impl->_descriptor = descriptor;
-    store->_impl->_size = descriptor->byte_size();
     return store;
+}
+
+doris_udf::Record *RecordStoreImpl::allocate_record() {
+    uint8_t *bytes = _free_pool->allocate(_descriptor->byte_size());
+    doris_udf::Record *record = new doris_udf::Record(bytes, _descriptor);
+    return record;
+}
+
+void *RecordStoreImpl::allocate(size_t byte_size) {
+    uint8_t* buffer = _free_pool->allocate(byte_size);
+    _allocations.push_back(buffer);
+    return buffer;
+}
+
+void RecordStoreImpl::append_record(doris_udf::Record *record) {
+    _record_vec.push_back(record);
+}
+
+void RecordStoreImpl::free_record(doris_udf::Record *record) {
+    _free_pool->free((uint8_t *) record);
+}
+
+uint8_t *RecordStoreImpl::get(int idx) {
+    return _record_vec[idx]->_data;
+}
+
+size_t RecordStoreImpl::size() {
+    return _record_vec.size();
+}
+
+RecordStoreImpl::~RecordStoreImpl() {
+    //TODO: free string type allocate ?
+    /*
+    for (int i = 0; i < _allocations.size(); ++i) {
+        _free_pool->free(_allocations[i]);
+    }
+    _allocations.clear();
+    */
 }
 
 }

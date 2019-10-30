@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include <vector>
 
 #include "gperftools/profiler.h"
@@ -25,11 +26,13 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/descriptors.h"
+#include "runtime/tuple.h"
+#include "runtime/free_pool.hpp"
 #include "util/logging.h"
 #include "util/debug_util.h"
 
-#include "udf/record_store.h"
-#include "udf/record_store_impl.h"
+#include "udf/udf.h"
+#include "udf/udf_internal.h"
 
 namespace doris {
 
@@ -102,7 +105,7 @@ void RecordStroreTest::init_tuple_desc() {
         t_slot_desc.__set_columnPos(i);
         t_slot_desc.__set_byteOffset(offset);
         t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
+        t_slot_desc.__set_nullIndicatorBit(1);
         t_slot_desc.__set_slotIdx(i);
         t_slot_desc.__set_isMaterialized(true);
         t_slot_desc.__set_colName("column1");
@@ -111,11 +114,11 @@ void RecordStroreTest::init_tuple_desc() {
         offset += sizeof(int32_t);
     }
     ++i;
-    // column 3
+    // column 3: varchar
     {
         TSlotDescriptor t_slot_desc;
         t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_INT).to_thrift());
+        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_VARCHAR).to_thrift());
         t_slot_desc.__set_columnPos(i);
         t_slot_desc.__set_byteOffset(offset);
         t_slot_desc.__set_nullIndicatorByte(0);
@@ -123,74 +126,6 @@ void RecordStroreTest::init_tuple_desc() {
         t_slot_desc.__set_slotIdx(i);
         t_slot_desc.__set_isMaterialized(true);
         t_slot_desc.__set_colName("column2");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(int32_t);
-    }
-    ++i;
-    // column 4: varchar
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_VARCHAR).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column3");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(StringValue);
-    }
-    ++i;
-    // Date
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_DATE).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column4");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DateTimeValue);
-    }
-    ++i;
-    // DateTime
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_DATETIME).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column5");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DateTimeValue);
-    }
-    ++i;
-    //
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_VARCHAR).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column6");
 
         slot_descs.push_back(t_slot_desc);
         offset += sizeof(StringValue);
@@ -211,24 +146,41 @@ void RecordStroreTest::init_tuple_desc() {
 }
 TEST_F(RecordStroreTest, normal_use) {
     std::cout << _desc_tbl->get_tuple_descriptor(0)->debug_string() << std::endl;
-    RecordStore* store = RecordStoreImpl::create_record_store(&_mem_pool, _desc_tbl->get_tuple_descriptor(0));
+    doris_udf::RecordStore* store = RecordStoreImpl::create_record_store(new FreePool(&_mem_pool), _desc_tbl->get_tuple_descriptor(0));
 
-    for (int i = 0; i < 1; ++i) {
-        Record *record = store->allocate_record();
+    for (int i = 0; i < 5; ++i) {
+        doris_udf::Record *record = store->allocate_record();
         // set index
         record->set_int(0, i);
-        std::cout << "wait" << std::endl;
+        if (i % 2) {
+            record->set_null(1);
+        } else {
+            record->set_int(1, i * 2);
+        }
+        record->set_int(1, i * 2);
+
+        // set value
+        char *ptr = (char*)store->allocate(7);
+        memcpy(ptr, std::string("testVar").c_str(), 7);
+
+        StringValue val(ptr, 7);
+        record->set_string(2, (uint8_t*)val.ptr, val.len);
+        
         store->append_record(record);
-        std::cout << "end" << std::endl;
-    /*
-    // set value
-    char *ptr = store->allocate(val.len);
-    memcpy(ptr, val.ptr, val.len);
-    record.set_string(1, ptr, val.len);
-
-
-     */
     }
+    EXPECT_EQ(store->size(), 5);
+    
+    Tuple* tuple0 = reinterpret_cast<Tuple*> (store->get(0));
+    Tuple* tuple1 = reinterpret_cast<Tuple*> (store->get(1));
+    Tuple* tuple2 = reinterpret_cast<Tuple*> (store->get(2));
+    Tuple* tuple3 = reinterpret_cast<Tuple*> (store->get(3));
+    Tuple* tuple4 = reinterpret_cast<Tuple*> (store->get(4));
+
+    EXPECT_EQ(Tuple::to_string(tuple0, *_desc_tbl->get_tuple_descriptor(0)), "(0 0 testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple1, *_desc_tbl->get_tuple_descriptor(0)), "(1 null testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple2, *_desc_tbl->get_tuple_descriptor(0)), "(2 4 testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple3, *_desc_tbl->get_tuple_descriptor(0)), "(3 null testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple4, *_desc_tbl->get_tuple_descriptor(0)), "(4 8 testVar)");
 }
 
 }
