@@ -492,6 +492,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
+    Tools
     ${WL_END_GROUP}
 )
 

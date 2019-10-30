@@ -32,6 +32,7 @@
 
 #include <curl/curl.h>
 #include <thrift/TOutput.h>
+#include <gflags/gflags.h>
 
 #include "common/logging.h"
 #include "common/daemon.h"
@@ -57,6 +58,7 @@
 #include "common/resource_tls.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
+#include "tools/tools.h"
 
 static void help(const char*);
 
@@ -73,17 +75,25 @@ static void thrift_output(const char* x) {
 
 }
 
+DECLARE_bool(help);
+DECLARE_bool(version);
+DEFINE_string(tool, "", "tools for BE, including: meta, segment");
+DEFINE_bool(h, false, "equal to --help, print help info");
+
 int main(int argc, char** argv) {
     // check if print version or help
-    if (argc > 1) {
-        if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
-            puts(doris::get_build_version(false).c_str());
-            exit(0);
-        } else if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0) {
-            help(basename(argv[0]));
-            exit(0);
-        }
+    google::ParseCommandLineNonHelpFlags(&argc, &argv, true);
+    if (FLAGS_help || FLAGS_h) {
+        help(basename(argv[0]));
+        exit(0);
+    } else if (FLAGS_version || FLAGS_v) {
+        std::cout << doris::get_build_version(false) << std::endl;
+        exit(0);
+    } else if (FLAGS_tool != "") {
+        doris::Tools::process(FLAGS_tool);
+        exit(0);
     }
+    gflags::ShutDownCommandLineFlags();
 
     if (getenv("DORIS_HOME") == nullptr) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
@@ -241,6 +251,5 @@ static void help(const char* progname) {
     printf("Usage:\n  %s [OPTION]...\n\n", progname);
     printf("Options:\n");
     printf("  -v, --version      output version information, then exit\n");
-    printf("  -?, --help         show this help, then exit\n");
+    printf("  -h, --help         show this help, then exit\n");
 }
-

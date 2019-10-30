@@ -25,6 +25,12 @@ add_executable(meta_tool
     meta_tool.cpp
 )
 
+add_library(Tools STATIC
+    segment_tool.cpp
+    tools.cpp
+)
+
+
 # This permits libraries loaded by dlopen to link to the symbols in the program.
 # set_target_properties(doris_be PROPERTIES LINK_FLAGS -pthread)
 
