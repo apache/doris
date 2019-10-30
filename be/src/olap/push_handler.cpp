@@ -319,7 +319,6 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
-        context.data_dir = cur_tablet->data_dir();
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
 

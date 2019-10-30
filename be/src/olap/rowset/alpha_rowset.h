@@ -72,7 +72,6 @@ protected:
 
     AlphaRowset(const TabletSchema* schema,
                 std::string rowset_path,
-                DataDir* data_dir,
                 RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
