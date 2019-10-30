@@ -67,8 +67,6 @@ public class RoutineLoadManagerTest {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManagerTest.class);
 
-    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
-
     @Mocked
     private SystemInfoService systemInfoService;
 
@@ -368,7 +366,8 @@ public class RoutineLoadManagerTest {
                 invoke(routineLoadManager, "getBeCurrentTasksNumMap");
             result = beIdToConcurrentTaskMap;
         }};
-        Assert.assertEquals(DEFAULT_BE_CONCURRENT_TASK_NUM * 2 - 1, routineLoadManager.getClusterIdleSlotNum());
+        Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
+                routineLoadManager.getClusterIdleSlotNum());
     }
 
     @Test

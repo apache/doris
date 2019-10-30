@@ -47,7 +47,6 @@ public class LogBuilder {
         entries = Lists.newLinkedList();
     }
 
-
     public LogBuilder add(String key, long value) {
         entries.add(new LogEntry(key, String.valueOf(value)));
         return this;
