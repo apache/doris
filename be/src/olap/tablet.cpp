@@ -91,7 +91,7 @@ OLAPStatus Tablet::_init_once_action() {
     for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash()
@@ -107,7 +107,7 @@ OLAPStatus Tablet::_init_once_action() {
         Version version = { inc_rs_meta->start_version(), inc_rs_meta->end_version() };
         RowsetSharedPtr rowset = get_rowset_by_version(version);
         if (rowset == nullptr) {
-            res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, inc_rs_meta, &rowset);
+            res = RowsetFactory::create_rowset(&_schema, _tablet_path, inc_rs_meta, &rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init incremental rowset. tablet_id:" << tablet_id()
                              << ", schema_hash:" << schema_hash()
@@ -226,7 +226,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     for (auto& rs_meta : rowsets_to_clone) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, _data_dir, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init rowset. version=" << version.first << "-" << version.second;
             return res;
