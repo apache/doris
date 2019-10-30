@@ -25,6 +25,7 @@
 
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/descriptors.h"
 
 // Be careful what this includes since this needs to be linked into the UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
@@ -32,7 +33,7 @@
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 
-#if DORIS_UDF_SDK_BUILD
+#if 0
 // For the SDK build, we are building the .lib that the developers would use to
 // write UDFs. They want to link against this to run their UDFs in a test environment.
 // Pulling in free-pool is very undesirable since it pulls in many other libraries.
@@ -198,6 +199,36 @@ doris_udf::FunctionContext* FunctionContextImpl::create_context(
     return ctx;
 }
 
+doris_udf::FunctionContext* FunctionContextImpl::create_context(
+            RuntimeState* state, MemPool* pool,
+            const std::vector<doris_udf::FunctionContext::TypeDesc>& return_type,
+            const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+            int varargs_buffer_size, bool debug) {
+    doris_udf::FunctionContext* ctx = new doris_udf::FunctionContext();
+    ctx->_impl->_state = state;
+    ctx->_impl->_pool = new FreePool(pool);
+    //set _intermediate_type and _return_type invalid
+    doris_udf::FunctionContext::TypeDesc invalid_type;
+    invalid_type.type = doris_udf::FunctionContext::INVALID_TYPE;
+    invalid_type.precision = 0;
+    invalid_type.scale = 0;
+    ctx->_impl->_intermediate_type = invalid_type;
+    ctx->_impl->_return_type = invalid_type;
+
+    //TODO : construct TupleDescriptor
+    //ctx->_impl->_record_store = RecordStoreImpl::create_record_store(pool, _desc_tbl->get_tuple_descriptor(0));
+
+    ctx->_impl->_arg_types = arg_types;
+    ctx->_impl->_varargs_buffer =
+            reinterpret_cast<uint8_t*>(malloc(varargs_buffer_size));
+    ctx->_impl->_varargs_buffer_size = varargs_buffer_size;
+    ctx->_impl->_debug = debug;
+    VLOG_ROW << "Created FunctionContext: " << ctx
+             << " with pool " << ctx->_impl->_pool;
+    return ctx;
+}
+
+
 FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
     doris_udf::FunctionContext* new_context =
         create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
@@ -362,6 +393,78 @@ bool FunctionContext::add_warning(const char* warning_msg) {
         std::cerr << ss.str() << std::endl;
         return true;
     }
+}
+
+//Record
+void Record::set_null(int idx) {
+        doris::NullIndicatorOffset offset = _descriptor->slots()[idx]->null_indicator_offset();
+        char *null_indicator_byte = reinterpret_cast<char *>(_data) + offset.byte_offset;
+        *null_indicator_byte |= offset.bit_mask;
+    }
+
+    // set idx filed to val as int
+void Record::set_int(int idx, int val) {
+        uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+        memcpy(dst, reinterpret_cast<uint8_t *>(&val), sizeof(int));
+    }
+
+    // set idx filed to ptr with len as string, this function will
+    // use input buffer directly without copy. Client should allocate
+    // memory from RecordStore.
+void Record::set_string(int idx, const uint8_t *ptr, size_t len) {
+        uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+        memcpy(dst, &ptr, sizeof(char *));
+        memcpy(dst + sizeof(char *), reinterpret_cast<uint8_t *>(&len), sizeof(size_t));
+    }
+
+Record::Record(uint8_t *data, doris::TupleDescriptor *descriptor) {
+    _descriptor = descriptor;
+    _data = data;
+    // set null bytes to 0x00
+    memset(_data, 0, _descriptor->num_null_bytes());
+}
+
+void *Record::get_data() { return _data; }
+
+
+//RecordStore
+RecordStore::RecordStore() : _impl(new doris::RecordStoreImpl()) {}
+
+
+// Allocate a record to store data.
+// Returned record can be added to this store through calling
+// append_record function. If returned record is not added back,
+// client should call free_record to free it.
+Record *RecordStore::allocate_record() {
+    return _impl->allocate_record();
+}
+
+// Append a record to this store. The input record must be returned
+// by allocate_record function of this RecordStore. Otherwise
+// undefined error would happen.
+void RecordStore::append_record(Record *record) {
+    _impl->append_record(record);
+}
+
+// This function is to free the unused record created by allocate_record
+// function.
+void RecordStore::free_record(Record *record) {
+    _impl->free_record(record);
+}
+
+// Allocate memory for variable length filed in record, such as string
+// type. The allocated memory need not to be freed by client, they will
+// be freed when this store is destroyed.
+void* RecordStore::allocate(size_t size) {
+    return (void*)_impl->allocate(size);
+}
+
+uint8* RecordStore::get_record(int idx) {
+    return _impl->get_record(idx);
+}
+
+RecordStore::~RecordStore() {
+    delete _impl;
 }
 
 StringVal::StringVal(FunctionContext* context, int len) : 

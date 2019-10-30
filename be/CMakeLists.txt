@@ -23,7 +23,7 @@ if (DEFINED ENV{DORIS_GCC_HOME})
     set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
     set(GCC_HOME $ENV{DORIS_GCC_HOME})
 else()
-    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
+    #message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
 endif()
 
 project(doris CXX C)
@@ -66,7 +66,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         message(FATAL_ERROR "Need GCC version at least 4.8.2")
     endif()
 else()
-    message(FATAL_ERROR "Compiler should be GNU")
+    #message(FATAL_ERROR "Compiler should be GNU")
 endif()
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
@@ -232,7 +232,7 @@ find_program(LLVM_CONFIG_EXECUTABLE llvm-config
 )
 
 if (NOT LLVM_CONFIG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm-config")
+  #message(FATAL_ERROR "Could not find llvm-config")
 endif (NOT LLVM_CONFIG_EXECUTABLE)
 
 # clang++
@@ -243,7 +243,7 @@ find_program(LLVM_CLANG_EXECUTABLE clang++
 )
 
 if (NOT LLVM_CLANG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find clang++")
+  #message(FATAL_ERROR "Could not find clang++")
 endif (NOT LLVM_CLANG_EXECUTABLE)
 
 # opt
@@ -254,7 +254,7 @@ find_program(LLVM_OPT_EXECUTABLE opt
 )
 
 if (NOT LLVM_OPT_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm opt")
+  #message(FATAL_ERROR "Could not find llvm opt")
 endif (NOT LLVM_OPT_EXECUTABLE)
 
 message(STATUS "LLVM llvm-config found at: ${LLVM_CONFIG_EXECUTABLE}")

@@ -26,6 +26,8 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
+class RecordStoreImpl;
+class TupleDescriptor;
 }
 
 namespace doris_udf {
@@ -233,6 +235,68 @@ private:
 
     doris::FunctionContextImpl* _impl; // Owned by this object.
 };
+
+//Record
+class Record {
+public:
+    // Set idx field to null
+    void set_null(int idx);
+
+    // set idx filed to val as int
+    void set_int(int idx, int val);
+
+    // set idx filed to ptr with len as string, this function will
+    // use input buffer directly without copy. Client should allocate
+    // memory from RecordStore.
+    void set_string(int idx, const uint8_t *ptr, size_t len);
+
+    Record(uint8_t *data, doris::TupleDescriptor *descriptor);
+
+    void *get_data();
+
+private:
+    doris::TupleDescriptor *_descriptor;
+    void *_data;
+};
+
+//RecordStore
+class RecordStore {
+public:
+    // Allocate a record to store data.
+    // Returned record can be added to this store through calling
+    // append_record function. If returned record is not added back,
+    // client should call free_record to free it.
+    Record *allocate_record();
+
+    // Append a record to this store. The input record must be returned
+    // by allocate_record function of this RecordStore. Otherwise
+    // undefined error would happen.
+    void append_record(Record *record);
+
+    // This function is to free the unused record created by allocate_record
+    // function.
+    void free_record(Record *record);
+
+    // Allocate memory for variable length filed in record, such as string
+    // type. The allocated memory need not to be freed by client, they will
+    // be freed when this store is destroyed.
+    void *allocate(size_t size);
+
+    uint8_t *get_record(int idx);
+
+    ~RecordStore();
+
+private:
+    friend class doris::RecordStoreImpl;
+    RecordStore();
+
+    // Disable copy and assignment operator
+    RecordStore(const RecordStore& other);
+    RecordStore& operator=(const RecordStore& other);
+
+    doris::RecordStoreImpl *_impl; // Owned by this object.
+};
+
 
 //----------------------------------------------------------------------------
 //------------------------------- UDFs ---------------------------------------

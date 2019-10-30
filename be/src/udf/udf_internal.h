@@ -30,6 +30,7 @@ namespace doris {
 class FreePool;
 class MemPool;
 class RuntimeState;
+class RecordStore;
 
 // This class actually implements the interface of FunctionContext. This is split to
 // hide the details from the external header.
@@ -51,6 +52,13 @@ public:
         const doris_udf::FunctionContext::TypeDesc& return_type,
         const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
         int varargs_buffer_size, bool debug);
+
+    static doris_udf::FunctionContext* create_context(
+        RuntimeState* state, MemPool* pool,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& return_type,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+        int varargs_buffer_size, bool debug
+    );
 
     ~FunctionContextImpl() {
     }
@@ -155,6 +163,9 @@ private:
     // contexts.
     RuntimeState* _state;
 
+    //use for udtf
+    RecordStore* _record_store;
+
     // If true, indicates this is a debug context which will do additional validation.
     bool _debug;
 
@@ -203,6 +214,35 @@ private:
     bool _closed;
 
     std::string _string_result;
+};
+
+//RecordStoreImpl
+class RecordStoreImpl {
+public:
+    static doris_udf::RecordStore *create_record_store(FreePool *pool, TupleDescriptor *descriptor);
+
+    RecordStoreImpl() {};
+
+    doris_udf::Record *allocate_record();
+
+    void append_record(doris_udf::Record *record);
+
+    void free_record(doris_udf::Record *record);
+
+    void *allocate(size_t size);
+
+    uint8_t *get_record(int idx);
+
+    ~RecordStoreImpl();
+
+private:
+    FreePool *_free_pool;
+    TupleDescriptor *_descriptor;
+    uint8_t *_data;
+
+    std::vector<uint8_t*> _allocations;
+    int _used_size = 0;
+    int _size;
 };
 
 }
