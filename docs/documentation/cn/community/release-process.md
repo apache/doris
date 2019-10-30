@@ -351,14 +351,25 @@ Best Regards,
 xxx
 
 ----
-DISCLAIMER: 
-Apache Doris(incubating) is an effort undergoing incubation at The Apache
-Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
-required of all newly accepted projects until a further review indicates that
-the infrastructure, communications, and decision making process have stabilized
-in a manner consistent with other successful ASF projects. While incubation
-status is not necessarily a reflection of the completeness or stability of the
-code, it does indicate that the project has yet to be fully endorsed by the ASF.
+DISCLAIMER-WIP: 
+Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), 
+sponsored by the Apache Incubator. Incubation is required of all newly accepted projects 
+until a further review indicates that the infrastructure, communications, and decision 
+making process have stabilized in a manner consistent with other successful ASF projects. 
+While incubation status is not necessarily a reflection of the completeness or stability 
+of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+
+Some of the incubating project’s releases may not be fully compliant with ASF policy. For 
+example, releases may have incomplete or un-reviewed licensing conditions. What follows is 
+a list of known issues the project is currently aware of (note that this list, by definition, 
+is likely to be incomplete): 
+
+ * Releases may have incomplete licensing conditions
+
+If you are planning to incorporate this work into your product/project, please be aware that
+you will need to conduct a thorough licensing review to determine the overall implications of 
+including this work. For the current status of this project through the Apache Incubator 
+visit: https://incubator.apache.org/projects/doris.html
 ```
 
 ### 投票通过后，发 Result 邮件
@@ -446,14 +457,25 @@ Best Regards,
 xxx
 
 ----
-DISCLAIMER: 
-Apache Doris(incubating) is an effort undergoing incubation at The Apache
-Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
-required of all newly accepted projects until a further review indicates that
-the infrastructure, communications, and decision making process have stabilized
-in a manner consistent with other successful ASF projects. While incubation
-status is not necessarily a reflection of the completeness or stability of the
-code, it does indicate that the project has yet to be fully endorsed by the ASF.
+DISCLAIMER-WIP: 
+Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), 
+sponsored by the Apache Incubator. Incubation is required of all newly accepted projects 
+until a further review indicates that the infrastructure, communications, and decision 
+making process have stabilized in a manner consistent with other successful ASF projects. 
+While incubation status is not necessarily a reflection of the completeness or stability 
+of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+
+Some of the incubating project’s releases may not be fully compliant with ASF policy. For 
+example, releases may have incomplete or un-reviewed licensing conditions. What follows is 
+a list of known issues the project is currently aware of (note that this list, by definition, 
+is likely to be incomplete): 
+
+ * Releases may have incomplete licensing conditions
+
+If you are planning to incorporate this work into your product/project, please be aware that
+you will need to conduct a thorough licensing review to determine the overall implications of 
+including this work. For the current status of this project through the Apache Incubator 
+visit: https://incubator.apache.org/projects/doris.html
 ```
 
 邮件的 thread 连接可以在这里找到：
@@ -540,14 +562,25 @@ On behalf of the Doris team,
 xxx
 
 ----
-DISCLAIMER: 
-Apache Doris(incubating) is an effort undergoing incubation at The Apache
-Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is
-required of all newly accepted projects until a further review indicates that
-the infrastructure, communications, and decision making process have stabilized
-in a manner consistent with other successful ASF projects. While incubation
-status is not necessarily a reflection of the completeness or stability of the
-code, it does indicate that the project has yet to be fully endorsed by the ASF.
+DISCLAIMER-WIP: 
+Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), 
+sponsored by the Apache Incubator. Incubation is required of all newly accepted projects 
+until a further review indicates that the infrastructure, communications, and decision 
+making process have stabilized in a manner consistent with other successful ASF projects. 
+While incubation status is not necessarily a reflection of the completeness or stability 
+of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+
+Some of the incubating project’s releases may not be fully compliant with ASF policy. For 
+example, releases may have incomplete or un-reviewed licensing conditions. What follows is 
+a list of known issues the project is currently aware of (note that this list, by definition, 
+is likely to be incomplete): 
+
+ * Releases may have incomplete licensing conditions
+
+If you are planning to incorporate this work into your product/project, please be aware that
+you will need to conduct a thorough licensing review to determine the overall implications of 
+including this work. For the current status of this project through the Apache Incubator 
+visit: https://incubator.apache.org/projects/doris.html
 ```
 
 ### 在 Doris 官网和 github 发布链接
