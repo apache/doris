@@ -94,6 +94,7 @@ public class Database extends MetaObject implements Writable {
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
 
     private long dataQuotaBytes;
+    private boolean isTagSystemConverted = false;
 
     public enum DbState {
         NORMAL, LINK, MOVE
@@ -614,5 +615,20 @@ public class Database extends MetaObject implements Writable {
 
     public boolean isInfoSchemaDb() {
         return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
+    }
+
+    public void convertToTagSystem() {
+        if (isTagSystemConverted) {
+            return;
+        }
+        for (Table tbl : idToTable.values()) {
+            if (tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) tbl;
+            olapTable.convertToTagSystem(clusterName);
+        }
+        clusterName = "";
+        isTagSystemConverted = true;
     }
 }

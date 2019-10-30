@@ -27,6 +27,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.resource.TagManager;
 import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
@@ -1125,6 +1126,17 @@ public class SystemInfoService {
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
         pathHashToDishInfoRef.set(newPathInfos);
         LOG.debug("update path infos: {}", newPathInfos);
+    }
+
+    public void convertToTagSystem(List<Long> backendIds, TagManager tagManager) {
+        for (Long beId : backendIds) {
+            Backend be = idToBackendRef.get().get(beId);
+            if (be == null) {
+                continue;
+            }
+            be.convertToTagSystem();
+            tagManager.addResourceTag(beId, be.getTagSet());
+        }
     }
 }
 

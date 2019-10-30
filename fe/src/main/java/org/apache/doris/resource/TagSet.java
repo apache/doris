@@ -76,6 +76,14 @@ public class TagSet {
         return tagSet;
     }
 
+    public static TagSet copyFrom(TagSet other) {
+        TagSet tagSet = new TagSet();
+        for (Tag tag : other.tags) {
+            tagSet.addTag(tag);
+        }
+        return tagSet;
+    }
+
     public boolean addTag(Tag tag) {
         return tags.add(tag);
     }
@@ -151,4 +159,5 @@ public class TagSet {
         }
         return gson.toJson(map);
     }
+
 }

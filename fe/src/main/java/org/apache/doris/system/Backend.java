@@ -102,6 +102,8 @@ public class Backend extends Resource implements Writable {
         DEFAULT_TAG_SET = TagSet.create(typeTag, locationTag, storageTag, computeTag);
     }
 
+    private boolean isTagSystemConverted = false;
+
     public Backend() {
         super(-1, DEFAULT_TAG_SET);
         this.host = "";
@@ -622,6 +624,19 @@ public class Backend extends Resource implements Writable {
         }
 
         return isChanged;
+    }
+
+    public void convertToTagSystem() {
+        if (isTagSystemConverted) {
+            return;
+        }
+
+        this.tagSet = TagSet.copyFrom(DEFAULT_TAG_SET);
+        this.tagSet.substituteMerge(TagSet.create(Tag.create(Type.LOCATION, ownerClusterName.get())));
+
+        ownerClusterName.set("");
+
+        isTagSystemConverted = true;
     }
 }
 

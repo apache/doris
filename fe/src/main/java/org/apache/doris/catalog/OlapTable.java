@@ -29,16 +29,21 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation.AllocationType;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.TagSet;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TStorageMedium;
@@ -119,6 +124,9 @@ public class OlapTable extends Table {
     // which should be different with table id.
     // The init value is -1, which means there is not partition and index at all.
     private long baseIndexId = -1;
+
+    private ReplicaAllocation defaultReplicaAllocation;
+    private boolean isTagSystemConverted = false;
 
     public OlapTable() {
         // for persist
@@ -1104,5 +1112,16 @@ public class OlapTable extends Table {
             }
         }
         return hasChanged;
+    }
+
+    public void convertToTagSystem(String clusterName) {
+        if (isTagSystemConverted) {
+            return;
+        }
+        defaultReplicaAllocation = new ReplicaAllocation();
+        TagSet tagSet = TagSet.copyFrom(Backend.DEFAULT_TAG_SET);
+        tagSet.substituteMerge(TagSet.create(Tag.create(Tag.Type.LOCATION, clusterName)));
+        defaultReplicaAllocation.setReplica(AllocationType.LOCAL, tagSet, FeConstants.default_replication_num);
+        partitionInfo.convertToTagSystem(clusterName, tagSet);
     }
 }

@@ -5349,11 +5349,30 @@ public class Catalog {
             throw new DdlException("Unknown cluster: " + clusterName);
         }
 
+        // 1. convert backend
         List<Long> backendIds = cluster.getBackendIdList();
-        // db full names
+        systemInfo.convertToTagSystem(backendIds, tagManager);
+
+        // 2. convert db
         List<String> dbNames = cluster.getDbNamesInCluster();
+        for (String dbName : dbNames) {
+            Database db = getDb(dbName);
+            if (db.isInfoSchemaDb()) {
+                continue;
+            }
+            db.writeLock();
+            try {
+                db.convertToTagSystem();
+            } finally {
+                db.writeUnlock();
+            }
+        }
 
+        // 3. remove cluster
+        idToCluster.remove(cluster.getId());
+        nameToCluster.remove(clusterName);
 
+        LOG.info("finished to convert cluster {} to tag system", clusterName);
     }
 
     /**

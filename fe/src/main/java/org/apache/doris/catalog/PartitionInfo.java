@@ -17,10 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.ReplicaAllocation.AllocationType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.TagSet;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -40,6 +43,9 @@ public class PartitionInfo implements Writable {
     protected Map<Long, Short> idToReplicationNum;
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
+
+    protected Map<Long, ReplicaAllocation> idToReplicationAllocation;
+    private boolean isTagSystemConverted = false;
 
     public PartitionInfo() {
         // for persist
@@ -66,7 +72,11 @@ public class PartitionInfo implements Writable {
     }
 
     public short getReplicationNum(long partitionId) {
-        return idToReplicationNum.get(partitionId);
+        if (isTagSystemConverted) {
+            return idToReplicationAllocation.get(partitionId).getReplicaNumByType(AllocationType.LOCAL);
+        } else {
+            return idToReplicationNum.get(partitionId);
+        }
     }
 
     public void setReplicationNum(long partitionId, short replicationNum) {
@@ -153,5 +163,20 @@ public class PartitionInfo implements Writable {
         }
 
         return buff.toString();
+    }
+
+    public void convertToTagSystem(String clusterName, TagSet tagSet) {
+        if (isTagSystemConverted) {
+            return;
+        }
+        idToReplicationAllocation = Maps.newHashMap();
+        for (Map.Entry<Long, Short> entry : idToReplicationNum.entrySet()) {
+            ReplicaAllocation replicaAllocation = new ReplicaAllocation();
+            TagSet newTagSet = TagSet.copyFrom(tagSet);
+            replicaAllocation.setReplica(AllocationType.LOCAL, newTagSet, entry.getValue());
+            idToReplicationAllocation.put(entry.getKey(), replicaAllocation);
+        }
+        
+        isTagSystemConverted = true;
     }
 }
