@@ -129,9 +129,9 @@ public:
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset));
+            _schema.get(), rowset_meta_path, rowset_meta, &_alpha_rowset));
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            _schema.get(), rowset_meta_path, nullptr, rowset_meta, &_alpha_rowset_same_id));
+            _schema.get(), rowset_meta_path, rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -148,7 +148,7 @@ public:
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);
         ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(
-            _schema.get(), rowset_meta_path_2, nullptr, rowset_meta2, &_alpha_rowset_diff_id));
+            _schema.get(), rowset_meta_path_2, rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
 

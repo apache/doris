@@ -94,7 +94,6 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.rowset_path_prefix = _tablet->tablet_path();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
-    context.data_dir = _tablet->data_dir();
     context.version = _output_version;
     context.version_hash = _output_version_hash;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));

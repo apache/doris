@@ -130,7 +130,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path, 
-        *_data_dir, &tablet_meta_pb, &pending_rowsets, true);
+        &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     TabletSchema tablet_schema;
@@ -156,7 +156,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
@@ -181,11 +181,11 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         AlphaRowset tmp_rowset(&tablet_schema, data_path_prefix + "/incremental_delta", 
-            _data_dir, alpha_rowset_meta);
+            alpha_rowset_meta);
         ASSERT_TRUE(tmp_rowset.init() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
         tmp_rowset.remove_old_files(&old_files);
@@ -209,7 +209,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& pending_rowset : pending_rowsets) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(pending_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
