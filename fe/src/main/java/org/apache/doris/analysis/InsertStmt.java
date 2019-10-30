@@ -766,7 +766,7 @@ public class InsertStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         if (isExplain()) {
-            return null;
+            return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
