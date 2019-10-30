@@ -1,0 +1,10 @@
+*.md
+*.MD
+.gitignore
+.gitmodules
+.travis.yml
+manifest
+**vendor**
+**licenses**
+ | grep File: | grep -v "test_data" | grep -v "gutil" | grep -v "json" | grep -v "patch" | grep -v "xml" | grep -v "conf" | grep -v rsvg"
+
