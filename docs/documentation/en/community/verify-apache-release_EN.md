@@ -4,7 +4,7 @@ To verify the release, following checklist can used to reference:
 
 1. [ ] Download links are valid.
 2. [ ] Checksums and PGP signatures are valid.
-3. [ ] DISCLAIMER is included.
+3. [ ] DISCLAIMER-WIP is included.
 4. [ ] Source code artifacts have correct names matching the current release.
 5. [ ] LICENSE and NOTICE files are correct for the repository.
 6. [ ] All files have license headers if necessary.

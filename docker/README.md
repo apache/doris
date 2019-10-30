@@ -30,7 +30,7 @@ After preparation, your workspace should like this:
 │   ├── bin
 │   ├── build.sh
 │   ├── conf
-│   ├── DISCLAIMER
+│   ├── DISCLAIMER-WIP
 │   ├── docker
 │   ├── docs
 │   ├── env.sh
