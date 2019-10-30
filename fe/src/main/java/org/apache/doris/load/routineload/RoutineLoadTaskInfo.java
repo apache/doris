@@ -127,9 +127,12 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     public boolean isTimeout() {
-        LOG.debug("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
-                executeStartTimeMs, timeoutMs);
-        return isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs;
+        if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
+            LOG.debug("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
+                    executeStartTimeMs, timeoutMs);
+            return true;
+        }
+        return false;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
