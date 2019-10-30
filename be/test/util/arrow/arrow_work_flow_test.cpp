@@ -349,7 +349,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
         ASSERT_EQ(6, record_batch->num_rows());
         ASSERT_EQ(6, record_batch->num_columns());
         std::string result;
-        status = serialize_record_batch(record_batch, &result);
+        status = serialize_record_batch(*record_batch, &result);
         ASSERT_TRUE(status.ok());
         size_t len = result.length();
         ASSERT_TRUE(len > 0);

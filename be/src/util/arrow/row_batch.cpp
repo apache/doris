@@ -478,16 +478,20 @@ Status convert_to_row_batch(const arrow::RecordBatch& batch,
     return converter.convert(result);
 }
 
-Status serialize_record_batch(std::shared_ptr<arrow::RecordBatch> record_batch, std::string* result) {
+Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result) {
     std::shared_ptr<arrow::io::BufferOutputStream> sink;
     // create sink memory buffer outputstream with the computed capacity
     int64_t capacity;
-    arrow::ipc::GetRecordBatchSize(*record_batch, &capacity);
-    Status returned_status;
-    arrow::Status a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
+    arrow::Status a_st = arrow::ipc::GetRecordBatchSize(record_batch, &capacity);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "initilize BufferOutputStream failure, reason: " << a_st.ToString(); 
+        msg << "GetRecordBatchSize failure, reason: " << a_st.ToString(); 
+        return Status::InternalError(msg.str());
+    }
+    a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "create BufferOutputStream failure, reason: " << a_st.ToString(); 
         return Status::InternalError(msg.str());
     }
     std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
@@ -495,11 +499,11 @@ Status serialize_record_batch(std::shared_ptr<arrow::RecordBatch> record_batch, 
     a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch->schema(), &record_batch_writer);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "initilize RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
+        msg << "open RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
         return Status::InternalError(msg.str());
     }
     // write RecordBatch to memory buffer outputstream
-    a_st = record_batch_writer->WriteRecordBatch(*record_batch);
+    a_st = record_batch_writer->WriteRecordBatch(record_batch);
     if (!a_st.ok()) {
         std::stringstream msg;
         msg << "write record batch failure, reason: " << a_st.ToString(); 

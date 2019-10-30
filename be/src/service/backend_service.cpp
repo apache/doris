@@ -327,10 +327,13 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
             result_.__set_eos(eos);
             if (!eos) {
                 std::string record_batch_str;
-                st = serialize_record_batch(record_batch, &record_batch_str);
+                st = serialize_record_batch(*record_batch, &record_batch_str);
                 st.to_thrift(&t_status);
                 if (st.ok()) {
-                    result_.__set_rows(record_batch_str);
+                    // avoid copy large string
+                    result_.rows = std::move(record_batch_str);
+                    // set __isset
+                    result_.__isset.rows = true;
                     context->offset += record_batch->num_rows();
                 }
             }

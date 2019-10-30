@@ -71,7 +71,7 @@ Status convert_to_row_batch(
     MemTracker* tracker,
     std::shared_ptr<RowBatch>* result);
 
-Status serialize_record_batch(std::shared_ptr<arrow::RecordBatch> record_batch, std::string* result);
+Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 
 }
 
