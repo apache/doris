@@ -62,12 +62,12 @@ public class SqlModeHelper {
     public static final long MODE_TIME_TRUNCATE_FRACTIONAL = 1L << 32;
 
     /* Bits for different COMBINE MODE modes, you can add custom COMBINE MODE here */
-    public static final Long MODE_ANSI = 1L << 18;
-    public static final Long MODE_TRADITIONAL = 1L << 27;
+    public static final long MODE_ANSI = 1L << 18;
+    public static final long MODE_TRADITIONAL = 1L << 27;
 
-    public final static Long MODE_LAST = 1L << 33;
+    public final static long MODE_LAST = 1L << 33;
 
-    public final static Long MODE_ALLOWED_MASK =
+    public final static long MODE_ALLOWED_MASK =
             (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
                     MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
                     MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
@@ -77,6 +77,8 @@ public class SqlModeHelper {
                     MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
                     MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
                     MODE_TIME_TRUNCATE_FRACTIONAL);
+
+    public final static long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
 
     private final static Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
@@ -138,8 +140,9 @@ public class SqlModeHelper {
         // empty string parse to 0
         long value = 0L;
         for (String key : names) {
-            if (checkValid(key)) {
-                throw new AnalysisException("Unsupported sql mode found: " + sqlMode);
+            // the SQL MODE must be supported, set SQL MODE repeatedly is not allowed
+            if (!isSupportedSqlMode(key) && (value & getSupportedSqlMode().get(key)) == 0) {
+                throw new AnalysisException("Variable 'sql_mode' can't be set to the value of:" + key);
             }
             value |= getSupportedSqlMode().get(key);
             if (isCombineMode(key)) {
@@ -150,13 +153,18 @@ public class SqlModeHelper {
         return value;
     }
 
-    // check whether this SQL MODE is supported
-    public static boolean checkValid(String sqlMode) {
-        //empty string is valid and equals to 0L
+    // check if this SQL MODE is supported
+    public static boolean isSupportedSqlMode(String sqlMode) {
+        // empty string is valid and equals to 0L
         if (sqlMode == null || !getSupportedSqlMode().containsKey(sqlMode)) {
             return false;
         }
         return true;
+    }
+
+    // check if this SQL MODE is combine mode
+    public static boolean isCombineMode(String key) {
+        return combineModeSet.containsKey(key);
     }
 
     public static Map<String, Long> getSupportedSqlMode() {
@@ -165,10 +173,6 @@ public class SqlModeHelper {
 
     public static Map<String, Long> getCombineMode() {
         return combineModeSet;
-    }
-
-    public static boolean isCombineMode(String key) {
-        return combineModeSet.containsKey(key);
     }
 
 }
