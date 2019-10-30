@@ -25,6 +25,28 @@ package org.apache.doris.resource;
  *      Backend, Frontend, Broker, RemoteStorage
  */
 public abstract class Resource {
-    private long id;
-    private TagSet tagSet;
+    protected long id;
+    protected TagSet tagSet;
+
+    public Resource(long id, TagSet tagSet) {
+        this.tagSet = tagSet;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public TagSet getTagSet() {
+        return tagSet;
+    }
+
+    public void addTag(Tag.Type type, String tagName) {
+        Tag tag = Tag.create(type, tagName);
+        tagSet.addTag(tag);
+    }
+
+    public void setTag(Tag.Type type, String tagName) {
+        TagSet newTagSet = TagSet.create(Tag.create(type, tagName));
+        tagSet.substituteMerge(newTagSet);
+    }
 }

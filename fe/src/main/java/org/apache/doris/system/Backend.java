@@ -24,6 +24,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.Resource;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.Tag.Type;
 import org.apache.doris.resource.TagSet;
@@ -52,7 +53,7 @@ import java.util.stream.Collectors;
  * This class extends the primary identifier of a Backend with ephemeral state,
  * eg usage information, current administrative state etc.
  */
-public class Backend implements Writable {
+public class Backend extends Resource implements Writable {
 
     public enum BackendState {
         using, /* backend is belong to a cluster*/
@@ -62,7 +63,7 @@ public class Backend implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(Backend.class);
 
-    private long id;
+    // private long id;
     private String host;
 
     private int heartbeatPort; // heartbeat
@@ -102,6 +103,7 @@ public class Backend implements Writable {
     }
 
     public Backend() {
+        super(-1, DEFAULT_TAG_SET);
         this.host = "";
         this.lastUpdateMs = new AtomicLong();
         this.lastStartTime = new AtomicLong();
@@ -120,6 +122,7 @@ public class Backend implements Writable {
     }
 
     public Backend(long id, String host, int heartbeatPort) {
+        super(id, DEFAULT_TAG_SET);
         this.id = id;
         this.host = host;
         this.heartbeatPort = heartbeatPort;
@@ -136,10 +139,6 @@ public class Backend implements Writable {
         this.ownerClusterName = new AtomicReference<String>(""); 
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
-    }
-
-    public long getId() {
-        return id;
     }
 
     public String getHost() {

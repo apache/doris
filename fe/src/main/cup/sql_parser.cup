@@ -404,7 +404,7 @@ nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
 // Alter statement
-nonterminal AlterClause alter_system_clause, alter_cluster_clause, alter_table_clause;
+nonterminal AlterClause alter_system_clause, alter_table_clause;
 nonterminal List<AlterClause> alter_table_clause_list;
 
 //
@@ -831,13 +831,6 @@ alter_system_clause ::=
     | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
-    :}
-    ;
-
-alter_cluster_clause ::=
-    KW_MODIFY opt_properties:properties
-    {:
-        RESULT = new AlterClusterClause(AlterClusterType.ALTER_CLUSTER_PROPERTIES, properties);
     :}
     ;
 

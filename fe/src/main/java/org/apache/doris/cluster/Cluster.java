@@ -17,12 +17,12 @@
 
 package org.apache.doris.cluster;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.LinkDbInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
@@ -139,6 +139,17 @@ public class Cluster implements Writable {
         try {
             ret.addAll(dbNames);
             ret.addAll(linkDbNames.keySet());
+        } finally {
+            unlock();
+        }
+        return ret;
+    }
+
+    public List<String> getDbNamesInCluster() {
+        final ArrayList<String> ret = new ArrayList<String>();
+        lock();
+        try {
+            ret.addAll(dbNames);
         } finally {
             unlock();
         }

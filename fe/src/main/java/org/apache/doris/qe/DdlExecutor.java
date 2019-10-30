@@ -77,7 +77,7 @@ public class DdlExecutor {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
         } else if (ddlStmt instanceof AlterClusterStmt) {
-            catalog.processModifyCluster((AlterClusterStmt) ddlStmt);
+            catalog.alterCluster((AlterClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof DropClusterStmt) {
             catalog.dropCluster((DropClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof MigrateDbStmt) {

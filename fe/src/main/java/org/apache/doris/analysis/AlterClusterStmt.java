@@ -26,15 +26,17 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
+/*
+ * this stmt is now only for convert CLUSTER to TAG SYSTEM
+ */
 public class AlterClusterStmt extends DdlStmt {
-
     private Map<String, String> properties;
-    private String alterClusterName;
     private String clusterName;
-    private int instanceNum;
+
+    public static String COVERT_TO_TAG_SYSTEM = "convert_to_tag_system";
 
     public AlterClusterStmt(String clusterName, Map<String, String> properties) {
-        this.alterClusterName = clusterName;
+        this.clusterName = clusterName;
         this.properties = properties;
     }
 
@@ -44,43 +46,25 @@ public class AlterClusterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, "NODE");
         }
 
-        if (properties == null || properties.size() == 0
-                || !properties.containsKey(CreateClusterStmt.CLUSTER_INSTANCE_NUM)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
-        }
-        try {
-            instanceNum = Integer.valueOf(properties.get(CreateClusterStmt.CLUSTER_INSTANCE_NUM));
-        } catch (NumberFormatException e) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
+        if (properties == null || properties.size() == 0) {
+            throw new AnalysisException("No property specified");
         }
 
-        if (instanceNum < 0) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR);
+        if (properties.size() != 1) {
+            throw new AnalysisException("Only allow one property at a time");
+        }
+
+        if (!properties.containsKey(COVERT_TO_TAG_SYSTEM) || !properties.get(COVERT_TO_TAG_SYSTEM).equals("true")) {
+            throw new AnalysisException("Invalid property: " + properties);
         }
     }
 
     @Override
     public String toSql() {
-        return "ALTER CLUSTER " + alterClusterName + " PROPERTIES(\"instance_num\"=" + "\"" + instanceNum + "\")";
-    }
-
-    public int getInstanceNum() {
-        return instanceNum;
-    }
-
-    public String getAlterClusterName() {
-        return alterClusterName;
-    }
-
-    public void setAlterClusterName(String alterClusterName) {
-        this.alterClusterName = alterClusterName;
+        return "ALTER CLUSTER " + clusterName + " PROPERTIES(\"convert_to_tag_system\"=\"true\")";
     }
 
     public String getClusterName() {
         return this.clusterName;
-    }
-
-    public void setInstanceNum(int instanceNum) {
-        this.instanceNum = instanceNum;
     }
 }

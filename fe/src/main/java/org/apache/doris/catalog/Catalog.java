@@ -21,7 +21,6 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
@@ -43,7 +42,6 @@ import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -5237,12 +5235,12 @@ public class Catalog {
 
         idToCluster.put(cluster.getId(), cluster);
         nameToCluster.put(cluster.getName(), cluster);
-
+        
         // create info schema db
         final InfoSchemaDb infoDb = new InfoSchemaDb(cluster.getName());
         infoDb.setClusterName(cluster.getName());
         unprotectCreateDb(infoDb);
-
+        
         // only need to create default cluster once.
         if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             isDefaultClusterCreated = true;
@@ -5343,13 +5341,30 @@ public class Catalog {
         }
     }
 
+    // convert the specified cluster to tag system
+    public void convertToTagSystem(AlterClusterStmt stmt) throws DdlException {
+        String clusterName = stmt.getClusterName();
+        Cluster cluster = nameToCluster.get(clusterName);
+        if (cluster == null) {
+            throw new DdlException("Unknown cluster: " + clusterName);
+        }
+
+        List<Long> backendIds = cluster.getBackendIdList();
+        // db full names
+        List<String> dbNames = cluster.getDbNamesInCluster();
+
+
+    }
+
     /**
      * modify cluster: Expansion or shrink
      *
      * @param stmt
      * @throws DdlException
      */
+    @Deprecated
     public void processModifyCluster(AlterClusterStmt stmt) throws DdlException {
+        /*
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
         if (!tryLock(false)) {
@@ -5360,7 +5375,7 @@ public class Catalog {
             if (cluster == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
-
+        
             // check if this cluster has backend in decommission
             final List<Long> backendIdsInCluster = cluster.getBackendIdList();
             for (Long beId : backendIdsInCluster) {
@@ -5369,7 +5384,7 @@ public class Catalog {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION, clusterName);
                 }
             }
-
+        
             final int oldInstanceNum = backendIdsInCluster.size();
             if (newInstanceNum > oldInstanceNum) {
                 // expansion
@@ -5388,14 +5403,14 @@ public class Catalog {
                 if (decomBackendIds == null || decomBackendIds.size() == 0) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BACKEND_ERROR);
                 }
-
+        
                 List<String> hostPortList = Lists.newArrayList();
                 for (Long id : decomBackendIds) {
                     final Backend backend = systemInfo.getBackend(id);
                     hostPortList.add(new StringBuilder().append(backend.getHost()).append(":")
                             .append(backend.getHeartbeatPort()).toString());
                 }
-
+        
                 // here we reuse the process of decommission backends. but set backend's decommission type to
                 // ClusterDecommission, which means this backend will not be removed from the system
                 // after decommission is done.
@@ -5412,10 +5427,11 @@ public class Catalog {
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_NO_CHANGE, newInstanceNum);
             }
-
+        
         } finally {
             unlock();
         }
+        */
     }
 
     /**
