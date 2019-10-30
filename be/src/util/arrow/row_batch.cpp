@@ -496,7 +496,7 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     }
     std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
     // create RecordBatch Writer
-    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch->schema(), &record_batch_writer);
+    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch.schema(), &record_batch_writer);
     if (!a_st.ok()) {
         std::stringstream msg;
         msg << "open RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
