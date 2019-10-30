@@ -140,14 +140,18 @@ public class SqlModeHelper {
         // empty string parse to 0
         long value = 0L;
         for (String key : names) {
-            // the SQL MODE must be supported, set SQL MODE repeatedly is not allowed
-            if (!isSupportedSqlMode(key) && (value & getSupportedSqlMode().get(key)) == 0) {
-                throw new AnalysisException("Variable 'sql_mode' can't be set to the value of:" + key);
+            // the SQL MODE must be supported, set sql mode repeatedly is not allowed
+            if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
+                throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
             }
-            value |= getSupportedSqlMode().get(key);
             if (isCombineMode(key)) {
+                // set multiple combine mode is not allowed
+                if ((value & MODE_COMBINE_MASK) != 0) {
+                    throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
+                }
                 value |= getCombineMode().get(key);
             }
+            value |= getSupportedSqlMode().get(key);
         }
 
         return value;
