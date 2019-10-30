@@ -35,7 +35,7 @@ inline bool is_dot_or_dotdot(const char* name) {
 class FileUtils {
 public:
 
-    // Create directory of dir_path by default Env, 
+    // Create directory of dir_path with default Env, 
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
     //
@@ -66,6 +66,9 @@ public:
     // funciton also exclude '.' and '..'.
     // Return OK with *count is set to the count, if execute successful.
     static Status get_children_count(Env* env, const std::string& dir, int64_t* count);
+
+    // Check the file_path is not exist with default env, or is not a dir, return false.
+    static bool is_dir(const std::string& file_path, Env* env);
 
     // If the file_path is not exist, or is not a dir, return false.
     static bool is_dir(const std::string& file_path);
