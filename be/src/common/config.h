@@ -435,8 +435,8 @@ namespace config {
     CONF_Int32(max_consumer_num_per_group, "3");
 
     // the size of thread pool for routine load task.
-    // this should be slightly larger than FE config 'max_concurrent_task_num_per_be' (default 10)
-    CONF_Int32(routine_load_thread_pool_size, "12");
+    // this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+    CONF_Int32(routine_load_thread_pool_size, "10");
 
     // Is set to true, index loading failure will not causing BE exit,
     // and the tablet will be marked as bad, so that FE will try to repair it.

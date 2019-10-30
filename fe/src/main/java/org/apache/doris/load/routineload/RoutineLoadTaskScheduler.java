@@ -194,7 +194,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
             lastBackendSlotUpdateTime = currentTime;
             LOG.debug("update backend max slot for routine load task scheduling. current task num per BE: {}",
-                    Config.max_concurrent_task_num_per_be);
+                    Config.max_routine_load_task_num_per_be);
         }
     }
 

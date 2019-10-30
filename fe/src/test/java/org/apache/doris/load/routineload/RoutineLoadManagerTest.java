@@ -332,7 +332,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Config.max_concurrent_task_num_per_be = 0;
+        Config.max_routine_load_task_num_per_be = 0;
         Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
         routineLoadJobMap.put(1l, routineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
@@ -633,7 +633,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Config.max_concurrent_task_num_per_be = 10;
+        Config.max_routine_load_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
         Assert.assertEquals(true, routineLoadManager.checkBeToTask(1L, "default"));
     }

@@ -83,21 +83,20 @@ public class GlobalTransactionMgr {
     private EditLog editLog;
     
     // transactionId -> TransactionState
-    private Map<Long, TransactionState> idToTransactionState;
+    private Map<Long, TransactionState> idToTransactionState = Maps.newConcurrentMap();
     // db id -> (label -> txn id)
-    private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels;
-    private Map<Long, Integer> runningTxnNums;
-    private TransactionIdGenerator idGenerator;
+    private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels = HashBasedTable.create();
+    // count the number of running txns of each database, except for the routine load txn
+    private Map<Long, Integer> runningTxnNums = Maps.newHashMap();
+    // count only the number of running routine load txns of each database
+    private Map<Long, Integer> runningRoutineLoadTxnNums = Maps.newHashMap();
+    private TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
     
     private Catalog catalog;
 
     public GlobalTransactionMgr(Catalog catalog) {
-        idToTransactionState = Maps.newConcurrentMap();
-        dbIdToTxnLabels = HashBasedTable.create();
-        runningTxnNums = Maps.newHashMap();
         this.catalog = catalog;
-        this.idGenerator = new TransactionIdGenerator();
     }
     
     public TxnStateCallbackFactory getCallbackFactory() {
@@ -154,11 +153,9 @@ public class GlobalTransactionMgr {
                 }
                 throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
             }
-            if (runningTxnNums.get(dbId) != null
-                    && runningTxnNums.get(dbId) >= Config.max_running_txn_num_per_db) {
-                throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                        + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
-            }
+            
+            checkRunningTxnExceedLimit(dbId, sourceType);
+          
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, requestId, sourceType,
@@ -181,6 +178,23 @@ public class GlobalTransactionMgr {
         }
     }
     
+    private void checkRunningTxnExceedLimit(long dbId, LoadJobSourceType sourceType) throws BeginTransactionException {
+        switch (sourceType) {
+            case ROUTINE_LOAD_TASK:
+                // we do not limit the txn num of routine load here. for 2 reasons:
+                // 1. the number of running routine load tasks is limited by Config.max_routine_load_task_num_per_be
+                // 2. if we add routine load txn to runningTxnNums, runningTxnNums will always be occupied by routine load,
+                //    and other txn may not be able to submitted.
+                break;
+            default:
+                if (runningTxnNums.getOrDefault(dbId, 0) >= Config.max_running_txn_num_per_db) {
+                    throw new BeginTransactionException("current running txns on db " + dbId + " is "
+                            + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
+                }
+                break;
+        }
+    }
+
     public TransactionStatus getLabelState(long dbId, String label) {
         readLock();
         try {
@@ -1063,26 +1077,30 @@ public class GlobalTransactionMgr {
     }
     
     private void updateDBRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
-        int dbRunningTxnNum = 0;
-        if (runningTxnNums.get(curTxnState.getDbId()) != null) {
-            dbRunningTxnNum = runningTxnNums.get(curTxnState.getDbId());
+        Map<Long, Integer> txnNumMap = null;
+        if (curTxnState.getSourceType() == LoadJobSourceType.ROUTINE_LOAD_TASK) {
+            txnNumMap = runningRoutineLoadTxnNums;
+        } else {
+            txnNumMap = runningTxnNums;
         }
+
+        int txnNum = txnNumMap.getOrDefault(curTxnState.getDbId(), 0);
         if (preStatus == null
                 && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
                 || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
-            ++dbRunningTxnNum;
-            runningTxnNums.put(curTxnState.getDbId(), dbRunningTxnNum);
+            ++txnNum;
         } else if (preStatus != null
                 && (preStatus == TransactionStatus.PREPARE
                 || preStatus == TransactionStatus.COMMITTED)
                 && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
                 || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
-            --dbRunningTxnNum;
-            if (dbRunningTxnNum < 1) {
-                runningTxnNums.remove(curTxnState.getDbId());
-            } else {
-                runningTxnNums.put(curTxnState.getDbId(), dbRunningTxnNum);
-            }
+            --txnNum;
+        }
+
+        if (txnNum < 1) {
+            txnNumMap.remove(curTxnState.getDbId());
+        } else {
+            txnNumMap.put(curTxnState.getDbId(), txnNum);
         }
     }
     
@@ -1114,7 +1132,8 @@ public class GlobalTransactionMgr {
         List<List<String>> infos = Lists.newArrayList();
         readLock();
         try {
-            infos.add(Lists.newArrayList("running", String.valueOf(runningTxnNums.getOrDefault(dbId, 0))));
+            infos.add(Lists.newArrayList("running", String.valueOf(
+                    runningTxnNums.getOrDefault(dbId, 0) + runningRoutineLoadTxnNums.getOrDefault(dbId, 0))));
             long finishedNum = idToTransactionState.values().stream().filter(
                     t -> (t.getDbId() == dbId && t.getTransactionStatus().isFinalStatus())).count();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));

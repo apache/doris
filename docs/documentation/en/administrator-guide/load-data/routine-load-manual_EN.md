@@ -1,17 +1,17 @@
 # Routine Load
 
-Routine Load provides users with a function to automatically import data from a specified data source.
+The Routine Load feature provides users with a way to automatically load data from a specified data source.
 
-This document mainly introduces the realization principle, usage and best practices of this function.
+This document describes the implementation principles, usage, and best practices of this feature.
 
-## Noun Interpretation
+## Glossary
 
 * FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
-* BE: Backend, Doris's back-end node. Responsible for query execution and data storage.
-* Routine LoadJob: A routine import job submitted by the user.
-* Job Scheduler: Import job scheduler routinely for scheduling and splitting a Routine LoadJob into multiple Tasks.
-* Task：RoutineLoadJob 被 JobScheduler 根据规则拆分的子任务。
-* Task Scheduler: Task Scheduler. It is used to schedule the execution of Task.
+* BE: Backend, the backend node of Doris. Responsible for query execution and data storage.
+* RoutineLoadJob: A routine load job submitted by the user.
+* JobScheduler: A routine load job scheduler for scheduling and dividing a RoutineLoadJob into multiple Tasks.
+* Task: RoutineLoadJob is divided by JobScheduler according to the rules.
+* TaskScheduler: Task Scheduler. Used to schedule the execution of a Task.
 
 ## Principle
 
@@ -41,69 +41,69 @@ This document mainly introduces the realization principle, usage and best practi
 
 ```
 
-As shown above, Client submits a routine import job to FE.
+As shown above, the client submits a routine load job to FE.
 
-FE splits an import job into several Tasks through Job Scheduler. Each Task is responsible for importing a specified portion of the data. Task is assigned by Task Scheduler to execute on the specified BE.
+FE splits an load job into several Tasks via JobScheduler. Each Task is responsible for loading a specified portion of the data. The Task is assigned by the TaskScheduler to the specified BE.
 
-On BE, a Task is considered a common import task, which is imported through the import mechanism of Stream Load. After importing, report to FE.
+On the BE, a Task is treated as a normal load task and loaded via the Stream Load load mechanism. After the load is complete, report to FE.
 
-Job Scheduler in FE continues to generate subsequent new Tasks based on the results reported, or retries failed Tasks.
+The JobScheduler in the FE continues to generate subsequent new Tasks based on the reported results, or retry the failed Task.
 
-The whole routine import job completes the data uninterrupted import by continuously generating new Tasks.
+The entire routine load job completes the uninterrupted load of data by continuously generating new Tasks.
 
-## Kafka routine load
+## Kafka Routine load
 
-Currently we only support routine imports from Kafka systems. This section details Kafka's routine introduction usage and best practices.
+Currently we only support routine load from the Kafka system. This section details Kafka's routine use and best practices.
 
-### Use restrictions
+### Usage restrictions
 
-1. Supporting unauthenticated Kafka access and the Kafka cluster authenticated by SSL.
-2. The supported message format is CSV text format. Each message is a line, and line end **does not contain** newline characters.
-3. Only Kafka version 0.10.0.0 (including) is supported.
+1. Support unauthenticated Kafka access and Kafka clusters certified by SSL.
+2. The supported message format is csv text format. Each message is a line, and the end of the line does not contain a ** line break.
+3. Only Kafka 0.10.0.0 or above is supported.
 
-### Create routine import tasks
+### Create a routine load task
 
-After creating a detailed grammar for routine import tasks, you can connect to Doris and execute `HELP ROUTINE LOAD'; `Check grammar help. Here is a detailed description of the creation of the job note.
+The detailed syntax for creating a routine load task can be connected to Doris and execute `HELP ROUTINE LOAD;` to see the syntax help. Here is a detailed description of the precautions when creating a job.
 
 * columns_mapping
 
-	`colum_mapping` is mainly used to specify table structure and column mapping relationships in message, as well as transformation of some columns. If not specified, Doris defaults that columns in message and columns in table structure correspond one by one in order. Although under normal circumstances, if the source data is exactly one-to-one correspondence, it is not specified that normal data import can also be carried out. However, we strongly recommend that users **explicitly specify column mapping relationships**. In this way, when the table structure changes (such as adding a nullable column) or the source file changes (such as adding a column), the import task can continue. Otherwise, when the above changes occur, the import will report an error because the column mapping relationship no longer corresponds one to one.
+    `columns_mapping` is mainly used to specify the column structure of the table structure and message, as well as the conversion of some columns. If not specified, Doris will default to the columns in the message and the columns of the table structure in a one-to-one correspondence. Although under normal circumstances, if the source data is exactly one-to-one, normal data load can be performed without specifying. However, we still strongly recommend that users ** explicitly specify column mappings**. This way, when the table structure changes (such as adding a nullable column), or the source file changes (such as adding a column), the load task can continue. Otherwise, after the above changes occur, the load will report an error because the column mapping relationship is no longer one-to-one.
 
-	In `columns_mapping`, we can also use some built-in functions to convert columns. But you need to pay attention to the actual column types corresponding to the function parameters. Examples are given to illustrate:
+    In `columns_mapping` we can also use some built-in functions for column conversion. But you need to pay attention to the actual column type corresponding to the function parameters. for example:
 
-	Assume that the user needs to import a table containing only `k1` columns of `int` type. And the null value in the source file needs to be converted to 0. This function can be implemented through the `ifnull` function. The correct way to use it is as follows:
+    Suppose the user needs to load a table containing only a column of `k1` with a column type of `int`. And you need to convert the null value in the source file to 0. This feature can be implemented with the `ifnull` function. The correct way to use is as follows:
 
-	`COLUMNS (xx, k1=ifnull(xx, "3"))`
+    `COLUMNS (xx, k1=ifnull(xx, "3"))`
 
-	Note that we use `3` instead of `3`, although the type of `k1` is `int`. Because the column types in the source data are `varchar` for the import task, the `xx` virtual column types here are also `varchar`. So we need to use `3` for matching, otherwise `ifnull` function can not find the function signature with parameter `(varchar, int)`, and there will be an error.
+    Note that we use `"3"` instead of `3`, although `k1` is of type `int`. Because the column type in the source data is `varchar` for the load task, the `xx` virtual column is also of type `varchar`. So we need to use `"3"` to match the match, otherwise the `ifnull` function can't find the function signature with the parameter `(varchar, int)`, and an error will occur.
 
-	Another example is to assume that the user needs to import a table containing only `k1` columns of `int` type. And the corresponding columns in the source file need to be processed: the negative number is converted to positive, and the positive number is multiplied by 100. This function can be implemented by the `case when` function, which should be correctly written as follows:
+    As another example, suppose the user needs to load a table containing only a column of `k1` with a column type of `int`. And you need to process the corresponding column in the source file: convert the negative number to a positive number and the positive number to 100. This function can be implemented with the `case when` function. The correct wording should be as follows:
 
     `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
-	Note that we need to convert all the parameters in `case when'to varchar in order to get the desired results.
+    Note that we need to convert all the parameters in `case when` to varchar in order to get the desired result.
 
 * where_predicates
 
-	The column type in `where_predicates` is already the actual column type, so there is no need to force the conversion to varchar type as `columns_mapping'. Write according to the actual column type.
+    The type of the column in `where_predicates` is already the actual column type, so there is no need to cast to the varchar type as `columns_mapping`. Write according to the actual column type.
 
 * desired\_concurrent\_number
 
-	`desired_concurrent_number` is used to specify the expected concurrency of a routine job. That is, how many tasks are executed simultaneously for a job at most. For Kafka import, the current actual concurrency calculation is as follows:
+    `desired_concurrent_number` is used to specify the degree of concurrency expected for a routine job. That is, a job, at most how many tasks are executing at the same time. For Kafka load, the current actual concurrency is calculated as follows:
 
     ```
     Min(partition num, desired_concurrent_number, alive_backend_num, Config.max_routine_load_task_concurrrent_num)
     ```
 
-	Where `Config.max_routine_load_task_concurrent_num` is a default maximum concurrency limit for the system. This is a FE configuration, which can be adjusted by reconfiguration. The default is 5.
-
-	The partition num refers to the number of partitions subscribed to Kafka topic. ` alive_backend_num` is the current normal number of BE nodes.
+    Where `Config.max_routine_load_task_concurrrent_num` is a default maximum concurrency limit for the system. This is a FE configuration that can be adjusted by changing the configuration. The default is 5.
+    
+    Where partition num refers to the number of partitions for the Kafka topic subscribed to. `alive_backend_num` is the current number of normal BE nodes.
 
 * max\_batch\_interval/max\_batch\_rows/max\_batch\_size
 
-	These three parameters are used to control the execution time of a single task. If any of these thresholds is reached, the task ends. Where `max_batch_rows` is used to record the number of data rows read from Kafka. ` Max_batch_size` is used to record the amount of data read from Kafka in bytes. At present, the consumption rate of a task is about 5-10MB/s.
+    These three parameters are used to control the execution time of a single task. If any of the thresholds is reached, the task ends. Where `max_batch_rows` is used to record the number of rows of data read from Kafka. `max_batch_size` is used to record the amount of data read from Kafka in bytes. The current consumption rate for a task is approximately 5-10MB/s.
 
-	Assuming a row of data is 500B, the user wants a task every 100MB or 10 seconds. The expected processing time of 100MB is 10-20 seconds, and the corresponding number of rows is about 200,000 rows. A reasonable configuration is:
+    So assume a row of data 500B, the user wants to be a task every 100MB or 10 seconds. The expected processing time for 100MB is 10-20 seconds, and the corresponding number of rows is about 200000 rows. Then a reasonable configuration is:
 
     ```
     "max_batch_interval" = "10",
@@ -111,37 +111,75 @@ After creating a detailed grammar for routine import tasks, you can connect to D
     "max_batch_size" = "104857600"
     ```
 
-	The parameters in the examples above are also default parameters for these configurations.
+    The parameters in the above example are also the default parameters for these configurations.
 
 * max\_error\_number
 
-	` max_error_number` is used to control the error rate. When the error rate is too high, the job will be automatically suspended. Because the whole job is oriented to data flow, and because of the boundless nature of data flow, we can not calculate the error rate through an error ratio like other import tasks. Therefore, a new computing method is provided to calculate the error ratio in the data stream.
+    `max_error_number` is used to control the error rate. When the error rate is too high, the job will automatically pause. Because the entire job is stream-oriented, and because of the borderless nature of the data stream, we can't calculate the error rate with an error ratio like other load tasks. So here is a new way of calculating to calculate the proportion of errors in the data stream.
 
-	We set up a sampling window. The size of the window is `max_batch_rows * 10`. In a sampling window, if the number of error lines exceeds `max_error_number`, the job is suspended. If it does not exceed, the next window starts to recalculate the number of erroneous rows.
+    We have set up a sampling window. The size of the window is `max_batch_rows * 10`. Within a sampling window, if the number of error lines exceeds `max_error_number`, the job is suspended. If it is not exceeded, the next window restarts counting the number of error lines.
+    
+    We assume that `max_batch_rows` is 200000 and the window size is 2000000. Let `max_error_number` be 20000, that is, the user expects an error behavior of 20000 for every 2000000 lines. That is, the error rate is 1%. But because not every batch of tasks consumes 200000 rows, the actual range of the window is [2000000, 2200000], which is 10% statistical error.
 
-	Let's assume `max_batch_rows` is 200,000, and the window size is 2,000,000. Let `max_error_number` be 20,000, that is, 20,000 erroneous actions per 2,000,000 lines expected by the user. That is, the error rate is 1%. But because not every batch of tasks consumes 200,000 rows, the actual range of windows is [2000000, 2200000], that is, 10% statistical error.
-
-	Error rows do not include rows filtered through where conditions. But it includes rows that do not have partitions in the corresponding Doris table.
+    The error line does not include rows that are filtered out by the where condition. But include rows that do not have a partition in the corresponding Doris table.
 
 * data\_source\_properties
 
-	` Data_source_properties` can specify consumption specific Kakfa partition. If not specified, all partitions of the topic subscribed are consumed by default.
+    The specific Kakfa partition can be specified in `data_source_properties`. If not specified, all partitions of the subscribed topic are consumed by default.
 
-	Note that when partition is explicitly specified, the import job will no longer dynamically detect changes in Kafka partition. If not specified, the consumption partition will be dynamically adjusted according to the change of Kafka partition.
+    Note that when partition is explicitly specified, the load job will no longer dynamically detect changes to Kafka partition. If not specified, the partitions that need to be consumed are dynamically adjusted based on changes in the kafka partition.
 
-#### Accessing the Kafka Cluster of SSL Authentication
+* strict\_mode
 
-Accessing the Kafka cluster for SSL authentication requires the user to provide a certificate file (ca.pem) to authenticate the Kafka Broker public key. If the Kafka cluster opens client authentication at the same time, the client's public key (client. pem), key file (client. key), and key password are also required. The required files need to be uploaded to Doris by the `CREAE FILE` command,** and the catalog name is `kafka`**. The specific help of the `CREATE FILE` command can be found in `HELP CREATE FILE;'. An example is given here:
+    Routine load load can turn on strict mode mode. The way to open it is to add ```"strict_mode" = "true"``` to job\_properties. The default strict mode is on.
 
-1. Upload files
+    The strict mode mode means strict filtering of column type conversions during the load process. The strict filtering strategy is as follows:
+
+    1. For column type conversion, if strict mode is true, the wrong data will be filtered. The error data here refers to the fact that the original data is not null, and the result is a null value after participating in the column type conversion.
+
+    2. When a loaded column is generated by a function transformation, strict mode has no effect on it.
+
+    3. For a column type loaded with a range limit, if the original data can pass the type conversion normally, but cannot pass the range limit, strict mode will not affect it. For example, if the type is decimal(1,0) and the original data is 10, it is eligible for type conversion but not for column declarations. This data strict has no effect on it.
+
+#### strict mode and load relationship of source data
+
+Here is an example of a column type of TinyInt.
+
+> Note: When a column in a table allows a null value to be loaded
+
+|source data | source data example | string to int   | strict_mode        | result|
+|------------|---------------------|-----------------|--------------------|---------|
+|null        | \N                  | N/A             | true or false      | NULL|
+|not null    | aaa or 2000         | NULL            | true               | invalid data(filtered)|
+|not null    | aaa                 | NULL            | false              | NULL|
+|not null    | 1                   | 1               | true or false      | correct data|
+
+Here the column type is Decimal(1,0)
+ 
+> Note: When a column in a table allows a null value to be loaded
+
+|source data | source data example | string to int   | strict_mode        | result|
+|------------|---------------------|-----------------|--------------------|--------|
+|null        | \N                  | N/A             | true or false      | NULL|
+|not null    | aaa                 | NULL            | true               | invalid data(filtered)|
+|not null    | aaa                 | NULL            | false              | NULL|
+|not null    | 1 or 10             | 1               | true or false      | correct data|
+
+> Note: 10 Although it is a value that is out of range, because its type meets the requirements of decimal, strict mode has no effect on it. 10 will eventually be filtered in other ETL processing flows. But it will not be filtered by strict mode.
+
+#### Accessing SSL-certified Kafka clusters
+
+Accessing the SSL-certified Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If the Kafka cluster has both client authentication enabled, you will also need to provide the client's public key (client.pem), key file (client.key), and key password. The files needed here need to be uploaded to Doris via the `CREAE FILE` command, ** and the catalog name is `kafka`**. See `HELP CREATE FILE;` for specific help on the `CREATE FILE` command. Here is an example:
+
+1. Upload file
 
     ```
     CREATE FILE "ca.pem" PROPERTIES("url" = "https://example_url/kafka-key/ca.pem", "catalog" = "kafka");
     CREATE FILE "client.key" PROPERTIES("url" = "https://example_urlkafka-key/client.key", "catalog" = "kafka");
     CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
-    ```
+```
 
-2. Create routine import jobs
+2. Create a routine load job
 
     ```
     CREATE ROUTINE LOAD db1.job1 on tbl1
@@ -161,60 +199,67 @@ Accessing the Kafka cluster for SSL authentication requires the user to provide 
     );
     ```
 
-> Doris accesses the Kafka cluster through Kafka's C++ API `librdkafka`. The parameters supported by `librdkafka` can be consulted
+> Doris accesses Kafka clusters via Kafka's C++ API `librdkafka`. The parameters supported by `librdkafka` can be found.
 >
-> `https://github.com /edenhill /librdkafka /blob /master /CONFIGURATION.md `
+> `https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md`
 
+### Viewing the status of the load job
 
-### View the status of import jobs
+Specific commands and examples for viewing the status of the ** job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
 
-Specific commands and examples for viewing the status of ** job ** can be viewed through `HELP SHOW ROUTINE LOAD;`commands.
+Specific commands and examples for viewing the **Task** status can be viewed with the `HELP SHOW ROUTINE LOAD TASK;` command.
 
-Specific commands and examples for viewing the running status of ** tasks ** can be viewed through `HELP SHOW ROUTINE LOAD TASK;`commands.
-
-You can only view tasks that are currently running. Tasks that have ended or not started cannot be viewed.
+You can only view tasks that are currently running, and tasks that have ended and are not started cannot be viewed.
 
 ### Job Control
 
-用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。
+The user can control the stop, pause and restart of the job by the three commands `STOP/PAUSE/RESUME`. You can view help and examples with the three commands `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` and `HELP RESUME ROUTINE LOAD;`.
 
-## Other notes
+## other instructions
 
-1. The relationship between routine import operations and ALTER TABLE operations
+1. The relationship between a routine load job and an ALTER TABLE operation
 
-	* Routine imports do not block SCHEMA CHANGE and ROLLUP operations. But note that if SCHEMA CHANGE is completed, the column mapping relationship does not match, which will lead to a sharp increase in error data for jobs and eventually to job pause. It is recommended that such problems be reduced by explicitly specifying column mapping relationships in routine import operations and by adding Nullable columns or columns with Default values.
-	* Deleting the Partition of a table may cause the imported data to fail to find the corresponding Partition and the job to pause.
+    * Routine load does not block SCHEMA CHANGE and ROLLUP operations. Note, however, that if the column mappings are not matched after SCHEMA CHANGE is completed, the job's erroneous data will spike and eventually cause the job to pause. It is recommended to reduce this type of problem by explicitly specifying column mappings in routine load jobs and by adding Nullable columns or columns with Default values.
+    * Deleting a Partition of a table may cause the loaded data to fail to find the corresponding Partition and the job will be paused.
 
-2. Relations between routine import jobs and other import jobs (LOAD, DELETE, INSERT)
+2. Relationship between routine load jobs and other load jobs (LOAD, DELETE, INSERT)
 
-	* Routine imports do not conflict with other LOAD and INSERT operations.
-	* When performing a DELETE operation, the corresponding table partition cannot have any import tasks being performed. Therefore, before performing the DELETE operation, it may be necessary to suspend the routine import operation and wait for the task that has been issued to complete before DELETE can be executed.
+    * Routine load does not conflict with other LOAD jobs and INSERT operations.
+    * When performing a DELETE operation, the corresponding table partition cannot have any load tasks being executed. Therefore, before performing the DELETE operation, you may need to pause the routine load job and wait for the delivered task to complete before you can execute DELETE.
 
-3. The relationship between routine import jobs and DROP DATABASE/TABLE operations
+3. Relationship between routine load jobs and DROP DATABASE/TABLE operations
 
-	When the corresponding database or table is deleted from the routine import, the job will automatically CANCEL.
+    When the corresponding database or table is deleted, the job will automatically CANCEL.
 
-4. The relationship between Kafka type routine import and Kafka topic
+4. The relationship between the kafka type routine load job and kafka topic
 
-	When the `kafka_topic'of the user creating the routine import declaration does not exist in the Kafka cluster.
+    When the user creates a routine load declaration, the `kafka_topic` does not exist in the kafka cluster.
 
-	* If the broker of user Kafka cluster sets `auto.create.topics.enable = true`, then `kafka_topic` will be created automatically first. The number of partitions created automatically is determined by the broker configuration `num.partitions` in **user's Kafka cluster**. Routine jobs will read the topic data regularly and continuously.
-	* If the broker of the user Kafka cluster sets `auto.create.topics.enable = false`, topic will not be created automatically, and routine jobs will be suspended before any data is read, in the state of `PAUSED`.
+    * If the broker of the user kafka cluster has `auto.create.topics.enable = true` set, `kafka_topic` will be automatically created first, and the number of partitions created automatically will be in the kafka cluster** of the user side. The broker is configured with `num.partitions`. The routine job will continue to read the data of the topic continuously.
+    * If the broker of the user kafka cluster has `auto.create.topics.enable = false` set, topic will not be created automatically, and the routine will be paused before any data is read, with the status `PAUSED`.
 
-	So, if users want to be created automatically by routine jobs when Kafka topic does not exist, they just need to set `auto.create.topics.enable = true` to the broker in **user's Kafka cluster**.
+    So, if the user wants to be automatically created by the routine when the kafka topic does not exist, just set the broker in the kafka cluster** of the user's side to set auto.create.topics.enable = true` .
 
-## Relevant parameters
+## Related parameters
 
-Some system configuration parameters affect the use of routine imports.
+Some system configuration parameters can affect the use of routine loads.
 
 1. max\_routine\_load\_task\_concurrent\_num
 
-	FE configuration item, default 5, can be modified at run time. This parameter limits the maximum number of subtasks concurrently imported routinely. It is recommended that the default values be maintained. Setting too large may lead to too many concurrent tasks and occupy cluster resources.
+    The FE configuration item, which defaults to 5, can be modified at runtime. This parameter limits the maximum number of subtask concurrency for a routine load job. It is recommended to maintain the default value. If the setting is too large, it may cause too many concurrent tasks and occupy cluster resources.
 
-2. max\_consumer\_num\_per\_group
+2. max\_routine_load\_task\_num\_per\_be
 
-	BE configuration item, default 3. This parameter represents the maximum number of consumers generated in a sub-task for data consumption. For Kafka data sources, a consumer may consume one or more Kafka partitions. Assuming that a task needs to consume six Kafka partitions, three consumers will be generated, and each consumer consumes two partitions. If there are only two partitions, only two consumers will be generated, and each consumer consumes one partition.
+    The FE configuration item, which defaults to 5, can be modified at runtime. This parameter limits the number of subtasks that can be executed concurrently by each BE node. It is recommended to maintain the default value. If the setting is too large, it may cause too many concurrent tasks and occupy cluster resources.
 
-3. push\_write\_mbytes\_per\_sec
+3. desired\_max\_waiting\_jobs
+    
+    The FE configuration item, which defaults to 100, can be modified at runtime. This parameter limits the total number of routine load jobs. After the overtime, you cannot submit a new assignment.
 
-	BE configuration item. The default is 10, or 10MB/s. This parameter is a general import parameter and is not limited to routine import operations. This parameter limits the speed at which imported data is written to disk. For high performance storage devices such as SSD, this speed limit can be increased appropriately.
+4. max\_consumer\_num\_per\_group
+
+    BE configuration item, the default is 3. This parameter indicates that up to several consumers are generated in a subtask for data consumption. For a Kafka data source, a consumer may consume one or more kafka partitions. Suppose a task needs to consume 6 kafka partitions, it will generate 3 consumers, and each consumer consumes 2 partitions. If there are only 2 partitions, only 2 consumers will be generated, and each consumer will consume 1 partition.
+
+5. push\_write\_mbytes\_per\_sec
+
+    BE configuration item. The default is 10, which is 10MB/s. This parameter is to load common parameters, not limited to routine load jobs. This parameter limits the speed at which loaded data is written to disk. For high-performance storage devices such as SSDs, this speed limit can be appropriately increased.

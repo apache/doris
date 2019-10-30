@@ -247,20 +247,21 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 1. max\_routine\_load\_task\_concurrent\_num
 
-    FE 配置项，默认为 5，可以运行时修改。该参数限制了一个例行导入最大的子任务并发数。建议维持默认值。设置过大，可能导致同时并发的任务数过多，占用集群资源。
+    FE 配置项，默认为 5，可以运行时修改。该参数限制了一个例行导入作业最大的子任务并发数。建议维持默认值。设置过大，可能导致同时并发的任务数过多，占用集群资源。
 
-2. max\_consumer\_num\_per\_group
+2. max\_routine_load\_task\_num\_per\_be
+
+    FE 配置项，默认为5，可以运行时修改。该参数限制了每个 BE 节点最多并发执行的子任务个数。建议维持默认值。如果设置过大，可能导致并发任务数过多，占用集群资源。
+
+3. desired\_max\_waiting\_jobs 
+
+    FE 配置项，默认为100，可以运行时修改。该参数限制的例行导入作业的总数。超过后，不能在提交新的作业。
+
+4. max\_consumer\_num\_per\_group
 
     BE 配置项，默认为 3。该参数表示一个子任务中最多生成几个 consumer 进行数据消费。对于 Kafka 数据源，一个 consumer 可能消费一个或多个 kafka partition。假设一个任务需要消费 6 个 kafka partition，则会生成 3 个 consumer，每个 consumer 消费 2 个 partition。如果只有 2 个 partition，则只会生成 2 个 consumer，每个 consumer 消费 1 个 partition。
 
-3. push\_write\_mbytes\_per\_sec
+5. push\_write\_mbytes\_per\_sec
 
     BE 配置项。默认为 10，即 10MB/s。该参数为导入通用参数，不限于例行导入作业。该参数限制了导入数据写入磁盘的速度。对于 SSD 等高性能存储设备，可以适当增加这个限速。
 
-4. max\_concurrent\_task\_num\_per\_be
-
-    FE 配置项，默认为10，可以运行时修改。该参数限制了每个 BE 节点最多并发执行的子任务个数。建议维持默认值。如果设置过大，可能导致并发任务数过多，占用集群资源。
-
-    * 如果用户发现许多 Routine load job 都处在 NEED\_SCHEDULER 的状态，则说明整个集群的子任务并发数饱和了。
-
-    ```整个集群的子任务的并发数 = BE 的个数 * max_concurrent_task_num_per_be``` 这种情况下，首先确定是否所有 RUNNING 中的 job 可以被精简，比如暂停或停止掉已经无用的 job。其次，可以考虑修改这个参数，用于扩大整个集群的子任务并发数。

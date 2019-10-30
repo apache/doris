@@ -90,7 +90,7 @@ public class RoutineLoadManager implements Writable {
 
     public void updateBeIdToMaxConcurrentTasks() {
         beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true).stream().collect(
-                Collectors.toMap(beId -> beId, beId -> Config.max_concurrent_task_num_per_be));
+                Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
     }
 
     // this is not real-time number
@@ -355,7 +355,7 @@ public class RoutineLoadManager implements Writable {
                     if (beIdToConcurrentTasks.containsKey(beId)) {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
                     } else {
-                        idleTaskNum = Config.max_concurrent_task_num_per_be;
+                        idleTaskNum = Config.max_routine_load_task_num_per_be;
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
@@ -392,7 +392,7 @@ public class RoutineLoadManager implements Writable {
             if (beIdToConcurrentTasks.containsKey(beId)) {
                 idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
             } else {
-                idleTaskNum = Config.max_concurrent_task_num_per_be;
+                idleTaskNum = Config.max_routine_load_task_num_per_be;
             }
             if (idleTaskNum > 0) {
                 return true;
