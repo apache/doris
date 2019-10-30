@@ -23,6 +23,7 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
+#include "util/arrow/row_batch.h"
 
 namespace doris {
 

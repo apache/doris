@@ -20,61 +20,6 @@ namespace cpp doris
 
 include "Types.thrift"
 include "Status.thrift"
-include "Planner.thrift"
-include "Descriptors.thrift"
-
-struct TScanColumnDesc {
-  // The column name
-  1: optional string name
-  // The column type. Always set.
-  2: optional Types.TPrimitiveType type
-}
-
-struct TScanColumnData {
-  // One element in the list for every row in the column indicating if there is
-  // a value in the vals list or a null.
-  1: required list<bool> is_null;
-
-  // Only one is set, only non-null values are set. this indicates one column data for a row batch
-  2: optional list<bool> bool_vals;
-  3: optional list<byte> byte_vals;
-  4: optional list<i16> short_vals;
-  5: optional list<i32> int_vals;
-  // for date and long value
-  6: optional list<i64> long_vals;
-  // for float and double
-  7: optional list<double> double_vals;
-  // for char, varchar, decimal
-  8: optional list<string> string_vals;
-  9: optional list<binary> binary_vals;
-}
-
-// Serialized batch of rows returned by getNext().
-// one row batch contains mult rows, and the result is arranged in column style
-struct TScanRowBatch {
-  // selected_columns + cols = data frame
-  // Each TScanColumnData contains the data for an entire column. Always set.
-  1: optional list<TScanColumnData> cols
-  // The number of rows returned.
-  2: optional i32 num_rows
-}
-
-struct TTabletVersionInfo {
-  1: required i64 tablet_id
-  2: required i64 version
-  3: required i64 version_hash
-  // i32 for historical reason
-  4: required i32 schema_hash
-}
-
-struct TQueryPlanInfo {
-  1: required Planner.TPlanFragment plan_fragment
-  // tablet_id -> TTabletVersionInfo
-  2: required map<i64, TTabletVersionInfo> tablet_info
-  3: required Descriptors.TDescriptorTable desc_tbl
-  // all tablet scan should share one query_id
-  4: required Types.TUniqueId query_id
-}
 
 
 // Parameters to open().
@@ -111,6 +56,12 @@ struct TScanOpenParams {
   11: optional i16 keep_alive_min
 }
 
+struct TScanColumnDesc {
+  // The column name
+  1: optional string name
+  // The column type. Always set.
+  2: optional Types.TPrimitiveType type
+}
 
 // Returned by open().
 struct TScanOpenResult {

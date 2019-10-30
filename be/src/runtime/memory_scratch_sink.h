@@ -22,7 +22,6 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/result_queue_mgr.h"
-#include "util/arrow/row_batch.h"
 #include "util/blocking_queue.hpp"
 
 namespace arrow {
@@ -44,8 +43,6 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
-class TScanRowBatch;
-class TScanColumnData;
 class TupleRow;
 
 // used to push data to blocking queue
@@ -77,9 +74,7 @@ public:
 private:
 
     Status prepare_exprs(RuntimeState* state);
-
-    // Status add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result);
-
+    
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

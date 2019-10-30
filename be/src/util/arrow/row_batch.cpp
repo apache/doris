@@ -17,14 +17,18 @@
 
 #include "util/arrow/row_batch.h"
 
-#include <arrow/builder.h>
-#include <arrow/visitor.h>
-#include <arrow/visitor_inline.h>
-#include <arrow/type.h>
 #include <arrow/array.h>
+#include <arrow/array/builder_primitive.h>
+#include <arrow/buffer.h>
+#include <arrow/builder.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/writer.h>
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
-#include <arrow/array/builder_primitive.h>
+#include <arrow/status.h>
+#include <arrow/type.h>
+#include <arrow/visitor.h>
+#include <arrow/visitor_inline.h>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -214,16 +218,16 @@ public:
                 case TYPE_CHAR:
                 case TYPE_HLL: {
                     const StringValue* string_val = (const StringValue*)(cell_ptr);
-                    if (string_val->ptr == NULL) {
+                    if (string_val == nullptr) {
+                        ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    } else {
                         if (string_val->len == 0) {
                             // 0x01 is a magic num, not usefull actually, just for present ""
                             //char* tmp_val = reinterpret_cast<char*>(0x01);
                             ARROW_RETURN_NOT_OK(builder.Append(""));        
                         } else {
-                            ARROW_RETURN_NOT_OK(builder.AppendNull());
+                            ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
                         }
-                    } else {
-                        ARROW_RETURN_NOT_OK(builder.Append(std::move(string_val->to_string())));
                     }   
                     break;
                 }
@@ -237,8 +241,12 @@ public:
                 }
                 case TYPE_DECIMAL: {
                     const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                    std::string decimal_str = decimal_val->to_string();
-                    ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
+                    if (decimal_val == nullptr) {
+                        ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    } else {
+                        std::string decimal_str = decimal_val->to_string();
+                        ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
+                    }
                     break;
                 }
                 default: {
@@ -263,7 +271,7 @@ public:
                 const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
                 int64_t ts = 0;
                 if (time_val->unix_timestamp(&ts, _time_zone)) {
-                    ARROW_RETURN_NOT_OK(builder.Append(ts));
+                    ARROW_RETURN_NOT_OK(builder.Append(ts * 1000));
                 } else {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
                 }
@@ -468,6 +476,48 @@ Status convert_to_row_batch(const arrow::RecordBatch& batch,
                             std::shared_ptr<RowBatch>* result) {
     ToRowBatchConverter converter(batch, row_desc, tracker);
     return converter.convert(result);
+}
+
+Status serialize_record_batch(std::shared_ptr<arrow::RecordBatch> record_batch, std::string* result) {
+    std::shared_ptr<arrow::io::BufferOutputStream> sink;
+    // create sink memory buffer outputstream with the computed capacity
+    int64_t capacity;
+    arrow::ipc::GetRecordBatchSize(*record_batch, &capacity);
+    Status returned_status;
+    arrow::Status a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "initilize BufferOutputStream failure, reason: " << a_st.ToString(); 
+        return Status::InternalError(msg.str());
+    }
+    std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
+    // create RecordBatch Writer
+    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch->schema(), &record_batch_writer);
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "initilize RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
+        return Status::InternalError(msg.str());
+    }
+    // write RecordBatch to memory buffer outputstream
+    a_st = record_batch_writer->WriteRecordBatch(*record_batch);
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "write record batch failure, reason: " << a_st.ToString(); 
+        return Status::InternalError(msg.str());
+    }
+    record_batch_writer->Close();
+    std::shared_ptr<arrow::Buffer> buffer;
+    sink->Finish(&buffer);
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "allocate result buffer failure, reason: " << a_st.ToString(); 
+        return Status::InternalError(msg.str());
+    }
+    *result = buffer->ToString();
+    // close the sink
+    sink->Close();
+    return Status::OK();
+
 }
 
 }

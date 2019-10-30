@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
 #include "util/hash_util.hpp"
-#include "util/arrow/row_batch.h"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 

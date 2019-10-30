@@ -158,6 +158,7 @@ ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
+${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_work_flow_test
 ${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
 ${DORIS_TEST_BINARY_DIR}/util/bit_stream_utils_test
 ${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
