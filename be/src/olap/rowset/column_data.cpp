@@ -42,7 +42,7 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
     if (StorageEngine::instance() != nullptr) {
         _lru_cache = StorageEngine::instance()->index_stream_lru_cache();
     } else {
-        // for test
+        // for independent usage, eg: unit test/segment tool
         _lru_cache = new_lru_cache(config::index_stream_cache_capacity);
     }
     _num_rows_per_block = _segment_group->get_num_rows_per_row_block();

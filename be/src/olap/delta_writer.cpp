@@ -64,8 +64,8 @@ DeltaWriter::~DeltaWriter() {
         _flush_handler->wait();
     }
 
-    if (_new_tablet != nullptr) {
-        _new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
+    if (_tablet != nullptr) {
+        _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
     }
 }
 
