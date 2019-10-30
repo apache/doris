@@ -544,7 +544,7 @@ public class SessionVariable implements Serializable, Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
             sqlMode = in.readLong();
         } else {
-            sqlMode = SqlModeHelper.parseString(Text.readString(in));
+            sqlMode = 0L;
         }
         isReportSucc = in.readBoolean();
         queryTimeoutS = in.readInt();

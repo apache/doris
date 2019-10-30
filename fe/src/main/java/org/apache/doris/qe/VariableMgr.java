@@ -421,7 +421,7 @@ public class VariableMgr {
                 }
 
                 if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-                    row.set(1, SqlModeHelper.parseValue(Long.valueOf(row.get(1))));
+                    row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
                 }
 
                 rows.add(row);

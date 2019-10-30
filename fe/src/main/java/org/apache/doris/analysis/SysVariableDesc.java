@@ -68,11 +68,8 @@ public class SysVariableDesc extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
         if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            if (!SqlModeHelper.checkValid(intValue)) {
-                throw new AnalysisException("Unsupported sql mode found in session variables: "+ intValue);
-            }
             setType(Type.VARCHAR);
-            setStringValue(SqlModeHelper.parseValue(intValue));
+            setStringValue(SqlModeHelper.decode(intValue));
         }
     }
 

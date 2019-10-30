@@ -120,14 +120,10 @@ public class VariableMgrTest {
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
 
         SetVar setVar4 = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral(
-                SqlModeHelper.parseString("PIPES_AS_CONCAT").toString()));
+                SqlModeHelper.encode("PIPES_AS_CONCAT").toString()));
         VariableMgr.setVar(var, setVar4);
         Assert.assertEquals(2L, var.getSqlMode());
 
-        setVar4 = new SetVar("sql_mode", new StringLiteral(
-                SqlModeHelper.parseString("WRONG_MODE").toString()));
-        VariableMgr.setVar(var, setVar4);
-        Assert.assertEquals(0L, var.getSqlMode());
     }
 
     @Test(expected = DdlException.class)
@@ -171,7 +167,6 @@ public class VariableMgrTest {
         }
         Assert.fail("No exception throws.");
     }
-
 
     @Test(expected = DdlException.class)
     public void testReadOnly() throws AnalysisException, DdlException {

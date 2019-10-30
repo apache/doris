@@ -21,6 +21,7 @@ package org.apache.doris.qe;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
+import org.apache.doris.common.AnalysisException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -112,8 +113,9 @@ public class SqlModeHelper {
                 MODE_NO_ENGINE_SUBSTITUTION));
     }
 
-    public static String parseValue(Long sqlMode) {
-        //0 parse to empty string
+    // convert long type SQL MODE to string type that user can read
+    public static String decode(Long sqlMode) {
+        // 0 parse to empty string
         if (sqlMode == 0 || (sqlMode & ~MODE_ALLOWED_MASK) != 0) {
             return "";
         }
@@ -128,43 +130,30 @@ public class SqlModeHelper {
         return Joiner.on(',').join(names);
     }
 
-    public static Long parseString(String sqlMode) {
-        //empty string parse to 0
-        long value = 0L;
+    // convert string type SQL MODE to long type that session can store
+    public static Long encode(String sqlMode) throws AnalysisException {
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
+
+        // empty string parse to 0
+        long value = 0L;
         for (String key : names) {
-            if (getSupportedSqlMode().containsKey(key)) {
-                value |= getSupportedSqlMode().get(key);
-                if (isCombineMode(key)) {
-                    value |= getCombineMode().get(key);
-                }
+            if (checkValid(key)) {
+                throw new AnalysisException("Unsupported sql mode found: " + sqlMode);
+            }
+            value |= getSupportedSqlMode().get(key);
+            if (isCombineMode(key)) {
+                value |= getCombineMode().get(key);
             }
         }
 
         return value;
     }
 
+    // check whether this SQL MODE is supported
     public static boolean checkValid(String sqlMode) {
-        //empty string is valid and parse to 0
-        if (sqlMode == null) {
-            return false;
-        }
-
-        List<String> values =
-                Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
-        for (String key : values) {
-            if (!getSupportedSqlMode().containsKey(key)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    public static boolean checkValid(Long sqlMode) {
-        //0 is valid and parse to empty string
-        if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+        //empty string is valid and equals to 0L
+        if (sqlMode == null || !getSupportedSqlMode().containsKey(sqlMode)) {
             return false;
         }
         return true;

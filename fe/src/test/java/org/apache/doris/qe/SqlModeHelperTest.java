@@ -26,27 +26,22 @@ public class SqlModeHelperTest {
     @Test
     public void testNormal() throws AnalysisException {
         String sqlMode = "PIPES_AS_CONCAT";
-        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlMode));
-        Assert.assertEquals(new Long(2L), SqlModeHelper.parseString(sqlMode));
-
-        sqlMode = "PIPES_AS_CONCAT, WRONG_MODE";
-        Assert.assertEquals(false, SqlModeHelper.checkValid(sqlMode));
-        Assert.assertEquals(new Long(2L), SqlModeHelper.parseString(sqlMode));
+        Assert.assertEquals(new Long(2L), SqlModeHelper.encode(sqlMode));
 
         sqlMode = "";
-        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlMode));
-        Assert.assertEquals(new Long(0L), SqlModeHelper.parseString(sqlMode));
+        Assert.assertEquals(new Long(0L), SqlModeHelper.encode(sqlMode));
 
         long sqlModeValue = 2L;
-        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlModeValue));
-        Assert.assertEquals("PIPES_AS_CONCAT", SqlModeHelper.parseValue(2L));
-
-        sqlModeValue = Long.MAX_VALUE;
-        Assert.assertEquals(false, SqlModeHelper.checkValid(sqlModeValue));
-        Assert.assertEquals("", SqlModeHelper.parseValue(sqlModeValue));
+        Assert.assertEquals("PIPES_AS_CONCAT", SqlModeHelper.decode(sqlModeValue));
 
         sqlModeValue = 0L;
-        Assert.assertEquals(true, SqlModeHelper.checkValid(sqlModeValue));
-        Assert.assertEquals("", SqlModeHelper.parseValue(sqlModeValue));
+        Assert.assertEquals("", SqlModeHelper.decode(sqlModeValue));
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidSqlMode() throws AnalysisException {
+        String sqlMode = "PIPES_AS_CONCAT, WRONG_MODE";
+        SqlModeHelper.encode(sqlMode);
+        Assert.fail("No exception throws");
     }
 }

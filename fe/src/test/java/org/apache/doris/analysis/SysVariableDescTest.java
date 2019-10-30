@@ -50,12 +50,4 @@ public class SysVariableDescTest {
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlMode() throws AnalysisException {
-        SysVariableDesc desc = new SysVariableDesc("sql_mode", SetType.SESSION);
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        analyzer.getContext().getSessionVariable().setSqlMode(Long.MAX_VALUE);
-        desc.analyze(analyzer);
-        Assert.fail("No exception throws.");
-    }
 }

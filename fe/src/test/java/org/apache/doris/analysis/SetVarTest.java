@@ -84,4 +84,11 @@ public class SetVarTest {
         var.analyze(analyzer);
         Assert.fail("No exception throws");
     }
+
+    @Test
+    public void testInvalidSqlMode() throws UserException, AnalysisException {
+        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral("WRONG_MODE"));
+        var.analyze(analyzer);
+        Assert.fail("No exception throws");
+    }
 }

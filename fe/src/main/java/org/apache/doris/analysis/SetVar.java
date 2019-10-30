@@ -106,10 +106,7 @@ public class SetVar {
         if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
             if (value instanceof StringLiteral) {
                 String sqlMode = ((StringLiteral) value).getStringValue();
-                if (!SqlModeHelper.checkValid(sqlMode)) {
-                    throw new AnalysisException("Unsupported sql mode found: " + sqlMode);
-                }
-                value = new StringLiteral(SqlModeHelper.parseString(sqlMode).toString());
+                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
             } else {
                 throw new AnalysisException("Sql mode only support string literal");
             }
