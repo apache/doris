@@ -18,35 +18,32 @@
 package org.apache.doris.common.util;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.thrift.TUniqueId;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
 public class LogBuilder {
-
-    private final StringBuffer stringBuffer;
+    private final StringBuilder sb;
     private final List<LogEntry> entries;
 
     public LogBuilder(String identifier) {
-        stringBuffer = new StringBuffer(identifier).append("-");
+        sb = new StringBuilder(identifier).append("-");
         entries = Lists.newLinkedList();
     }
 
     public LogBuilder(LogKey key, Long identifier) {
-        stringBuffer = new StringBuffer().append(key.name()).append("=").append(identifier).append(", ");
+        sb = new StringBuilder().append(key.name()).append("=").append(identifier).append(", ");
         entries = Lists.newLinkedList();
     }
 
     public LogBuilder(LogKey key, UUID identifier) {
-        TUniqueId tUniqueId = new TUniqueId(identifier.getMostSignificantBits(), identifier.getLeastSignificantBits());
-        stringBuffer = new StringBuffer().append(key.name()).append("=").append(DebugUtil.printId(tUniqueId)).append(", ");
+        sb = new StringBuilder().append(key.name()).append("=").append(DebugUtil.printId(identifier)).append(", ");
         entries = Lists.newLinkedList();
     }
 
     public LogBuilder(LogKey key, String identifier) {
-        stringBuffer = new StringBuffer().append(key.name()).append("=").append(identifier).append(", ");
+        sb = new StringBuilder().append(key.name()).append("=").append(identifier).append(", ");
         entries = Lists.newLinkedList();
     }
 
@@ -89,12 +86,12 @@ public class LogBuilder {
         Iterator<LogEntry> it = entries.iterator();
         while (it.hasNext()) {
             LogEntry logEntry = it.next();
-            stringBuffer.append(logEntry.key).append("={").append(logEntry.value).append("}");
+            sb.append(logEntry.key).append("={").append(logEntry.value).append("}");
             if (it.hasNext()) {
-                stringBuffer.append(", ");
+                sb.append(", ");
             }
         }
-        return stringBuffer.toString();
+        return sb.toString();
     }
 
     private class LogEntry {

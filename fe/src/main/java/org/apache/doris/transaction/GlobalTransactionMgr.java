@@ -768,52 +768,45 @@ public class GlobalTransactionMgr {
         return true;
     }
     
-    /**
-     * in this method should get db lock first then get txn manager lock , or there will be dead lock
+    /*
+     * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
+     * expired: txn is in VISIBLE or ABORTED, and is expired.
+     * timeout: txn is in PREPARE, but timeout
      */
-    public void removeOldAndTimeoutTransactions() {
+    public void removeExpiredAndTimeoutTxns() {
         long currentMillis = System.currentTimeMillis();
 
-        List<TransactionState> abortedTxns = Lists.newArrayList();
+        List<Long> timeoutTxns = Lists.newArrayList();
+        List<Long> expiredTxns = Lists.newArrayList();
         writeLock();
         try {
-            List<Long> transactionsToDelete = Lists.newArrayList();
             for (TransactionState transactionState : idToTransactionState.values()) {
-                if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED
-                        || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    if ((currentMillis - transactionState.getFinishTime()) / 1000 > Config.label_keep_max_second) {
-                        // remove the txn which labels are expired
-                        transactionsToDelete.add(transactionState.getTransactionId());
-                    }
-                } else {
-                    if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
-                        // txn is running but timeout, abort it.
-                        transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                        transactionState.setFinishTime(System.currentTimeMillis());
-                        transactionState.setReason("transaction is timeout and is cancelled automatically");
-                        unprotectUpsertTransactionState(transactionState);
-                        abortedTxns.add(transactionState);
-                    }
+                if (transactionState.isExpired(currentMillis)) {
+                    // remove the txn which labels are expired
+                    expiredTxns.add(transactionState.getTransactionId());
+                } else if (transactionState.isTimeout(currentMillis)) {
+                    // txn is running but timeout, abort it.
+                    timeoutTxns.add(transactionState.getTransactionId());
                 }
-            }
-            
-            for (Long transId : transactionsToDelete) {
-                deleteTransaction(transId);
-                LOG.info("transaction [" + transId + "] is expired, remove it from transaction manager");
             }
         } finally {
             writeUnlock();
         }
 
-        // handle aborted txns
-        for (TransactionState abortedTxn : abortedTxns) {
+        // delete expired txns
+        for (Long txnId : expiredTxns) {
+            deleteTransaction(txnId);
+            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
+        }
+
+        // abort timeout txns
+        for (Long txnId : timeoutTxns) {
             try {
-                abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
-                LOG.warn("abort txn due to timeout: {}", abortedTxn.getTransactionId());
+                abortTransaction(txnId, "timeout by txn manager");
+                LOG.info("transaction [" + txnId + "] is timeout, abort it by transaction manager");
             } catch (UserException e) {
-                // just print a log, it does not matter.
-                LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);
+                // abort may be failed. it is acceptable. just print a log
+                LOG.warn("abort timeout txn {} failed. msg: {}", txnId, e.getMessage());
             }
         }
     }

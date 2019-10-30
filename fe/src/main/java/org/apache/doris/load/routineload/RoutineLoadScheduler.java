@@ -26,6 +26,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -114,16 +115,14 @@ public class RoutineLoadScheduler extends Daemon {
             }
         }
 
-        LOG.debug("begin to check timeout tasks");
         // check timeout tasks
         routineLoadManager.processTimeoutTasks();
 
-        LOG.debug("begin to clean old jobs ");
         routineLoadManager.cleanOldRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
-        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
+        return routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
     }
 
 

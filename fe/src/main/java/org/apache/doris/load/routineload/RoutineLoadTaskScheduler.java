@@ -59,7 +59,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
     private static final long SLOT_FULL_SLEEP_MS = 10000; // 10s
-    private static final long MIN_SCHEDULE_INTERVAL_MS = 10000; // 10s
 
     private RoutineLoadManager routineLoadManager;
     private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
@@ -101,7 +100,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
             if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < routineLoadTaskInfo.getTimeoutMs()) {
-                // delay this schedule, to void too many failure
+                // try to delay scheduling this task for 'timeout', to void too many failure
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
                 return;
             }
@@ -178,14 +177,14 @@ public class RoutineLoadTaskScheduler extends Daemon {
             throw e;
         }
 
-        // set the executeStartTimeMs of task
-        routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
-        
         if (!submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask)) {
             // submit failed. push it back to the queue to wait next scheduling
             routineLoadTaskInfo.setBeId(-1);
             needScheduleTasksQueue.put(routineLoadTaskInfo);
         }
+
+        // set the executeStartTimeMs of task
+        routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
     }
 
     private void updateBackendSlotIfNecessary() {

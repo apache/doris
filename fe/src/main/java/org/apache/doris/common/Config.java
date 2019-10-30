@@ -829,7 +829,7 @@ public class Config extends ConfigBase {
     @ConfField public static boolean enable_metric_calculator = true;
 
     /*
-     * the max concurrent routine load task num of a routine load task
+     * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;

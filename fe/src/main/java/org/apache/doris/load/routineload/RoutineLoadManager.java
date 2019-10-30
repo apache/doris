@@ -39,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +52,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -99,7 +101,7 @@ public class RoutineLoadManager implements Writable {
     // return the map of be id -> running tasks num
     private Map<Long, Integer> getBeCurrentTasksNumMap() {
         Map<Long, Integer> beCurrentTaskNumMap = Maps.newHashMap();
-        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING)) {
+        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.RUNNING))) {
             Map<Long, Integer> jobBeCurrentTasksNumMap = routineLoadJob.getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : jobBeCurrentTasksNumMap.entrySet()) {
                 if (beCurrentTaskNumMap.containsKey(entry.getKey())) {
@@ -149,9 +151,10 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
-            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.desired_max_waiting_jobs) {
+            if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
+                    RoutineLoadJob.JobState.RUNNING)).size() > Config.desired_max_waiting_jobs) {
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
-                                               + " routine load jobs in waiting queue, please retry later");
+                        + " routine load jobs are running. exceed limit.");
             }
 
             unprotectedAddJob(routineLoadJob);
@@ -255,6 +258,13 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
+
+        if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
+                RoutineLoadJob.JobState.RUNNING)).size() > Config.desired_max_waiting_jobs) {
+            throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
+                    + " routine load jobs are running. You need to pause or stop some of them and try again.");
+        }
+
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -500,12 +510,13 @@ public class RoutineLoadManager implements Writable {
         return false;
     }
 
-    public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
+    public List<RoutineLoadJob> getRoutineLoadJobByState(Set<RoutineLoadJob.JobState> desiredStates) {
         List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
-                .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
+                .filter(entity -> desiredStates.contains(entity.getState())).collect(Collectors.toList());
         return stateJobs;
     }
 
+    // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             routineLoadJob.processTimeoutTasks();
@@ -516,6 +527,7 @@ public class RoutineLoadManager implements Writable {
     // This function is called periodically.
     // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
+        LOG.debug("begin to clean old routine load jobs ");
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
