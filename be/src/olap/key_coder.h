@@ -34,18 +34,22 @@ using FullEncodeAscendingFunc = void (*) (const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
 using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool);
 
-// Helper class that is used to encode types of value in memory format
-// into a sorted binary. For example, this class will encode unsigned
-// integer to bit endian format which can compare with memcmp.
+// Order-preserving binary encoding for values of a particular type so that
+// those values can be compared by memcpy their encoded bytes.
+//
+// To obtain instance of this class, use the `get_key_coder(FieldType)` method.
 class KeyCoder {
 public:
     template<typename TraitsType>
     KeyCoder(TraitsType traits);
 
+    // encode the provided `value` into `buf`.
     void full_encode_ascending(const void* value, std::string* buf) const {
         _full_encode_ascending(value, buf);
     }
 
+    // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
+    // only applicable to string type
     void encode_ascending(const void* value, size_t index_size, std::string* buf) const {
         _encode_ascending(value, index_size, buf);
     }

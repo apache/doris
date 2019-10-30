@@ -53,7 +53,7 @@ enum EncodingTypePB {
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
-    FOR_ENCODING = 7;
+    FOR_ENCODING = 7; // Frame-Of-Reference
 }
 
 enum CompressionTypePB {
@@ -168,9 +168,9 @@ message IndexPageFooterPB {
   required int32 num_entries = 1;
 
   enum Type {
-    UNKNOWN = 999;
-    LEAF = 0;
-    INTERNAL = 1;
+    UNKNOWN_INDEX_PAGE_TYPE = 0;
+    LEAF = 1;
+    INTERNAL = 2;
   };
   required Type type = 2;
 }
@@ -198,8 +198,8 @@ message IndexedColumnMetaPB {
 
 message BitmapIndexColumnPB {
     enum BitmapType {
-        UNKNOWN = 999;
-        ROARING_BITMAP = 0;
+        UNKNOWN_BITMAP_TYPE = 0;
+        ROARING_BITMAP = 1;
     }
     optional uint32 column_id = 1;
     optional uint32 unique_id = 2;

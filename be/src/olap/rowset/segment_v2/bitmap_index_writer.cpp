@@ -30,8 +30,6 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 
-class Roaring; // FIXME remove
-
 namespace doris {
 namespace segment_v2 {
 
@@ -86,6 +84,7 @@ public:
     }
 
     Status finish(WritableFile* file, BitmapIndexColumnPB* meta) override {
+        meta->set_bitmap_type(BitmapIndexColumnPB::ROARING_BITMAP);
         meta->set_has_null(!_null_bitmap.isEmpty());
 
         {   // write dictionary

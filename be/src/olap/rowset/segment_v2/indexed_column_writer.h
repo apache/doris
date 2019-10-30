@@ -48,12 +48,23 @@ struct IndexedColumnWriterOptions {
     CompressionTypePB compression = NO_COMPRESSION;
 };
 
-// TODO test with empty input (all values are null)
-// TODO support null value
-// TODO support value index with duplicated keys
+// IndexedColumn is a column with an optional "ordinal index" and an optional "value index".
+// - "ordinal index" enables us to seek to a particular rowid within the column
+// - "value index" enables us to seek to a particular value but requires IndexedColumn to store ordered values
+//
+// IndexedColumn can be used as the building blocks for implementing other data structures. For example,
+// - a bitmap index can be represented by two indexed columns, one for the term dictionary, one for the posting lists.
+//   the "dictionary" IndexedColumn contains ordered terms and a value index.
+//   the "posting" IndexedColumn contains bitmap for each term and an ordinal index.
+// - a bloom filter index can be represented by one indexed column containing bloom filters with an ordinal index
+//
+// Currently IndexedColumn has the following restrictions but can be extended to solve in the future
+// 1. value can't be null
+// 2. duplicated values are not supported/tested when storing ordered values
+// TODO test with empty input
 class IndexedColumnWriter {
 public:
-    explicit IndexedColumnWriter(IndexedColumnWriterOptions options,
+    explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                  const TypeInfo* typeinfo,
                                  WritableFile* output_file);
 
@@ -90,10 +101,15 @@ private:
     uint32_t _num_data_pages;
     PagePointer _last_data_page;
 
-    // initialized in init()
+    // the following members are initialized in init()
+    // -----
+    // builder for data pages
     std::unique_ptr<PageBuilder> _data_page_builder;
+    // builder for index pages of ordinal index, null if write_ordinal_index == false
     std::unique_ptr<IndexPageBuilder> _ordinal_index_builder;
+    // builder for index pages of value index, null if write_value_index == false
     std::unique_ptr<IndexPageBuilder> _value_index_builder;
+    // encoder for value index's key
     const KeyCoder* _validx_key_coder;
     const BlockCompressionCodec* _compress_codec;
 

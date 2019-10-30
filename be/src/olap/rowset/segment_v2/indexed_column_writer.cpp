@@ -35,7 +35,7 @@
 namespace doris {
 namespace segment_v2 {
 
-IndexedColumnWriter::IndexedColumnWriter(IndexedColumnWriterOptions options,
+IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* typeinfo,
                                          WritableFile* output_file)
         : _options(options),

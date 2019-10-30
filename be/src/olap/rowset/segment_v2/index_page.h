@@ -33,6 +33,20 @@ namespace segment_v2 {
 
 class IndexPageIterator; // forward decl.
 
+// IndexPage is the building block for IndexedColumn's ordinal index and value index.
+// It is used to guide searching for a particular key to the data page containing it.
+// We use the same general format for all index pages, regardless of the data type and node type (leaf or internal)
+//   IndexPage := IndexEntry^NumEntry, StartOffset(4)^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
+//   IndexEntry := IndexKey, PagePointer
+//   IndexKey := KeyLength(vint32), KeyData(KeyLength bytes)
+//   PagePointer := PageOffset(vint64), PageSize(vint32)
+//
+// IndexPageFooterPB records NumEntry and type (leaf/internal) of the index page.
+// For leaf, IndexKey records the first/smallest key of the data page PagePointer points to.
+// For internal, IndexKey records the first/smallest key of the next-level index page PagePointer points to.
+//
+// All keys are treated as binary string and compared with memcpy. Keys of other data type are encoded first by
+// KeyCoder, e.g., ordinal index's original key type is uint32_t but is encoded to binary string.
 class IndexPageBuilder {
 public:
     explicit IndexPageBuilder(size_t index_page_size, bool is_leaf)
