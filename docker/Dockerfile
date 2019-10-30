@@ -17,7 +17,7 @@
 
 FROM centos:centos7.5.1804
 
-MAINTAINER tangxiaoqing214445
+LABEL maintainer=tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
 

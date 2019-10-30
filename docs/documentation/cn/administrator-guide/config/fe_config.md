@@ -1,7 +1,7 @@
-# »ù±¾ÅäÖÃ
+# åŸºæœ¬é…ç½®
 
 ## brpc_max_body_size
 
-  Õâ¸öÅäÖÃÖ÷ÒªÓÃÀ´ÐÞ¸Ä brpc µÄ²ÎÊý max_body_size £¬Ä¬ÈÏÅäÖÃÊÇ 64M¡£Ò»°ã·¢ÉúÔÚ multi distinct + ÎÞ group by + ³¬¹ý1T Êý¾ÝÁ¿µÄÇé¿öÏÂ¡£ÓÈÆäÈç¹û·¢ÏÖ²éÑ¯¿¨ËÀ£¬ÇÒ BE ³öÏÖÀàËÆ body_size is too large µÄ×ÖÑù¡£
+  è¿™ä¸ªé…ç½®ä¸»è¦ç”¨æ¥ä¿®æ”¹ brpc çš„å‚æ•° max_body_size ï¼Œé»˜è®¤é…ç½®æ˜¯ 64Mã€‚ä¸€èˆ¬å‘ç”Ÿåœ¨ multi distinct + æ—  group by + è¶…è¿‡1T æ•°æ®é‡çš„æƒ…å†µä¸‹ã€‚å°¤å…¶å¦‚æžœå‘çŽ°æŸ¥è¯¢å¡æ­»ï¼Œä¸” BE å‡ºçŽ°ç±»ä¼¼ body_size is too large çš„å­—æ ·ã€‚
 
-  ÓÉÓÚÕâÊÇÒ»¸ö brpc µÄÅäÖÃ£¬ÓÃ»§Ò²¿ÉÒÔÔÚÔËÐÐÖÐÖ±½ÓÐÞ¸Ä¸Ã²ÎÊý¡£Í¨¹ý·ÃÎÊ http://host:brpc_port/flags ÐÞ¸Ä¡£
+  ç”±äºŽè¿™æ˜¯ä¸€ä¸ª brpc çš„é…ç½®ï¼Œç”¨æˆ·ä¹Ÿå¯ä»¥åœ¨è¿è¡Œä¸­ç›´æŽ¥ä¿®æ”¹è¯¥å‚æ•°ã€‚é€šè¿‡è®¿é—® http://host:brpc_port/flags ä¿®æ”¹ã€‚
