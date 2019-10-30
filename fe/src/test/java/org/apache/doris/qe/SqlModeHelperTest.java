@@ -44,4 +44,11 @@ public class SqlModeHelperTest {
         SqlModeHelper.encode(sqlMode);
         Assert.fail("No exception throws");
     }
+
+    @Test(expected = AnalysisException.class)
+    public void testMultiSqlMode() throws AnalysisException {
+        String sqlMode = "ANSI, TRADITIONAL";
+        SqlModeHelper.encode(sqlMode);
+        Assert.fail("No exception throws");
+    }
 }

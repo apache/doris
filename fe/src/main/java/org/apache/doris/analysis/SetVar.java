@@ -103,13 +103,10 @@ public class SetVar {
             value = new StringLiteral(((SlotRef) value).getColumnName());
         }
 
-        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            if (value instanceof StringLiteral) {
-                String sqlMode = ((StringLiteral) value).getStringValue();
-                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-            } else {
-                throw new AnalysisException("Sql mode only support string literal");
-            }
+        // For the case like "set sql_mode = PIPES_AS_CONCAT"
+        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE) && value instanceof StringLiteral) {
+            String sqlMode = ((StringLiteral) value).getStringValue();
+            value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
         }
 
         value.analyze(analyzer);
