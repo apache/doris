@@ -195,6 +195,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {

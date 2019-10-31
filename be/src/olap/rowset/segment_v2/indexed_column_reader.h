@@ -33,7 +33,7 @@ namespace segment_v2 {
 
 class IndexedColumnIterator;
 
-// thread-safe reader
+// thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
     explicit IndexedColumnReader(RandomAccessFile* file);

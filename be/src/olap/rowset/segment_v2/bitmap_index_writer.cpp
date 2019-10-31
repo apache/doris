@@ -45,6 +45,19 @@ struct BitmapIndexTraits<Slice> {
     using MemoryIndexType = std::map<Slice, Roaring, Slice::Comparator>;
 };
 
+// Builder for bitmap index. Bitmap index is comprised of two parts
+// - an "ordered dictionary" which contains all distinct values of a column and maps each value to an id.
+//   the smallest value mapped to 0, second value mapped to 1, ..
+// - a posting list which stores one bitmap for each value in the dictionary. each bitmap is used to represent
+//   the list of rowid where a particular value exists.
+//
+// E.g, if the column contains 10 rows ['x', 'x', 'x', 'b', 'b', 'b', 'x', 'b', 'b', 'b'],
+// then the ordered dictionary would be ['b', 'x'] which maps 'b' to 0 and 'x' to 1,
+// and the posting list would contain two bitmaps
+//   bitmap for ID 0 : [0 0 0 1 1 1 0 1 1 1]
+//   bitmap for ID 1 : [1 1 1 0 0 0 1 0 0 0]
+//   the n-th bit is set to 1 if the n-th row equals to the corresponding value.
+//
 template <FieldType field_type>
 class BitmapIndexWriterImpl : public BitmapIndexWriter {
 public:
@@ -180,12 +193,6 @@ Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<Bitma
         case OLAP_FIELD_TYPE_BIGINT:
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(typeinfo));
             break;
-        case OLAP_FIELD_TYPE_FLOAT:
-            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_FLOAT>(typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_DOUBLE:
-            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DOUBLE>(typeinfo));
-            break;
         case OLAP_FIELD_TYPE_CHAR:
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(typeinfo));
             break;
@@ -193,7 +200,7 @@ Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<Bitma
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(typeinfo));
             break;
         default:
-            return Status::NotSupported("unsupported type for bitmap index");
+            return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
     }
     return Status::OK();
 }
