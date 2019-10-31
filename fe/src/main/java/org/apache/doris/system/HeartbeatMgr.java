@@ -260,7 +260,7 @@ public class HeartbeatMgr extends Daemon {
         @Override
         public HeartbeatResponse call() {
             if (fe.getHost().equals(Catalog.getInstance().getSelfNode().first)) {
-                // heartbeat to seft
+                // heartbeat to self
                 if (Catalog.getInstance().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Catalog.getInstance().getReplayedJournalId(), System.currentTimeMillis());
