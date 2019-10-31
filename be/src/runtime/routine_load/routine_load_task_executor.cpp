@@ -76,10 +76,10 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK();
     }
 
-    // the max queue size of thread pool is 100, here we use 80 as a very conservative limit
-    if (_thread_pool.get_queue_size() >= 80) {
-        LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
-        return Status::InternalError("too many tasks");
+    // thread pool's queue size > 0 means there are tasks waiting to be executed, so no more tasks should be submitted.
+    if (_thread_pool.get_queue_size() > 0) {
+        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id);
+        return Status::TooManyTasks(UniqueId(task.id).to_string());
     }
 
     // create the context

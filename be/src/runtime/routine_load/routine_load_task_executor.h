@@ -44,7 +44,7 @@ public:
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env):
         _exec_env(exec_env),
-        _thread_pool(10, 100),
+        _thread_pool(config::routine_load_thread_pool_size, 1),
         _data_consumer_pool(10) {
 
         _data_consumer_pool.start_bg_worker();

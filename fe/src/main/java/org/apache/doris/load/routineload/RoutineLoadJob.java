@@ -414,15 +414,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    // only check loading task
+    // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if (routineLoadTaskInfo.isRunning()
-                        && ((System.currentTimeMillis() - routineLoadTaskInfo.getExecuteStartTimeMs())
-                        > maxBatchIntervalS * 2 * 1000)) {
+                if (routineLoadTaskInfo.isTimeout()) {
+                    // here we simply discard the timeout task and create a new one.
+                    // the corresponding txn will be aborted by txn manager.
+                    // and after renew, the previous task is removed from routineLoadTaskInfoList,
+                    // so task can no longer be committed successfully.
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -438,7 +440,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return 0;
     }
 
-    public Map<Long, Integer> getBeIdToConcurrentTaskNum() {
+    public Map<Long, Integer> getBeCurrentTasksNumMap() {
         Map<Long, Integer> beIdConcurrentTasksNum = Maps.newHashMap();
         readLock();
         try {

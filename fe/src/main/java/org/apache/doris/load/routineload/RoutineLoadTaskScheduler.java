@@ -18,12 +18,13 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
@@ -31,18 +32,17 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
-import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -58,12 +58,10 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
     private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
-    private static final long SLOT_FULL_SLEEP_MS = 1000; // 1s
-    private static final long MIN_SCHEDULE_INTERVAL_MS = 1000; // 1s
+    private static final long SLOT_FULL_SLEEP_MS = 10000; // 10s
 
     private RoutineLoadManager routineLoadManager;
     private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
-    private Map<Long, List<TRoutineLoadTask>> beIdToBatchTask = Maps.newHashMap();
 
     private long lastBackendSlotUpdateTime = -1;
 
@@ -90,13 +88,9 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private void process() throws UserException, InterruptedException {
         updateBackendSlotIfNecessary();
 
-        // if size of queue is zero, tasks will be submit by batch
+        // if size of queue is zero, tasks will be submitted by batch
         int idleSlotNum = routineLoadManager.getClusterIdleSlotNum();
-        if (needScheduleTasksQueue.size() == 0 || idleSlotNum == 0) {
-            submitBatchTasksIfNotEmpty(beIdToBatchTask);
-        }
-
-        // scheduler will be blocked when there is no space for task in cluster
+        // scheduler will be blocked when there is no slot for task in cluster
         if (idleSlotNum == 0) {
             Thread.sleep(SLOT_FULL_SLEEP_MS);
             return;
@@ -105,20 +99,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
-            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < MIN_SCHEDULE_INTERVAL_MS) {
-                // delay this schedule, to void too many failure
+            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < routineLoadTaskInfo.getTimeoutMs()) {
+                // try to delay scheduling this task for 'timeout', to void too many failure
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
                 return;
             }
             scheduleOneTask(routineLoadTaskInfo);
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
             return;
         }
     }
 
-    private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws InterruptedException,
-            UserException {
+    private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         // check if task has been abandoned
         if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo.getId())) {
@@ -130,39 +123,68 @@ public class RoutineLoadTaskScheduler extends Daemon {
             return;
         }
 
-        // begin txn and allocate task to be
+        // allocate BE slot for this task.
+        // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
         try {
-            routineLoadTaskInfo.beginTxn();
-            allocateTaskToBe(routineLoadTaskInfo);
-        } catch (LoadException | LabelAlreadyUsedException | BeginTransactionException | AnalysisException e) {
-            // todo(ml): if cluster has been deleted, the job will be cancelled.
-            needScheduleTasksQueue.put(routineLoadTaskInfo);
-            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
-                    .add("error_msg", "put task to the rear of queue with error " + e.getMessage())
-                    .build());
-            return;
+            if (!allocateTaskToBe(routineLoadTaskInfo)) {
+                // allocate failed, push it back to the queue to wait next scheduling
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+            }
+        } catch (Exception e) {
+            // exception happens, PAUSE the job
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
+                    "failed to allocate task: " + e.getMessage(), false);
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
+                    "allocate task encounter exception: " + e.getMessage()).build());
+            throw e;
         }
 
-        // task to thrift
+        // begin txn
+        try {
+            if (!routineLoadTaskInfo.beginTxn()) {
+                // begin txn failed. push it back to the queue to wait next scheduling
+                // set BE id to -1 to release the BE slot
+                routineLoadTaskInfo.setBeId(-1);
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+            }
+        } catch (Exception e) {
+            // exception happens, PAUSE the job
+            // set BE id to -1 to release the BE slot
+            routineLoadTaskInfo.setBeId(-1);
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
+                    "failed to allocate task: " + e.getMessage(), false);
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
+                    "begin task txn encounter exception: " + e.getMessage()).build());
+            throw e;
+        }
+
+        // create thrift object
         TRoutineLoadTask tRoutineLoadTask = null;
         try {
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+        } catch (MetaNotFoundException e) {
+            // this means database or table has been dropped, just stop this routine load job.
+            // set BE id to -1 to release the BE slot
+            routineLoadTaskInfo.setBeId(-1);
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
+                    .updateState(JobState.STOPPED, "meta not found: " + e.getMessage(), false);
+            throw e;
         } catch (UserException e) {
+            // set BE id to -1 to release the BE slot
+            routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
                     .updateState(JobState.PAUSED, "failed to create task: " + e.getMessage(), false);
             throw e;
         }
 
+        if (!submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask)) {
+            // submit failed. push it back to the queue to wait next scheduling
+            routineLoadTaskInfo.setBeId(-1);
+            needScheduleTasksQueue.put(routineLoadTaskInfo);
+        }
+
         // set the executeStartTimeMs of task
         routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
-        // add to batch task map
-        if (beIdToBatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
-            beIdToBatchTask.get(routineLoadTaskInfo.getBeId()).add(tRoutineLoadTask);
-        } else {
-            List<TRoutineLoadTask> tRoutineLoadTaskList = Lists.newArrayList();
-            tRoutineLoadTaskList.add(tRoutineLoadTask);
-            beIdToBatchTask.put(routineLoadTaskInfo.getBeId(), tRoutineLoadTaskList);
-        }
     }
 
     private void updateBackendSlotIfNecessary() {
@@ -171,54 +193,63 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 || (currentTime - lastBackendSlotUpdateTime > BACKEND_SLOT_UPDATE_INTERVAL_MS)) {
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
             lastBackendSlotUpdateTime = currentTime;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update backend max slot for routine load task scheduling");
-            }
+            LOG.debug("update backend max slot for routine load task scheduling. current task num per BE: {}",
+                    Config.max_routine_load_task_num_per_be);
         }
     }
 
     public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
         needScheduleTasksQueue.add(routineLoadTaskInfo);
+        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
     public void addTasksInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
         needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
+        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
-    private void submitBatchTasksIfNotEmpty(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
-        for (Map.Entry<Long, List<TRoutineLoadTask>> entry : beIdToRoutineLoadTask.entrySet()) {
-            Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
-            if (backend == null) {
-                LOG.warn("failed to send tasks to be {} when backend is unavailable", entry.getKey());
-                continue;
+    private boolean submitTask(long beId, TRoutineLoadTask tTask) {
+        Backend backend = Catalog.getCurrentSystemInfo().getBackend(beId);
+        if (backend == null) {
+            LOG.warn("failed to send tasks to backend {} because not exist", beId);
+            return false;
+        }
+
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        boolean ok = false;
+        BackendService.Client client = null;
+        try {
+            client = ClientPool.backendPool.borrowObject(address);
+            TStatus tStatus = client.submit_routine_load_task(Lists.newArrayList(tTask));
+            ok = true;
+
+            if (tStatus.getStatus_code() == TStatusCode.OK) {
+                LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
+                return true;
+            } else {
+                LOG.info("failed to submit task {}, BE: {}, error code: {}",
+                        DebugUtil.printId(tTask.getId()), beId, tStatus.getStatus_code());
+                return false;
             }
-            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-            boolean ok = false;
-            BackendService.Client client = null;
-            try {
-                client = ClientPool.backendPool.borrowObject(address);
-                client.submit_routine_load_task(entry.getValue());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} tasks sent to be {}", entry.getValue().size(), entry.getKey());
-                }
-                ok = true;
-                entry.getValue().clear();
-            } catch (Exception e) {
-                LOG.warn("task send error. backend[{}]", entry.getKey(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
+        } catch (Exception e) {
+            LOG.warn("task send error. backend[{}]", beId, e);
+            return false;
+        } finally {
+            if (ok) {
+                ClientPool.backendPool.returnObject(address, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(address, client);
             }
         }
+
     }
 
-    // check if previous be has idle slot
-    // true: allocate previous be to task
-    // false: allocate the most idle be to task
-    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
+    // try to allocate a task to BE which has idle slot.
+    // 1. First is to check if the previous allocated BE is available. If yes, allocate task to previous BE.
+    // 2. If not, try to find a better one with most idle slots.
+    // return true if allocate successfully. return false if failed.
+    // throw exception if unrecoverable errors happen.
+    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
                 if (LOG.isDebugEnabled()) {
@@ -229,10 +260,17 @@ public class RoutineLoadTaskScheduler extends Daemon {
                                       .build());
                 }
                 routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
-                return;
+                return true;
             }
         }
-        routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadTaskInfo.getClusterName()));
+
+        // the previous BE is not available, try to find a better one
+        long beId = routineLoadManager.getMinTaskBeId(routineLoadTaskInfo.getClusterName());
+        if (beId < 0) {
+            return false;
+        }
+
+        routineLoadTaskInfo.setBeId(beId);
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
                               .add("job_id", routineLoadTaskInfo.getJobId())
@@ -240,5 +278,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
                               .add("msg", "task has been allocated to be")
                               .build());
         }
+        return true;
     }
 }
