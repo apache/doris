@@ -633,7 +633,6 @@ private:
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
     inline void process() {
         CentroidComparator cc;
-        //std::sort(_unprocessed.begin(), _unprocessed.end(), cc);
         RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
         auto count = _unprocessed.size();
         _unprocessed.insert(_unprocessed.end(), _processed.cbegin(), _processed.cend());

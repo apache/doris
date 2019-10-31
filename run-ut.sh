@@ -154,6 +154,7 @@ ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
+${DORIS_TEST_BINARY_DIR}/util/radix_sort_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test

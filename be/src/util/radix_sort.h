@@ -203,7 +203,18 @@ using RadixSortNumTraits =
             RadixSortIntTraits<T>>,
         RadixSortFloatTraits<T>>;
 
-
+/*
+ * To use RadixSort, you should define `Traits` to give out the information for sorting.
+ * `RadixSortFloatTraits` is a good example to refer to.
+ * Then you can run it as follows:
+ *           RadixSort<YourTraits>::executeLSD(arr, size);
+ *
+ * In particular, if you want to sort an array of numeric, you can use it easily as follows:
+ *           radixSortLSD(array_of_numeric, array_size);
+ *
+ * See more use cases: be/test/util/radix_sort_test.cpp
+ *
+ */
 template <typename Traits>
 struct RadixSort {
 private:
