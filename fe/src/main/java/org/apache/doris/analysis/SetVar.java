@@ -103,15 +103,22 @@ public class SetVar {
             value = new StringLiteral(((SlotRef) value).getColumnName());
         }
 
-        // For the case like "set sql_mode = PIPES_AS_CONCAT"
-        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE) && value instanceof StringLiteral) {
-            String sqlMode = ((StringLiteral) value).getStringValue();
-            value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-        }
-
         value.analyze(analyzer);
         if (!value.isConstant()) {
             throw new AnalysisException("Set statement does't support non-constant expr.");
+        }
+
+        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            // For the case like "set sql_mode = PIPES_AS_CONCAT"
+            if (value instanceof StringLiteral) {
+                String sqlMode = ((StringLiteral) value).getStringValue();
+                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+            }
+            // For the case like "set sql_mode = 3"
+            else if (value instanceof IntLiteral) {
+                String sqlMode = SqlModeHelper.decode(((IntLiteral) value).getLongValue());
+                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+            }
         }
 
         final Expr literalExpr = value.getResultValue();

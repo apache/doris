@@ -116,10 +116,13 @@ public class SqlModeHelper {
     }
 
     // convert long type SQL MODE to string type that user can read
-    public static String decode(Long sqlMode) {
+    public static String decode(Long sqlMode) throws AnalysisException {
         // 0 parse to empty string
-        if (sqlMode == 0 || (sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+        if (sqlMode == 0) {
             return "";
+        }
+        if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
+            throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + sqlMode);
         }
 
         List<String> names = new ArrayList<String>();

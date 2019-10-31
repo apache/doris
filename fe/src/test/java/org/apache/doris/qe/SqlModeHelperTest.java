@@ -51,4 +51,11 @@ public class SqlModeHelperTest {
         SqlModeHelper.encode(sqlMode);
         Assert.fail("No exception throws");
     }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidDecode() throws AnalysisException {
+        long sqlMode = SqlModeHelper.MODE_LAST;
+        SqlModeHelper.decode(sqlMode);
+        Assert.fail("No exception throws");
+    }
 }
