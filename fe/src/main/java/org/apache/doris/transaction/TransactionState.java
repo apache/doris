@@ -431,6 +431,16 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    // return true if txn is in final status and label is expired
+    public boolean isExpired(long currentMillis) {
+        return transactionStatus.isFinalStatus() && (currentMillis - finishTime) / 1000 > Config.label_keep_max_second;
+    }
+
+    // return true if txn is running but timeout
+    public boolean isTimeout(long currentMillis) {
+        return transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs;
+    }
+
     /*
      * Add related table indexes to the transaction.
      * If function should always be called before adding this transaction state to transaction manager,
