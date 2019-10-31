@@ -25,7 +25,6 @@
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
-#include <boost/filesystem.hpp>
 
 namespace doris {
 
@@ -593,26 +592,9 @@ public:
     }
 
     // Create the specified directory. Returns error if directory exists.
-    Status create_dir(const std::string& dir_path) override {
-        try {
-            if (boost::filesystem::exists(dir_path.c_str())) {
-                // No need to create one
-                if (!boost::filesystem::is_directory(dir_path.c_str())) {
-                    std::stringstream ss;
-                    ss << "Path(" << dir_path << ") already exists, but not a directory.";
-                    return Status::AlreadyExist(ss.str());
-                }
-            } else {
-                if (!boost::filesystem::create_directories(dir_path.c_str())) {
-                    std::stringstream ss;
-                    ss << "make directory failed. path=" << dir_path;
-                    return Status::IOError(ss.str());
-                }
-            }
-        } catch (...) {
-            std::stringstream ss;
-            ss << "make directory failed. path=" << dir_path;
-            return Status::InternalError(ss.str());
+    Status create_dir(const std::string& name) override {
+        if (mkdir(name.c_str(), 0755) != 0) {
+            return io_error(name, errno);
         }
         return Status::OK();
     }
