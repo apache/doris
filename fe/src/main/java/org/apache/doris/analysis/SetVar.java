@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -124,7 +125,7 @@ public class SetVar {
             // For the case like "set sql_mode = 3"
             else if (result instanceof IntLiteral) {
                 String sqlMode = SqlModeHelper.decode(result.getLongValue());
-                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+                result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
             }
         }
 
