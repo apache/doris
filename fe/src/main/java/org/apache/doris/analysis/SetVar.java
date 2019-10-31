@@ -108,25 +108,26 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
-        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            // For the case like "set sql_mode = PIPES_AS_CONCAT"
-            if (value instanceof StringLiteral) {
-                String sqlMode = ((StringLiteral) value).getStringValue();
-                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-            }
-            // For the case like "set sql_mode = 3"
-            else if (value instanceof IntLiteral) {
-                String sqlMode = SqlModeHelper.decode(((IntLiteral) value).getLongValue());
-                value = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-            }
-        }
-
         final Expr literalExpr = value.getResultValue();
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
- 
+
         result = (LiteralExpr)literalExpr;
+
+        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            // For the case like "set sql_mode = PIPES_AS_CONCAT"
+            if (result instanceof StringLiteral) {
+                String sqlMode = result.getStringValue();
+                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+            }
+            // For the case like "set sql_mode = 3"
+            else if (result instanceof IntLiteral) {
+                String sqlMode = SqlModeHelper.decode(result.getLongValue());
+                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+            }
+        }
+
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
             if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
