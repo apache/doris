@@ -18,8 +18,10 @@
 package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.EditLog;
 
+import com.google.common.base.Preconditions;
 import com.sleepycat.je.rep.StateChangeEvent;
 import com.sleepycat.je.rep.StateChangeListener;
 
@@ -28,86 +30,39 @@ import org.apache.logging.log4j.Logger;
 
 public class BDBStateChangeListener implements StateChangeListener {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
-    
+
     public BDBStateChangeListener() {
     }
 
     @Override
     public synchronized void stateChange(StateChangeEvent sce) throws RuntimeException {
-        FrontendNodeType originalType = Catalog.getInstance().getFeType();
+        FrontendNodeType newType = null;
         switch (sce.getState()) {
             case MASTER: {
-                String msg = "transfer from " + originalType.name() + " to MASTER";
-                System.out.println(msg);
-                LOG.warn(msg);
-                if (originalType == FrontendNodeType.MASTER) {
-                    return;
-                }
-                Catalog.getInstance().setFeType(FrontendNodeType.MASTER);
+                newType = FrontendNodeType.MASTER;
                 break;
             }
             case REPLICA: {
-                if (originalType == FrontendNodeType.MASTER) {
-                    String errMsg = "master transfer to REPLICA, will exit";
-                    LOG.error(errMsg);
-                    System.out.println(errMsg);
-                    System.exit(-1);
-                }
-
                 if (Catalog.getInstance().isElectable()) {
-                    String msg = "transfer from " + originalType.name() + " to FOLLOWER";
-                    System.out.println(msg);
-                    LOG.warn(msg);
-                    Catalog.getInstance().setFeType(FrontendNodeType.FOLLOWER);
+                    newType = FrontendNodeType.FOLLOWER;
                 } else {
-                    String msg = "transfer from " + originalType.name() + " to OBSERVER";
-                    System.out.println(msg);
-                    LOG.warn(msg);
-                    Catalog.getInstance().setFeType(FrontendNodeType.OBSERVER);
+                    newType = FrontendNodeType.OBSERVER;
                 }
                 break;
             }
             case UNKNOWN: {
-                if (originalType == FrontendNodeType.MASTER) {
-                    String errMsg = "master transfer to UNKNOWN, will exit";
-                    LOG.error(errMsg);
-                    System.out.println(errMsg);
-                    System.exit(-1);
-                }
-
-                if (originalType == FrontendNodeType.FOLLOWER) {
-                    if (Catalog.getInstance().isElectable()) {
-                        String msg = "transfer from FOLLOWER to UNKNOWN";
-                        System.out.println(msg);
-                        LOG.warn(msg);
-                    } else {
-                        String msg = "transfer from OBSERVER to UNKNOWN";
-                        System.out.println(msg);
-                        LOG.warn(msg);
-                    }
-                } else {
-                    String msg = "transfer from " + originalType.name() + " to UNKNOWN";
-                    System.out.println(msg);
-                    LOG.warn(msg);
-                }
-
-                Catalog.getInstance().setFeType(FrontendNodeType.UNKNOWN);
+                newType = FrontendNodeType.UNKNOWN;
                 break;
             }
             default: {
-                if (originalType == FrontendNodeType.MASTER) {
-                    String errMsg = "master transfer to DETACHED, will exit";
-                    LOG.error(errMsg);
-                    System.out.println(errMsg);
-                    System.exit(-1);
-                }
-                
-                String errMsg = "this node is DETACHED.";
-                LOG.error(errMsg);
-                System.out.println(errMsg);
-                break;
+                String msg = "this node is " + sce.getState().name();
+                LOG.warn(msg);
+                Util.stdoutWithTime(msg);
+                return;
             }
         }
+        Preconditions.checkNotNull(newType);
+        Catalog.getInstance().notifyNewFETypeTransfer(newType);
     }
 
 }
