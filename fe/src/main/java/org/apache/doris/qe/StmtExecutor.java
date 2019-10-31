@@ -532,7 +532,7 @@ public class StmtExecutor {
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
 
-        // assign request_id
+        // assign query id before explain query return
         UUID uuid = UUID.randomUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
@@ -586,7 +586,7 @@ public class StmtExecutor {
             insertStmt = (InsertStmt) parsedStmt;
         }
 
-        // assign request_id
+        // assign query id before explain query return
         UUID uuid = insertStmt.getUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
