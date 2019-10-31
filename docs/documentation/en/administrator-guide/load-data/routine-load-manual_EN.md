@@ -252,9 +252,9 @@ Some system configuration parameters can affect the use of routine loads.
 
     The FE configuration item, which defaults to 5, can be modified at runtime. This parameter limits the number of subtasks that can be executed concurrently by each BE node. It is recommended to maintain the default value. If the setting is too large, it may cause too many concurrent tasks and occupy cluster resources.
 
-3. desired\_max\_waiting\_jobs
+3. max\_routine\_load\_job\_num
     
-    The FE configuration item, which defaults to 100, can be modified at runtime. This parameter limits the total number of routine load jobs. After the overtime, you cannot submit a new assignment.
+    The FE configuration item, which defaults to 100, can be modified at runtime. This parameter limits the total number of routine load jobs, including NEED_SCHEDULED, RUNNING, PAUSE. After the overtime, you cannot submit a new assignment.
 
 4. max\_consumer\_num\_per\_group
 

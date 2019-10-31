@@ -406,6 +406,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
 
+
     /*
      * maximun concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
@@ -827,6 +828,12 @@ public class Config extends ConfigBase {
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
     @ConfField public static boolean enable_metric_calculator = true;
+
+    /*
+     * the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_routine_load_job_num = 100;
 
     /*
      * the max concurrent routine load task num of a single routine load job

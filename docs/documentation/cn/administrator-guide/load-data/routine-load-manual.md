@@ -253,9 +253,9 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     FE 配置项，默认为5，可以运行时修改。该参数限制了每个 BE 节点最多并发执行的子任务个数。建议维持默认值。如果设置过大，可能导致并发任务数过多，占用集群资源。
 
-3. desired\_max\_waiting\_jobs 
+3. max\_routine\_load\_job\_num
 
-    FE 配置项，默认为100，可以运行时修改。该参数限制的例行导入作业的总数。超过后，不能在提交新的作业。
+    FE 配置项，默认为100，可以运行时修改。该参数限制的例行导入作业的总数，包括 NEED_SCHEDULED, RUNNING, PAUSE 这些状态。超过后，不能在提交新的作业。
 
 4. max\_consumer\_num\_per\_group
 

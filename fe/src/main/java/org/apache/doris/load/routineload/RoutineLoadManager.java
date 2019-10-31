@@ -152,8 +152,8 @@ public class RoutineLoadManager implements Writable {
                         + dbName);
             }
             if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
-                    RoutineLoadJob.JobState.RUNNING)).size() > Config.desired_max_waiting_jobs) {
-                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
+                    RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size() > Config.max_routine_load_job_num) {
+                throw new DdlException("There are more then " + Config.max_routine_load_job_num
                         + " routine load jobs are running. exceed limit.");
             }
 
@@ -260,8 +260,8 @@ public class RoutineLoadManager implements Writable {
         }
 
         if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
-                RoutineLoadJob.JobState.RUNNING)).size() > Config.desired_max_waiting_jobs) {
-            throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
+                RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size() > Config.max_routine_load_job_num) {
+            throw new DdlException("There are more then " + Config.max_routine_load_job_num
                     + " routine load jobs are running. You need to pause or stop some of them and try again.");
         }
 
