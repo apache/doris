@@ -121,6 +121,8 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case HLL:
                 return createHllType();
+            case BITMAP:
+                return BITMAP;
             case DATE:
                 return DATE;
             case DATETIME:
@@ -166,6 +168,8 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case "HLL":
                 return createHllType();
+            case "BITMAP":
+                return BITMAP;
             case "DATE":
                 return DATE;
             case "DATETIME":
@@ -331,6 +335,7 @@ public class ScalarType extends Type {
             case DATE:
             case DATETIME:
             case HLL:
+            case BITMAP:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
@@ -751,6 +756,8 @@ public class ScalarType extends Type {
                 return len;
             case HLL:
                 return 16385;
+            case BITMAP:
+                return 1024; // this is a estimated value
             default:
                 return 0;
         }

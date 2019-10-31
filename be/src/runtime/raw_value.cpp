@@ -204,6 +204,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_OBJECT:
     case TYPE_HLL: {
         string_val = reinterpret_cast<const StringValue*>(value);
         std::stringstream ss;
@@ -285,6 +286,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
 
+    case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {

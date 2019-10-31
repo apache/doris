@@ -184,44 +184,6 @@ public:
         return HashUtil::murmur_hash64A(&v.val, 8, seed);
     }
 
-    static doris_udf::FunctionContext::Type primitive_type_to_type(const PrimitiveType& type) {
-    switch (type) {
-    case TYPE_NULL:
-        return doris_udf::FunctionContext::TYPE_NULL;
-    case TYPE_BOOLEAN:
-        return doris_udf::FunctionContext::TYPE_BOOLEAN;
-    case TYPE_TINYINT:
-        return doris_udf::FunctionContext::TYPE_TINYINT;
-    case TYPE_SMALLINT:
-        return doris_udf::FunctionContext::TYPE_SMALLINT;
-    case TYPE_INT:
-        return doris_udf::FunctionContext::TYPE_INT;
-    case TYPE_BIGINT:
-        return doris_udf::FunctionContext::TYPE_BIGINT;
-    case TYPE_LARGEINT:
-        return doris_udf::FunctionContext::TYPE_LARGEINT;
-    case TYPE_FLOAT:
-        return doris_udf::FunctionContext::TYPE_FLOAT;
-    case TYPE_DOUBLE:
-        return doris_udf::FunctionContext::TYPE_DOUBLE;
-    case TYPE_DATE:
-        return doris_udf::FunctionContext::TYPE_DATE;
-    case TYPE_DATETIME:
-        return doris_udf::FunctionContext::TYPE_DATETIME;
-    case TYPE_HLL:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-        return doris_udf::FunctionContext::TYPE_STRING;
-    case TYPE_DECIMAL:
-        return doris_udf::FunctionContext::TYPE_DECIMAL;
-    case TYPE_DECIMALV2:
-        return doris_udf::FunctionContext::TYPE_DECIMALV2;
-    break;
-    default:
-    DCHECK(false) << "Unknown type: " << type;
-    }
-        return doris_udf::FunctionContext::TYPE_NULL;
-    }
     // Returns the byte size of *Val for type t.
     static int any_val_size(const TypeDescriptor& t) {
         switch (t.type) {
@@ -249,6 +211,7 @@ public:
         case TYPE_DOUBLE:
             return sizeof(doris_udf::DoubleVal);
 
+        case TYPE_OBJECT:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -281,6 +244,7 @@ public:
         case TYPE_LARGEINT: return alignof(LargeIntVal);
         case TYPE_FLOAT: return alignof(FloatVal);
         case TYPE_DOUBLE: return alignof(DoubleVal);
+        case TYPE_OBJECT:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
@@ -377,6 +341,7 @@ public:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
             reinterpret_cast<doris_udf::StringVal*>(dst));
             return;

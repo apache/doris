@@ -852,6 +852,12 @@ public class SelectStmt extends QueryStmt {
                             "GROUP BY expression must not contain hll column: "
                             + groupingExprsCopy.get(i).toSql());
                 }
+
+                if (groupingExprsCopy.get(i).type.isBitmapType()) {
+                    throw new AnalysisException(
+                            "GROUP BY expression must not contain bitmap column: "
+                                    + groupingExprsCopy.get(i).toSql());
+                }
             }
         }
 
@@ -947,7 +953,12 @@ public class SelectStmt extends QueryStmt {
 
                 if (sortInfo.getOrderingExprs().get(i).type.isHllType()) {
                     throw new AnalysisException(
-                        "ORDER BY expression not contain hll column.");
+                        "ORDER BY expression could not contain hll column.");
+                }
+
+                if (sortInfo.getOrderingExprs().get(i).type.isBitmapType()) {
+                    throw new AnalysisException(
+                            "ORDER BY expression could not contain bitmap column.");
                 }
             }
         }

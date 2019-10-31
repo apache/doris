@@ -273,6 +273,11 @@ public class CreateTableStmt extends DdlStmt {
                 hasHll = true;
             }
 
+            if (columnDef.getType().isBitmapType()) {
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("BITMAP can't be used as keys, ");
+                }
+            }
 
             if (columnDef.getAggregateType() == BITMAP_UNION) {
                 if (columnDef.isKey()) {

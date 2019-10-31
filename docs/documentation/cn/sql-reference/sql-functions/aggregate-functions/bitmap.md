@@ -49,7 +49,7 @@ mysql> select bitmap_union_int (id2) from bitmap_udaf;
 
 CREATE TABLE `bitmap_test` (
   `id` int(11) NULL COMMENT "",
-  `id2` varchar(0) bitmap_union NULL  // 注意： bitmap_union的varchar长度需要指定为0
+  `id2` bitmap bitmap_union NULL
 ) ENGINE=OLAP
 AGGREGATE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10;

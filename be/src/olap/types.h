@@ -156,6 +156,9 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
+template<> struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
+    using CppType = Slice;
+};
 
 template<FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
@@ -574,6 +577,15 @@ template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_HLL> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     /*
      * Hyperloglog type only used as value, so
+     * cmp/from_string/set_to_max/set_to_min function
+     * in this struct has no significance
+     */
+};
+
+template<>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+    /*
+     * Object type only used as value, so
      * cmp/from_string/set_to_max/set_to_min function
      * in this struct has no significance
      */

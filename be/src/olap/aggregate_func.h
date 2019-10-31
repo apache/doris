@@ -446,7 +446,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 // when data load, after bitmap_init fucntion, bitmap_union column won't be null
 // so when init, update bitmap, the src is not null
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
@@ -456,6 +456,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto* bitmap = new RoaringBitmap(src_slice->data);
+
         dst_slice->data = (char*) bitmap;
 
         mem_pool->mem_tracker()->consume(sizeof(RoaringBitmap));
@@ -490,6 +491,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         bitmap->serialize(slice->data);
     }
 };
+
+
+// for backward compatibility
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> :
+    public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {};
+
 
 template<FieldAggregationMethod aggMethod, FieldType fieldType>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType> {
