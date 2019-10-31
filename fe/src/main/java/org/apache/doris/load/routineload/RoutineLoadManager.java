@@ -259,12 +259,6 @@ public class RoutineLoadManager implements Writable {
                                                 tableName);
         }
 
-        if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
-                RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size() > Config.max_routine_load_job_num) {
-            throw new DdlException("There are more then " + Config.max_routine_load_job_num
-                    + " routine load jobs are running. You need to pause or stop some of them and try again.");
-        }
-
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
