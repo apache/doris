@@ -17,14 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
 import java.util.List;
@@ -44,6 +45,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                     .add("JobId")
                     .add("CreateTime")
                     .add("ExecuteStartTime")
+                    .add("Timeout")
                     .add("BeId")
                     .add("DataSourceProperties")
                     .build();

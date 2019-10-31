@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -44,13 +45,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // <partitionId, beginOffsetOfPartitionId>
     private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName, Map<Integer, Long> partitionIdToOffset) {
-        super(id, jobId, clusterName);
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
+        super(id, jobId, clusterName, timeoutMs);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(), kafkaTaskInfo.getBeId());
+        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId());
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
@@ -73,7 +75,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
         }
         tRoutineLoadTask.setDb(database.getFullName());
-        tRoutineLoadTask.setTbl(database.getTable(routineLoadJob.getTableId()).getName());
+        Table tbl = database.getTable(routineLoadJob.getTableId());
+        if (tbl == null) {
+            throw new MetaNotFoundException("table " + routineLoadJob.getTableId() + " does not exist");
+        }
+        tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);

@@ -2058,7 +2058,7 @@ public class Catalog {
     public void createTxnCleaner() {
         txnCleaner = new Daemon("txnCleaner", Config.transaction_clean_interval_second) {
             protected void runOneCycle() {
-                globalTransactionMgr.removeOldTransactions();
+                globalTransactionMgr.removeExpiredAndTimeoutTxns();
             }
         };
     }

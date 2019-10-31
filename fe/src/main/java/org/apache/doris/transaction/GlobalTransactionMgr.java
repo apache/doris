@@ -37,7 +37,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.load.Load;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
@@ -84,21 +83,20 @@ public class GlobalTransactionMgr {
     private EditLog editLog;
     
     // transactionId -> TransactionState
-    private Map<Long, TransactionState> idToTransactionState;
+    private Map<Long, TransactionState> idToTransactionState = Maps.newConcurrentMap();
     // db id -> (label -> txn id)
-    private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels;
-    private Map<Long, Integer> runningTxnNums;
-    private TransactionIdGenerator idGenerator;
+    private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels = HashBasedTable.create();
+    // count the number of running txns of each database, except for the routine load txn
+    private Map<Long, Integer> runningTxnNums = Maps.newHashMap();
+    // count only the number of running routine load txns of each database
+    private Map<Long, Integer> runningRoutineLoadTxnNums = Maps.newHashMap();
+    private TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
     
     private Catalog catalog;
 
     public GlobalTransactionMgr(Catalog catalog) {
-        idToTransactionState = Maps.newConcurrentMap();
-        dbIdToTxnLabels = HashBasedTable.create();
-        runningTxnNums = Maps.newHashMap();
         this.catalog = catalog;
-        this.idGenerator = new TransactionIdGenerator();
     }
     
     public TxnStateCallbackFactory getCallbackFactory() {
@@ -155,11 +153,9 @@ public class GlobalTransactionMgr {
                 }
                 throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
             }
-            if (runningTxnNums.get(dbId) != null
-                    && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
-                throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                        + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
-            }
+            
+            checkRunningTxnExceedLimit(dbId, sourceType);
+          
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, requestId, sourceType,
@@ -182,6 +178,23 @@ public class GlobalTransactionMgr {
         }
     }
     
+    private void checkRunningTxnExceedLimit(long dbId, LoadJobSourceType sourceType) throws BeginTransactionException {
+        switch (sourceType) {
+            case ROUTINE_LOAD_TASK:
+                // we do not limit the txn num of routine load here. for 2 reasons:
+                // 1. the number of running routine load tasks is limited by Config.max_routine_load_task_num_per_be
+                // 2. if we add routine load txn to runningTxnNums, runningTxnNums will always be occupied by routine load,
+                //    and other txn may not be able to submitted.
+                break;
+            default:
+                if (runningTxnNums.getOrDefault(dbId, 0) >= Config.max_running_txn_num_per_db) {
+                    throw new BeginTransactionException("current running txns on db " + dbId + " is "
+                            + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
+                }
+                break;
+        }
+    }
+
     public TransactionStatus getLabelState(long dbId, String label) {
         readLock();
         try {
@@ -769,112 +782,47 @@ public class GlobalTransactionMgr {
         return true;
     }
     
-    /**
-     * in this method should get db lock or load lock first then get txn manager lock , or there will be dead lock
+    /*
+     * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
+     * expired: txn is in VISIBLE or ABORTED, and is expired.
+     * timeout: txn is in PREPARE, but timeout
      */
-    public void removeOldTransactions() {
+    public void removeExpiredAndTimeoutTxns() {
         long currentMillis = System.currentTimeMillis();
 
-        // TODO(cmy): the following 3 steps are no needed anymore, we can only use the last step to check
-        // the timeout txn. Because, now we set timeout for each txn same as timeout of their job's.
-        // But we keep the 1 and 2 step for compatibility. They should be deleted in 0.11.0
-
-        // to avoid dead lock (transaction lock and load lock), we do this in 3 phases
-        // 1. get all related db ids of txn in idToTransactionState
-        Set<Long> dbIds = Sets.newHashSet();
-        readLock();
-        try {
-            for (TransactionState transactionState : idToTransactionState.values()) {
-                if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED
-                        || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    if ((currentMillis - transactionState.getFinishTime()) / 1000 > Config.label_keep_max_second) {
-                        dbIds.add(transactionState.getDbId());
-                    }
-                } else {
-                    // check if job is also deleted
-                    // streaming insert stmt not add to fe load job, should use this method to
-                    // recycle the timeout insert stmt load job
-                    if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
-                        dbIds.add(transactionState.getDbId());
-                    }
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        // 2. get all load jobs' txn id of these databases
-        Map<Long, Set<Long>> dbIdToTxnIds = Maps.newHashMap();
-        Load loadInstance = Catalog.getCurrentCatalog().getLoadInstance();
-        for (Long dbId : dbIds) {
-            Set<Long> txnIds = loadInstance.getTxnIdsByDb(dbId);
-            dbIdToTxnIds.put(dbId, txnIds);
-        }
-
-        // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
-        List<TransactionState> abortedTxns = Lists.newArrayList();
+        List<Long> timeoutTxns = Lists.newArrayList();
+        List<Long> expiredTxns = Lists.newArrayList();
         writeLock();
         try {
-            List<Long> transactionsToDelete = Lists.newArrayList();
             for (TransactionState transactionState : idToTransactionState.values()) {
-                if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED
-                        || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    if ((currentMillis - transactionState.getFinishTime()) / 1000 > Config.label_keep_max_second) {
-                        // if this txn is not from front end then delete it immediately
-                        // if this txn is from front end but could not find in job list, then delete it immediately
-                        if (transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
-                            transactionsToDelete.add(transactionState.getTransactionId());
-                        }
-                    }
-                } else {
-                    // check if job is also deleted
-                    // streaming insert stmt not add to fe load job, should use this method to
-                    // recycle the timeout insert stmt load job
-                    if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
-                        if ((transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))) {
-                            transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                            transactionState.setFinishTime(System.currentTimeMillis());
-                            transactionState.setReason("transaction is timeout and is cancelled automatically");
-                            unprotectUpsertTransactionState(transactionState);
-                            abortedTxns.add(transactionState);
-                        }
-                    }
+                if (transactionState.isExpired(currentMillis)) {
+                    // remove the txn which labels are expired
+                    expiredTxns.add(transactionState.getTransactionId());
+                } else if (transactionState.isTimeout(currentMillis)) {
+                    // txn is running but timeout, abort it.
+                    timeoutTxns.add(transactionState.getTransactionId());
                 }
-            }
-            
-            for (Long transId : transactionsToDelete) {
-                deleteTransaction(transId);
-                LOG.info("transaction [" + transId + "] is expired, remove it from transaction table");
             }
         } finally {
             writeUnlock();
         }
 
-        for (TransactionState abortedTxn : abortedTxns) {
-            try {
-                abortedTxn.afterStateTransform(TransactionStatus.ABORTED, true, abortedTxn.getReason());
-            } catch (UserException e) {
-                // just print a log, it does not matter.
-                LOG.warn("after abort timeout txn failed. txn id: {}", abortedTxn.getTransactionId(), e);
-            }
-        }
-    }
-    
-    private boolean checkTxnHasRelatedJob(TransactionState txnState, Map<Long, Set<Long>> dbIdToTxnIds) {
-        // TODO: put checkTxnHasRelatedJob into Load
-        Set<Long> txnIds = dbIdToTxnIds.get(txnState.getDbId());
-        if (txnIds == null) {
-            // We can't find the related load job of this database.
-            // But dbIdToTxnIds is not a up-to-date results.
-            // So we return true to assume that we find a related load job, to avoid mistaken delete
-            return true;
+        // delete expired txns
+        for (Long txnId : expiredTxns) {
+            deleteTransaction(txnId);
+            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
         }
 
-        return txnIds.contains(txnState.getTransactionId());
+        // abort timeout txns
+        for (Long txnId : timeoutTxns) {
+            try {
+                abortTransaction(txnId, "timeout by txn manager");
+                LOG.info("transaction [" + txnId + "] is timeout, abort it by transaction manager");
+            } catch (UserException e) {
+                // abort may be failed. it is acceptable. just print a log
+                LOG.warn("abort timeout txn {} failed. msg: {}", txnId, e.getMessage());
+            }
+        }
     }
 
     public TransactionState getTransactionState(long transactionId) {
@@ -1129,26 +1077,30 @@ public class GlobalTransactionMgr {
     }
     
     private void updateDBRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
-        int dbRunningTxnNum = 0;
-        if (runningTxnNums.get(curTxnState.getDbId()) != null) {
-            dbRunningTxnNum = runningTxnNums.get(curTxnState.getDbId());
+        Map<Long, Integer> txnNumMap = null;
+        if (curTxnState.getSourceType() == LoadJobSourceType.ROUTINE_LOAD_TASK) {
+            txnNumMap = runningRoutineLoadTxnNums;
+        } else {
+            txnNumMap = runningTxnNums;
         }
+
+        int txnNum = txnNumMap.getOrDefault(curTxnState.getDbId(), 0);
         if (preStatus == null
                 && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
                 || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
-            ++dbRunningTxnNum;
-            runningTxnNums.put(curTxnState.getDbId(), dbRunningTxnNum);
+            ++txnNum;
         } else if (preStatus != null
                 && (preStatus == TransactionStatus.PREPARE
                 || preStatus == TransactionStatus.COMMITTED)
                 && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
                 || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
-            --dbRunningTxnNum;
-            if (dbRunningTxnNum < 1) {
-                runningTxnNums.remove(curTxnState.getDbId());
-            } else {
-                runningTxnNums.put(curTxnState.getDbId(), dbRunningTxnNum);
-            }
+            --txnNum;
+        }
+
+        if (txnNum < 1) {
+            txnNumMap.remove(curTxnState.getDbId());
+        } else {
+            txnNumMap.put(curTxnState.getDbId(), txnNum);
         }
     }
     
@@ -1180,7 +1132,8 @@ public class GlobalTransactionMgr {
         List<List<String>> infos = Lists.newArrayList();
         readLock();
         try {
-            infos.add(Lists.newArrayList("running", String.valueOf(runningTxnNums.getOrDefault(dbId, 0))));
+            infos.add(Lists.newArrayList("running", String.valueOf(
+                    runningTxnNums.getOrDefault(dbId, 0) + runningRoutineLoadTxnNums.getOrDefault(dbId, 0))));
             long finishedNum = idToTransactionState.values().stream().filter(
                     t -> (t.getDbId() == dbId && t.getTransactionStatus().isFinalStatus())).count();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
