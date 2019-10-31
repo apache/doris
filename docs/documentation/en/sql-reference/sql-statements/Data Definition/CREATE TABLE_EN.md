@@ -53,11 +53,14 @@
         VARCHAR[(length)]
             Variable length string. Range: 1 ~ 65533
         HLL (1~16385 Bytes)
-            HLLL tpye, No need to specify length.
+            HLL tpye, No need to specify length.
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
+        BITMAP
+            BITMAP type, No need to specify length.
+            This type can only be queried by BITMAP_UNION、BITMAP_COUNT、TO_BITMAP functions.
                             
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column is value column.
-        SUM、MAX、MIN、REPLACE、HLL_UNION(Only for HLL type), BITMAP_UNION(Type should be VARCHAR(0))
+        SUM、MAX、MIN、REPLACE、HLL_UNION(Only for HLL type), BITMAP_UNION(Only for BITMAP type)
 
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
 
@@ -388,8 +391,8 @@
         (
         k1 TINYINT,
         k2 DECIMAL(10, 2) DEFAULT "10.5",
-        v1 VARCHAR(0) BITMAP_UNION,  // 注意:  bitmap_union的varchar长度需要指定为0
-        v2 VARCHAR(0) BITMAP_UNION
+        v1 BITMAP BITMAP_UNION,
+        v2 BITMAP BITMAP_UNION
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)

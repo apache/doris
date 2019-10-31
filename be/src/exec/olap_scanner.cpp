@@ -390,6 +390,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_VARCHAR:
+        case TYPE_OBJECT:
         case TYPE_HLL: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());

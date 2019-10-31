@@ -154,6 +154,7 @@ Expr::Expr(const TypeDescriptor& type) :
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
         _node_type = (TExprNodeType::STRING_LITERAL);
         break;
 
@@ -212,6 +213,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             _node_type = (TExprNodeType::STRING_LITERAL);
             break;
 
@@ -379,13 +381,6 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }
         return Status::OK();
-        //case TExprNodeType::AGG_EXPR: {
-        //  if (!texpr_node.__isset.agg_expr) {
-        //    return Status::InternalError("Aggregation expression not set in thrift node");
-        //  }
-        //  *expr = pool->add(new AggregateExpr(texpr_node));
-        //  return Status::OK();
-        //}
 
     case TExprNodeType::CASE_EXPR: {
         if (!texpr_node.__isset.case_expr) {
@@ -752,7 +747,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
         _constant_val.reset(new StringVal(get_string_val(context, NULL)));
         break;
     }

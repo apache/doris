@@ -67,6 +67,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
+        TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
     }
     
     private static class CmdWorker extends Thread {

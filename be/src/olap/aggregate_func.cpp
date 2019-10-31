@@ -131,7 +131,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL>();
 
     // Bitmap Aggregate Function
-    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR>(); //for backward compatibility
 }
 
 AggregateFuncResolver::~AggregateFuncResolver() {

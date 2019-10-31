@@ -91,7 +91,7 @@ public enum AggregateType {
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        primitiveTypeList.add(PrimitiveType.VARCHAR);
+        primitiveTypeList.add(PrimitiveType.BITMAP);
         compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
     
         compatibilityMap.put(NONE, EnumSet.allOf(PrimitiveType.class));

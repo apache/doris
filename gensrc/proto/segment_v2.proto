@@ -48,11 +48,12 @@ message MetadataPairPB {
 enum EncodingTypePB {
     UNKNOWN_ENCODING = 0;
     DEFAULT_ENCODING = 1;
-    PLAIN_ENCODING = 2;
+    PLAIN_ENCODING = 2; // for non-binary type
     PREFIX_ENCODING = 3;
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
+    BINARY_PLAIN_ENCODING = 7;
 }
 
 enum CompressionTypePB {
