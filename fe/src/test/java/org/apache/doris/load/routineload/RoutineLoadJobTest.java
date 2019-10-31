@@ -273,7 +273,7 @@ public class RoutineLoadJobTest {
             }
         };
 
-        Map<Long, Integer> beIdConcurrentTasksNum = routineLoadJob.getBeIdToConcurrentTaskNum();
+        Map<Long, Integer> beIdConcurrentTasksNum = routineLoadJob.getBeCurrentTasksNumMap();
         Assert.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));
     }
 

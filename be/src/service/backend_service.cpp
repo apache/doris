@@ -260,11 +260,10 @@ void BackendService::submit_routine_load_task(
         if (!st.ok()) {
             LOG(WARNING) << "failed to submit routine load task. job id: " <<  task.job_id
                     << " task id: " << task.id;
+            return st.to_thrift(&t_status);
         }
     }
 
-    // we do not care about each task's submit result. just return OK.
-    // FE will handle the failure.
     return Status::OK().to_thrift(&t_status);
 }
 
