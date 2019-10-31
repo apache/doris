@@ -43,6 +43,7 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/FrontendService.h"
+#include "gen_cpp/QueryPlanExtra_types.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
 namespace doris {

@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "exprs/expr.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -56,30 +57,43 @@ public:
         query_id.hi = 100;
         _runtime_state = new RuntimeState(query_id, query_options, TQueryGlobals(), &_exec_env);
         _runtime_state->init_instance_mem_tracker();
-        {
-            TExpr expr;
-            {
-                TExprNode node;
-
-                node.node_type = TExprNodeType::INT_LITERAL;
-                node.type = gen_type_desc(TPrimitiveType::TINYINT);
-                node.num_children = 0;
-                TIntLiteral data;
-                data.value = 1;
-                node.__set_int_literal(data);
-                expr.nodes.push_back(node);
-            }
-            _exprs.push_back(expr);
-        }
         _mem_tracker = new MemTracker(-1, "MemoryScratchSinkTest", _runtime_state->instance_mem_tracker());
-
-        // init _row_desc
-        vector<bool> nullable_tuples(1, false);
-        vector<TTupleId> tuple_ids(1, static_cast<TTupleId>(0));
-        DescriptorTblBuilder int_builder(&_pool);
-        int_builder.declare_tuple() << TYPE_INT;
-        _row_desc = _pool.add(new RowDescriptor(*int_builder.build(), tuple_ids, nullable_tuples));
+        create_row_desc();
     }
+
+    void create_row_desc() {
+        TTupleDescriptor tuple_desc;
+        tuple_desc.__set_id(0);
+        tuple_desc.__set_byteSize(8);
+        tuple_desc.__set_numNullBytes(0);
+        TDescriptorTable thrift_desc_tbl;
+        thrift_desc_tbl.tupleDescriptors.push_back(tuple_desc);
+        TSlotDescriptor slot_desc;
+        slot_desc.__set_id(0);
+        slot_desc.__set_parent(0);
+
+        slot_desc.slotType.types.push_back(TTypeNode());
+        slot_desc.slotType.types.back().__isset.scalar_type = true;
+        slot_desc.slotType.types.back().scalar_type.type = TPrimitiveType::BIGINT;
+
+        slot_desc.__set_columnPos(0);
+        slot_desc.__set_byteOffset(0);
+        slot_desc.__set_nullIndicatorByte(0);
+        slot_desc.__set_nullIndicatorBit(-1);
+        slot_desc.__set_slotIdx(0);
+        slot_desc.__set_isMaterialized(true);
+        thrift_desc_tbl.slotDescriptors.push_back(slot_desc);
+        EXPECT_TRUE(DescriptorTbl::create(&_pool, thrift_desc_tbl, &_desc_tbl).ok());
+        _runtime_state->set_desc_tbl(_desc_tbl);
+
+        vector<TTupleId> row_tids;
+        row_tids.push_back(0);
+
+        vector<bool> nullable_tuples;
+        nullable_tuples.push_back(false);
+        _row_desc = _pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
+    }
+
     virtual ~MemoryScratchSinkTest() {
         delete _runtime_state;
         delete _mem_tracker;
@@ -97,6 +111,7 @@ private:
     RowDescriptor* _row_desc;
     TMemoryScratchSink _tsink;
     MemTracker *_mem_tracker;
+    DescriptorTbl* _desc_tbl;
 };
 
 TEST_F(MemoryScratchSinkTest, work_flow_normal) {
