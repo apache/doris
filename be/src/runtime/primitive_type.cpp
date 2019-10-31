@@ -89,6 +89,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::HLL:
         return TYPE_HLL;
 
+    case TPrimitiveType::OBJECT:
+        return TYPE_OBJECT;
+
     default:
         return INVALID_TYPE;
     }
@@ -152,6 +155,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_HLL:
         return TPrimitiveType::HLL;
+
+    case TYPE_OBJECT:
+        return TPrimitiveType::OBJECT;
             
     default:
         return TPrimitiveType::INVALID_TYPE;
@@ -213,8 +219,13 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_CHAR:
         return "CHAR";
+
     case TYPE_HLL:
         return "HLL";
+
+    case TYPE_OBJECT:
+        return "OBJECT";
+
     default:
         return "";
     };
@@ -279,6 +290,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
             
     case TYPE_HLL:
         return "hll";
+
+    case TYPE_OBJECT:
+        return "object";
     };
 
     return "unknown";

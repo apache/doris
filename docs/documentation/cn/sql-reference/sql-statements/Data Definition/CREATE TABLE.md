@@ -50,9 +50,13 @@
                             HLL (1~16385个字节)
                                 hll列类型，不需要指定长度和默认值、长度根据数据的聚合
                                 程度系统内控制，并且HLL列只能通过配套的hll_union_agg、Hll_cardinality、hll_hash进行查询或使用
+                            BITMAP
+                                bitmap 列类型，不需要指定长度和默认值
+                                BITMAP 列只能通过配套的 BITMAP_UNION、BITMAP_COUNT、TO_BITMAP 进行查询或使用
                                 
         agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
-                            SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、BITMAP_UNION(列类型需要定义为VARCHAR(20))
+                            SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
+                            BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)
                             该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
 
         是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
@@ -339,8 +343,8 @@
         (
         k1 TINYINT,
         k2 DECIMAL(10, 2) DEFAULT "10.5",
-        v1 VARCHAR(0) BITMAP_UNION,  // 注意： bitmap_union的varchar长度需要指定为0
-        v2 VARCHAR(0) BITMAP_UNION
+        v1 BITMAP BITMAP_UNION,
+        v2 BITMAP BITMAP_UNION
         )
         ENGINE=olap
         AGGREGATE KEY(k1, k2)

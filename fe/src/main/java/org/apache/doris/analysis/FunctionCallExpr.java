@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -381,6 +382,35 @@ public class FunctionCallExpr extends Expr {
 
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT) && !arg.type.isInteger32Type())) {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
+        }
+
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT))) {
+            if (children.size() != 1) {
+                throw new AnalysisException("BITMAP_COUNT function could only have one child");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                Column column = slotRef.getDesc().getColumn();
+                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("BITMAP_COUNT function require the column is BITMAP_UNION aggregate type");
+                } else if (slotRef.getDesc().getSourceExprs().size() == 1) {
+                    Expr sourceExpr = slotRef.getDesc().getSourceExprs().get(0);
+                    if (sourceExpr instanceof FunctionCallExpr) {
+                        FunctionCallExpr functionExpr = (FunctionCallExpr) sourceExpr;
+                        if (!functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
+                            throw new AnalysisException("BITMAP_COUNT function only support BITMAP_UNION function as it's child");
+                        }
+                    }
+                }
+            } else if (getChild(0) instanceof FunctionCallExpr) {
+                FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
+                if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
+                    throw new AnalysisException("BITMAP_COUNT function only support BITMAP_UNION function as it's child");
+                }
+            } else {
+                throw new AnalysisException("BITMAP_COUNT only support BITMAP_UNION(column) or BITMAP_COUNT(BITMAP_UNION(column))");
+            }
         }
 
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION))) {

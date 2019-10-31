@@ -76,6 +76,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));
         keywordMap.put("bigint", new Integer(SqlParserSymbols.KW_BIGINT));
+        keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
         keywordMap.put("hll", new Integer(SqlParserSymbols.KW_HLL));
         keywordMap.put("both", new Integer(SqlParserSymbols.KW_BOTH));

@@ -73,7 +73,8 @@ public:
         TYPE_HLL,
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
-        TYPE_DECIMALV2
+        TYPE_DECIMALV2,
+        TYPE_OBJECT
     };
 
     struct TypeDesc {
