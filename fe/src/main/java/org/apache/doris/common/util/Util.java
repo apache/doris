@@ -353,7 +353,7 @@ public class Util {
                 sb.append(line);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
+            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
             return null;
         } finally {
             if (stream != null) {
@@ -405,6 +405,10 @@ public class Util {
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
+    }
+
+    public static void stdoutWithTime(String msg) {
+        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
     }
 }
 

@@ -45,7 +45,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -87,13 +86,7 @@ public class EditLog {
     private Journal journal;
 
     public EditLog(String nodeName) {
-        String journalType = Config.edit_log_type;
-        if (journalType.equalsIgnoreCase("bdb")) {
-            journal = new BDBJEJournal(nodeName);
-        } else if (journalType.equalsIgnoreCase("local")) {
-            journal = new LocalJournal(Catalog.IMAGE_DIR);
-            Catalog.getInstance().setIsMaster(true);
-        }
+        journal = new BDBJEJournal(nodeName);
     }
 
     public long getMaxJournalId() {

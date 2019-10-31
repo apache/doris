@@ -109,19 +109,27 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
         HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
         if (haProtocol != null) {
-            InetSocketAddress master = haProtocol.getLeader();
+
+            InetSocketAddress master = null;
+            try {
+                master = haProtocol.getLeader();
+            } catch (Exception e) {
+                // this may happen when majority of FOLLOWERS are down and no MASTER right now.
+                LOG.warn("failed to get leader: {}", e.getMessage());
+            }
             if (master != null) {
                 feInfo.put("master", master.getHostString());
+            } else {
+                feInfo.put("master", "unknown");
             }
 
             List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(false);
             ArrayList<String> electableNodeNames = new ArrayList<String>();
-            if (electableNodes != null) {
+            if (!electableNodes.isEmpty()) {
                 for (InetSocketAddress node : electableNodes) {
                     electableNodeNames.add(node.getHostString());
                 }
-                feInfo.put("electable_nodes",
-                        StringUtils.join(electableNodeNames.toArray(), ","));
+                feInfo.put("electable_nodes", StringUtils.join(electableNodeNames.toArray(), ","));
             }
 
             List<InetSocketAddress> observerNodes = haProtocol.getObserverNodes();
@@ -135,6 +143,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
         }
 
         feInfo.put("can_read", String.valueOf(Catalog.getInstance().canRead()));
+        feInfo.put("is_ready", String.valueOf(Catalog.getInstance().isReady()));
         try {
             Storage storage = new Storage(Config.meta_dir + "/image");
             feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));

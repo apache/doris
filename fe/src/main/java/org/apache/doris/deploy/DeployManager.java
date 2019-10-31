@@ -323,12 +323,6 @@ public class DeployManager extends Daemon {
             return;
         }
 
-        if (!catalog.isMaster()) {
-            LOG.warn("This is not the Master FE. Exit deply manager");
-            exit();
-            return;
-        }
-
         // 0. init
         if (!init()) {
             return;
@@ -630,7 +624,7 @@ public class DeployManager extends Daemon {
     }
 
     private boolean isSelf(String ip, Integer port) {
-        if (catalog.getMasterIp() == ip && Config.edit_log_port == port) {
+        if (catalog.getMasterIp().equals(ip) && Config.edit_log_port == port) {
             return true;
         }
         return false;
