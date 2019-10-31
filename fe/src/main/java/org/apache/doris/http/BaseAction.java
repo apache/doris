@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.QeService;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -71,7 +70,6 @@ import io.netty.util.CharsetUtil;
 public abstract class BaseAction implements IAction {
     private static final Logger LOG = LogManager.getLogger(BaseAction.class);
 
-    protected QeService qeService = null;
     protected ActionController controller;
     protected Catalog catalog;
 
@@ -79,14 +77,6 @@ public abstract class BaseAction implements IAction {
         this.controller = controller;
         // TODO(zc): remove this instance
         this.catalog = Catalog.getInstance();
-    }
-
-    public QeService getQeService() {
-        return qeService;
-    }
-
-    public void setQeService(QeService qeService) {
-        this.qeService = qeService;
     }
 
     @Override

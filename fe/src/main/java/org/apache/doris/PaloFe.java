@@ -82,25 +82,23 @@ public class PaloFe {
 
             FrontendOptions.init();
             ExecuteEnv.setup();
-            ExecuteEnv env = ExecuteEnv.getInstance();
 
-            // setup qe server
-            QeService qeService = new QeService(Config.query_port, env.getScheduler());
+            // init catalog and wait it be ready
+            Catalog.getInstance().initialize(args);
+            Catalog.getInstance().waitForReady();
 
-            // start query http server
-            HttpServer httpServer = new HttpServer(qeService, Config.http_port);
-            httpServer.setup();
-            httpServer.start();
-
-            // setup fe server
-            // Http server must be started before setup and start feServer
-            // Because the frontend need to download image file using http server from other frontends.
+            // init and start:
+            // 1. QeService for MySQL Server
+            // 2. FeServer for Thrift Server
+            // 3. HttpServer for HTTP Server
+            QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-            feServer.setup(args);
+            HttpServer httpServer = new HttpServer(Config.http_port);
+            httpServer.setup();
 
-            // start qe server and fe server
-            qeService.start();
             feServer.start();
+            httpServer.start();
+            qeService.start();
 
             while (true) {
                 Thread.sleep(2000);

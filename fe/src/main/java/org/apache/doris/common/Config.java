@@ -101,7 +101,7 @@ public class Config extends ConfigBase {
     /*
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      */
-    @ConfField public static int transaction_clean_interval_second = 1800; // 0.5 hours
+    @ConfField public static int transaction_clean_interval_second = 300; // 5 min
 
     // Configurations for meta data durability
     /*

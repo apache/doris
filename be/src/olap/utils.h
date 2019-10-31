@@ -71,7 +71,7 @@ public:
     }
 
     double get_elapse_second() {
-        return get_elapse_time_us() / 100000.0;
+        return get_elapse_time_us() / 1000000.0;
     }
 
     void reset() {
