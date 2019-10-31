@@ -246,7 +246,7 @@ abstract public class DorisHttpTestCase {
         EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(tabletInvertedIndex).anyTimes();
         PowerMock.replay(Catalog.class);
         assignBackends();
-        httpServer = new HttpServer(null, HTTP_PORT);
+        httpServer = new HttpServer(HTTP_PORT);
         httpServer.setup();
         httpServer.start();
         // must ensure the http server started before any unit test

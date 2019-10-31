@@ -85,7 +85,7 @@ public class HaAction extends WebBaseAction {
             return;
         }
         List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(true);
-        if (electableNodes == null) {
+        if (electableNodes.isEmpty()) {
             return;
         }
         buffer.append("<h2>Electable nodes</h2>");

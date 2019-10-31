@@ -20,6 +20,7 @@ package org.apache.doris.ha;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
@@ -110,7 +111,7 @@ public class BDBHA implements HAProtocol {
             }
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getObserverNodes.", e);
-            return null;
+            return Lists.newArrayList();
         }
         return ret;
     }
@@ -135,7 +136,7 @@ public class BDBHA implements HAProtocol {
             }
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getElectableNodes.", e);
-            return null;
+            return Lists.newArrayList();
         }
         return ret;
     }

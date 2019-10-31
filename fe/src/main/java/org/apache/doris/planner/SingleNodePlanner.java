@@ -1303,14 +1303,14 @@ public class SingleNodePlanner {
                 errMsg.setRef("non-equal " +  op.toString() + " is not supported");
                 LOG.warn(errMsg);
             }
-            LOG.info("no candidates for join.");
+            LOG.debug("no candidates for join.");
             return;
         }
 
         for (Expr e : candidates) {
             // Ignore predicate if one of its children is a constant.
             if (e.getChild(0).isConstant() || e.getChild(1).isConstant()) {
-                LOG.info("double is constant.");
+                LOG.debug("double is constant.");
                 continue;
             }
 
@@ -1328,7 +1328,7 @@ public class SingleNodePlanner {
             } else if (e.getChild(0).isBoundByTupleIds(lhsIds)) {
                 lhsExpr = e.getChild(0);
             } else {
-                LOG.info("not an equi-join condition between lhsIds and rhsId");
+                LOG.debug("not an equi-join condition between lhsIds and rhsId");
                 continue;
             }
 
@@ -1367,8 +1367,8 @@ public class SingleNodePlanner {
             }
 
             // construct cross join node
-            LOG.info("Join between " + outerRef.getAliasAsName() + " and " + innerRef.getAliasAsName()
-                    + "requires at least one conjunctive equality predicate between the two tables");
+            LOG.debug("Join between {} and {} requires at least one conjunctive equality predicate between the two tables",
+                    outerRef.getAliasAsName() ,innerRef.getAliasAsName());
             // TODO If there are eq join predicates then we should construct a hash join
             CrossJoinNode result =
                     new CrossJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef);
