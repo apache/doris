@@ -64,7 +64,7 @@ public:
         return _page_builder->size();
     }
 
-    Slice finish() {
+    OwnedSlice finish() {
         return _page_builder->finish();
     }
 

@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "gutil/macros.h"
-#include "util/slice.h"
+#include "util/owned_slice.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 
@@ -52,15 +52,15 @@ public:
     // vals size should be decided according to the page build type
     virtual doris::Status add(const uint8_t* vals, size_t* count) = 0;
 
+    // This api is for release the resource owned by builder
+    // It means it will transfer the ownership of some resource to other.
+    // This api should be followed by reset() before reuse the builder
+    virtual OwnedSlice finish() = 0;
+
     // Get the dictionary page for dictionary encoding mode column.
-    virtual Status get_dictionary_page(Slice* dictionary_page) {
+    virtual Status get_dictionary_page(OwnedSlice* dictionary_page) {
         return Status::NotSupported("get_dictionary_page not implemented");
     }
-
-    // Return a Slice which represents the encoded data of current page.
-    //
-    // This Slice points to internal data of this builder.
-    virtual Slice finish() = 0;
 
     // Reset the internal state of the page builder.
     //
@@ -72,12 +72,6 @@ public:
 
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
-
-    // This api is for release the resource owned by builder
-    // It means it will transfer the ownership of some resource to other.
-    // This api is always called after finish
-    // and should be followed by reset() before reuse the builder
-    virtual void release() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
