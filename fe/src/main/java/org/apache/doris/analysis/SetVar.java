@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -111,8 +113,22 @@ public class SetVar {
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
- 
+
         result = (LiteralExpr)literalExpr;
+
+        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            // For the case like "set sql_mode = PIPES_AS_CONCAT"
+            if (result instanceof StringLiteral) {
+                String sqlMode = result.getStringValue();
+                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+            }
+            // For the case like "set sql_mode = 3"
+            else if (result instanceof IntLiteral) {
+                String sqlMode = SqlModeHelper.decode(result.getLongValue());
+                result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
+            }
+        }
+
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
             if (result != null && !UserResource.isValidGroup(result.getStringValue())) {

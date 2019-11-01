@@ -49,4 +49,5 @@ public class SysVariableDescTest {
         desc.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         Assert.fail("No exception throws.");
     }
+
 }
