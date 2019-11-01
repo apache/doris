@@ -67,10 +67,10 @@ public:
         PageBuilderType page_builder(options);
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = page_builder.finish();
+        OwnedSlice s = page_builder.finish();
 
         PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(s, decoder_options);
+        PageDecoderType page_decoder(s.slice(), decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         
