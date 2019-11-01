@@ -44,7 +44,7 @@ namespace doris {
 class OwnedSlice {
 
 public:
-    OwnedSlice() {_slice.data = nullptr;_slice.size=0;}
+    OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
 
     explicit OwnedSlice(Slice slice) : _slice(slice) {}
 
@@ -64,8 +64,6 @@ public:
     OwnedSlice& operator = (OwnedSlice&& src) {
         if (this != &src) {
             std::swap(_slice, src._slice);
-            delete[] src._slice.data;
-            src._slice.size = 0;
         }
         return *this;
     }
@@ -74,9 +72,9 @@ public:
         return _slice;
     }
 
-    private:
-        DISALLOW_COPY_AND_ASSIGN(OwnedSlice);
-        Slice _slice;
+private:
+    DISALLOW_COPY_AND_ASSIGN(OwnedSlice);
+    Slice _slice;
 };
 
 }// namespace doris
