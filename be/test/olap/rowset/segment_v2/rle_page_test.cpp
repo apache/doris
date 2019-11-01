@@ -56,13 +56,13 @@ public:
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType rle_page_builder(builder_options);
         rle_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = rle_page_builder.finish();
+        OwnedSlice s = rle_page_builder.finish();
         ASSERT_EQ(size, rle_page_builder.count());
-        LOG(INFO) << "RLE Encoded size for 10k values: " << s.size
+        LOG(INFO) << "RLE Encoded size for 10k values: " << s.slice().size
                 << ", original size:" << size * sizeof(CppType);
 
         PageDecoderOptions decodeder_options;
-        PageDecoderType rle_page_decoder(s, decodeder_options);
+        PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
         Status status = rle_page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, rle_page_decoder.current_index());
@@ -146,11 +146,11 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    Slice s = rle_page_builder.finish();
+    OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 4 bytes values
-    ASSERT_EQ(10, s.size);
+    ASSERT_EQ(10, s.slice().size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
@@ -180,11 +180,11 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t *>(bools.get()), &size);
-    Slice s = rle_page_builder.finish();
+    OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 1 bytes values
-    ASSERT_EQ(7, s.size);
+    ASSERT_EQ(7, s.slice().size);
 }
 
 }
