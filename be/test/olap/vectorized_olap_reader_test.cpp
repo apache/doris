@@ -154,7 +154,7 @@ public:
         while (0 == access(_tablet_name.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, FileUtils::remove_all(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     void init_olap_row() {
