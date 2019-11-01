@@ -53,13 +53,13 @@ public:
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType for_page_builder(builder_options);
         for_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        OwnedSlice s = for_page_builder.release();
+        OwnedSlice s = for_page_builder.finish();
         ASSERT_EQ(size, for_page_builder.count());
-        LOG(INFO) << "FrameOfReference Encoded size for 10k values: " << s.slice.size
+        LOG(INFO) << "FrameOfReference Encoded size for 10k values: " << s.slice().size
                   << ", original size:" << size * sizeof(CppType);
 
         PageDecoderOptions decoder_options;
-        PageDecoderType for_page_decoder(s.slice, decoder_options);
+        PageDecoderType for_page_decoder(s.slice(), decoder_options);
         Status status = for_page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, for_page_decoder.current_index());
@@ -153,10 +153,10 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    OwnedSlice s = page_builder.release();
+    OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
     // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(26, s.slice.size);
+    ASSERT_EQ(26, s.slice().size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
@@ -169,10 +169,10 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    OwnedSlice s = page_builder.release();
+    OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
     // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(122, s.slice.size);
+    ASSERT_EQ(122, s.slice().size);
 }
 
 }

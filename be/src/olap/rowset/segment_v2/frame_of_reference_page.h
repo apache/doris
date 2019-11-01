@@ -49,6 +49,17 @@ public:
         return Status::OK();
     }
 
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override {
+        _finished = true;
+        _encoder->flush();
+
+        size_t buf_size = _buf.size();
+        return OwnedSlice(_buf.release(), buf_size);
+    }
+
     void reset() override {
         _count = 0;
         _finished = false;
@@ -61,15 +72,6 @@ public:
 
     uint64_t size() const override {
         return _buf.size();
-    }
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
-    OwnedSlice release() override {
-        _finished = true;
-        _encoder->flush();
-        return OwnedSlice(Slice(_buf.release(), _buf.size()));
     }
 
 private:

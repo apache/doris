@@ -30,6 +30,7 @@
 
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "util/owned_slice.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -78,6 +79,22 @@ public:
         return Status::OK();
     }
 
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override {
+        _finished = true;
+
+        // Set up trailer
+        for (int i = 0; i < _offsets.size(); i++) {
+            put_fixed32_le(&_buffer, _offsets[i]);
+        }
+        put_fixed32_le(&_buffer, _offsets.size());
+
+        size_t buf_size = _buffer.size();
+        return OwnedSlice(_buffer.release(), buf_size);
+    }
+
     void reset() override {
         _offsets.clear();
         _buffer.clear();
@@ -93,23 +110,6 @@ public:
 
     uint64_t size() const override {
         return _size_estimate;
-    }
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
-    OwnedSlice release() override {
-        _finished = true;
-
-        // Set up trailer
-        for (int i = 0; i < _offsets.size(); i++) {
-            put_fixed32_le(&_buffer, _offsets[i]);
-        }
-        put_fixed32_le(&_buffer, _offsets.size());
-
-        Slice slice(_buffer.release(), _buffer.size());
-        _buffer.reserve(_options.data_page_size);
-        return OwnedSlice(slice);
     }
 
     void update_prepared_size(size_t added_size) {

@@ -53,9 +53,9 @@ public:
         Slice *ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
 
-        OwnedSlice owned_slice = page_builder.release();
+        OwnedSlice owned_slice = page_builder.finish();
         PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(owned_slice.slice, decoder_options);
+        PageDecoderType page_decoder(owned_slice.slice(), decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
 

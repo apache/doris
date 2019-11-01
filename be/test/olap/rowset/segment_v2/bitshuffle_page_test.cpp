@@ -56,12 +56,12 @@ public:
         PageBuilderType page_builder(options);
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        OwnedSlice s = page_builder.release();
-        LOG(INFO) << "RLE Encoded size for 10k values: " << s.slice.size
+        OwnedSlice s = page_builder.finish();
+        LOG(INFO) << "RLE Encoded size for 10k values: " << s.slice().size
                 << ", original size:" << size * sizeof(CppType);
 
         segment_v2::PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(s.slice, decoder_options);
+        PageDecoderType page_decoder(s.slice(), decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, page_decoder.current_index());

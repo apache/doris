@@ -106,6 +106,13 @@ public:
         return Status::OK();
     }
 
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override {
+        return _finish(SIZE_OF_TYPE);
+    }
+
     void reset() override {
         auto block_size = _options.data_page_size;
         _count = 0;
@@ -127,15 +134,8 @@ public:
         return _buffer.size();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
-    OwnedSlice release() override {
-        return _release(SIZE_OF_TYPE);
-    }
-
 private:
-    OwnedSlice _release(int final_size_of_type) {
+    OwnedSlice _finish(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
@@ -165,7 +165,7 @@ private:
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
 
-        return OwnedSlice(Slice(_buffer.release(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes));
+        return OwnedSlice(_buffer.release(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;

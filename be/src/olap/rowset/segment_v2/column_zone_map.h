@@ -21,7 +21,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "util/owned_slice.h"
+#include "util/slice.h"
 #include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
@@ -65,7 +65,7 @@ public:
     }
 
     OwnedSlice finish() {
-        return _page_builder->release();
+        return _page_builder->finish();
     }
 
 private:

@@ -57,7 +57,16 @@ public:
         return Status::OK();
     }
 
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override {
+        encode_fixed32_le((uint8_t *) &_buffer[0], _count);
+        return OwnedSlice(_buffer.release(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
+    }
+
     void reset() override {
+        _buffer.reserve(_options.data_page_size + 1024);
         _count = 0;
         _buffer.clear();
         _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
@@ -69,18 +78,6 @@ public:
 
     uint64_t size() const override {
         return _buffer.size();
-    }
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
-    OwnedSlice release() override {
-        encode_fixed32_le((uint8_t *) &_buffer[0], _count);
-        OwnedSlice ownedSlice = OwnedSlice(Slice(_buffer.release(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE));
-
-        _buffer.reserve(_options.data_page_size + 1024);
-
-        return ownedSlice;
     }
 
 private:

@@ -27,42 +27,56 @@
 
 namespace doris {
 
+/**
+ *  originally make this class  pageBuilder',to maintain the life cycle of returned slice
+ *  Attention!!!
+ *      1. the input slice must own a data（char*） which using new to allocate memory,or will cause error
+ *      2. don't use std::move for this class
+ *
+ *  use case:
+ *      fastring buf;
+ *      buf.append();
+ *      size_t size = buf.size();
+ *      Slice slice(buf.release(), size); // here is the key point, using buf.release;use buf.data() is error
+ *
+ *      OwnedSlice owned_slice(slice);
+ */
 class OwnedSlice {
 
 public:
-    Slice slice;
+    OwnedSlice() {_slice.data = nullptr;_slice.size=0;}
 
-    OwnedSlice() {slice.data = nullptr;}
+    explicit OwnedSlice(Slice slice) : _slice(slice) {}
 
-    OwnedSlice(Slice _slice) : slice(_slice) {}
+    OwnedSlice(uint8_t* _data, size_t size) :_slice(_data, size) {}
 
     ~OwnedSlice(){
-        if (slice.data != nullptr) {
-            delete[] slice.data;
-        }
+        delete[] _slice.data;
     }
 
     OwnedSlice(OwnedSlice&& src) {
-        slice.data = src.slice.data;
-        slice.size = src.slice.size;
-        src.slice.data = nullptr;
-        src.slice.size = 0;
+        _slice.data = src._slice.data;
+        _slice.size = src._slice.size;
+        src._slice.data = nullptr;
+        src._slice.size = 0;
     }
 
     OwnedSlice& operator = (OwnedSlice&& src) {
         if (this != &src) {
-            if (slice.data != nullptr) {
-                delete[] slice.data;
-            }
-            slice.data = src.slice.data;
-            slice.size = src.slice.size;
-            src.slice.data = nullptr;
-            src.slice.size = 0;
+            std::swap(_slice, src._slice);
+            delete[] src._slice.data;
+            src._slice.size = 0;
         }
         return *this;
     }
 
-private:
-    DISALLOW_COPY_AND_ASSIGN(OwnedSlice);
+    const Slice& slice() const {
+        return _slice;
+    }
+
+    private:
+        DISALLOW_COPY_AND_ASSIGN(OwnedSlice);
+        Slice _slice;
 };
-} // namespace doris
+
+}// namespace doris

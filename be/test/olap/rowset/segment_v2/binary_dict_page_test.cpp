@@ -46,7 +46,7 @@ public:
         const Slice *ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
 
-        OwnedSlice s = page_builder.release();
+        OwnedSlice s = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
         ASSERT_FALSE(page_builder.is_page_full());
 
@@ -56,7 +56,7 @@ public:
         ASSERT_TRUE(status.ok());
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice.slice, dict_decoder_options));
+                new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
         status = dict_page_decoder->init();
         ASSERT_TRUE(status.ok());
         // because every slice is unique
@@ -64,7 +64,7 @@ public:
 
         // decode
         PageDecoderOptions decoder_options;
-        BinaryDictPageDecoder page_decoder(s.slice, decoder_options);
+        BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
         page_decoder.set_dict_decoder(dict_page_decoder.get());
 
         status = page_decoder.init();
@@ -119,16 +119,16 @@ public:
             const Slice* ptr = &contents[i];
             Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &add_num);
             if (page_builder.is_page_full()) {
-                OwnedSlice s = page_builder.release();
-                total_size += s.slice.size;
+                OwnedSlice s = page_builder.finish();
+                total_size += s.slice().size;
                 results.emplace_back(std::move(s));
                 page_builder.reset();
                 page_start_ids.push_back(i + 1);
             }
             i += add_num;
         }
-        OwnedSlice s = page_builder.release();
-        total_size += s.slice.size;
+        OwnedSlice s = page_builder.finish();
+        total_size += s.slice().size;
         results.emplace_back(std::move(s));
 
         page_start_ids.push_back(count);
@@ -136,10 +136,10 @@ public:
         OwnedSlice dict_slice;
         Status status = page_builder.get_dictionary_page(&dict_slice);
         size_t data_size = total_size;
-        total_size += dict_slice.slice.size;
+        total_size += dict_slice.slice().size;
         ASSERT_TRUE(status.ok());
         LOG(INFO) << "total size:" << total_size << ", data size:" << data_size
-                << ", dict size:" << dict_slice.slice.size
+                << ", dict size:" << dict_slice.slice().size
                 << " result page size:" << results.size();
         
         // validate
@@ -150,13 +150,13 @@ public:
             //int slice_index = 1;
             PageDecoderOptions dict_decoder_options;
             std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice, dict_decoder_options));
+                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
             status = dict_page_decoder->init();
             ASSERT_TRUE(status.ok());
 
             // decode
             PageDecoderOptions decoder_options;
-            BinaryDictPageDecoder page_decoder(results[slice_index].slice, decoder_options);
+            BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
             status = page_decoder.init();
             page_decoder.set_dict_decoder(dict_page_decoder.get());
             ASSERT_TRUE(status.ok());

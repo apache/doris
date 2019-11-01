@@ -32,7 +32,6 @@
 #include "runtime/mem_tracker.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
-#include <util/owned_slice.h>
 
 namespace doris {
 namespace segment_v2 {
@@ -59,6 +58,11 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override;
 
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override;
+
     void reset() override;
 
     size_t count() const override;
@@ -66,11 +70,6 @@ public:
     uint64_t size() const override;
 
     Status get_dictionary_page(OwnedSlice* dictionary_page) override;
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
-    OwnedSlice release() override;
 
 private:
     PageBuilderOptions _options;
