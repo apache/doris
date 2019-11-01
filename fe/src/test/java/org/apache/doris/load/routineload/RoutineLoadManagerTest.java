@@ -67,8 +67,6 @@ public class RoutineLoadManagerTest {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManagerTest.class);
 
-    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
-
     @Mocked
     private SystemInfoService systemInfoService;
 
@@ -281,10 +279,12 @@ public class RoutineLoadManagerTest {
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 1);
 
-        new Expectations(routineLoadManager) {{
-            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
-            result = beIdToConcurrentTaskMap;
-        }};
+        new Expectations(routineLoadManager) {
+            {
+                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                result = beIdToConcurrentTaskMap;
+            }
+        };
         Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
     }
 
@@ -324,7 +324,7 @@ public class RoutineLoadManagerTest {
                 result = beIds;
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
-                routineLoadJob.getBeIdToConcurrentTaskNum();
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrentTaskMap;
                 routineLoadJob.getState();
                 result = RoutineLoadJob.JobState.RUNNING;
@@ -332,16 +332,17 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Config.max_concurrent_task_num_per_be = 0;
+        Config.max_routine_load_task_num_per_be = 0;
         Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
         routineLoadJobMap.put(1l, routineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
 
+
         try {
-            routineLoadManager.getMinTaskBeId("default");
-            Assert.fail();
+            Assert.assertEquals(-1, routineLoadManager.getMinTaskBeId("default"));
         } catch (LoadException e) {
-            // do nothing
+            e.printStackTrace();
+            Assert.fail();
         }
     }
 
@@ -363,11 +364,14 @@ public class RoutineLoadManagerTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 1);
-        new Expectations(routineLoadManager) {{
-            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
-            result = beIdToConcurrentTaskMap;
-        }};
-        Assert.assertEquals(DEFAULT_BE_CONCURRENT_TASK_NUM * 2 - 1, routineLoadManager.getClusterIdleSlotNum());
+        new Expectations(routineLoadManager) {
+            {
+                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                result = beIdToConcurrentTaskMap;
+            }
+        };
+        Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
+                routineLoadManager.getClusterIdleSlotNum());
     }
 
     @Test
@@ -632,7 +636,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        Config.max_concurrent_task_num_per_be = 10;
+        Config.max_routine_load_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
         Assert.assertEquals(true, routineLoadManager.checkBeToTask(1L, "default"));
     }
@@ -684,12 +688,12 @@ public class RoutineLoadManagerTest {
             {
                 routineLoadJob.getState();
                 result = RoutineLoadJob.JobState.RUNNING;
-                routineLoadJob.getBeIdToConcurrentTaskNum();
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrenTaskNum;
             }
         };
 
-        Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+        Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
         Assert.assertEquals(1, (int) result.get(1l));
 
     }

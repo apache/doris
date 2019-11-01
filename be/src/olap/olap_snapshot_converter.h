@@ -68,11 +68,11 @@ public:
 
     // from olap header to tablet meta
     OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-        const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, 
+        const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb,
         vector<RowsetMetaPB>* pending_rowsets, bool is_startup);
 
     // from tablet meta to olap header
-    OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
+    OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix,
         string& old_data_path_prefix, OLAPHeaderMessage* olap_header);
     
     OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);

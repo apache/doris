@@ -19,6 +19,7 @@ package org.apache.doris.master;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.monitor.jvm.JvmService;
@@ -52,7 +53,8 @@ public class Checkpoint extends Daemon {
     private String imageDir;
     private EditLog editLog;
 
-    public Checkpoint(EditLog editLog) throws IOException {
+    public Checkpoint(EditLog editLog) {
+        super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
         this.imageDir = Catalog.IMAGE_DIR;
         this.editLog = editLog;
     }

@@ -62,8 +62,6 @@ public:
 
     RowsetId rowset_id() override { return _rowset_writer_context.rowset_id; }
 
-    DataDir* data_dir() override { return _rowset_writer_context.data_dir; }
-
 private:
     OLAPStatus _init();
 

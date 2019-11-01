@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array.h>
+#include <arrow/builder.h>
+#include <arrow/type.h>
+#include <arrow/record_batch.h>
 #include <gtest/gtest.h>
 #include <memory>
 
@@ -74,32 +78,30 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
 
-    std::shared_ptr<TScanRowBatch> t_scan_row_batch = std::make_shared<TScanRowBatch>();
-    t_scan_row_batch->__set_num_rows(1);
-    std::vector<TScanColumnData> cols;
-    TScanColumnData all_col_data;
-    std::vector<bool> tmp;
-    tmp.push_back(false);
-    all_col_data.__set_is_null(tmp);
-    std::vector<int8_t> tmp_data;
-    tmp_data.push_back(1);
-    all_col_data.__set_byte_vals(tmp_data);
-    cols.push_back(all_col_data);
-    t_scan_row_batch->__set_cols(std::move(cols));
-    block_queue_t->blocking_put(t_scan_row_batch);
+    std::shared_ptr<arrow::Field> field = arrow::field("k1", arrow::int32(), true);
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    fields.push_back(field);
+    std::shared_ptr<arrow::Schema> schema = arrow::schema(std::move(fields));
+
+    std::shared_ptr<arrow::Array> k1_col;
+    arrow::NumericBuilder<arrow::Int32Type> builder;
+    builder.Reserve(1);
+    builder.Append(20);
+    builder.Finish(&k1_col);
+
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    arrays.push_back(k1_col);
+    std::shared_ptr<arrow::RecordBatch> record_batch = arrow::RecordBatch::Make(schema, 1, std::move(arrays));
+    block_queue_t->blocking_put(record_batch);
     // sentinel
     block_queue_t->blocking_put(nullptr);
 
-    std::shared_ptr<TScanRowBatch> result;
+    std::shared_ptr<arrow::RecordBatch> result;
     bool eos;
     ASSERT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
     ASSERT_FALSE(eos);
-    ASSERT_EQ(1, result->cols.size());
-    std::vector<TScanColumnData> result_cols = result->cols;
-    TScanColumnData one_col = result_cols[0];
-    std::vector<bool> is_nulls = one_col.is_null;
-    bool is_null = is_nulls[0];
-    ASSERT_FALSE(is_null);
+    ASSERT_EQ(1, result->num_rows());
+    ASSERT_EQ(1, result->num_columns());
 }
 
 TEST_F(ResultQueueMgrTest, fetch_result_end) {
@@ -113,7 +115,7 @@ TEST_F(ResultQueueMgrTest, fetch_result_end) {
     ASSERT_TRUE(block_queue_t != nullptr);
     block_queue_t->blocking_put(nullptr);
 
-    std::shared_ptr<TScanRowBatch> result;
+    std::shared_ptr<arrow::RecordBatch> result;
     bool eos;
     ASSERT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
     ASSERT_TRUE(eos);

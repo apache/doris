@@ -58,8 +58,6 @@ public:
         _tablet_map.clear();
     }
 
-    void cancel_unfinished_schema_change();
-
     bool check_tablet_id_exist(TTabletId tablet_id);
 
     void clear();

@@ -192,6 +192,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Queues;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
@@ -227,9 +228,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Catalog {
@@ -242,8 +245,6 @@ public class Catalog {
     public static final String BDB_DIR = Config.meta_dir + "/bdb";
     public static final String IMAGE_DIR = Config.meta_dir + "/image";
 
-    // Current journal meta data version. Use this version to load journals
-    // private int journalVersion = 0;
     private MetaContext metaContext;
     private long epoch = 0;
 
@@ -270,10 +271,7 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
 
-    @Deprecated
-    private UserPropertyMgr userPropertyMgr;
-
-    private Daemon cleaner; // To clean old LabelInfo, ExportJobInfos
+    private Daemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private Daemon txnCleaner; // To clean aborted or timeout txns
     private Daemon replayer;
     private Daemon timePrinter;
@@ -281,10 +279,15 @@ public class Catalog {
     private EsStateStore esStateStore;  // it is a daemon, so add it here
 
     private boolean isFirstTimeStartUp = false;
-    private boolean isMaster;
     private boolean isElectable;
-    private boolean canWrite;
-    private boolean canRead;
+    // set to true after finished replay all meta and ready to serve
+    // set to false when catalog is not ready.
+    private AtomicBoolean isReady = new AtomicBoolean(false);
+    // set to true if FE can offer READ service.
+    // canRead can be true even if isReady is false.
+    // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
+    private AtomicBoolean canRead = new AtomicBoolean(false);
+    private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // false if default_cluster is not created.
     private boolean isDefaultClusterCreated = false;
@@ -293,7 +296,6 @@ public class Catalog {
     private String nodeName;
     private FrontendNodeType role;
     private FrontendNodeType feType;
-    private FrontendNodeType formerFeType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
     private int masterRpcPort;
@@ -428,23 +430,19 @@ public class Catalog {
         this.lock = new QueryableReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
-        this.userPropertyMgr = new UserPropertyMgr();
         this.publishVersionDaemon = new PublishVersionDaemon();
 
-        this.canWrite = false;
-        this.canRead = false;
         this.replayedJournalId = new AtomicLong(0L);
-        this.isMaster = false;
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
         this.feType = FrontendNodeType.INIT;
+        this.typeTransferQueue = Queues.newLinkedBlockingDeque();
 
         this.role = FrontendNodeType.UNKNOWN;
         this.frontends = new ConcurrentHashMap<>();
         this.removedFrontends = new ConcurrentLinkedQueue<>();
 
         this.journalObservable = new JournalObservable();
-        this.formerFeType = FrontendNodeType.INIT;
         this.masterRpcPort = 0;
         this.masterHttpPort = 0;
         this.masterIp = "";
@@ -638,6 +636,9 @@ public class Catalog {
             if (!imageDir.exists()) {
                 imageDir.mkdirs();
             }
+        } else {
+            LOG.error("Invalid edit log type: {}", Config.edit_log_type);
+            System.exit(-1);
         }
 
         // 2. get cluster id and role (Observer or Follower)
@@ -646,33 +647,40 @@ public class Catalog {
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
         loadImage(IMAGE_DIR); // load image file
-        editLog.open(); // open bdb env or local output stream
+        editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
 
-        // 4. start load label cleaner thread
-        createCleaner();
-        cleaner.setName("labelCleaner");
-        cleaner.setInterval(Config.label_clean_interval_second * 1000L);
-        cleaner.start();
+        // 4. create load and export job label cleaner thread
+        createLabelCleaner();
 
-        // 5. create es state store
-        esStateStore.loadTableFromCatalog();
-        esStateStore.start();
+        // 5. create txn cleaner thread
+        createTxnCleaner();
 
         // 6. start state listener thread
         createStateListener();
-        listener.setMetaContext(metaContext);
-        listener.setName("stateListener");
-        listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
+    }
 
-        // 7. start txn cleaner thread
-        createTxnCleaner();
-        txnCleaner.setName("txnCleaner");
-        // the clear threads runs every min(transaction_clean_interval_second,stream_load_default_timeout_second)/10
-        txnCleaner.setInterval(Math.min(Config.transaction_clean_interval_second,
-                Config.stream_load_default_timeout_second) * 100L);
+    // wait until FE is ready.
+    public void waitForReady() {
+        while (true) {
+            if (isReady()) {
+                LOG.info("catalog is ready. FE type: {}", feType);
+                break;
+            }
+
+            try {
+                Thread.sleep(2000);
+                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    public boolean isReady() {
+        return isReady.get();
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -1007,27 +1015,36 @@ public class Catalog {
         }
     }
 
-    private void transferToMaster() throws IOException {
-        editLog.open();
+    private void transferToMaster() {
+        // stop replayer
         if (replayer != null) {
             replayer.exit();
+            try {
+                replayer.join();
+            } catch (InterruptedException e) {
+                LOG.warn("got exception when stopping the replayer thread", e);
+            }
+            replayer = null;
         }
+
+        // set this after replay thread stopped. to avoid replay thread modify them.
+        isReady.set(false);
+        canRead.set(false);
+
+        editLog.open();
+
         if (!haProtocol.fencing()) {
             LOG.error("fencing failed. will exit.");
             System.exit(-1);
         }
 
-        canWrite = false;
-        canRead = false;
-
         long replayStartTime = System.currentTimeMillis();
-        // replay journals. -1 means replay all the journals larger than current
-        // journal id.
+        // replay journals. -1 means replay all the journals larger than current journal id.
         replayJournal(-1);
-        checkCurrentNodeExist();
-        formerFeType = feType;
         long replayEndTime = System.currentTimeMillis();
         LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+
+        checkCurrentNodeExist();
 
         editLog.rollEditLog();
 
@@ -1047,28 +1064,38 @@ public class Catalog {
             editLog.logAddFirstFrontend(self);
         }
 
-        isMaster = true;
-        canWrite = true;
-        canRead = true;
-        String msg = "master finish replay journal, can write now.";
-        System.out.println(msg);
-        LOG.info(msg);
+        if (!isDefaultClusterCreated) {
+            initDefaultCluster();
+        }
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
         this.masterIp = FrontendOptions.getLocalHostAddress();
         this.masterRpcPort = Config.rpc_port;
         this.masterHttpPort = Config.http_port;
-
         MasterInfo info = new MasterInfo(this.masterIp, this.masterHttpPort, this.masterRpcPort);
         editLog.logMasterInfo(info);
 
+        // start all daemon threads that only running on MASTER FE
+        startMasterOnlyDaemonThreads();
+        // start other daemon threads that should running on all FE
+        startNonMasterDaemonThreads();
+
+        MetricRepo.init();
+
+        canRead.set(true);
+        isReady.set(true);
+
+        String msg = "master finished to replay journal, can write now.";
+        Util.stdoutWithTime(msg);
+        LOG.info(msg);
+    }
+
+    // start all daemon threads only running on Master
+    private void startMasterOnlyDaemonThreads() {
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setMetaContext(metaContext);
-        checkpointer.setName("leaderCheckpointer");
-        checkpointer.setInterval(FeConstants.checkpoint_interval_second * 1000L);
-
         checkpointer.start();
         checkpointThreadId = checkpointer.getId();
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
@@ -1076,89 +1103,72 @@ public class Catalog {
         // heartbeat mgr
         heartbeatMgr.setMaster(clusterId, token, epoch);
         heartbeatMgr.start();
-
-        pullLoadJobMgr.start();
-
         // Load checker
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
-
         // New load scheduler
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
-
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
-
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
-
         // Colocate tables balancer
         if (!Config.disable_colocate_join) {
             ColocateTableBalancer.getInstance().start();
         }
-
         // Publish Version Daemon
         publishVersionDaemon.start();
-
         // Start txn cleaner
         txnCleaner.start();
-
         // Alter
         getAlterInstance().start();
-
         // Consistency checker
         getConsistencyChecker().start();
-
         // Backup handler
         getBackupHandler().start();
-
         // catalog recycle bin
         getRecycleBin().start();
-
+        // time printer
         createTimePrinter();
-        timePrinter.setName("timePrinter");
-        long tsInterval = (long) ((Config.meta_delay_toleration_second / 2.0) * 1000L);
-        timePrinter.setInterval(tsInterval);
         timePrinter.start();
-
-        if (!isDefaultClusterCreated) {
-            initDefaultCluster();
-        }
-
+        // deploy manager
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
         }
-
-        domainResolver.start();
-
-        tabletStatMgr.start();
-
         // start routine load scheduler
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
-
-        MetricRepo.init();
     }
 
-    private void transferToNonMaster() {
-        canWrite = false;
-        isMaster = false;
+    // start threads that should running on all FE
+    private void startNonMasterDaemonThreads() {
+        tabletStatMgr.start();
+        // load and export job label cleaner thread
+        labelCleaner.start();
+        // ES state store
+        esStateStore.start();
+        // domain resolver
+        domainResolver.start();
+    }
 
-        // do not set canRead
-        // let canRead be what it was
+    private void transferToNonMaster(FrontendNodeType newType) {
+        isReady.set(false);
 
-        if (formerFeType == FrontendNodeType.OBSERVER && feType == FrontendNodeType.UNKNOWN) {
-            LOG.warn("OBSERVER to UNKNOWN, still offer read service");
-            Config.ignore_meta_check = true;
+        if (feType == FrontendNodeType.OBSERVER || feType == FrontendNodeType.FOLLOWER) {
+            Preconditions.checkState(newType == FrontendNodeType.UNKNOWN);
+            LOG.warn("{} to UNKNOWN, still offer read service", feType.name());
+            // not set canRead here, leave canRead as what is was.
+            // if meta out of date, canRead will be set to false in replayer thread.
             metaReplayState.setTransferToUnknown();
-        } else {
-            Config.ignore_meta_check = false;
+            return;
         }
+
+        // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
         // add helper sockets
         if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
@@ -1171,17 +1181,11 @@ public class Catalog {
 
         if (replayer == null) {
             createReplayer();
-            replayer.setMetaContext(metaContext);
-            replayer.setName("replayer");
-            replayer.setInterval(REPLAY_INTERVAL_MS);
             replayer.start();
         }
 
-        formerFeType = feType;
+        startNonMasterDaemonThreads();
 
-        domainResolver.start();
-
-        tabletStatMgr.start();
         MetricRepo.init();
     }
 
@@ -1311,6 +1315,9 @@ public class Catalog {
             checksum = loadDb(dis, checksum);
             // ATTN: this should be done after load Db, and before loadAlterJob
             recreateTabletInvertIndex();
+            // rebuild es state state
+            esStateStore.loadTableFromCatalog();
+
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
             checksum = loadAccessService(dis, checksum);
@@ -1327,6 +1334,8 @@ public class Catalog {
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
 
+
+
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
         } finally {
@@ -1334,7 +1343,7 @@ public class Catalog {
         }
 
         long loadImageEndTime = System.currentTimeMillis();
-        LOG.info("finished load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
+        LOG.info("finished to load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
     }
 
     private void recreateTabletInvertIndex() {
@@ -2034,8 +2043,9 @@ public class Catalog {
         return checksum;
     }
 
-    public void createCleaner() {
-        cleaner = new Daemon() {
+    public void createLabelCleaner() {
+        labelCleaner = new Daemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
+            @Override
             protected void runOneCycle() {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
@@ -2046,19 +2056,15 @@ public class Catalog {
     }
 
     public void createTxnCleaner() {
-        txnCleaner = new Daemon() {
+        txnCleaner = new Daemon("txnCleaner", Config.transaction_clean_interval_second) {
             protected void runOneCycle() {
-                globalTransactionMgr.removeOldTransactions();
+                globalTransactionMgr.removeExpiredAndTimeoutTxns();
             }
         };
     }
 
     public void createReplayer() {
-        if (isMaster) {
-            return;
-        }
-
-        replayer = new Daemon() {
+        replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
             protected void runOneCycle() {
                 boolean err = false;
                 boolean hasLog = false;
@@ -2068,7 +2074,7 @@ public class Catalog {
                 } catch (InsufficientLogException insufficientLogEx) {
                     // Copy the missing log files from a member of the
                     // replication group who owns the files
-                    LOG.warn("catch insufficient log exception. please restart.", insufficientLogEx);
+                    LOG.error("catch insufficient log exception. please restart.", insufficientLogEx);
                     NetworkRestore restore = new NetworkRestore();
                     NetworkRestoreConfig config = new NetworkRestoreConfig();
                     config.setRetainLogFiles(false);
@@ -2088,16 +2094,20 @@ public class Catalog {
                 setCanRead(hasLog, err);
             }
         };
+        replayer.setMetaContext(metaContext);
     }
 
     private void setCanRead(boolean hasLog, boolean err) {
         if (err) {
-            canRead = false;
+            canRead.set(false);
+            isReady.set(false);
             return;
         }
 
         if (Config.ignore_meta_check) {
-            canRead = true;
+            // can still offer read, but is not ready
+            canRead.set(true);
+            isReady.set(false);
             return;
         }
 
@@ -2114,7 +2124,8 @@ public class Catalog {
                 // which means this non-master node is disconnected with master.
                 // So we need to set meta out of date either.
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
-                canRead = false;
+                canRead.set(false);
+                isReady.set(false);
             }
 
             // sleep 5s to avoid numerous 'meta out of date' log
@@ -2125,103 +2136,129 @@ public class Catalog {
             }
 
         } else {
-            canRead = true;
+            canRead.set(true);
+            isReady.set(true);
+        }
+    }
+
+    public void notifyNewFETypeTransfer(FrontendNodeType newType) {
+        try {
+            String msg = "notify new FE type transfer: " + newType;
+            LOG.warn(msg);
+            Util.stdoutWithTime(msg);
+            this.typeTransferQueue.put(newType);
+        } catch (InterruptedException e) {
+            LOG.error("failed to put new FE type: {}", newType, e);
         }
     }
 
     public void createStateListener() {
-        listener = new Daemon() {
-            protected void runOneCycle() {
-                if (formerFeType == feType) {
-                    return;
-                }
+        listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
+            @Override
+            protected synchronized void runOneCycle() {
 
-                if (formerFeType == FrontendNodeType.INIT) {
+                while (true) {
+                    FrontendNodeType newType = null;
+                    try {
+                        newType = typeTransferQueue.take();
+                    } catch (InterruptedException e) {
+                        LOG.error("got exception when take FE type from queue", e);
+                        Util.stdoutWithTime("got exception when take FE type from queue. " + e.getMessage());
+                        System.exit(-1);
+                    }
+                    Preconditions.checkNotNull(newType);
+                    LOG.info("begin to transfer FE type from {} to {}", feType, newType);
+                    if (feType == newType) {
+                        return;
+                    }
+
+                    /*
+                     * INIT -> MASTER: transferToMaster
+                     * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
+                     * UNKNOWN -> MASTER: transferToMaster
+                     * UNKNOWN -> FOLLOWER/OBSERVER: transferToNonMaster
+                     * FOLLOWER -> MASTER: transferToMaster
+                     * FOLLOWER/OBSERVER -> INIT/UNKNOWN: set isReady to false
+                     */
                     switch (feType) {
-                        case MASTER: {
-                            try {
-                                transferToMaster();
-                            } catch (IOException e) {
-                                e.printStackTrace();
+                        case INIT: {
+                            switch (newType) {
+                                case MASTER: {
+                                    transferToMaster();
+                                    break;
+                                }
+                                case FOLLOWER:
+                                case OBSERVER: {
+                                    transferToNonMaster(newType);
+                                    break;
+                                }
+                                case UNKNOWN:
+                                    break;
+                                default:
+                                    break;
                             }
                             break;
                         }
-                        case UNKNOWN:
-                        case FOLLOWER:
-                        case OBSERVER: {
-                            transferToNonMaster();
-                            break;
-                        }
-                        default:
-                            break;
-                    }
-                    return;
-                }
-
-                if (formerFeType == FrontendNodeType.UNKNOWN) {
-                    switch (feType) {
-                        case MASTER: {
-                            try {
-                                transferToMaster();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                            break;
-                        }
-                        case FOLLOWER:
-                        case OBSERVER: {
-                            transferToNonMaster();
-                            break;
-                        }
-                        default:
-                    }
-                    return;
-                }
-
-                if (formerFeType == FrontendNodeType.FOLLOWER) {
-                    switch (feType) {
-                        case MASTER: {
-                            try {
-                                transferToMaster();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                            break;
-                        }
-                        case UNKNOWN:
-                        case OBSERVER: {
-                            transferToNonMaster();
-                            break;
-                        }
-                        default:
-                    }
-                    return;
-                }
-
-                if (formerFeType == FrontendNodeType.OBSERVER) {
-                    switch (feType) {
                         case UNKNOWN: {
-                            transferToNonMaster();
+                            switch (newType) {
+                                case MASTER: {
+                                    transferToMaster();
+                                    break;
+                                }
+                                case FOLLOWER:
+                                case OBSERVER: {
+                                    transferToNonMaster(newType);
+                                    break;
+                                }
+                                default:
+                                    break;
+                            }
                             break;
                         }
-                        default:
-                    }
-                    return;
-                }
-
-                if (formerFeType == FrontendNodeType.MASTER) {
-                    switch (feType) {
-                        case UNKNOWN:
-                        case FOLLOWER:
+                        case FOLLOWER: {
+                            switch (newType) {
+                                case MASTER: {
+                                    transferToMaster();
+                                    break;
+                                }
+                                case UNKNOWN: {
+                                    transferToNonMaster(newType);
+                                    break;
+                                }
+                                default:
+                                    break;
+                            }
+                            break;
+                        }
                         case OBSERVER: {
+                            switch (newType) {
+                                case UNKNOWN: {
+                                    transferToNonMaster(newType);
+                                    break;
+                                }
+                                default:
+                                    break;
+                            }
+                            break;
+                        }
+                        case MASTER: {
+                            // exit if master changed to any other type
+                            String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
+                            LOG.error(msg);
+                            Util.stdoutWithTime(msg);
                             System.exit(-1);
                         }
                         default:
-                    }
-                    return;
+                            break;
+                    } // end switch formerFeType
+
+                    feType = newType;
+                    LOG.info("finished to transfer FE type to {}", feType);
                 }
-            }
+            } // end runOneCycle
         };
+
+        listener.setMetaContext(metaContext);
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -2251,7 +2288,7 @@ public class Catalog {
             EditLog.loadJournal(this, entity);
             replayedJournalId.incrementAndGet();
             LOG.debug("journal {} replayed.", replayedJournalId);
-            if (!isMaster) {
+            if (feType != FrontendNodeType.MASTER) {
                 journalObservable.notifyObservers(replayedJournalId.get());
             }
             if (MetricRepo.isInit.get()) {
@@ -2268,16 +2305,11 @@ public class Catalog {
     }
 
     public void createTimePrinter() {
-        if (!isMaster) {
-            return;
-        }
-
-        timePrinter = new Daemon() {
+        // time printer will write timestamp edit log every 10 seconds
+        timePrinter = new Daemon("timePrinter", 10 * 1000L) {
             protected void runOneCycle() {
-                if (canWrite) {
-                    Timestamp stamp = new Timestamp();
-                    editLog.logTimestamp(stamp);
-                }
+                Timestamp stamp = new Timestamp();
+                editLog.logTimestamp(stamp);
             }
         };
     }
@@ -2311,7 +2343,7 @@ public class Catalog {
     }
 
     public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
-        if (host.equals(selfNode.first) && port == selfNode.second && isMaster) {
+        if (host.equals(selfNode.first) && port == selfNode.second && feType == FrontendNodeType.MASTER) {
             throw new DdlException("can not drop current master node.");
         }
         if (!tryLock(false)) {
@@ -2959,7 +2991,12 @@ public class Catalog {
 
                 // check partition name
                 if (olapTable.getPartition(partitionName) != null) {
-                    throw new DdlException("Partition " + partitionName + " already exists");
+                    if (singlePartitionDesc.isSetIfNotExists()) {
+                        LOG.debug("add partition[{}] which already exists", partitionName);
+                        return null;
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
+                    }
                 }
 
                 // check if meta changed
@@ -4586,27 +4623,23 @@ public class Catalog {
         return this.feType;
     }
 
-    public void setFeType(FrontendNodeType type) {
-        this.feType = type;
-    }
-
     public int getMasterRpcPort() {
-        if (feType == FrontendNodeType.UNKNOWN || feType == FrontendNodeType.MASTER && !canWrite) {
+        if (!isReady()) {
             return 0;
         }
         return this.masterRpcPort;
     }
 
     public int getMasterHttpPort() {
-        if (feType == FrontendNodeType.UNKNOWN || feType == FrontendNodeType.MASTER && !canWrite) {
+        if (!isReady()) {
             return 0;
         }
         return this.masterHttpPort;
     }
 
     public String getMasterIp() {
-        if (feType == FrontendNodeType.UNKNOWN || feType == FrontendNodeType.MASTER && !canWrite) {
-            return null;
+        if (!isReady()) {
+            return "";
         }
         return this.masterIp;
     }
@@ -4621,12 +4654,8 @@ public class Catalog {
         this.masterRpcPort = info.getRpcPort();
     }
 
-    public boolean canWrite() {
-        return this.canWrite;
-    }
-
     public boolean canRead() {
-        return this.canRead;
+        return this.canRead.get();
     }
 
     public void setMetaDir(String metaDir) {
@@ -4637,12 +4666,8 @@ public class Catalog {
         return this.isElectable;
     }
 
-    public void setIsMaster(boolean isMaster) {
-        this.isMaster = isMaster;
-    }
-
     public boolean isMaster() {
-        return this.isMaster;
+        return feType == FrontendNodeType.MASTER;
     }
 
     public void setSynchronizedTime(long time) {

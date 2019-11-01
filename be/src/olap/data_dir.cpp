@@ -546,7 +546,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         }
         string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix,
-            old_data_path_prefix, *this, &tablet_meta_pb, &pending_rowsets, true);
+            old_data_path_prefix, &tablet_meta_pb, &pending_rowsets, true);
         if (status != OLAP_SUCCESS) {
             LOG(FATAL) << "convert olap header to tablet meta failed when convert header and files tablet="
                          << tablet_id << "." << schema_hash;
@@ -622,7 +622,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
             rowset_meta->init_from_pb(visible_rowset);
 
             RowsetSharedPtr rowset;
-            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, this, rowset_meta, &rowset);
+            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, rowset_meta, &rowset);
             if (s != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while init rowset. tablet_path=" << data_path_prefix;
                 return true;
@@ -755,7 +755,6 @@ OLAPStatus DataDir::load() {
         RowsetSharedPtr rowset;
         OLAPStatus create_status = RowsetFactory::create_rowset(&tablet->tablet_schema(),
                                                               tablet->tablet_path(),
-                                                              tablet->data_dir(),
                                                               rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "

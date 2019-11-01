@@ -123,6 +123,10 @@ public:
         return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
 
+    static Status TooManyTasks(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
+    }
+
     bool ok() const { return _state == nullptr; }
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
@@ -131,6 +135,8 @@ public:
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
 
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
+    
+    bool is_io_error() const {return code() == TStatusCode::IO_ERROR; }
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>

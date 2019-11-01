@@ -798,6 +798,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             result = false;
             goto DIRECTLY_PROCESS_ERR;
         }
+        // rows filtered by delete handler one by one
         add_filtered_rows(filtered_rows);
 
         if (!_write_row_block(rowset_writer, new_row_block)) {
@@ -815,6 +816,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         goto DIRECTLY_PROCESS_ERR;
     }
 
+    // rows filtered by zone map against delete handler
     add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
@@ -1095,7 +1097,6 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.rowset_path_prefix = new_tablet->tablet_path();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
-    context.data_dir = new_tablet->data_dir();
     context.version = version;
     context.version_hash = version_hash;
     VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()

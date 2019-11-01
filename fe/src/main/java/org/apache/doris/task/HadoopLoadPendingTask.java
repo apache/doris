@@ -543,6 +543,9 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case HLL:
                     columnType = "HLL";
                     break;
+                case BITMAP:
+                    columnType = "BITMAP";
+                    break;
                 case DECIMAL:
                     columnType = "DECIMAL";
                     break;

@@ -56,37 +56,37 @@ RowBlockV2::~RowBlockV2() {
     delete[] _selection_vector;
 }
 
-Status RowBlockV2::copy_to_row_cursor(size_t row_idx, RowCursor* cursor) {
-    if (row_idx >= _num_rows) {
-        return Status::InvalidArgument(
-            Substitute("invalid row index $0 (num_rows=$1)", row_idx, _num_rows));
-    }
+Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
     for (auto cid : _schema.column_ids()) {
-        bool is_null = _schema.column(cid)->is_nullable() && BitmapTest(_column_null_bitmaps[cid], row_idx);
-        if (is_null) {
-            cursor->set_null(cid);
+        bool is_nullable = _schema.column(cid)->is_nullable();
+        if (is_nullable) {
+            for (uint16_t i = 0; i < _selected_size; ++i) {
+                uint16_t row_idx = _selection_vector[i];
+                dst->get_row(i, helper);
+                bool is_null = BitmapTest(_column_null_bitmaps[cid], row_idx);
+                if (is_null) {
+                    helper->set_null(cid);
+                } else {
+                    helper->set_not_null(cid);
+                    helper->set_field_content_shallow(cid,
+                            reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                }
+            }
         } else {
-            cursor->set_not_null(cid);
-            cursor->set_field_content_shallow(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+            for (uint16_t i = 0; i < _selected_size; ++i) {
+                uint16_t row_idx = _selection_vector[i];
+                dst->get_row(i, helper);
+                helper->set_not_null(cid);
+                helper->set_field_content_shallow(cid,
+                        reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+            }
         }
     }
-    return Status::OK();
-}
-
-Status RowBlockV2::deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool) {                                                                  
-    if (row_idx >= _num_rows) {
-        return Status::InvalidArgument(
-            Substitute("invalid row index $0 (num_rows=$1)", row_idx, _num_rows));
-    }   
-    for (auto cid : _schema.column_ids()) {
-        bool is_null = _schema.column(cid)->is_nullable() && BitmapTest(_column_null_bitmaps[cid], row_idx);
-        if (is_null) {
-            cursor->set_null(cid);
-        } else {
-            cursor->set_not_null(cid);
-            cursor->set_field_content(cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)), mem_pool);
-        }   
-    }   
+    // swap MemPool to copy string content
+    dst->mem_pool()->exchange_data(_pool.get());
+    dst->set_pos(0);
+    dst->set_limit(_selected_size);
+    dst->finalize(_selected_size);
     return Status::OK();
 }
 

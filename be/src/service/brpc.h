@@ -54,3 +54,5 @@
 #include <brpc/controller.h>
 #include <brpc/server.h>
 #include <brpc/closure_guard.h>
+#include <brpc/reloadable_flags.h>
+#include <brpc/protocol.h>

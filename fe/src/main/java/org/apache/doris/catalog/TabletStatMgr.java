@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -44,24 +43,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TabletStatMgr extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
-    private AtomicBoolean isStart = new AtomicBoolean(false);
-
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
     }
 
     @Override
-    public synchronized void start() {
-        if (isStart.compareAndSet(false, true)) {
-            super.start();
-        }
-    }
-
-    @Override
     protected void runOneCycle() {
         // We should wait Frontend finished replaying logs, then begin to get tablet status
-        while (!Catalog.getInstance().canRead()) {
-            LOG.info("Frontend's canRead flag is false, waiting...");
+        while (!Catalog.getInstance().isReady()) {
             try {
                 // sleep here, not return. because if we return, we have to wait until next round, which may
                 // take a long time(default is tablet_stat_update_interval_second: 5 min)

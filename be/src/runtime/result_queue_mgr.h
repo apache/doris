@@ -28,11 +28,17 @@
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 
+
+namespace arrow {
+    
+class RecordBatch;
+}
+
 namespace doris {
 
 class TUniqueId;
 class TScanRowBatch;
-typedef std::shared_ptr<BlockingQueue<std::shared_ptr<TScanRowBatch>>> shared_block_queue_t;
+typedef std::shared_ptr<BlockingQueue< std::shared_ptr<arrow::RecordBatch>>> shared_block_queue_t;
 
 class ResultQueueMgr {
 
@@ -40,7 +46,7 @@ public:
     ResultQueueMgr();
     ~ResultQueueMgr();
 
-    Status fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<TScanRowBatch>* result, bool *eos);
+    Status fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos);
 
     void create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue);
 

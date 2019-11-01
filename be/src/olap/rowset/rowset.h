@@ -23,7 +23,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
-#include "olap/new_status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/once.h"
 
@@ -138,7 +137,6 @@ protected:
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     Rowset(const TabletSchema* schema,
            std::string rowset_path,
-           DataDir* data_dir,
            RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
@@ -152,7 +150,6 @@ protected:
 
     const TabletSchema* _schema;
     std::string _rowset_path;
-    DataDir* _data_dir;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state

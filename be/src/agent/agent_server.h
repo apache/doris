@@ -97,7 +97,6 @@ private:
     TaskWorkerPool* _drop_tablet_workers;
     TaskWorkerPool* _push_workers;
     TaskWorkerPool* _publish_version_workers;
-    TaskWorkerPool* _clear_alter_task_workers;
     TaskWorkerPool* _clear_transaction_task_workers;
     TaskWorkerPool* _delete_workers;
     TaskWorkerPool* _alter_tablet_workers;

@@ -101,7 +101,7 @@ public class Config extends ConfigBase {
     /*
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      */
-    @ConfField public static int transaction_clean_interval_second = 1800; // 0.5 hours
+    @ConfField public static int transaction_clean_interval_second = 300; // 5 min
 
     // Configurations for meta data durability
     /*
@@ -405,6 +405,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
+
 
     /*
      * maximun concurrent running txn num including prepare, commit txns under a single db
@@ -829,17 +830,25 @@ public class Config extends ConfigBase {
     @ConfField public static boolean enable_metric_calculator = true;
 
     /*
-     * the max concurrent task num of a routine load task
+     * the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_routine_load_job_num = 100;
+
+    /*
+     * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;
 
     /*
-     * the max concurrent task num per be
-     * The cluster max concurrent task num = max_concurrent_task_num_per_be * number of be
+     * the max concurrent routine load task num per BE.
+     * This is to limit the num of routine load tasks sending to a BE, and it should also less
+     * than BE config 'routine_load_thread_pool_size'(default 10),
+     * which is the routine load task thread pool size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_concurrent_task_num_per_be = 10;
+    public static int max_routine_load_task_num_per_be = 5;
 
     /*
      * The max number of files store in SmallFileMgr 

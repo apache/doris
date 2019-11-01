@@ -524,13 +524,13 @@ AgentStatus EngineCloneTask::_clone_copy(
                   << ", cost: " << total_time_ms << " ms"
                   << ", rate: " << copy_rate << " MB/s";
         if (make_snapshot_result.snapshot_version == 1) {
-            OLAPStatus convert_status = _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
+            OLAPStatus convert_status = _convert_to_new_snapshot(local_data_path, clone_req.tablet_id);
             if (convert_status != OLAP_SUCCESS) {
                 status = DORIS_ERROR;
             }
         } 
         // change all rowset ids because they maybe its id same with local rowset
-        OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(data_dir, 
+        OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(
             local_data_path, clone_req.tablet_id, clone_req.schema_hash, tablet);
         if (convert_status != OLAP_SUCCESS) {
             status = DORIS_ERROR;
@@ -554,8 +554,8 @@ AgentStatus EngineCloneTask::_clone_copy(
     return status;
 }
 
-OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id) {
-    OLAPStatus res = OLAP_SUCCESS;   
+OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id) {
+    OLAPStatus res = OLAP_SUCCESS;
     // check clone dir existed
     if (!check_dir_existed(clone_dir)) {
         res = OLAP_ERR_DIR_NOT_EXIST;
@@ -594,7 +594,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
-    res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir, data_dir, &tablet_meta_pb, 
+    res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir, &tablet_meta_pb,
         &pending_rowsets, false);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert snapshot to new format. dir='" << clone_dir;
@@ -847,7 +847,6 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
         RowsetSharedPtr rowset_to_remove;
         auto s = RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
                                               tablet->tablet_path(),
-                                              tablet->data_dir(),
                                               rs_meta_ptr,
                                               &rowset_to_remove);
         if (s != OLAP_SUCCESS) {

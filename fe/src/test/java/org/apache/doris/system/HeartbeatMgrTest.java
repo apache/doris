@@ -17,8 +17,10 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
@@ -41,8 +43,23 @@ import mockit.NonStrictExpectations;
 
 public class HeartbeatMgrTest {
 
+    @Mocked
+    private Catalog catalog;
+
     @Before
     public void setUp() {
+        new NonStrictExpectations() {
+            {
+                catalog.getSelfNode();
+                result = Pair.create("192.168.1.3", 9010); // not self
+
+                catalog.isReady();
+                result = true;
+
+                Catalog.getInstance();
+                result = catalog;
+            }
+        };
 
     }
 
@@ -55,7 +72,7 @@ public class HeartbeatMgrTest {
                 if (urlStr.contains("192.168.1.1")) {
                     return "{\"replayedJournalId\":191224,\"queryPort\":9131,\"rpcPort\":9121,\"status\":\"OK\",\"msg\":\"Success\"}";
                 } else {
-                    return "{\"replayedJournalId\":0,\"queryPort\":0,\"rpcPort\":0,\"status\":\"FAILED\",\"msg\":\"unfinished\"}";
+                    return "{\"replayedJournalId\":0,\"queryPort\":0,\"rpcPort\":0,\"status\":\"FAILED\",\"msg\":\"not ready\"}";
                 }
             }
         };

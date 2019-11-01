@@ -673,7 +673,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
-            LOG.warn("failed to commit: {}", e.getMessage());
+            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {

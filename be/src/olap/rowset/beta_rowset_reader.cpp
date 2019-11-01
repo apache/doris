@@ -32,7 +32,12 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
-
+    if (_context->stats == nullptr) {
+        // schema change/compaction should use owned_stats
+        // When doing schema change/compaction,
+        // only statistics of this RowsetReader is necessary.
+        _context->stats = &_owned_stats;
+    }
     // SegmentIterator will load seek columns on demand
     Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
@@ -123,28 +128,10 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
 
     // convert to output block
     _output_block->clear();
-    size_t rows_read = 0;
-    uint16_t* selection_vector = _input_block->selection_vector();
     {
         SCOPED_RAW_TIMER(&_context->stats->block_convert_ns);
-        for (uint16_t i = 0; i < _input_block->selected_size(); ++i) {
-            uint16_t row_idx = selection_vector[i];
-            // deep copy row from input block to output block because
-            // RowBlock use MemPool and RowBlockV2 use Arena
-            // TODO(hkp): unify RowBlockV2 to use MemPool to boost performance
-            _output_block->get_row(row_idx, _row.get());
-            // convert return_columns to seek_columns
-            auto s = _input_block->deep_copy_to_row_cursor(row_idx, _row.get(), _output_block->mem_pool());
-            if (!s.ok()) {
-                LOG(WARNING) << "failed to copy row: " << s.to_string();
-                return OLAP_ERR_ROWSET_READ_FAILED;
-            }
-            ++rows_read;
-        }
+        _input_block->convert_to_row_block(_row.get(), _output_block.get());
     }
-    _output_block->set_pos(0);
-    _output_block->set_limit(rows_read);
-    _output_block->finalize(rows_read);
     *block = _output_block.get();
     return OLAP_SUCCESS;
 }

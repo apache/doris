@@ -17,6 +17,7 @@
 
 #include "service/backend_service.h"
 
+#include <arrow/record_batch.h>
 #include <boost/shared_ptr.hpp>
 #include <gperftools/heap-profiler.h>
 #include <memory>
@@ -49,6 +50,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
+#include "util/arrow/row_batch.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
@@ -258,11 +260,10 @@ void BackendService::submit_routine_load_task(
         if (!st.ok()) {
             LOG(WARNING) << "failed to submit routine load task. job id: " <<  task.job_id
                     << " task id: " << task.id;
+            return st.to_thrift(&t_status);
         }
     }
 
-    // we do not care about each task's submit result. just return OK.
-    // FE will handle the failure.
     return Status::OK().to_thrift(&t_status);
 }
 
@@ -300,9 +301,9 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
     u_int64_t offset = params.offset;
     TStatus t_status;
     std::shared_ptr<ScanContext> context;
-    Status context_st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
-    if (!context_st.ok()) {
-        context_st.to_thrift(&t_status);
+    Status st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
+    if (!st.ok()) {
+        st.to_thrift(&t_status);
         result_.status = t_status;
         return;
     }
@@ -318,19 +319,27 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         // during accessing, should disabled last_access_time
         context->last_access_time = -1;
         TUniqueId fragment_instance_id = context->fragment_instance_id;
-        std::shared_ptr<TScanRowBatch> rows_per_col;
+        std::shared_ptr<arrow::RecordBatch> record_batch;
         bool eos;
-        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
-        if (fetch_st.ok()) {
+        st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &record_batch, &eos);
+        if (st.ok()) {
             result_.__set_eos(eos);
-            // when eos = true  rows_per_col = nullptr
             if (!eos) {
-                result_.__set_rows(*rows_per_col);
-                context->offset += (*rows_per_col).num_rows;
+                std::string record_batch_str;
+                st = serialize_record_batch(*record_batch, &record_batch_str);
+                st.to_thrift(&t_status);
+                if (st.ok()) {
+                    // avoid copy large string
+                    result_.rows = std::move(record_batch_str);
+                    // set __isset
+                    result_.__isset.rows = true;
+                    context->offset += record_batch->num_rows();
+                }
             }
+        } else {
+            st.to_thrift(&t_status);
+            result_.status = t_status;
         }
-        fetch_st.to_thrift(&t_status);
-        result_.status = t_status;
     }
     context->last_access_time = time(NULL);
 }
