@@ -44,6 +44,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "env/env.h"
 
 using std::string;
 using std::set;
@@ -1014,7 +1015,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     // 4. check parent dir of source file, delete it when empty
     string source_parent_dir = schema_hash_root.parent_path().string(); // tablet_id level
     std::set<std::string> sub_dirs, sub_files;
-    if (dir_walk(source_parent_dir, &sub_dirs, &sub_files) != OLAP_SUCCESS) {
+    if (!FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()).ok()) {
         LOG(INFO) << "access dir failed. [dir=" << source_parent_dir << "]";
         // This error is nothing serious. so we still return success.
         return OLAP_SUCCESS;
@@ -1367,69 +1368,6 @@ const char *Errno::str(int no) {
 
 int Errno::no() {
     return errno;
-}
-
-static Status disk_error(const std::string& context, int16_t err) {
-    switch (err) {
-        case ENOENT:
-            return Status::NotFound(context, err, errno_to_string(err));
-        case EEXIST:
-            return Status::AlreadyExist(context, err, errno_to_string(err));
-        case EOPNOTSUPP:
-            return Status::NotSupported(context, err, errno_to_string(err));
-        case EIO:
-        case ENODEV:
-        case ENXIO:
-        case EROFS:
-            return Status::IOError(context, err, errno_to_string(err));
-        default:
-            return Status::InternalError(context, err, errno_to_string(err));
-    }
-}
-
-OLAPStatus dir_walk(const string& root,
-                    set<string>* dirs,
-                    set<string>* files) {
-    DIR* dirp = NULL;
-    struct stat stat_data;
-    struct dirent* direntp = NULL;
-    dirp = opendir(root.c_str());
-    if (dirp == nullptr) {
-        Status status = disk_error("opendir failed", errno);
-        
-        LOG(WARNING) << status.to_string();
-        if (status.is_io_error()) {
-            return OLAP_ERR_DISK_FAILURE;
-        } else {
-            return OLAP_ERR_INIT_FAILED;
-        }
-    }
-    
-    while ((direntp = readdir(dirp)) != NULL) {
-        // 去掉. .. 和.开头的隐藏文件
-        if ('.' == direntp->d_name[0]) {
-            continue;
-        }
-        // 检查找到的目录项是文件还是目录
-        string tmp_ent = root + '/' + direntp->d_name;
-        if (lstat(tmp_ent.c_str(), &stat_data) < 0) {
-            LOG(WARNING) << "lstat error.";
-            continue;
-        }
-
-        if (S_ISDIR(stat_data.st_mode)) {
-            if (NULL != dirs) {
-                dirs->insert(direntp->d_name);
-            }
-        } else {
-            if (NULL != files) {
-                files->insert(direntp->d_name);
-            }
-        }
-    }
-    closedir(dirp);
-
-    return OLAP_SUCCESS;
 }
 
 template <>

@@ -25,6 +25,8 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 
+#include "env/env.h"
+
 using std::set;
 using std::stringstream;
 
@@ -580,9 +582,9 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
     }
 
     set<string> clone_files;
-    if ((res = dir_walk(clone_dir, NULL, &clone_files)) != OLAP_SUCCESS) {
+    if (!FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()).ok()) {
         LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]";
-        return res;
+        return OLAP_ERR_DISK_FAILURE;
     }
 
     try {
@@ -651,15 +653,17 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         // TODO(ygl): convert old format file into rowset
         // check all files in /clone and /tablet
         set<string> clone_files;
-        if ((res = dir_walk(clone_dir, NULL, &clone_files)) != OLAP_SUCCESS) {
+        if (!FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()).ok()) {
             LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]";
+            res = OLAP_ERR_DISK_FAILURE;
             break;
         }
 
         set<string> local_files;
         string tablet_dir = tablet->tablet_path();
-        if ((res = dir_walk(tablet_dir, NULL, &local_files)) != OLAP_SUCCESS) {
+        if (!FileUtils::list_dirs_files(tablet_dir, NULL, &local_files, Env::Default()).ok()) {
             LOG(WARNING) << "failed to dir walk when clone. [tablet_dir=" << tablet_dir << "]";
+            res = OLAP_ERR_DISK_FAILURE;
             break;
         }
 

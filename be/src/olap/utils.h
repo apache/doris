@@ -420,8 +420,6 @@ private:
     static __thread char _buf[BUF_SIZE];
 };
 
-OLAPStatus dir_walk(const std::string& root, std::set<std::string>* dirs, std::set<std::string>* files);
-
 inline bool is_io_error(OLAPStatus status) {
     return (((OLAP_ERR_IO_ERROR == status || OLAP_ERR_READ_UNENOUGH == status)&& errno == EIO)
                 || OLAP_ERR_CHECKSUM_ERROR == status
