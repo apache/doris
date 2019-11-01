@@ -195,7 +195,7 @@ void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal*
     const AnyVal* digest_compression = ctx->get_constant_arg(2);
     if (digest_compression != nullptr) {
         double compression = reinterpret_cast<const DoubleVal*>(digest_compression)->val;
-        if (compression > 0 && compression < 10000) {
+        if (compression >= 2048 && compression <= 10000) {
             dst->ptr = (uint8_t*) new PercentileApproxState(compression);
             return;
         }
