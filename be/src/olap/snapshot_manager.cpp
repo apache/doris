@@ -36,6 +36,8 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
 
+#include "env/env.h"
+
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
 using boost::filesystem::copy_option;
@@ -446,7 +448,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         }
         if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
             set<string> exist_old_files;
-            if ((res = dir_walk(schema_full_path, nullptr, &exist_old_files)) != OLAP_SUCCESS) {
+            if (!FileUtils::list_dirs_files(schema_full_path, nullptr, &exist_old_files,
+                                            Env::Default()).ok()) {
                 LOG(WARNING) << "failed to dir walk when convert old files. dir=" 
                              << schema_full_path;
                 break;

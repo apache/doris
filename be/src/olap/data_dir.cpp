@@ -930,14 +930,14 @@ void DataDir::perform_path_scan() {
         LOG(INFO) << "start to scan data dir path:" << _path;
         std::set<std::string> shards;
         std::string data_path = _path + DATA_PREFIX;
-        if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
+        if (!FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default()).ok()) {
             LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
             return;
         }
         for (const auto& shard : shards) {
             std::string shard_path = data_path + "/" + shard;
             std::set<std::string> tablet_ids;
-            if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
+            if (!FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default()).ok()) {
                 LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
                 continue;
             }
@@ -945,7 +945,8 @@ void DataDir::perform_path_scan() {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
                 _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
-                if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
+                if (!FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
+                                                Env::Default()).ok()) {
                     LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
                     continue;
                 }
@@ -953,7 +954,8 @@ void DataDir::perform_path_scan() {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
                     _all_check_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
-                    if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
+                    if (!FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
+                                                    Env::Default()).ok()) {
                         LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
                         continue;
                     }

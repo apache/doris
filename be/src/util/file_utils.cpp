@@ -53,10 +53,11 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
     string partial_path;
     for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
         partial_path = partial_path.empty() ? it->string() : partial_path + "/" + it->string();
-        bool is_dir;
+        bool is_dir = false;
         
         Status s = env->is_directory(partial_path, &is_dir);
         if (s.ok()) {
+            
             if (is_dir) {
                 // It's a normal directory.
                 continue;
@@ -118,6 +119,34 @@ Status FileUtils::list_files(Env* env, const std::string& dir,
         return true;
     };
     return env->iterate_dir(dir, cb);
+}
+
+Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string> *dirs,
+                             std::set<std::string> *files, Env *env) {
+    auto cb = [path, dirs, files, env](const char* name) -> bool {
+        if ('.' == name[0]) {
+            return true;
+        }
+        
+        string temp_path =  path + "/" + name;
+        bool is_dir;
+        
+        if (env->is_directory(temp_path, &is_dir).ok()) {
+            if (is_dir) {
+                if (nullptr != dirs) {
+                    dirs->insert(name);
+                }
+            } else if(nullptr != files) {
+                files->insert(name);
+            }
+        } else {
+            LOG(WARNING) << "check path " << path << "is directory error";
+        }
+        
+        return true;
+    };
+    
+    return env->iterate_dir(path, cb);
 }
 
 Status FileUtils::get_children_count(Env* env, const std::string& dir, int64_t* count) {
@@ -261,13 +290,11 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
 }
 
 bool FileUtils::check_exist(const std::string& path) {
-    boost::system::error_code errcode;
-    bool exist = boost::filesystem::exists(path, errcode);
-    if (errcode != boost::system::errc::success && errcode != boost::system::errc::no_such_file_or_directory) {
-        LOG(WARNING) << "error when check path:" << path << ", error code:" << errcode;
-        return false;
-    }
-    return exist;
+    return Env::Default()->path_exists(path).ok();
+}
+
+bool FileUtils::check_exist(const std::string& path, Env* env) {
+    return env->path_exists(path).ok();
 }
 
 }

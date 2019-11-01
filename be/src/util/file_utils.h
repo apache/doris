@@ -61,6 +61,13 @@ public:
         Env* env,
         const std::string& dir,
         std::vector<std::string>* files);
+    
+    // List all dirs and files in the specified directory
+    static Status list_dirs_files(
+            const std::string& path,
+            std::set<std::string>* dirs,
+            std::set<std::string>* files, 
+            Env* env);
 
     // Get the number of children belong to the specified directory, this
     // funciton also exclude '.' and '..'.
@@ -92,6 +99,9 @@ public:
     static Status md5sum(const std::string& file, std::string* md5sum);
 
     static bool check_exist(const std::string& path);
+    
+    // check path(file or directory) exist with env
+    static bool check_exist(const std::string& path, Env* env);
 };
 
 }
