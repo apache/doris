@@ -637,7 +637,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
         std::string pending_delta_path = data_path_prefix + PENDING_DELTA_PREFIX;
         if (check_dir_existed(pending_delta_path)) {
             LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-            if(remove_all_dir(pending_delta_path) != OLAP_SUCCESS) {
+            if(!FileUtils::remove_all(pending_delta_path).ok()) {
                 LOG(INFO) << "errors while remove pending delta path. tablet_path=" << data_path_prefix;
                 return true;
             }
@@ -646,7 +646,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
         std::string incremental_delta_path = data_path_prefix + INCREMENTAL_DELTA_PREFIX;
         if (check_dir_existed(incremental_delta_path)) {
             LOG(INFO) << "remove incremental delta path:" << incremental_delta_path;
-            if(remove_all_dir(incremental_delta_path) != OLAP_SUCCESS) {
+            if(!FileUtils::remove_all(incremental_delta_path).ok()) {
                 LOG(INFO) << "errors while remove incremental delta path. tablet_path=" << data_path_prefix;
                 return true;
             }
@@ -974,8 +974,7 @@ void DataDir::perform_path_scan() {
 void DataDir::_process_garbage_path(const std::string& path) {
     if (check_dir_existed(path)) {
         LOG(INFO) << "collect garbage dir path: " << path;
-        OLAPStatus status = remove_all_dir(path);
-        if (status != OLAP_SUCCESS) {
+        if (!FileUtils::remove_all(path).ok()) {
             LOG(WARNING) << "remove garbage dir path: " << path << " failed";
         }
     }

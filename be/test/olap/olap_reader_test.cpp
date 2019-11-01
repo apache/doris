@@ -50,7 +50,7 @@ void set_up() {
 
 void tear_down() {
     system("rm -rf ./test_run");
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -152,13 +152,13 @@ public:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(, FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     void init_olap() {
         // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/row_tablet";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
@@ -684,13 +684,13 @@ public:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path));
     }
 
     void init_olap() {
         // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/column_tablet";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
@@ -1165,13 +1165,13 @@ public:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path));
     }
 
     void init_olap() {
         // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/row_tablet";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.

@@ -46,17 +46,14 @@ protected:
     OlapReaderStatistics _stats;
 
     void SetUp() override {
-        OLAPStatus s;
         if (check_dir_existed(kRowsetDir)) {
-            s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
+            ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
         ASSERT_TRUE(FileUtils::create_dir(kRowsetDir).ok());
     }
     void TearDown() override {
         if (check_dir_existed(kRowsetDir)) {
-            auto s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
+            ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
     }
 

@@ -109,7 +109,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0
                 && snapshot_path.compare(abs_path.size(),
                         SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) == 0) {
-            remove_all_dir(snapshot_path);
+            FileUtils::remove_all(snapshot_path);
             LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
 
             return OLAP_SUCCESS;
@@ -333,7 +333,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string header_path = _get_header_full_path(ref_tablet, schema_full_path);
     if (check_dir_existed(schema_full_path)) {
         VLOG(10) << "remove the old schema_full_path.";
-        remove_all_dir(schema_full_path);
+        FileUtils::remove_all(schema_full_path);
     }
     FileUtils::create_dir(schema_full_path);
     path boost_path(snapshot_id_path);
@@ -513,7 +513,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         if (check_dir_existed(snapshot_id_path)) {
             VLOG(3) << "remove snapshot path. [path=" << snapshot_id_path << "]";
-            remove_all_dir(snapshot_id_path);
+            FileUtils::remove_all(snapshot_id_path);
         }
     } else {
         *snapshot_path = snapshot_id;
