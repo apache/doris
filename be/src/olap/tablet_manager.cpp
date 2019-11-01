@@ -447,8 +447,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
         tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
         if (tablet == nullptr) {
             LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << data_dir->path();
-            res = remove_all_dir(tablet_dir);
-            if (res != OLAP_SUCCESS) {
+            if (!FileUtils::remove_all(tablet_dir).ok()) {
                 LOG(WARNING) << "remove tablet dir:" << tablet_dir;
             }
             continue;

@@ -33,6 +33,7 @@
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "util/stack_util.h"
+#include "util/file_utils.h"
 
 using std::ifstream;
 using std::string;
@@ -859,7 +860,9 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     std::string pending_delta_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
     if (check_dir_existed(pending_delta_path)) {
         LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-        RETURN_NOT_OK(remove_all_dir(pending_delta_path));
+        if (!FileUtils::remove_all(pending_delta_path).ok()) {
+            return OLAP_ERR_CANNOT_CREATE_DIR;
+        }
     }
     return OLAP_SUCCESS;
 }

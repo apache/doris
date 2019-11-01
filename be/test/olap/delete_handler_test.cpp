@@ -49,8 +49,8 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
     FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
@@ -65,8 +65,8 @@ void tear_down() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -164,7 +164,7 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
@@ -187,7 +187,7 @@ protected:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -273,7 +273,7 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
@@ -296,7 +296,7 @@ protected:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -610,7 +610,7 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
+        FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
@@ -637,7 +637,7 @@ protected:
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;

@@ -1334,23 +1334,6 @@ OLAPStatus remove_dir(const string& path) {
     return OLAP_ERR_CANNOT_CREATE_DIR;
 }
 
-// remove all files or dirs under the dir.
-OLAPStatus remove_all_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::remove_all(p)) {
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to del all dir. [path='" << path << "' errno=" << Errno::no() << "]";
-
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance
 
 const char *Errno::str() {

@@ -53,7 +53,7 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
     FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
@@ -72,7 +72,7 @@ void tear_down() {
     delete k_engine;
     k_engine = nullptr;
     system("rm -rf ./data_test");
-    remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
     delete k_mem_tracker;
 }
 

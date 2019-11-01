@@ -53,7 +53,7 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
     ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
@@ -68,7 +68,7 @@ void set_up() {
 }
 
 void tear_down() {
-    remove_all_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
 }
 
 void create_rowset_writer_context(TabletSchema* tablet_schema,

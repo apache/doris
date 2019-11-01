@@ -394,8 +394,6 @@ OLAPStatus remove_files(const std::vector<std::string>& files);
 
 OLAPStatus remove_dir(const std::string& path);
 
-OLAPStatus remove_all_dir(const std::string& path);
-
 //转换两个list
 template<typename T1, typename T2>
 void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {
