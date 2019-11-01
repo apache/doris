@@ -33,7 +33,7 @@
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 
-#if 0
+#if DORIS_UDF_SDK_BUILD
 // For the SDK build, we are building the .lib that the developers would use to
 // write UDFs. They want to link against this to run their UDFs in a test environment.
 // Pulling in free-pool is very undesirable since it pulls in many other libraries.
@@ -397,25 +397,21 @@ bool FunctionContext::add_warning(const char* warning_msg) {
 
 //Record
 void Record::set_null(int idx) {
-        doris::NullIndicatorOffset offset = _descriptor->slots()[idx]->null_indicator_offset();
-        char *null_indicator_byte = reinterpret_cast<char *>(_data) + offset.byte_offset;
-        *null_indicator_byte |= offset.bit_mask;
-    }
+    doris::NullIndicatorOffset offset = _descriptor->slots()[idx]->null_indicator_offset();
+    char *null_indicator_byte = reinterpret_cast<char *>(_data) + offset.byte_offset;
+    *null_indicator_byte |= offset.bit_mask;
+}
 
-    // set idx filed to val as int
 void Record::set_int(int idx, int val) {
-        uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
-        memcpy(dst, reinterpret_cast<uint8_t *>(&val), sizeof(int));
-    }
+    uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+    memcpy(dst, reinterpret_cast<uint8_t *>(&val), sizeof(int));
+}
 
-    // set idx filed to ptr with len as string, this function will
-    // use input buffer directly without copy. Client should allocate
-    // memory from RecordStore.
 void Record::set_string(int idx, const uint8_t *ptr, size_t len) {
-        uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
-        memcpy(dst, &ptr, sizeof(char *));
-        memcpy(dst + sizeof(char *), reinterpret_cast<uint8_t *>(&len), sizeof(size_t));
-    }
+    uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+    memcpy(dst, &ptr, sizeof(char*));
+    memcpy(dst + sizeof(char*), reinterpret_cast<uint8_t *>(&len), sizeof(size_t));
+}
 
 Record::Record(uint8_t *data, doris::TupleDescriptor *descriptor) {
     _descriptor = descriptor;
@@ -426,41 +422,31 @@ Record::Record(uint8_t *data, doris::TupleDescriptor *descriptor) {
 
 void *Record::get_data() { return _data; }
 
-
 //RecordStore
 RecordStore::RecordStore() : _impl(new doris::RecordStoreImpl()) {}
 
-
-// Allocate a record to store data.
-// Returned record can be added to this store through calling
-// append_record function. If returned record is not added back,
-// client should call free_record to free it.
 Record *RecordStore::allocate_record() {
     return _impl->allocate_record();
 }
 
-// Append a record to this store. The input record must be returned
-// by allocate_record function of this RecordStore. Otherwise
-// undefined error would happen.
 void RecordStore::append_record(Record *record) {
     _impl->append_record(record);
 }
 
-// This function is to free the unused record created by allocate_record
-// function.
 void RecordStore::free_record(Record *record) {
     _impl->free_record(record);
 }
 
-// Allocate memory for variable length filed in record, such as string
-// type. The allocated memory need not to be freed by client, they will
-// be freed when this store is destroyed.
 void* RecordStore::allocate(size_t size) {
     return (void*)_impl->allocate(size);
 }
 
-uint8* RecordStore::get_record(int idx) {
-    return _impl->get_record(idx);
+size_t RecordStore::size() {
+    return _impl->size();
+}
+
+uint8_t* RecordStore::get(int idx) {
+    return _impl->get(idx);
 }
 
 RecordStore::~RecordStore() {

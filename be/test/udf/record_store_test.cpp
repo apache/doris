@@ -27,10 +27,12 @@
 #include "runtime/runtime_state.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
+#include "runtime/free_pool.hpp"
 #include "util/logging.h"
 #include "util/debug_util.h"
 
 #include "udf/udf.h"
+#include "udf/udf_internal.h"
 
 namespace doris {
 
@@ -128,76 +130,6 @@ void RecordStroreTest::init_tuple_desc() {
         slot_descs.push_back(t_slot_desc);
         offset += sizeof(StringValue);
     }
-    ++i;
-    /*
-    // column 3
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_INT).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column2");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(int32_t);
-    }
-    ++i;
-    // Date
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_DATE).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column4");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DateTimeValue);
-    }
-    ++i;
-    // DateTime
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_DATETIME).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column5");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DateTimeValue);
-    }
-    ++i;
-    //
-    {
-        TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_id(i);
-        t_slot_desc.__set_slotType(TypeDescriptor(TYPE_VARCHAR).to_thrift());
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-        t_slot_desc.__set_nullIndicatorByte(0);
-        t_slot_desc.__set_nullIndicatorBit(-1);
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-        t_slot_desc.__set_colName("column6");
-
-        slot_descs.push_back(t_slot_desc);
-        offset += sizeof(StringValue);
-    }
-    */
 
     _t_desc_table.__set_slotDescriptors(slot_descs);
 
@@ -214,10 +146,10 @@ void RecordStroreTest::init_tuple_desc() {
 }
 TEST_F(RecordStroreTest, normal_use) {
     std::cout << _desc_tbl->get_tuple_descriptor(0)->debug_string() << std::endl;
-    RecordStore* store = RecordStoreImpl::create_record_store(&_mem_pool, _desc_tbl->get_tuple_descriptor(0));
+    doris_udf::RecordStore* store = RecordStoreImpl::create_record_store(new FreePool(&_mem_pool), _desc_tbl->get_tuple_descriptor(0));
 
     for (int i = 0; i < 5; ++i) {
-        Record *record = store->allocate_record();
+        doris_udf::Record *record = store->allocate_record();
         // set index
         record->set_int(0, i);
         if (i % 2) {
@@ -236,12 +168,19 @@ TEST_F(RecordStroreTest, normal_use) {
         
         store->append_record(record);
     }
-    for (int i = 0; i < 5; i++) {
-        Tuple* tuple = reinterpret_cast<Tuple*> (store->get_record(i));
-        std::cout << Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(0)) << std::endl;
-    }
+    EXPECT_EQ(store->size(), 5);
+    
+    Tuple* tuple0 = reinterpret_cast<Tuple*> (store->get(0));
+    Tuple* tuple1 = reinterpret_cast<Tuple*> (store->get(1));
+    Tuple* tuple2 = reinterpret_cast<Tuple*> (store->get(2));
+    Tuple* tuple3 = reinterpret_cast<Tuple*> (store->get(3));
+    Tuple* tuple4 = reinterpret_cast<Tuple*> (store->get(4));
 
-    delete store;
+    EXPECT_EQ(Tuple::to_string(tuple0, *_desc_tbl->get_tuple_descriptor(0)), "(0 0 testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple1, *_desc_tbl->get_tuple_descriptor(0)), "(1 null testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple2, *_desc_tbl->get_tuple_descriptor(0)), "(2 4 testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple3, *_desc_tbl->get_tuple_descriptor(0)), "(3 null testVar)");
+    EXPECT_EQ(Tuple::to_string(tuple4, *_desc_tbl->get_tuple_descriptor(0)), "(4 8 testVar)");
 }
 
 }

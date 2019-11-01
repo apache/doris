@@ -18,10 +18,10 @@
 #ifndef DORIS_RECORD_STORE_IMP_H
 #define DORIS_RECORD_STORE_IMP_H
 
-#include "udf/udf_internal.h"
 #include "runtime/free_pool.hpp"
 #include "runtime/runtime_state.h"
 #include "runtime/descriptors.h"
+#include "udf/udf_internal.h"
 
 namespace doris {
 
@@ -29,9 +29,6 @@ doris_udf::RecordStore* RecordStoreImpl::create_record_store(FreePool* free_pool
     doris_udf::RecordStore *store = new doris_udf::RecordStore();
     store->_impl->_free_pool = free_pool;
     store->_impl->_descriptor = descriptor;
-
-    store->_impl->_size = descriptor->byte_size();
-    store->_impl->_data = store->_impl->_free_pool->allocate(descriptor->byte_size());
     return store;
 }
 
@@ -41,35 +38,36 @@ doris_udf::Record *RecordStoreImpl::allocate_record() {
     return record;
 }
 
-void RecordStoreImpl::append_record(doris_udf::Record *record) {
-    if (_descriptor->byte_size() > (_size - _used_size)) {
-        _data = _free_pool->reallocate(_data, _size * 2);
-        _size = _size * 2;
-    }
-    memcpy((uint8_t *) _data + _used_size, (uint8_t *) record->get_data(), _descriptor->byte_size());
-
-    _used_size += _descriptor->byte_size();
-}
-
-void RecordStoreImpl::free_record(doris_udf::Record *record) {
-    _free_pool->free((uint8_t *) record);
-}
-
 void *RecordStoreImpl::allocate(size_t byte_size) {
     uint8_t* buffer = _free_pool->allocate(byte_size);
     _allocations.push_back(buffer);
     return buffer;
 }
 
-uint8_t *RecordStoreImpl::get_record(int idx) {
-    return _data + idx * _descriptor->byte_size();
+void RecordStoreImpl::append_record(doris_udf::Record *record) {
+    _record_vec.push_back(record);
+}
+
+void RecordStoreImpl::free_record(doris_udf::Record *record) {
+    _free_pool->free((uint8_t *) record);
+}
+
+uint8_t *RecordStoreImpl::get(int idx) {
+    return _record_vec[idx]->_data;
+}
+
+size_t RecordStoreImpl::size() {
+    return _record_vec.size();
 }
 
 RecordStoreImpl::~RecordStoreImpl() {
+    //TODO: free string type allocate ?
+    /*
     for (int i = 0; i < _allocations.size(); ++i) {
         _free_pool->free(_allocations[i]);
     }
     _allocations.clear();
+    */
 }
 
 }

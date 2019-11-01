@@ -230,19 +230,18 @@ public:
     void free_record(doris_udf::Record *record);
 
     void *allocate(size_t size);
+    
+    size_t size();
 
-    uint8_t *get_record(int idx);
+    uint8_t *get(int idx);
 
     ~RecordStoreImpl();
 
 private:
     FreePool *_free_pool;
     TupleDescriptor *_descriptor;
-    uint8_t *_data;
-
     std::vector<uint8_t*> _allocations;
-    int _used_size = 0;
-    int _size;
+    std::vector<doris_udf::Record*> _record_vec;
 };
 
 }

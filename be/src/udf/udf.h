@@ -250,13 +250,15 @@ public:
     // memory from RecordStore.
     void set_string(int idx, const uint8_t *ptr, size_t len);
 
-    Record(uint8_t *data, doris::TupleDescriptor *descriptor);
-
     void *get_data();
 
+    ~Record() {}
 private:
+    friend class doris::RecordStoreImpl;
+
+    Record(uint8_t *data, doris::TupleDescriptor *descriptor);
     doris::TupleDescriptor *_descriptor;
-    void *_data;
+    uint8_t *_data; // not owned data
 };
 
 //RecordStore
@@ -282,12 +284,16 @@ public:
     // be freed when this store is destroyed.
     void *allocate(size_t size);
 
-    uint8_t *get_record(int idx);
+    //get Record size
+    size_t size();
+    //get Record data compitable to Tuple avoid memory copy
+    uint8_t *get(int idx);
 
     ~RecordStore();
 
 private:
     friend class doris::RecordStoreImpl;
+
     RecordStore();
 
     // Disable copy and assignment operator
