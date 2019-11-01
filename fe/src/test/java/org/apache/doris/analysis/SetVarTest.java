@@ -23,6 +23,7 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.doris.qe.SqlModeHelper;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -72,5 +73,19 @@ public class SetVarTest {
         SetVar var = new SetVar(SetType.DEFAULT, "", new StringLiteral("utf-8"));
         var.analyze(analyzer);
         Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidSqlModeValue() throws UserException, AnalysisException {
+        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new IntLiteral(SqlModeHelper.MODE_LAST));
+        var.analyze(analyzer);
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidSqlMode() throws UserException, AnalysisException {
+        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral("WRONG_MODE"));
+        var.analyze(analyzer);
+        Assert.fail("No exception throws");
     }
 }

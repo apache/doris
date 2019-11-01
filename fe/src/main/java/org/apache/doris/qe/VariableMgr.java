@@ -420,6 +420,15 @@ public class VariableMgr {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
                 }
 
+                if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+                    try {
+                        row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
+                    } catch (AnalysisException e) {
+                        row.set(1, "");
+                        LOG.warn("Decode sql mode failed");
+                    }
+                }
+
                 rows.add(row);
             }
         } finally {

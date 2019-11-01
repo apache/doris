@@ -71,6 +71,7 @@ public class VariableMgrTest {
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
         Assert.assertEquals(false, var.isReportSucc());
+        Assert.assertEquals(0L, var.getSqlMode());
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -117,6 +118,12 @@ public class VariableMgrTest {
         // Get from name
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
+
+        SetVar setVar4 = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral(
+                SqlModeHelper.encode("PIPES_AS_CONCAT").toString()));
+        VariableMgr.setVar(var, setVar4);
+        Assert.assertEquals(2L, var.getSqlMode());
+
     }
 
     @Test(expected = DdlException.class)
@@ -160,7 +167,6 @@ public class VariableMgrTest {
         }
         Assert.fail("No exception throws.");
     }
-
 
     @Test(expected = DdlException.class)
     public void testReadOnly() throws AnalysisException, DdlException {
