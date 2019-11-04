@@ -26,8 +26,6 @@
 #include <string.h>
 #include <string>
 
-#include "gutil/macros.h"
-
 namespace doris {
 
 class faststring;
