@@ -249,16 +249,6 @@ public:
     // use input buffer directly without copy. Client should allocate
     // memory from RecordStore.
     void set_string(int idx, const uint8_t *ptr, size_t len);
-
-    void *get_data();
-
-    ~Record() {}
-private:
-    friend class doris::RecordStoreImpl;
-
-    Record(uint8_t *data, doris::TupleDescriptor *descriptor);
-    doris::TupleDescriptor *_descriptor;
-    uint8_t *_data; // not owned data
 };
 
 //RecordStore
@@ -287,7 +277,7 @@ public:
     //get Record size
     size_t size();
     //get Record data compitable to Tuple avoid memory copy
-    uint8_t *get(int idx);
+    Record *get(int idx);
 
     ~RecordStore();
 

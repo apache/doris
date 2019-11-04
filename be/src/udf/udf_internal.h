@@ -233,7 +233,7 @@ public:
     
     size_t size();
 
-    uint8_t *get(int idx);
+    doris_udf::Record *get(int idx);
 
     ~RecordStoreImpl();
 

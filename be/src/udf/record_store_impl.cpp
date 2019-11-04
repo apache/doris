@@ -33,9 +33,9 @@ doris_udf::RecordStore* RecordStoreImpl::create_record_store(FreePool* free_pool
 }
 
 doris_udf::Record *RecordStoreImpl::allocate_record() {
-    uint8_t *bytes = _free_pool->allocate(_descriptor->byte_size());
-    doris_udf::Record *record = new doris_udf::Record(bytes, _descriptor);
-    return record;
+    uint8_t *bytes = _free_pool->allocate(sizeof(TupleDescriptor*) + _descriptor->byte_size());
+    memcpy(bytes, (uint8_t*)_descriptor, sizeof(TupleDescriptor*));
+    return (doris_udf::Record*) bytes;
 }
 
 void *RecordStoreImpl::allocate(size_t byte_size) {
@@ -52,8 +52,8 @@ void RecordStoreImpl::free_record(doris_udf::Record *record) {
     _free_pool->free((uint8_t *) record);
 }
 
-uint8_t *RecordStoreImpl::get(int idx) {
-    return _record_vec[idx]->_data;
+doris_udf::Record *RecordStoreImpl::get(int idx) {
+    return _record_vec[idx];
 }
 
 size_t RecordStoreImpl::size() {

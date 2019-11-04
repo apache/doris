@@ -397,30 +397,24 @@ bool FunctionContext::add_warning(const char* warning_msg) {
 
 //Record
 void Record::set_null(int idx) {
-    doris::NullIndicatorOffset offset = _descriptor->slots()[idx]->null_indicator_offset();
-    char *null_indicator_byte = reinterpret_cast<char *>(_data) + offset.byte_offset;
+    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
+    doris::NullIndicatorOffset offset = descriptr->slots()[idx]->null_indicator_offset();
+    char *null_indicator_byte = reinterpret_cast<char *>(this + sizeof(doris::TupleDescriptor*)) + offset.byte_offset;
     *null_indicator_byte |= offset.bit_mask;
 }
 
 void Record::set_int(int idx, int val) {
-    uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
+    uint8_t *dst = (uint8_t *) (this + sizeof(doris::TupleDescriptor*)) + descriptr->slots()[idx]->tuple_offset();
     memcpy(dst, reinterpret_cast<uint8_t *>(&val), sizeof(int));
 }
 
 void Record::set_string(int idx, const uint8_t *ptr, size_t len) {
-    uint8_t *dst = (uint8_t *) _data + _descriptor->slots()[idx]->tuple_offset();
+    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
+    uint8_t *dst = (uint8_t *) (this + sizeof(doris::TupleDescriptor*)) + descriptr->slots()[idx]->tuple_offset();
     memcpy(dst, &ptr, sizeof(char*));
     memcpy(dst + sizeof(char*), reinterpret_cast<uint8_t *>(&len), sizeof(size_t));
 }
-
-Record::Record(uint8_t *data, doris::TupleDescriptor *descriptor) {
-    _descriptor = descriptor;
-    _data = data;
-    // set null bytes to 0x00
-    memset(_data, 0, _descriptor->num_null_bytes());
-}
-
-void *Record::get_data() { return _data; }
 
 //RecordStore
 RecordStore::RecordStore() : _impl(new doris::RecordStoreImpl()) {}
@@ -445,7 +439,7 @@ size_t RecordStore::size() {
     return _impl->size();
 }
 
-uint8_t* RecordStore::get(int idx) {
+Record* RecordStore::get(int idx) {
     return _impl->get(idx);
 }
 
