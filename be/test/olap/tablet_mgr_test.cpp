@@ -125,7 +125,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr.get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = check_dir_existed(tablet->tablet_path());
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
     ASSERT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -187,7 +187,7 @@ TEST_F(TabletMgrTest, DropTablet) {
 
     // check dir exist
     std::string tablet_path = tablet->tablet_path();
-    bool dir_exist = check_dir_existed(tablet_path);
+    bool dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 
     // do trash sweep, tablet will not be garbage collected
@@ -196,7 +196,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
     tablet = _tablet_mgr.get_tablet(111, 3333, true);
     ASSERT_TRUE(tablet != nullptr);
-    dir_exist = check_dir_existed(tablet_path);
+    dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 
     // reset tablet ptr
@@ -205,7 +205,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
     tablet = _tablet_mgr.get_tablet(111, 3333, true);
     ASSERT_TRUE(tablet == nullptr);
-    dir_exist = check_dir_existed(tablet_path);
+    dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(!dir_exist);
 }
 

@@ -98,6 +98,7 @@ public:
     // calc md5sum of a local file
     static Status md5sum(const std::string& file, std::string* md5sum);
 
+    // check path(file or directory) exist with default env
     static bool check_exist(const std::string& path);
     
     // check path(file or directory) exist with env

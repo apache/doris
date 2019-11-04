@@ -998,7 +998,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     string new_file_dir = new_file_dir_stream.str();
     string new_file_path = new_file_dir + "/" + old_file_name;
     // create target dir, or the rename() function will fail.
-    if (!check_dir_existed(new_file_dir) && !FileUtils::create_dir(new_file_dir).ok()) {
+    if (!FileUtils::check_exist(new_file_dir) && !FileUtils::create_dir(new_file_dir).ok()) {
         OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
                 old_file_path.c_str(), new_file_dir.c_str());
         return OLAP_ERR_OS_ERROR;
@@ -1218,24 +1218,6 @@ COPY_EXIT:
     VLOG(3) << "copy file success. [src=" << src << " dest=" << dest << "]";
     
     return res;
-}
-
-bool check_dir_existed(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::exists(p)) {
-            return true;
-        } else {
-            return false;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "boost exception when check exist and return false. [path=" << path << "]";
-    
-    return false;
 }
 
 OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
