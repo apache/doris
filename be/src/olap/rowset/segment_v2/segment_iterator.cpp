@@ -84,15 +84,8 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
                 *key_range.upper_key, !key_range.include_upper, num_rows(), &upper_rowid));
         }
         if (upper_rowid > 0 && key_range.lower_key != nullptr) {
-            bool is_include = key_range.include_lower;
-            // for range [lower_key, upper_key], it is rewritten as (lower_key, upper_key]
-            // And when lower_key = upper_key, is_include should be set true
-            if (index_compare_row(*key_range.lower_key, *key_range.upper_key) == 0
-                    && key_range.include_upper) {
-                is_include = true;
-            }
             RETURN_IF_ERROR(
-                _lookup_ordinal(*key_range.lower_key, is_include, upper_rowid, &lower_rowid));
+                _lookup_ordinal(*key_range.lower_key, key_range.include_lower, upper_rowid, &lower_rowid));
         }
         auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
         RowRanges::ranges_union(result_ranges, row_range, &result_ranges);

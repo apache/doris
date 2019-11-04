@@ -495,7 +495,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
                 eof = true;
                 break;
             }
-            is_lower_key_included = true;
+            is_lower_key_included = false;
         } else if (_keys_param.range.compare("ge") == 0) {
             if (end_key != nullptr && compare_row_key(*start_key, *end_key) > 0) {
                 VLOG(3) << "return EOF when range=" << _keys_param.range
@@ -504,9 +504,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
                 eof = true;
                 break;
             }
-            is_lower_key_included = false;
+            is_lower_key_included = true;
         } else if (_keys_param.range.compare("eq") == 0) {
-            is_lower_key_included = false;
+            is_lower_key_included = true;
             is_upper_key_included = true;
         } else {
             LOG(WARNING) << "reader params range is error. "
