@@ -46,13 +46,13 @@ protected:
     OlapReaderStatistics _stats;
 
     void SetUp() override {
-        if (check_dir_existed(kRowsetDir)) {
+        if (FileUtils::check_exist(kRowsetDir)) {
             ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
         ASSERT_TRUE(FileUtils::create_dir(kRowsetDir).ok());
     }
     void TearDown() override {
-        if (check_dir_existed(kRowsetDir)) {
+        if (FileUtils::check_exist(kRowsetDir)) {
             ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
     }

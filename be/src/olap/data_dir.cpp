@@ -93,7 +93,7 @@ Status DataDir::init() {
         LOG(WARNING) << "fail to allocate memory. size=" <<  TEST_FILE_BUF_SIZE;
         return Status::InternalError("No memory");
     }
-    if (!check_dir_existed(_path)) {
+    if (!FileUtils::check_exist(_path)) {
         LOG(WARNING) << "opendir failed, path=" << _path;
         return Status::InternalError("opendir failed");
     }
@@ -203,7 +203,7 @@ Status DataDir::_init_extension_and_capacity() {
     }
 
     std::string data_path = _path + DATA_PREFIX;
-    if (!check_dir_existed(data_path) && !FileUtils::create_dir(data_path).ok()) {
+    if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
         LOG(WARNING) << "failed to create data root path. path=" << data_path;
         return Status::InternalError("invalid store path: failed to create data directory");
     }
@@ -396,7 +396,7 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    if (!check_dir_existed(shard_path)) {
+    if (!FileUtils::check_exist(shard_path)) {
         if (!FileUtils::create_dir(shard_path).ok()) {
             LOG(WARNING) << "fail to create path. [path='" << shard_path << "']";
             return res;
@@ -635,7 +635,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         // remove incremental dir and pending dir
         std::string pending_delta_path = data_path_prefix + PENDING_DELTA_PREFIX;
-        if (check_dir_existed(pending_delta_path)) {
+        if (FileUtils::check_exist(pending_delta_path)) {
             LOG(INFO) << "remove pending delta path:" << pending_delta_path;
             if(!FileUtils::remove_all(pending_delta_path).ok()) {
                 LOG(INFO) << "errors while remove pending delta path. tablet_path=" << data_path_prefix;
@@ -644,7 +644,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
         }
 
         std::string incremental_delta_path = data_path_prefix + INCREMENTAL_DELTA_PREFIX;
-        if (check_dir_existed(incremental_delta_path)) {
+        if (FileUtils::check_exist(incremental_delta_path)) {
             LOG(INFO) << "remove incremental delta path:" << incremental_delta_path;
             if(!FileUtils::remove_all(incremental_delta_path).ok()) {
                 LOG(INFO) << "errors while remove incremental delta path. tablet_path=" << data_path_prefix;
@@ -972,7 +972,7 @@ void DataDir::perform_path_scan() {
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (check_dir_existed(path)) {
+    if (FileUtils::check_exist(path)) {
         LOG(INFO) << "collect garbage dir path: " << path;
         if (!FileUtils::remove_all(path).ok()) {
             LOG(WARNING) << "remove garbage dir path: " << path << " failed";

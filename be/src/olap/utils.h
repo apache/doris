@@ -386,8 +386,6 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
 
 OLAPStatus copy_file(const std::string& src, const std::string& dest);
 
-bool check_dir_existed(const std::string& path);
-
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
 
 OLAPStatus remove_files(const std::vector<std::string>& files);

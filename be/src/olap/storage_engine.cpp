@@ -690,7 +690,7 @@ void StorageEngine::_clean_unused_txns() {
 OLAPStatus StorageEngine::_do_sweep(
         const string& scan_root, const time_t& local_now, const int32_t expire) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (!check_dir_existed(scan_root)) {
+    if (!FileUtils::check_exist(scan_root)) {
         // dir not existed. no need to sweep trash.
         return res;
     }

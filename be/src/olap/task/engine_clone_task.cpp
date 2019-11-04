@@ -559,7 +559,7 @@ AgentStatus EngineCloneTask::_clone_copy(
 OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id) {
     OLAPStatus res = OLAP_SUCCESS;
     // check clone dir existed
-    if (!check_dir_existed(clone_dir)) {
+    if (!FileUtils::check_exist(clone_dir)) {
         res = OLAP_ERR_DIR_NOT_EXIST;
         LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir.c_str();
         return res;
@@ -633,7 +633,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
     tablet->obtain_header_wrlock();
     do {
         // check clone dir existed
-        if (!check_dir_existed(clone_dir)) {
+        if (!FileUtils::check_exist(clone_dir)) {
             res = OLAP_ERR_DIR_NOT_EXIST;
             LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir.c_str();
             break;

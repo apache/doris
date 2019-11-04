@@ -125,7 +125,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
     const int32_t& schema_hash, TabletSharedPtr tablet) {
     OLAPStatus res = OLAP_SUCCESS;   
     // check clone dir existed
-    if (!check_dir_existed(clone_dir)) {
+    if (!FileUtils::check_exist(clone_dir)) {
         res = OLAP_ERR_DIR_NOT_EXIST;
         LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" 
                      << clone_dir;
@@ -331,7 +331,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string schema_full_path = get_schema_hash_full_path(
             ref_tablet, snapshot_id_path);
     string header_path = _get_header_full_path(ref_tablet, schema_full_path);
-    if (check_dir_existed(schema_full_path)) {
+    if (FileUtils::check_exist(schema_full_path)) {
         VLOG(10) << "remove the old schema_full_path.";
         FileUtils::remove_all(schema_full_path);
     }
@@ -511,7 +511,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="
                      << snapshot_id_path.c_str();
 
-        if (check_dir_existed(snapshot_id_path)) {
+        if (FileUtils::check_exist(snapshot_id_path)) {
             VLOG(3) << "remove snapshot path. [path=" << snapshot_id_path << "]";
             FileUtils::remove_all(snapshot_id_path);
         }

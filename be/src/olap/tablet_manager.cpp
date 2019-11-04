@@ -433,7 +433,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
         std::string tablet_dir = tablet_path.string();
         // because the tablet is removed async, so that the dir may still exist
         // when be receive create tablet again. For example redo schema change
-        if (check_dir_existed(schema_hash_dir)) {
+        if (FileUtils::check_exist(schema_hash_dir)) {
             LOG(WARNING) << "skip this dir because tablet path exist, path="<< schema_hash_dir;
             continue;
         } else {
@@ -1019,7 +1019,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                     it = _shutdown_tablets.erase(it);
                     continue;
                 }
-                if (check_dir_existed((*it)->tablet_path())) {
+                if (FileUtils::check_exist((*it)->tablet_path())) {
                     // take snapshot of tablet meta
                     std::string meta_file = (*it)->tablet_path() + "/" + std::to_string((*it)->tablet_id()) + ".hdr";
                     (*it)->tablet_meta()->save(meta_file);
@@ -1042,7 +1042,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 ++ clean_num;
             } else {
                 // if could not find tablet info in meta store, then check if dir existed
-                if (check_dir_existed((*it)->tablet_path())) {
+                if (FileUtils::check_exist((*it)->tablet_path())) {
                     LOG(WARNING) << "errors while load meta from store, skip this tablet" 
                                 << " tablet id " << (*it)->tablet_id()
                                 << " schema hash " << (*it)->schema_hash();

@@ -138,7 +138,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(tablet, root_path_stream.str());
         // if dir already exist then return err, it should not happen
         // should not remove the dir directly
-        if (check_dir_existed(schema_hash_path)) {
+        if (FileUtils::check_exist(schema_hash_path)) {
             LOG(INFO) << "schema hash path already exist, skip this path. "
                       << "schema_hash_path=" << schema_hash_path;
             res = OLAP_ERR_FILE_ALREADY_EXIST;
