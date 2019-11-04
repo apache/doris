@@ -55,9 +55,12 @@
                                 BITMAP 列只能通过配套的 BITMAP_UNION、BITMAP_COUNT、TO_BITMAP 进行查询或使用
                                 
         agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
-                            SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
-                            BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)
-                            该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
+                            
+                            * SUM、MAX、MIN、REPLACE
+                            * HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
+                            * BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)、
+                            * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时才会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用户在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化为NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。
+                            *该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
 
         是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
 

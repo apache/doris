@@ -1179,7 +1179,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *
      * @param targetType type to be cast to
      * @return cast expression, or converted literal,
-     * should never return null
+     * should never return nulwrapExprl
      * @throws AnalysisException when an invalid cast is asked for, for example,
      *                           failure to convert a string literal to a date literal
      */

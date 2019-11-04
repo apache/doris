@@ -182,7 +182,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : baseSchema) {
                     if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
-                    } else if (AggregateType.REPLACE == column.getAggregationType()) {
+                    } else if (AggregateType.REPLACE == column.getAggregationType() ||
+                            AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }
@@ -199,7 +200,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : targetIndexSchema) {
                     if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
                         isKey = true;
-                    } else if (AggregateType.REPLACE == column.getAggregationType()) {
+                    } else if (AggregateType.REPLACE == column.getAggregationType() ||
+                            AggregateType.REPLACE_IF_NOT_NULL == column.getAggregationType()) {
                         hasReplaceColumn = true;
                     }
                 }

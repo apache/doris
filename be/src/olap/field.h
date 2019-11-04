@@ -477,6 +477,7 @@ public:
             case OLAP_FIELD_AGGREGATION_MIN:
             case OLAP_FIELD_AGGREGATION_MAX:
             case OLAP_FIELD_AGGREGATION_REPLACE:
+            case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
                 switch (column.type()) {
                     case OLAP_FIELD_TYPE_CHAR:
                         return new CharField(column);

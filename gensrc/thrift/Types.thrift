@@ -131,7 +131,8 @@ enum TAggregationType {
     REPLACE,
     HLL_UNION,
     NONE,
-    BITMAP_UNION
+    BITMAP_UNION,
+    REPLACE_IF_NOT_NULL
 }
 
 enum TPushType {

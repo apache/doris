@@ -147,7 +147,8 @@ public class RollupHandler extends AlterHandler {
                     hasKey = true;
                 } else {
                     meetValue = true;
-                    if (oneColumn.getAggregationType() == AggregateType.REPLACE) {
+                    if (oneColumn.getAggregationType() == AggregateType.REPLACE ||
+                            oneColumn.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                         meetReplaceValue = true;
                     }
                 }
