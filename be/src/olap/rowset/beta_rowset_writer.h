@@ -57,8 +57,6 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
-    DataDir* data_dir() override { return _context.data_dir; }
-
 private:
     template<typename RowType>
     OLAPStatus _add_row(const RowType& row);

@@ -36,7 +36,6 @@ struct RowsetWriterContext {
         rowset_path_prefix(""),
         tablet_schema(nullptr),
         rowset_state(PREPARED),
-        data_dir(nullptr),
         version(Version(0, 0)),
         version_hash(0),
         txn_id(0),
@@ -54,7 +53,6 @@ struct RowsetWriterContext {
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
-    DataDir* data_dir;
     // properties for non-pending rowset
     Version version;
     VersionHash version_hash;

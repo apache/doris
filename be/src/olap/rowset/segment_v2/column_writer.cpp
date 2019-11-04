@@ -186,7 +186,7 @@ uint64_t ColumnWriter::estimate_buffer_size() {
     uint64_t size = 0;
     Page* page = _pages.head;
     while (page != nullptr) {
-        size += page->data.get_size();
+        size += page->data.slice().size;
         if (_is_nullable) {
             size += page->null_bitmap.get_size();
         }
@@ -215,10 +215,10 @@ Status ColumnWriter::write_data() {
     }
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
-        Slice dict_page;
+        OwnedSlice dict_page;
         _page_builder->get_dictionary_page(&dict_page);
         std::vector<Slice> origin_data;
-        origin_data.push_back(dict_page);
+        origin_data.push_back(dict_page.slice());
         RETURN_IF_ERROR(_write_physical_page(&origin_data, &_dict_page_pp));
     }
     return Status::OK();
@@ -232,8 +232,8 @@ Status ColumnWriter::write_ordinal_index() {
 
 Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
-        Slice data = _column_zone_map_builder->finish();
-        std::vector<Slice> slices{data};
+        OwnedSlice data(_column_zone_map_builder->finish());
+        std::vector<Slice> slices{data.slice()};
         return _write_physical_page(&slices, &_zone_map_pp);
     }
     return Status::OK();
@@ -270,7 +270,7 @@ Status ColumnWriter::_write_data_page(Page* page) {
     if (_is_nullable) {
         origin_data.push_back(page->null_bitmap);
     }
-    origin_data.push_back(page->data);
+    origin_data.push_back(page->data.slice());
     // TODO(zc): upadte page's statistics
 
     PagePointer pp;
@@ -329,7 +329,6 @@ Status ColumnWriter::_finish_current_page() {
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
     page->data = _page_builder->finish();
-    _page_builder->release();
     _page_builder->reset();
     if (_is_nullable) {
         page->null_bitmap = _null_bitmap_builder->finish();

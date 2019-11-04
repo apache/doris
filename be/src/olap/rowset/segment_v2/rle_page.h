@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "util/rle_encoding.h" // for RleEncoder/RleDecoder
 #include "util/coding.h" // for encode_fixed32_le/decode_fixed32_le
+#include "util/owned_slice.h" // for owned_slice
 
 namespace doris {
 namespace segment_v2 {
@@ -97,13 +98,17 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     reset() should be called after this function before reuse the builder
+    OwnedSlice finish() override {
         _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
         encode_fixed32_le(&_buf[0], _count);
-        return Slice(_buf.data(), _buf.size());
+        size_t buf_size = _buf.size();
+        return OwnedSlice(_buf.release(), buf_size);
     }
 
     void reset() override {
@@ -118,15 +123,6 @@ public:
 
     uint64_t size() const override {
         return _rle_encoder->len();
-    }
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buf.release();
-        (void)ret;
     }
 
 private:

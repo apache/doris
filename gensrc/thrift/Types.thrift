@@ -73,7 +73,8 @@ enum TPrimitiveType {
   VARCHAR,
   HLL,
   DECIMALV2,
-  TIME
+  TIME,
+  OBJECT
 }
 
 enum TTypeNodeType {

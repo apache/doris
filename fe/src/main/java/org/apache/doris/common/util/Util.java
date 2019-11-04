@@ -67,6 +67,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
+        TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
     }
     
     private static class CmdWorker extends Thread {
@@ -353,7 +354,7 @@ public class Util {
                 sb.append(line);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
+            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
             return null;
         } finally {
             if (stream != null) {
@@ -405,6 +406,10 @@ public class Util {
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
+    }
+
+    public static void stdoutWithTime(String msg) {
+        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
     }
 }
 

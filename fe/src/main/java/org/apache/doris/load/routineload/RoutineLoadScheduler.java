@@ -26,6 +26,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -86,18 +87,6 @@ public class RoutineLoadScheduler extends Daemon {
                                      .build());
                     continue;
                 }
-                int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();
-                int desiredTotalTaskNum = desiredConcurrentTaskNum + currentTotalTaskNum;
-                if (desiredTotalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
-                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("desired_concurrent_task_num", desiredConcurrentTaskNum)
-                                     .add("current_total_task_num", currentTotalTaskNum)
-                                     .add("desired_total_task_num", desiredTotalTaskNum)
-                                     .add("total_max_task_num", routineLoadManager.getTotalMaxConcurrentTaskNum())
-                                     .add("msg", "skip this turn of job scheduler while there are not enough slot in backends")
-                                     .build());
-                    break;
-                }
                 // check state and divide job into tasks
                 routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
@@ -126,16 +115,14 @@ public class RoutineLoadScheduler extends Daemon {
             }
         }
 
-        LOG.debug("begin to check timeout tasks");
         // check timeout tasks
         routineLoadManager.processTimeoutTasks();
 
-        LOG.debug("begin to clean old jobs ");
         routineLoadManager.cleanOldRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
-        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
+        return routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
     }
 
 

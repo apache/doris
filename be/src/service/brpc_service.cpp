@@ -27,7 +27,6 @@
 namespace brpc {
 
 DECLARE_uint64(max_body_size);
-BRPC_VALIDATE_GFLAG(max_body_size, PassValidate);
 
 }
 

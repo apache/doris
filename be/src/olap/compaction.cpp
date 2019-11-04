@@ -38,9 +38,11 @@ OLAPStatus Compaction::do_compaction() {
     OlapStopWatch watch;
 
     // 1. prepare input and output parameters
+    int64_t segments_num = 0;
     for (auto& rowset : _input_rowsets) {
         _input_rowsets_size += rowset->data_disk_size();
         _input_row_num += rowset->num_rows();
+        segments_num += rowset->num_segments();
     }
     _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
@@ -78,6 +80,7 @@ OLAPStatus Compaction::do_compaction() {
               << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version.first
               << "-" << _output_version.second
+              << ", segments=" << segments_num
               << ". elapsed time=" << watch.get_elapse_second() << "s.";
 
     return OLAP_SUCCESS;
@@ -94,7 +97,6 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.rowset_path_prefix = _tablet->tablet_path();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
-    context.data_dir = _tablet->data_dir();
     context.version = _output_version;
     context.version_hash = _output_version_hash;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));

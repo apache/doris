@@ -34,7 +34,6 @@ public:
     // return others if failed to create or init rowset.
     static OLAPStatus create_rowset(const TabletSchema* schema,
                                   const std::string& rowset_path,
-                                  DataDir* data_dir,
                                   RowsetMetaSharedPtr rowset_meta,
                                   RowsetSharedPtr* rowset);
 

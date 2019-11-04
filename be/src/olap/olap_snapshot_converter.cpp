@@ -397,8 +397,8 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 }
 
 // from olap header to tablet meta
-OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-    const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, 
+OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix,
+    const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb,
     vector<RowsetMetaPB>* pending_rowsets, bool is_startup) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
@@ -410,7 +410,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
         alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
@@ -422,7 +422,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
         alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         std::string inc_data_path = old_data_path_prefix;
@@ -439,7 +439,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(*it);
         alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         // std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
@@ -468,7 +468,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
     for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         RETURN_NOT_OK(rowset.load());
         std::vector<std::string> success_files;
@@ -479,7 +479,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
     for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         RETURN_NOT_OK(rowset.load());
         std::vector<std::string> success_files;

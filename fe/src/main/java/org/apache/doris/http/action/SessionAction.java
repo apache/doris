@@ -22,6 +22,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.collect.Lists;
 
@@ -65,8 +66,7 @@ public class SessionAction extends WebBaseAction {
     private void appendSessionInfo(StringBuilder buffer) {
         buffer.append("<h2>Session Info</h2>");
         
-        List<ConnectContext.ThreadInfo> threadInfos = 
-                qeService.getMysqlServer().getScheduler().listConnection("root");
+        List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler().listConnection("root");
         List<List<String>> rowSet = Lists.newArrayList();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {

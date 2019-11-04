@@ -1194,7 +1194,6 @@ OLAPStatus TabletManager::_create_inital_rowset(
             context.rowset_path_prefix = tablet->tablet_path();
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;
-            context.data_dir = tablet->data_dir();
             context.version = version;
             context.version_hash = request.version_hash;
 

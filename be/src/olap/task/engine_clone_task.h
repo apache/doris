@@ -64,7 +64,7 @@ private:
         bool* allow_incremental_clone, 
         TabletSharedPtr tablet);
         
-    OLAPStatus _convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id);
+    OLAPStatus _convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id);
 
     void _set_tablet_info(AgentStatus status, bool is_new_tablet);
 
