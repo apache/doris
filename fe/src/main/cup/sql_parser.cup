@@ -4142,6 +4142,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_REPEATABLE:id
     {: RESULT = id; :}
+    | KW_REPLACE_IF_NOT_NULL:id
+    {: RESULT = id; :}
     | KW_REPOSITORY:id
     {: RESULT = id; :}
     | KW_REPOSITORIES:id
