@@ -176,7 +176,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.equals(type)) {
+        if (childType.matchesType(type)) {
             noOp = true;
             return;
         }
