@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <fstream>
 #include <set>
+#include <vector>
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "agent/status.h"
@@ -88,10 +89,81 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     ASSERT_EQ(src_length, dst_length);
 }
 
+TEST_F(FileUtilsTest, TestRemove) {
+    // remove_all
+    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
+    
+    boost::filesystem::save_string_file("./file_test/s1", "123");
+    boost::filesystem::save_string_file("./file_test/123/s2", "123");
+    
+    ASSERT_TRUE(FileUtils::check_exist("./file_test"));
+    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    
+    // remove 
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
+   boost::filesystem::save_string_file("./file_test/abc/123/s2", "123");
+
+    ASSERT_FALSE(FileUtils::remove("./file_test").ok());
+    ASSERT_FALSE(FileUtils::remove("./file_test/abc/").ok());
+    ASSERT_FALSE(FileUtils::remove("./file_test/abc/123").ok());
+    
+    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123/s2"));
+    ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/s2").ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123/s2"));
+
+    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123"));
+    ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/").ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123"));
+    
+    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    
+    // remove paths
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
+    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
+    boost::filesystem::save_string_file("./file_test/s1", "123");
+    boost::filesystem::save_string_file("./file_test/s2", "123");
+    
+    std::vector<std::string> ps;
+    ps.push_back("./file_test/123/456/789");
+    ps.push_back("./file_test/123/456");
+    ps.push_back("./file_test/123");
+
+    ASSERT_TRUE(FileUtils::check_exist("./file_test/123"));
+    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/123"));
+    
+    ps.clear();
+    ps.push_back("./file_test/s1");
+    ps.push_back("./file_test/abc/def");
+    
+    ASSERT_FALSE(FileUtils::remove_paths(ps).ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/s1"));
+    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/def/"));
+    
+    ps.clear();
+    ps.push_back("./file_test/abc/def/zxc");
+    ps.push_back("./file_test/s2");
+    ps.push_back("./file_test/abc/def");
+    ps.push_back("./file_test/abc");
+
+    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/s2"));
+    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc"));
+    
+    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
+}
+
 TEST_F(FileUtilsTest, TestCreateDir) {
     // normal
     std::string path = "./file_test/123/456/789";
-    boost::filesystem::remove_all("./file_test");
+    FileUtils::remove_all("./file_test");
     ASSERT_FALSE(FileUtils::check_exist(path));
 
     ASSERT_TRUE(FileUtils::create_dir(path).ok());
@@ -102,11 +174,11 @@ TEST_F(FileUtilsTest, TestCreateDir) {
     ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456"));
     ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
     
-    boost::filesystem::remove_all(path);
+    FileUtils::remove_all("./file_test");
 
     // normal
     path = "./file_test/123/456/789/";
-    boost::filesystem::remove_all("./file_test");
+    FileUtils::remove_all("./file_test");
     ASSERT_FALSE(FileUtils::check_exist(path));
 
     ASSERT_TRUE(FileUtils::create_dir(path).ok());
@@ -117,12 +189,12 @@ TEST_F(FileUtilsTest, TestCreateDir) {
     ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456"));
     ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
 
-    boost::filesystem::remove_all("./file_test");
+    FileUtils::remove_all("./file_test");
 }
 
 TEST_F(FileUtilsTest, TestListDirsFiles) {
     std::string path = "./file_test/";
-    boost::filesystem::remove_all(path);
+    FileUtils::remove_all(path);
     FileUtils::create_dir("./file_test/1");
     FileUtils::create_dir("./file_test/2");
     FileUtils::create_dir("./file_test/3");
@@ -161,7 +233,7 @@ TEST_F(FileUtilsTest, TestListDirsFiles) {
     ASSERT_EQ(0, dirs.size());
     ASSERT_EQ(3, files.size());
     
-    boost::filesystem::remove_all(path);
+    FileUtils::remove_all(path);
 }
 }  // namespace doris
 

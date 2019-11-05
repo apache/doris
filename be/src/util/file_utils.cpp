@@ -110,6 +110,35 @@ Status FileUtils::remove_all(const std::string& file_path) {
     return Status::OK();
 }
 
+Status FileUtils::remove(const std::string& path, doris::Env *env) {
+    bool is_dir;
+    Status ret = env->is_directory(path, &is_dir);
+    if (ret.ok()) {
+        if (is_dir) {
+            return env->delete_dir(path);
+        } else {
+            return env->delete_file(path);
+        }
+    } else {
+        return ret;
+    }
+}
+
+Status FileUtils::remove(const std::string& path) {
+    return remove(path, Env::Default());
+}
+
+Status FileUtils::remove_paths(const std::vector<string>& paths) {
+    for (string p : paths) {
+        Status ret = remove(p);
+        
+        if (!ret.ok()) {
+            return ret;
+        }
+    }
+    return Status::OK();
+}
+
 Status FileUtils::list_files(Env* env, const std::string& dir,
                              std::vector<std::string>* files) {
     auto cb = [files](const char* name) -> bool {

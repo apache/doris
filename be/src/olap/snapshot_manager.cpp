@@ -469,8 +469,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 files_to_delete.push_back(full_file_path);
             }
             // remove all files
-            res = remove_files(files_to_delete);
-            if (res != OLAP_SUCCESS) {
+            if (!FileUtils::remove_paths(files_to_delete).ok()) {
                 break;
             }
             // save new header to snapshot header path
