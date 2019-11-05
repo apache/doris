@@ -100,14 +100,14 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
 }
 
 OwnedSlice BinaryDictPageBuilder::finish() {
+    DCHECK(!_finished);
     _finished = true;
 
-    OwnedSlice data_slice(_data_page_builder->finish());
+    OwnedSlice data_slice = _data_page_builder->finish();
+    // TODO(gaodayue) separate page header and content to avoid this copy
     _buffer.append(data_slice.slice().data, data_slice.slice().size);
     encode_fixed32_le(&_buffer[0], _encoding_type);
-
-    size_t buf_size = _buffer.size();
-    return OwnedSlice(_buffer.release(), buf_size);
+    return _buffer.build();
 }
 
 void BinaryDictPageBuilder::reset() {

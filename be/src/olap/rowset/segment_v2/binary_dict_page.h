@@ -58,9 +58,6 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override;
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
     OwnedSlice finish() override;
 
     void reset() override;
