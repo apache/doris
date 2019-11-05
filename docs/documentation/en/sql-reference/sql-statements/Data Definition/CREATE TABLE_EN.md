@@ -57,7 +57,11 @@
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
                             
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column is value column.
-        SUM、MAX、MIN、REPLACE、HLL_UNION(Only for HLL type), BITMAP_UNION(Type should be VARCHAR(0))
+
+        * SUM、MAX、MIN、REPLACE
+        * HLL_UNION: Only for HLL type
+        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns.
+        * BITMAP_UNION: Only for BITMAP type
 
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
 

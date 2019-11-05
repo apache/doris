@@ -156,6 +156,15 @@ public class ColumnDef {
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
         }
 
+        // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
+        // If defalut value is not set, we set it NULL
+        if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
+            isAllowNull = true;
+            if (!defaultValue.isSet) {
+                defaultValue = DefaultValue.NULL_DEFAULT_VALUE;
+            }
+        }
+
         if (!isAllowNull && defaultValue == DefaultValue.NULL_DEFAULT_VALUE) {
             throw new AnalysisException("Can not set null default value to non nullable column: " + name);
         }
@@ -224,6 +233,9 @@ public class ColumnDef {
 
         if (!isAllowNull) {
             sb.append("NOT NULL ");
+        } else {
+            // should append NULL to make result can be executed right.
+            sb.append("NULL ");
         }
 
         if (defaultValue.isSet) {

@@ -93,6 +93,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = OLAP_FIELD_AGGREGATION_MAX;
     } else if (0 == upper_str.compare("REPLACE")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_REPLACE;
+    } else if (0 == upper_str.compare("REPLACE_IF_NOT_NULL")) {
+        aggregation_type = OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL;
     } else if (0 == upper_str.compare("HLL_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
     } else if (0 == upper_str.compare("BITMAP_UNION")) {
@@ -193,6 +195,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
 
         case OLAP_FIELD_AGGREGATION_REPLACE:
             return "REPLACE";
+
+        case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+            return "REPLACE_IF_NOT_NULL";
 
         case OLAP_FIELD_AGGREGATION_HLL_UNION:
             return "HLL_UNION";

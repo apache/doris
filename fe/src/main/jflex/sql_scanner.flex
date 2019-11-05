@@ -253,6 +253,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("repair", new Integer(SqlParserSymbols.KW_REPAIR));
         keywordMap.put("repeatable", new Integer(SqlParserSymbols.KW_REPEATABLE));
         keywordMap.put("replace", new Integer(SqlParserSymbols.KW_REPLACE));
+        keywordMap.put("replace_if_not_null", new Integer(SqlParserSymbols.KW_REPLACE_IF_NOT_NULL));
         keywordMap.put("replica", new Integer(SqlParserSymbols.KW_REPLICA));
         keywordMap.put("repository", new Integer(SqlParserSymbols.KW_REPOSITORY));
         keywordMap.put("repositories", new Integer(SqlParserSymbols.KW_REPOSITORIES));
