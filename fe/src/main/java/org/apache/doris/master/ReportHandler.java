@@ -882,7 +882,6 @@ public class ReportHandler extends Daemon {
     
 
     private static void handleSetTabletMetaInfo(long backendId, SetMultimap<Long, Integer> tabletWithoutPartitionId) {
-        
         LOG.info("find [{}] tablets without partition id, try to set them", tabletWithoutPartitionId.size());
         if (tabletWithoutPartitionId.size() < 1) {
             return;
