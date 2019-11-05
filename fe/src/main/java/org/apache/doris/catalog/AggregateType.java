@@ -30,6 +30,7 @@ public enum AggregateType {
     MIN("MIN"),
     MAX("MAX"),
     REPLACE("REPLACE"),
+    REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION");
@@ -85,6 +86,9 @@ public enum AggregateType {
 
         primitiveTypeList.clear();
         compatibilityMap.put(REPLACE, EnumSet.allOf(PrimitiveType.class));
+
+        primitiveTypeList.clear();
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.allOf(PrimitiveType.class));
        
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
@@ -129,6 +133,8 @@ public enum AggregateType {
                 return TAggregationType.MIN;
             case REPLACE:
                 return TAggregationType.REPLACE;
+            case REPLACE_IF_NOT_NULL:
+                return TAggregationType.REPLACE_IF_NOT_NULL;
             case NONE:
                 return TAggregationType.NONE;
             case HLL_UNION:
