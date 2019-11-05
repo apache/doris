@@ -196,7 +196,7 @@ OLAPStatus EngineCloneTask::execute() {
             }
             // clone success, delete .hdr file because tablet meta is stored in rocksdb
             string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
-            remove_dir(cloned_meta_file);
+            FileUtils::remove(cloned_meta_file);
         }
         // Clean useless dir, if failed, ignore it.
         if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
@@ -608,7 +608,9 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
         files_to_delete.push_back(full_file_path);
     }
     // remove all files
-    RETURN_NOT_OK(remove_files(files_to_delete));
+    if (!FileUtils::remove_paths(files_to_delete).ok()) {
+        return OLAP_ERR_IO_ERROR;
+    }
 
     res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
@@ -648,7 +650,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
             break;
         }
         // remove the cloned meta file
-        remove_dir(cloned_tablet_meta_file);
+        FileUtils::remove(cloned_tablet_meta_file);
 
         // TODO(ygl): convert old format file into rowset
         // check all files in /clone and /tablet
@@ -708,7 +710,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
 
     // clear linked files if errors happen
     if (res != OLAP_SUCCESS) {
-        remove_files(linked_success_files);
+        FileUtils::remove_paths(linked_success_files);
     }
     tablet->release_header_lock();
     tablet->release_push_lock();

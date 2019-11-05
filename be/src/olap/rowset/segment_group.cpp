@@ -765,7 +765,9 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
         // if file exist should remove it because same file name does not mean same data
         if (FileUtils::check_exist(new_data_file_name)) {
             LOG(INFO) << "file already exist, remove it. file=" << new_data_file_name;
-            RETURN_NOT_OK(remove_dir(new_data_file_name));
+            if(!FileUtils::remove(new_data_file_name).ok()) {
+                return OLAP_ERR_CANNOT_CREATE_DIR;
+            }
         }
         std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);
         if (link(old_data_file_name.c_str(), new_data_file_name.c_str()) != 0) {
@@ -780,7 +782,9 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
         std::string new_index_file_name = construct_index_file_path(_rowset_path_prefix, segment_id);
         if (FileUtils::check_exist(new_index_file_name)) {
             LOG(INFO) << "file already exist, remove it. file=" << new_index_file_name;
-            RETURN_NOT_OK(remove_dir(new_index_file_name));
+            if(!FileUtils::remove(new_index_file_name).ok()) {
+                return OLAP_ERR_CANNOT_CREATE_DIR;
+            }
         }
         std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
         if (link(old_index_file_name.c_str(), new_index_file_name.c_str()) != 0) {
@@ -835,24 +839,32 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string old_data_file_name = construct_old_data_file_path(_rowset_path_prefix, segment_id);
         if (FileUtils::check_exist(old_data_file_name)) {
-            RETURN_NOT_OK(remove_dir(old_data_file_name));
+            if(!FileUtils::remove(old_data_file_name).ok()) {
+                return OLAP_ERR_CANNOT_CREATE_DIR;
+            }
             links_to_remove->push_back(old_data_file_name);
         }
         std::string old_index_file_name = construct_old_index_file_path(_rowset_path_prefix, segment_id);
         if (FileUtils::check_exist(old_index_file_name)) {
-            RETURN_NOT_OK(remove_dir(old_index_file_name));
+            if(!FileUtils::remove(old_index_file_name).ok()) {
+                return OLAP_ERR_CANNOT_CREATE_DIR;
+            }
             links_to_remove->push_back(old_index_file_name);
         }
         // if segment group id == 0, it maybe convert from old files which do not have segment group id in file path
         if (_segment_group_id == 0) {
             old_data_file_name = _construct_err_sg_data_file_path(_rowset_path_prefix, segment_id);
             if (FileUtils::check_exist(old_data_file_name)) {
-                RETURN_NOT_OK(remove_dir(old_data_file_name));
+                if(!FileUtils::remove(old_data_file_name).ok()) {
+                    return OLAP_ERR_CANNOT_CREATE_DIR;
+                }
                 links_to_remove->push_back(old_data_file_name);
             }
             old_index_file_name = _construct_err_sg_index_file_path(_rowset_path_prefix, segment_id);
             if (FileUtils::check_exist(old_index_file_name)) {
-                RETURN_NOT_OK(remove_dir(old_index_file_name));
+                if(!FileUtils::remove(old_index_file_name).ok()) {
+                    return OLAP_ERR_CANNOT_CREATE_DIR;
+                }
                 links_to_remove->push_back(old_index_file_name);
             }
         }

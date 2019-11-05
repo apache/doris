@@ -19,6 +19,7 @@
 #define DORIS_BE_UTIL_FILE_UTILS_H
 
 #include <string>
+#include <vector>
 #include <functional>
 
 #include "common/status.h"
@@ -53,7 +54,14 @@ public:
 
     // Delete file recursively.
     static Status remove_all(const std::string& dir_path);
+    
+    // Delete dir or file, failed when there are files or dirs under the path
+    static Status remove(const std::string& path, Env* env);
 
+    static Status remove(const std::string& path);
+    
+    static Status remove_paths(const std::vector<std::string>& paths);
+    
     // List all files in the specified directory without '.' and '..'.
     // If you want retreive all files, you can use Env::iterate_dir.
     // All valid files will be stored in given *files.

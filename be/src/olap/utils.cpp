@@ -1023,7 +1023,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     if (sub_dirs.empty() && sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        remove_dir(source_parent_dir);
+        FileUtils::remove(source_parent_dir);
     }
 
     return OLAP_SUCCESS;
@@ -1277,43 +1277,6 @@ OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
         }
     }
     return OLAP_SUCCESS;
-}
-
-OLAPStatus remove_files(const vector<string>& files) {
-    OLAPStatus res = OLAP_SUCCESS;
-    for (const string& file : files) {
-        boost::filesystem::path file_path(file);
-
-        try {
-            if (boost::filesystem::remove(file_path)) {
-                VLOG(3) << "remove file. [file=" << file << "]";
-            } else {
-                OLAP_LOG_WARNING("failed to remove file. [file=%s errno=%d]",
-                                 file.c_str(), Errno::no());
-                res = OLAP_ERR_IO_ERROR;
-            }
-        } catch (...) {
-        // do nothing
-        }
-    }
-    return res;
-}
-
-// failed when there are files or dirs under thr dir
-OLAPStatus remove_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::remove(p)) {
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to del dir. [path='" << path << "' errno=" << Errno::no() << "]";
-
-    return OLAP_ERR_CANNOT_CREATE_DIR;
 }
 
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance
