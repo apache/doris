@@ -109,8 +109,7 @@ TEST_F(PercentileApproxTest, testNullVale) {
     AggregateFunctions::percentile_approx_init(context, &stringVal2);
     AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
-    //ASSERT_EQ(v.val, 99900.5);
-    ASSERT_DOUBLE_EQ(v.val, 99900.665999999997);
+    ASSERT_FLOAT_EQ(v.val, 99900.665999999997);
 }
 
 }
