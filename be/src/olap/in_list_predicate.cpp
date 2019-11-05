@@ -106,8 +106,8 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
         *size = new_size; \
     } \
 
-IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, ==)
-IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, !=)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
     template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values); \
