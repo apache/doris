@@ -30,7 +30,6 @@
 
 #include "util/coding.h"
 #include "util/faststring.h"
-#include "util/owned_slice.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -79,20 +78,15 @@ public:
         return Status::OK();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
     OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
-
         // Set up trailer
-        for (int i = 0; i < _offsets.size(); i++) {
-            put_fixed32_le(&_buffer, _offsets[i]);
+        for (uint32_t _offset : _offsets) {
+            put_fixed32_le(&_buffer, _offset);
         }
         put_fixed32_le(&_buffer, _offsets.size());
-
-        size_t buf_size = _buffer.size();
-        return OwnedSlice(_buffer.release(), buf_size);
+        return _buffer.build();
     }
 
     void reset() override {
@@ -104,7 +98,7 @@ public:
         _finished = false;
     }
 
-    size_t count() const {
+    size_t count() const override {
         return _offsets.size();
     }
 

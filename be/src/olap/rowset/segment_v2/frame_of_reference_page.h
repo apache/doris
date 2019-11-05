@@ -49,15 +49,11 @@ public:
         return Status::OK();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
     OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
         _encoder->flush();
-
-        size_t buf_size = _buf.size();
-        return OwnedSlice(_buf.release(), buf_size);
+        return _buf.build();
     }
 
     void reset() override {
