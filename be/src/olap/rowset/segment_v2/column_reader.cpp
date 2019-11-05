@@ -483,16 +483,24 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     // be consistent with segment v1
-    if (_default_value == "NULL" && _is_nullable) {
+    if (_has_default_value) {
+        if (_default_value == "NULL") {
+            DCHECK(_is_nullable);
+            _is_default_value_null = true;
+        } else {
+            TypeInfo* type_info = get_type_info(_type);
+            _value_size = type_info->size();
+            _mem_value.reserve(_value_size);
+            OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
+            if (s != OLAP_SUCCESS) {
+                return Status::InternalError(
+                        strings::Substitute("get value of type from default value failed. status:$0", s));
+            }
+        }
+    } else if (_is_nullable) {
         _is_default_value_null = true;
     } else {
-        TypeInfo* type_info = get_type_info(_type);
-        _value_size = type_info->size();
-        _mem_value.reserve(_value_size);
-        OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
-        if (s != OLAP_SUCCESS) {
-            return Status::InternalError("get value of type from default value failed.");
-        }
+        return Status::InternalError("invalid default value column for no default value and not nullable");
     }
     return Status::OK();
 }
