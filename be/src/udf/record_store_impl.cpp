@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_RECORD_STORE_IMP_H
-#define DORIS_RECORD_STORE_IMP_H
-
 #include "runtime/free_pool.hpp"
 #include "runtime/runtime_state.h"
 #include "runtime/descriptors.h"
@@ -34,8 +31,8 @@ doris_udf::RecordStore* RecordStoreImpl::create_record_store(FreePool* free_pool
 
 doris_udf::Record *RecordStoreImpl::allocate_record() {
     uint8_t *bytes = _free_pool->allocate(sizeof(TupleDescriptor*) + _descriptor->byte_size());
-    memcpy(bytes, (uint8_t*)_descriptor, sizeof(TupleDescriptor*));
-    return (doris_udf::Record*) bytes;
+    memcpy(bytes, &_descriptor, sizeof(TupleDescriptor*));
+    return (doris_udf::Record*) (bytes + sizeof(TupleDescriptor*));
 }
 
 void *RecordStoreImpl::allocate(size_t byte_size) {
@@ -49,7 +46,7 @@ void RecordStoreImpl::append_record(doris_udf::Record *record) {
 }
 
 void RecordStoreImpl::free_record(doris_udf::Record *record) {
-    _free_pool->free((uint8_t *) record);
+    _free_pool->free((uint8_t *) record - sizeof(TupleDescriptor*));
 }
 
 doris_udf::Record *RecordStoreImpl::get(int idx) {
@@ -71,5 +68,3 @@ RecordStoreImpl::~RecordStoreImpl() {
 }
 
 }
-
-#endif //DORIS_RECORD_STORE_IMP_H

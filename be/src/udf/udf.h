@@ -276,6 +276,7 @@ public:
 
     //get Record size
     size_t size();
+    
     //get Record data compitable to Tuple avoid memory copy
     Record *get(int idx);
 

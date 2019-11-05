@@ -397,23 +397,23 @@ bool FunctionContext::add_warning(const char* warning_msg) {
 
 //Record
 void Record::set_null(int idx) {
-    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
-    doris::NullIndicatorOffset offset = descriptr->slots()[idx]->null_indicator_offset();
-    char *null_indicator_byte = reinterpret_cast<char *>(this + sizeof(doris::TupleDescriptor*)) + offset.byte_offset;
+    auto* descriptor = *reinterpret_cast<doris::TupleDescriptor**>(this - sizeof(doris::TupleDescriptor*));
+    doris::NullIndicatorOffset offset = descriptor->slots()[idx]->null_indicator_offset();
+    char *null_indicator_byte = reinterpret_cast<char *>(this) + offset.byte_offset;
     *null_indicator_byte |= offset.bit_mask;
 }
 
 void Record::set_int(int idx, int val) {
-    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
-    uint8_t *dst = (uint8_t *) (this + sizeof(doris::TupleDescriptor*)) + descriptr->slots()[idx]->tuple_offset();
-    memcpy(dst, reinterpret_cast<uint8_t *>(&val), sizeof(int));
+    auto* descriptor = *reinterpret_cast<doris::TupleDescriptor**>(this - sizeof(doris::TupleDescriptor*));
+    uint8_t *dst = (uint8_t*) this + descriptor->slots()[idx]->tuple_offset();
+    memcpy(dst, reinterpret_cast<uint8_t*>(&val), sizeof(int));
 }
 
 void Record::set_string(int idx, const uint8_t *ptr, size_t len) {
-    auto* descriptr = reinterpret_cast<doris::TupleDescriptor*>(this);
-    uint8_t *dst = (uint8_t *) (this + sizeof(doris::TupleDescriptor*)) + descriptr->slots()[idx]->tuple_offset();
+    auto* descriptor = *reinterpret_cast<doris::TupleDescriptor**>(this - sizeof(doris::TupleDescriptor*));
+    uint8_t *dst = (uint8_t *) this + descriptor->slots()[idx]->tuple_offset();
     memcpy(dst, &ptr, sizeof(char*));
-    memcpy(dst + sizeof(char*), reinterpret_cast<uint8_t *>(&len), sizeof(size_t));
+    memcpy(dst + sizeof(char*), reinterpret_cast<uint8_t*>(&len), sizeof(size_t));
 }
 
 //RecordStore
