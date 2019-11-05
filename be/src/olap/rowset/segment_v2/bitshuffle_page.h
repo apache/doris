@@ -143,10 +143,10 @@ private:
             _data.push_back(0);
         }
 
+        // reserve enough place for compression
         _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE +
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
-        encode_fixed32_le(&_buffer[0], _count);
         int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
@@ -157,10 +157,14 @@ private:
             // since we have logged fatal in warn_with_bitshuffle_error().
             return OwnedSlice();
         }
+        // update header
+        encode_fixed32_le(&_buffer[0], _count);
         encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
+        // before build(), update buffer length to the actual compressed size
+        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
         return _buffer.build();
     }
 
