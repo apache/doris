@@ -57,12 +57,9 @@ public:
         return Status::OK();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     reset() should be called after this function before reuse the builder
     OwnedSlice finish() override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
-        return OwnedSlice(_buffer.release(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
+        return _buffer.build();
     }
 
     void reset() override {
