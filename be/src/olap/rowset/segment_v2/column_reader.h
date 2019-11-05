@@ -149,14 +149,10 @@ public:
     ColumnIterator() { }
     virtual ~ColumnIterator() { }
 
-<<<<<<< HEAD
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
         return Status::OK();
     }
-=======
-    virtual Status init() { return Status::OK(); }
->>>>>>> Add default value column iterator #1834 (#1835)
 
     // Seek to the first entry in the column.
     virtual Status seek_to_first() = 0;
