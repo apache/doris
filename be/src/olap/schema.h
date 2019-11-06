@@ -99,7 +99,7 @@ public:
     ~Schema();
 
     const std::vector<Field*>& columns() const { return _cols; }
-    const Field* column(ColumnId cid) const { return _cols[cid]; }
+    Field* column(ColumnId cid) const { return _cols[cid]; }
 
     size_t num_key_columns() const {
         return _num_key_columns;

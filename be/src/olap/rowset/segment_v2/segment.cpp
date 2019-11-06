@@ -89,8 +89,10 @@ Status Segment::new_iterator(
                 return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
             }
             FieldType type = type_info->type();
-            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+            Field* field = schema.column(column_id);
+            int32_t var_length = field->length();
+            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, var_length));
+            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, var_length));
             if (c_zone_map.has_not_null()) {
                 min_value->from_string(c_zone_map.min());
                 max_value->from_string(c_zone_map.max());
