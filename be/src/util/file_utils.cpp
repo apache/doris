@@ -56,8 +56,8 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
         bool is_dir = false;
         
         Status s = env->is_directory(partial_path, &is_dir);
+        
         if (s.ok()) {
-            
             if (is_dir) {
                 // It's a normal directory.
                 continue;
@@ -65,11 +65,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
 
             // Maybe a file or a symlink. Let's try to follow the symlink.
             string real_partial_path;
-            s = env->canonicalize(partial_path, &real_partial_path);
-            
-            if (!s.ok()) {
-                return s;
-            }
+            RETURN_IF_ERROR(env->canonicalize(partial_path, &real_partial_path));
             
             s = env->is_directory(real_partial_path, &is_dir);
             if (s.ok() && is_dir) {
@@ -78,10 +74,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
             } 
         }
         
-        s = env->create_dir(partial_path);
-        if (!s.ok()) {
-            return s;
-        }
+        RETURN_IF_ERROR(env->create_dir(partial_path));
     }
 
     return Status::OK();
@@ -112,15 +105,12 @@ Status FileUtils::remove_all(const std::string& file_path) {
 
 Status FileUtils::remove(const std::string& path, doris::Env *env) {
     bool is_dir;
-    Status ret = env->is_directory(path, &is_dir);
-    if (ret.ok()) {
-        if (is_dir) {
-            return env->delete_dir(path);
-        } else {
-            return env->delete_file(path);
-        }
+    RETURN_IF_ERROR(env->is_directory(path, &is_dir));
+ 
+    if (is_dir) {
+        return env->delete_dir(path);
     } else {
-        return ret;
+        return env->delete_file(path);
     }
 }
 
@@ -130,11 +120,7 @@ Status FileUtils::remove(const std::string& path) {
 
 Status FileUtils::remove_paths(const std::vector<string>& paths) {
     for (string p : paths) {
-        Status ret = remove(p);
-        
-        if (!ret.ok()) {
-            return ret;
-        }
+        RETURN_IF_ERROR(remove(p));
     }
     return Status::OK();
 }
@@ -153,23 +139,24 @@ Status FileUtils::list_files(Env* env, const std::string& dir,
 Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string> *dirs,
                              std::set<std::string> *files, Env *env) {
     auto cb = [path, dirs, files, env](const char* name) -> bool {
-        if ('.' == name[0]) {
+        if (is_dot_or_dotdot(name)) {
             return true;
         }
         
         string temp_path =  path + "/" + name;
         bool is_dir;
         
-        if (env->is_directory(temp_path, &is_dir).ok()) {
+        auto st = env->is_directory(temp_path, &is_dir);
+        if (st.ok()) {
             if (is_dir) {
-                if (nullptr != dirs) {
+                if (dirs != nullptr) {
                     dirs->insert(name);
                 }
-            } else if(nullptr != files) {
+            } else if(files != nullptr) {
                 files->insert(name);
             }
         } else {
-            LOG(WARNING) << "check path " << path << "is directory error";
+            LOG(WARNING) << "check path " << path << "is directory error: " << st.to_string();
         }
         
         return true;

@@ -611,8 +611,8 @@ public:
     }
 
     Status canonicalize(const std::string& path, std::string* result) override {
-        std::unique_ptr<char[], kudu::FreeDeleter> r(realpath(path.c_str(), nullptr));
-        if (!r) {
+        std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
+        if (r == nullptr) {
             return io_error(Substitute("Unable to canonicalize $0", path), errno);
         }
         *result = std::string(r.get());
