@@ -98,7 +98,9 @@ public:
     HashTable(
         const std::vector<ExprContext*>& build_exprs,
         const std::vector<ExprContext*>& probe_exprs,
-        int num_build_tuples, bool stores_nulls, int32_t initial_seed,
+        int num_build_tuples, bool stores_nulls, 
+        const std::vector<bool> finds_nulls,
+        int32_t initial_seed,
         MemTracker* mem_tracker,
         int64_t num_buckets);
 
@@ -384,6 +386,12 @@ private:
 
     // Number of Tuple* in the build tuple row
     const int _num_build_tuples;
+    // the row in hash table is preserved such as RIGHT_OUTER_JOIN
+    const bool _null_preserved;
+    // true: the null value should be keep in 
+    // false: the null value should be filter
+    const std::vector<bool> _finds_nulls;
+    // outer join || has null equal join should be true
     const bool _stores_nulls;
 
     const int32_t _initial_seed;

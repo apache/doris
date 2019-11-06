@@ -1390,7 +1390,7 @@ public class SingleNodePlanner {
         }
 
         HashJoinNode result =
-                new HashJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,
+                new HashJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef, eqJoinPredicates,
                         ojConjuncts);
         result.init(analyzer);
         return result;

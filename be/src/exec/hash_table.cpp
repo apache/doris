@@ -42,12 +42,18 @@ const char* HashTable::_s_llvm_class_name = "class.doris::HashTable";
 
 HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
                      const vector<ExprContext*>& probe_expr_ctxs,
-                     int num_build_tuples, bool stores_nulls, int32_t initial_seed,
+                     int num_build_tuples, bool null_preserved, 
+                     const std::vector<bool> finds_nulls,
+                     int32_t initial_seed,
                      MemTracker* mem_tracker, int64_t num_buckets) :
         _build_expr_ctxs(build_expr_ctxs),
         _probe_expr_ctxs(probe_expr_ctxs),
         _num_build_tuples(num_build_tuples),
-        _stores_nulls(stores_nulls),
+        _null_preserved(null_preserved),
+        _finds_nulls(finds_nulls),
+        _stores_nulls(null_preserved 
+                  || (std::find(finds_nulls.begin(), finds_nulls.end(),
+                                true) != finds_nulls.end())),
         _initial_seed(initial_seed),
         _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
         _num_filled_buckets(0),
@@ -180,7 +186,7 @@ bool HashTable::equals(TupleRow* build_row) {
         void* val = _build_expr_ctxs[i]->get_value(build_row);
 
         if (val == NULL) {
-            if (!_stores_nulls) {
+            if (!(_null_preserved && _finds_nulls[i])) {
                 return false;
             }
 

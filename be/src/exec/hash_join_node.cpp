@@ -71,6 +71,12 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _probe_expr_ctxs.push_back(ctx);
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, eq_join_conjuncts[i].right, &ctx));
         _build_expr_ctxs.push_back(ctx);
+        if (eq_join_conjuncts[i].__isset.opcode 
+            && eq_join_conjuncts[i].opcode == TExprOpcode::EQ_FOR_NULL) {
+            _is_null_safe_eq_join.push_back(true);
+        } else {
+            _is_null_safe_eq_join.push_back(false);
+        }
     }
 
     RETURN_IF_ERROR(
@@ -131,13 +137,13 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
     // TODO: default buckets
-    const bool stores_nulls = _join_op == TJoinOp::RIGHT_OUTER_JOIN
+    const bool null_preserved = _join_op == TJoinOp::RIGHT_OUTER_JOIN
         || _join_op == TJoinOp::FULL_OUTER_JOIN
         || _join_op == TJoinOp::RIGHT_ANTI_JOIN
         || _join_op == TJoinOp::RIGHT_SEMI_JOIN;
     _hash_tbl.reset(new HashTable(
             _build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
-            stores_nulls, id(), mem_tracker(), 1024));
+            null_preserved, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
 
     _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
 
@@ -283,6 +289,11 @@ Status HashJoinNode::open(RuntimeState* state) {
 
     if (_children[0]->type() == TPlanNodeType::EXCHANGE_NODE
             && _children[1]->type() == TPlanNodeType::EXCHANGE_NODE) {
+        _is_push_down = false;
+    }
+
+    if (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(),
+                                    true) != _is_null_safe_eq_join.end()) {
         _is_push_down = false;
     }
 
