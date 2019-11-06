@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 
 # Guidelines for Basic Use
 
@@ -114,10 +133,10 @@ The TABLE statement is as follows:
 ```
 CREATE TABLE table1
 (
-siteid INT DEFAULT '10',
-citycode SMALLINT,
-Username VARCHAR (32) DEFAULT',
-pv BIGINT SUM DEFAULT '0'
+    siteid INT DEFAULT '10',
+    citycode SMALLINT,
+    username VARCHAR(32) DEFAULT '',
+    pv BIGINT SUM DEFAULT '0'
 )
 AGGREGATE KEY(siteid, citycode, username)
 DISTRIBUTED BY HASH(siteid) BUCKETS 10
@@ -150,18 +169,18 @@ The TABLE statement is as follows:
 ```
 CREATE TABLE table2
 (
-event /day DATE,
-siteid INT DEFAULT '10',
-citycode SMALLINT,
-Username VARCHAR (32) DEFAULT',
-pv BIGINT SUM DEFAULT '0'
+    event_day DATE,
+    siteid INT DEFAULT '10',
+    citycode SMALLINT,
+    username VARCHAR(32) DEFAULT '',
+    pv BIGINT SUM DEFAULT '0'
 )
 AGGREGATE KEY(event_day, siteid, citycode, username)
 PARTITION BY RANGE(event_day)
 (
-The distribution value of P201706 was lower than that of ("2017-07-01").
-The segmentation value of P201707 is lower than that of ("2017-08-01").
-The segmentation value of P201708 is lower than that of ("2017-09-01").
+    PARTITION p201706 VALUES LESS THAN ('2017-07-01'),
+    PARTITION p201707 VALUES LESS THAN ('2017-08-01'),
+    PARTITION p201708 VALUES LESS THAN ('2017-09-01')
 )
 DISTRIBUTED BY HASH(siteid) BUCKETS 10
 PROPERTIES("replication_num" = "1");
@@ -172,7 +191,7 @@ After the table is built, you can view the information of the table in example_d
 ```
 MySQL> SHOW TABLES;
 +----------------------+
-1.1.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1.2.1.2.2.2.2.2.2.2.2.2.2.2.2.2.2.
+| Tables_in_example_db |
 +----------------------+
 | table1               |
 | table2               |
@@ -185,8 +204,8 @@ MySQL> DESC table1;
 +----------+-------------+------+-------+---------+-------+
 | siteid   | int(11)     | Yes  | true  | 10      |       |
 | citycode | smallint(6) | Yes  | true  | N/A     |       |
-"124s; username"124s; varchar (32) "124s; Yes"124s; true "124s;"124s; "124s;
-+ 124; PV = 124; Bigint (20) Yes False 0 Sum
+| username | varchar(32) | Yes  | true  |         |       |
+| pv       | bigint(20)  | Yes  | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
 4 rows in set (0.00 sec)
 
@@ -197,8 +216,8 @@ MySQL> DESC table2;
 | event_day | date        | Yes  | true  | N/A     |       |
 | siteid    | int(11)     | Yes  | true  | 10      |       |
 | citycode  | smallint(6) | Yes  | true  | N/A     |       |
-"124s; username"124s; varchar (32) "124s; Yes"124s; true "124s;"124s; "124s;
-+ 124; PV = 124; Bigint (20) Yes False 0 Sum
+| username  | varchar(32) | Yes  | true  |         |       |
+| pv        | bigint(20)  | Yes  | false | 0       | SUM   |
 +-----------+-------------+------+-------+---------+-------+
 5 rows in set (0.00 sec)
 ```
@@ -206,7 +225,7 @@ MySQL> DESC table2;
 > Notes:
 >
 > 1. By setting replication_num, the above tables are all single-copy tables. Doris recommends that users adopt the default three-copy settings to ensure high availability.
-> 2. Composite partition tables can be added or deleted dynamically. See the Partition section in `HELP ALTER TABLE'.
+> 2. Composite partition tables can be added or deleted dynamically. See the Partition section in `HELP ALTER TABLE`.
 > 3. Data import can import the specified Partition. See `HELP LOAD'.
 > 4. Schema of table can be dynamically modified.
 > 5. Rollup can be added to Table to improve query performance. This section can be referred to the description of Rollup in Advanced Usage Guide.
@@ -228,7 +247,7 @@ curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separ
 > 1. FE_HOST is the IP of any FE node and 8030 is http_port in fe.conf.
 > 2. You can use the IP of any BE and the webserver_port in be.conf to connect the target left and right for import. For example: `BE_HOST:8040`
 
-The local file `table1_data'takes `, `as the separation between data, and the specific contents are as follows:
+The local file `table1_data` takes `,` as the separation between data, and the specific contents are as follows:
 
 ```
 1,1,Jim,2
@@ -247,11 +266,11 @@ curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separ
 The local file `table2_data'is separated by `t'. The details are as follows:
 
 ```
-2017 -07 -03: 1st Jim
+2017-07-03  1   1   jim   2
 2017-07-05  2   1   grace 2
-2017-07-123 2 Tom 2
-2017 -07 -15 4 3 'bush' 3
-2017 -07 -12 5 3 'helen 3
+2017-07-12  3   2   tom   2
+2017-07-15  4   3   bush  3
+2017-07-12  5   3   helen 3
 ```
 
 > Notes:
@@ -260,27 +279,27 @@ The local file `table2_data'is separated by `t'. The details are as follows:
 > 2. Each batch of imported data needs to take a Label. Label is best a string related to a batch of data for easy reading and management. Doris based on Label guarantees that the same batch of data can be imported only once in a database. Label for failed tasks can be reused.
 > 3. Streaming imports are synchronous commands. The successful return of the command indicates that the data has been imported, and the failure of the return indicates that the batch of data has not been imported.
 
-'35;'35;' 35;'35; Broker'235488;'
+#### Broker Load
 
-Broker imports import data from external storage through deployed Broker processes. For more help, see `HELP BROKER LOAD;'`
+Broker imports import data from external storage through deployed Broker processes. For more help, see `HELP BROKER LOAD;`
 
 Example: Import files on HDFS into table1 table with "table1_20170708" as Label
 
 ```
 LOAD LABEL table1_20170708
 (
-DATA INFILE("hdfs://your.namenode.host:port/dir/table1_data")
-INTO TABLE table1
+    DATA INFILE("hdfs://your.namenode.host:port/dir/table1_data")
+    INTO TABLE table1
 )
-WITH BROKER hdfs
+WITH BROKER hdfs 
 (
-"Username" = "HDFS\\ user"
-"password"="hdfs_password"
+    "username"="hdfs_user",
+    "password"="hdfs_password"
 )
 PROPERTIES
 (
-Timeout ="3600",
-"max_filter_ratio"="0.1"
+    "timeout"="3600",
+    "max_filter_ratio"="0.1"
 );
 ```
 
@@ -294,7 +313,7 @@ In the return result, FINISHED in the `State'field indicates that the import was
 
 Asynchronous import tasks can be cancelled before the end:
 
-'CANCEL LOAD WHERE LABEL ="Table 1'u 201708";`
+`CANCEL LOAD WHERE LABEL = "table1_20170708";`
 
 ## 3 Data query
 
@@ -307,9 +326,9 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 +--------+----------+----------+------+
 | siteid | citycode | username | pv   |
 +--------+----------+----------+------+
-1244; 2 *1244; 1 *1244;'grace '1242 *1244;
+|      2 |        1 | 'grace'  |    2 |
 |      5 |        3 | 'helen'  |    3 |
-124; 3 $124; 2 `124tom '"124; 2 `1244;
+|      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
 5 rows in set (0.01 sec)
 
@@ -317,10 +336,10 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+
 | siteid | citycode | username | pv   |
 +--------+----------+----------+------+
-1244; 2 *1244; 1 *1244;'grace '1242 *1244;
+|      2 |        1 | 'grace'  |    2 |
 |      1 |        1 | 'jim'    |    2 |
-124; 3 $124; 2 `124tom '"124; 2 `1244;
-1244; 4 *1243 *124bush "; 3 *1244;
+|      3 |        2 | 'tom'    |    2 |
+|      4 |        3 | 'bush'   |    3 |
 |      5 |        3 | 'helen'  |    3 |
 +--------+----------+----------+------+
 5 rows in set (0.01 sec)
@@ -333,7 +352,7 @@ Examples:
 ```
 MySQL> SELECT SUM(table1.pv) FROM table1 JOIN table2 WHERE table1.siteid = table2.siteid;
 +--------------------+
-+ 124; Sum (`Table1'`PV `124);
+| sum(`table1`.`pv`) |
 +--------------------+
 |                 12 |
 +--------------------+
@@ -347,7 +366,7 @@ Examples:
 ```
 MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHERE siteid > 2);
 +-----------+
-+ 124; Sum (`PV') 124;
+| sum(`pv`) |
 +-----------+
 |         8 |
 +-----------+

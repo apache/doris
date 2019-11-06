@@ -1,6 +1,25 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # date_format
-Description
-'35;'35;' 35; Syntax
+## Description
+### Syntax
 
 'WARCHAR DATE'U FORMAT (DATETIME DATE, WARCHAR Format)'
 
@@ -44,7 +63,7 @@ The formats available are:
 
 % m | month, numerical value (00-12)
 
-%p%124; AM%25110PM
+%p | AM or PM
 
 % R | Time, 12 - hour (hh: mm: SS AM or PM)
 
@@ -74,47 +93,47 @@ The formats available are:
 
 % Y | Year, 2
 
-'35;'35; example
+## example
 
 ```
-mysql > select date'u format ('2009 -10 -04 22:23:00','%W%M%Y');
+mysql> select date_format('2009-10-04 22:23:00', '%W %M %Y');
 +------------------------------------------------+
-+ 124; Date = UFormat (-2009-10-04 22:23:00', w%M%Y);
+| date_format('2009-10-04 22:23:00', '%W %M %Y') |
 +------------------------------------------------+
 | Sunday October 2009                            |
 +------------------------------------------------+
 
-mysql > select date'u format ('2007 -10 -04 22:23:00','%H:%i:%s');
+mysql> select date_format('2007-10-04 22:23:00', '%H:%i:%s');
 +------------------------------------------------+
-+ 124; Date = UFormat (-2007-10-04 22:23:00', H:% I:% s));
+| date_format('2007-10-04 22:23:00', '%H:%i:%s') |
 +------------------------------------------------+
 | 22:23:00                                       |
 +------------------------------------------------+
 
-mysql > select date'u format ('1900 -10 -04 22:23:00','%D%y%a%d%m%b%j');
+mysql> select date_format('1900-10-04 22:23:00', '%D %y %a %d %m %b %j');
 +------------------------------------------------------------+
-+ 124; Date = UFormat (+1900-10-04 22:23:00',%Y%A%D%M%B%J)
+| date_format('1900-10-04 22:23:00', '%D %y %a %d %m %b %j') |
 +------------------------------------------------------------+
-+ 124; 4th 00 THU 04 10 Oct 277;
-+------------------------------------------------------------+
-
-mysql > select date'u format ('1997 -10 -04 22:23:00','%H%k%I%r%T%S%w');
-+------------------------------------------------------------+
-+ 124; Date = UFormat ("1997-10-04 22:23:00",%H%K%I%R%T%S%W") = 124;
-+------------------------------------------------------------+
-22,22,10,23:00 PM 22:23:00 00,6,1244;
+| 4th 00 Thu 04 10 Oct 277                                   |
 +------------------------------------------------------------+
 
-mysql > select date'u format ('1999 -01 -01 00:00','%X%V');
+mysql> select date_format('1997-10-04 22:23:00', '%H %k %I %r %T %S %w');
++------------------------------------------------------------+
+| date_format('1997-10-04 22:23:00', '%H %k %I %r %T %S %w') |
++------------------------------------------------------------+
+| 22 22 10 10:23:00 PM 22:23:00 00 6                         |
++------------------------------------------------------------+
+
+mysql> select date_format('1999-01-01 00:00:00', '%X %V'); 
 +---------------------------------------------+
-Date of format ('1999 -01 -01 00:00','%X%V')
+| date_format('1999-01-01 00:00:00', '%X %V') |
 +---------------------------------------------+
 | 1998 52                                     |
 +---------------------------------------------+
 
 mysql> select date_format('2006-06-01', '%d');
 +------------------------------------------+
-date (2006 -06 -01 00:00','%d') 124date;
+| date_format('2006-06-01 00:00:00', '%d') |
 +------------------------------------------+
 | 01                                       |
 +------------------------------------------+
