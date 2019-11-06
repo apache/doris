@@ -211,47 +211,52 @@ public:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            PrimitiveType primitive_type = _cur_slot_ref->type().type;
-            switch (primitive_type) {
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_HLL: {
-                    const StringValue* string_val = (const StringValue*)(cell_ptr);
-                    if (string_val == nullptr) {
-                        ARROW_RETURN_NOT_OK(builder.AppendNull());
-                    } else {
-                        if (string_val->len == 0) {
-                            // 0x01 is a magic num, not usefull actually, just for present ""
-                            //char* tmp_val = reinterpret_cast<char*>(0x01);
-                            ARROW_RETURN_NOT_OK(builder.Append(""));        
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+            } else {
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                PrimitiveType primitive_type = _cur_slot_ref->type().type;
+                switch (primitive_type) {
+                    case TYPE_VARCHAR:
+                    case TYPE_CHAR:
+                    case TYPE_HLL: {
+                        const StringValue* string_val = (const StringValue*)(cell_ptr);
+                        if (string_val == nullptr) {
+                            ARROW_RETURN_NOT_OK(builder.AppendNull());
                         } else {
-                            ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
-                        }
-                    }   
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    char buf[48];
-                    int len = 48;
-                    char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
-                    std::string temp(v, len);
-                    ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
-                    break;
-                }
-                case TYPE_DECIMAL: {
-                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                    if (decimal_val == nullptr) {
-                        ARROW_RETURN_NOT_OK(builder.AppendNull());
-                    } else {
-                        std::string decimal_str = decimal_val->to_string();
-                        ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
+                            if (string_val->len == 0) {
+                                // 0x01 is a magic num, not usefull actually, just for present ""
+                                //char* tmp_val = reinterpret_cast<char*>(0x01);
+                                ARROW_RETURN_NOT_OK(builder.Append(""));        
+                            } else {
+                                ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
+                            }
+                        }   
+                        break;
                     }
-                    break;
-                }
-                default: {
-                    LOG(WARNING) << "can't convert this type = " << primitive_type << "to arrow type";
-                    return arrow::Status::TypeError("unsupported column type");
+                    case TYPE_LARGEINT: {
+                        char buf[48];
+                        int len = 48;
+                        char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
+                        std::string temp(v, len);
+                        ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
+                        break;
+                    }
+                    case TYPE_DECIMAL: {
+                        const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
+                        if (decimal_val == nullptr) {
+                            ARROW_RETURN_NOT_OK(builder.AppendNull());
+                        } else {
+                            std::string decimal_str = decimal_val->to_string();
+                            ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
+                        }
+                        break;
+                    }
+                    default: {
+                        LOG(WARNING) << "can't convert this type = " << primitive_type << "to arrow type";
+                        return arrow::Status::TypeError("unsupported column type");
+                    }
                 }
             }
         }
@@ -264,17 +269,22 @@ public:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
             } else {
-                const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                int64_t ts = 0;
-                if (time_val->unix_timestamp(&ts, _time_zone)) {
-                    ARROW_RETURN_NOT_OK(builder.Append(ts * 1000));
-                } else {
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                if (cell_ptr == nullptr) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
-                }
+                } else {
+                    const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
+                    int64_t ts = 0;
+                    if (time_val->unix_timestamp(&ts, _time_zone)) {
+                        ARROW_RETURN_NOT_OK(builder.Append(ts * 1000));
+                    } else {
+                        ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    }
+                }               
             }
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
@@ -287,15 +297,20 @@ public:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
             } else {
-                PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
-                int64_t high = (p_value->value) >> 64;
-                uint64 low = p_value->value;
-                arrow::Decimal128 value(high, low);
-                ARROW_RETURN_NOT_OK(builder.Append(value));
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                if (cell_ptr == nullptr) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                } else {
+                    PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
+                    int64_t high = (p_value->value) >> 64;
+                    uint64 low = p_value->value;
+                    arrow::Decimal128 value(high, low);
+                    ARROW_RETURN_NOT_OK(builder.Append(value));
+                }               
             }
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
@@ -314,11 +329,16 @@ private:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
             } else {
-                ARROW_RETURN_NOT_OK(builder.Append(*(typename T::c_type*)cell_ptr));
+                auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+                if (cell_ptr == nullptr) {
+                    ARROW_RETURN_NOT_OK(builder.AppendNull());
+                } else {
+                    ARROW_RETURN_NOT_OK(builder.Append(*(typename T::c_type*)cell_ptr));
+                }
             }
         }
 
