@@ -276,7 +276,8 @@ public class PropertyAnalyzer {
                                     + "invalid column: " + bfColumn);
                         } else if (column.isKey()
                                 || column.getAggregationType() == AggregateType.NONE
-                                || column.getAggregationType() == AggregateType.REPLACE) {
+                                || column.getAggregationType() == AggregateType.REPLACE
+                                || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                             if (!bfColumnSet.add(bfColumn)) {
                                 throw new AnalysisException("Reduplicated bloom filter column: " + bfColumn);
                             }

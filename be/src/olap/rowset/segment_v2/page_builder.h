@@ -20,10 +20,10 @@
 #include <stdint.h>
 #include <vector>
 
-#include "gutil/macros.h"
-#include "util/owned_slice.h"
 #include "common/status.h"
+#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -52,9 +52,8 @@ public:
     // vals size should be decided according to the page build type
     virtual doris::Status add(const uint8_t* vals, size_t* count) = 0;
 
-    // This api is for release the resource owned by builder
-    // It means it will transfer the ownership of some resource to other.
-    // This api should be followed by reset() before reuse the builder
+    // Finish building the current page, return the encoded data.
+    // This api should be followed by reset() before reusing the builder
     virtual OwnedSlice finish() = 0;
 
     // Get the dictionary page for dictionary encoding mode column.

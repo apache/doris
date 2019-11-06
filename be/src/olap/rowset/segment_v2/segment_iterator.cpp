@@ -196,8 +196,7 @@ Status SegmentIterator::_init_column_iterators() {
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
-    _seek_columns(_schema.column_ids(), _cur_rowid);
-    return Status::OK();
+    return _seek_columns(_schema.column_ids(), _cur_rowid);
 }
 
 // Schema of lhs and rhs are different.
@@ -276,7 +275,7 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include,
 
 // seek to the row and load that row to _key_cursor
 Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
-    _seek_columns(_seek_schema->column_ids(), rowid);
+    RETURN_IF_ERROR(_seek_columns(_seek_schema->column_ids(), rowid));
     size_t num_rows = 1;
     // please note that usually RowBlockV2.clear() is called to free MemPool memory before reading the next block,
     // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
@@ -343,7 +342,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
                 continue;
             }
             _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
-            _seek_columns(block->schema()->column_ids(), _cur_rowid);
+            RETURN_IF_ERROR(_seek_columns(block->schema()->column_ids(), _cur_rowid));
             break;
         }
     }
