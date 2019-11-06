@@ -483,6 +483,9 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     // be consistent with segment v1
+    // be consistent with segment v1
+    // if _has_default_value, we should create default column iterator for this column, and
+    // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
             DCHECK(_is_nullable);
@@ -498,6 +501,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             }
         }
     } else if (_is_nullable) {
+        // if _has_default_value is true but _is_nullable, we should create return null as default value.
         _is_default_value_null = true;
     } else {
         return Status::InternalError("invalid default value column for no default value and not nullable");
