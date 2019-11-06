@@ -270,9 +270,11 @@ public class GlobalTransactionMgr {
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            LOG.debug("transaction is already visible: {}", transactionId);
             return;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+            LOG.debug("transaction is already committed: {}", transactionId);
             return;
         }
         
