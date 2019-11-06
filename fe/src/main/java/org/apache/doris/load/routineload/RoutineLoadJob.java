@@ -664,6 +664,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } finally {
             if (!passCheck) {
                 writeUnlock();
+                LOG.debug("unlock write lock of routine load job before check: {}", id);
             }
         }
     }
@@ -693,6 +694,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     + " while transaction " + txnState.getTransactionId() + " has been committed", false /* not replay */);
         } finally {
             writeUnlock();
+            LOG.debug("unlock write lock of routine load job after committed: {}", id);
         }
     }
 
@@ -760,6 +762,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                              .build(), e);
         } finally {
             writeUnlock();
+            LOG.debug("unlock write lock of routine load job after aborted: {}", id);
         }
     }
 
@@ -848,7 +851,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                               .add("current_job_state", getState())
                               .add("desire_job_state", jobState)
-                              .add("msg", "job will be change to desire state")
+                              .add("msg", reason)
                               .build());
         }
         checkStateTransform(jobState);

@@ -411,7 +411,7 @@ public abstract class AlterHandler extends Daemon {
                     versionChanged = true;
                 }
             }
-            
+
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
