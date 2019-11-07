@@ -54,6 +54,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         column_meta->set_unique_id(column.unique_id());
         bool is_nullable = column.is_nullable();
         column_meta->set_is_nullable(is_nullable);
+        column_meta->set_length(column.length());
 
         ColumnWriterOptions opts;
         opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
