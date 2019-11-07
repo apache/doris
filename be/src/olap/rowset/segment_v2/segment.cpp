@@ -89,7 +89,7 @@ Status Segment::new_iterator(
                 return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
             }
             FieldType type = type_info->type();
-            Field* field = schema.column(column_id);
+            const Field* field = schema.column(column_id);
             int32_t var_length = field->length();
             std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, var_length));
             std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, var_length));
