@@ -41,7 +41,6 @@ class MetricRegistry;
 class StorageEngine;
 class PoolMemTrackerRegistry;
 class PriorityThreadPool;
-class PullLoadTaskMgr;
 class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
@@ -115,7 +114,6 @@ public:
     DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
-    PullLoadTaskMgr* pull_load_task_mgr() const { return _pull_load_task_mgr; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
@@ -167,7 +165,6 @@ private:
     TmpFileMgr* _tmp_file_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
-    PullLoadTaskMgr* _pull_load_task_mgr = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
