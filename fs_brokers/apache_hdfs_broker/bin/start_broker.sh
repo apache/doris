@@ -54,7 +54,7 @@ JAVA=$JAVA_HOME/bin/java
 for f in $BROKER_HOME/lib/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-export CLASSPATH=${CLASSPATH}:${BROKER_HOME}/lib
+export CLASSPATH=${CLASSPATH}:${BROKER_HOME}/lib:$BROKER_HOME/conf
 
 while read line; do
     envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
