@@ -55,6 +55,9 @@ public:
                 node.node_type = TExprNodeType::INT_LITERAL;
                 node.type = gen_type_desc(TPrimitiveType::INT, "int_column");
                 node.num_children = 0;
+                TIntLiteral data;
+                data.value = 1;
+                node.__set_int_literal(data);
                 expr.nodes.push_back(node);
             }
             _exprs.push_back(expr);
