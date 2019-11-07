@@ -252,4 +252,11 @@ static void help(const char* progname) {
     printf("Options:\n");
     printf("  -v, --version      output version information, then exit\n");
     printf("  -h, --help         show this help, then exit\n");
+    printf("  --tool             support meta/segment, usage as following:\n");
+    printf("    print help info for segment v2 tool:\n");
+    printf("        --tool=segment   --print_help\n");
+    printf("    show segment v2 file footer meta:\n");
+    printf("        --tool=segment   --show_meta --file=/path/to/segment/file\n");
+    printf("    show segment v2 column dict info:\n");
+    printf("        --tool=segment   --show_dict --file=/path/to/segment/file  --columnd_id=0 --dict_num=10\n");
 }

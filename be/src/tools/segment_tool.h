@@ -32,6 +32,7 @@ private:
     static Status _show_meta(const std::string& file_name);
     static Status _show_dict(const std::string& file_name);
     static Status _get_segment_footer(RandomAccessFile* input_file, doris::segment_v2::SegmentFooterPB* footer);
+    static void _print_help();
 };
 
 }

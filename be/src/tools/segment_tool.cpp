@@ -40,15 +40,20 @@ using doris::segment_v2::PageHandle;
 using doris::segment_v2::PagePointer;
 using doris::segment_v2::ColumnReaderOptions;
 
-DEFINE_string(file, "", "segment file path");
-DEFINE_bool(show_meta, false, "show meta of segment file");
+DEFINE_bool(print_help, false, "print the help info of segment v2 tool");
+DEFINE_bool(show_meta, false, "show footer meta of segment file");
 DEFINE_bool(show_dict, false, "show dict info of dict-encoded type");
+DEFINE_string(file, "", "segment file path");
 DEFINE_int32(column_id, -1, "column to show");
 DEFINE_int32(dict_num, -1, "dict items to show. -1: show nothing; 0: show all; >0: show dict_num items");
 
 namespace doris {
 
 void SegmentTool::process() {
+    if (FLAGS_print_help) {
+        _print_help();
+        return;
+    }
     if (FLAGS_show_meta) {
         if (FLAGS_file == "") {
             std::cout << "no file flag for show meta" << std::endl;
@@ -73,6 +78,28 @@ void SegmentTool::process() {
     }
 
     std::cout << "print usage of segment tool" << std::endl;
+}
+
+void SegmentTool::_print_help() {
+    std::stringstream ss;
+    ss << "This is tool usage help info for segment v2." << std::endl;
+    ss << "Valid commands: " << std::endl;
+    ss << "    --print_help: print the help info of segment v2 tool" << std::endl;
+    ss << "        show help: ./palo_be --tool=segment --print_help" << std::endl;
+    ss << "    --show_meta: show footer meta of segment file, options: file" << std::endl;
+    ss << "        --file: specify the segment file to show" << std::endl;
+    ss << "        show meta of file: ./palo_be --tool=segment --show_meta "
+          "--file=/path/to/segment/file" << std::endl;
+    ss << "    --show_dict: show dict info for dict encoding column of segment. "
+          "options: column_id, dict_num" << std::endl;
+    ss << "        --columnd_id: specify the column to show" << std::endl;
+    ss << "        --dict_num: the number to show, -1: show no dict items; 0: show all; >0: "
+          "show the specified num of items" << std::endl;
+    ss << "        show column dict basic info: ./palo_be --tool=segment --show_dict "
+          "--file=/path/to/file --column_id=0" << std::endl;
+    ss << "        show column dict with items: ./palo_be --tool=segment --show_dict "
+          "--file=/path/to/file --column_id=0 --dict_num=10" << std::endl;
+    std::cout << ss.str();
 }
 
 Status SegmentTool::_show_meta(const std::string& file_name) {
