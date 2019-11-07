@@ -99,7 +99,7 @@ public:
         const std::vector<ExprContext*>& build_exprs,
         const std::vector<ExprContext*>& probe_exprs,
         int num_build_tuples, bool stores_nulls, 
-        const std::vector<bool> finds_nulls,
+        const std::vector<bool>& finds_nulls,
         int32_t initial_seed,
         MemTracker* mem_tracker,
         int64_t num_buckets);

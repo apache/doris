@@ -43,7 +43,7 @@ const char* HashTable::_s_llvm_class_name = "class.doris::HashTable";
 HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
                      const vector<ExprContext*>& probe_expr_ctxs,
                      int num_build_tuples, bool null_preserved, 
-                     const std::vector<bool> finds_nulls,
+                     const std::vector<bool>& finds_nulls,
                      int32_t initial_seed,
                      MemTracker* mem_tracker, int64_t num_buckets) :
         _build_expr_ctxs(build_expr_ctxs),

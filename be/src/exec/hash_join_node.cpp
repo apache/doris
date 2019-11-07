@@ -292,6 +292,10 @@ Status HashJoinNode::open(RuntimeState* state) {
         _is_push_down = false;
     }
 
+    // The predicate could not be pushed down when there is Null-safe equal operator.
+    // The in predicate will filter the null value in child[0] while it is needed in the Null-safe equal join.
+    // For example: select * from a join b where a.id<=>b.id
+    // the null value in table a should be return by scan node instead of filtering it by In-predicate.
     if (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(),
                                     true) != _is_null_safe_eq_join.end()) {
         _is_push_down = false;
