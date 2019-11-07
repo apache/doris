@@ -193,8 +193,8 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
     int32_t page_size = _column_zone_map->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     for (int32_t i = 0; i < page_size; ++i) {
         // min value and max value are valid if has_not_null is true
         if (zone_maps[i].has_not_null()) {

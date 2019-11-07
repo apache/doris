@@ -52,6 +52,7 @@ public:
     virtual ~Field() = default;
 
     inline size_t size() const { return _type_info->size(); }
+    inline int32_t length() const { return _length; }
     inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
 
