@@ -384,7 +384,7 @@ public class DistributedPlanner {
             // TODO: create equivalence classes based on equality predicates
 
             // first, extract join exprs
-            List<BinaryPredicate> eqJoinPredicates = node.getEqJoinPredicates();
+            List<BinaryPredicate> eqJoinPredicates = node.getEqJoinConjuncts();
             List<Expr> lhsJoinExprs = Lists.newArrayList();
             List<Expr> rhsJoinExprs = Lists.newArrayList();
             for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
@@ -489,7 +489,7 @@ public class DistributedPlanner {
             List<Column> leftColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<Column> rightColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
 
-            List<BinaryPredicate> eqJoinPredicates = node.getEqJoinPredicates();
+            List<BinaryPredicate> eqJoinPredicates = node.getEqJoinConjuncts();
             for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
                 Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
                 Expr rhsJoinExpr = eqJoinPredicate.getChild(1);

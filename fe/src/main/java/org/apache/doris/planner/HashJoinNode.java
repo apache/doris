@@ -55,7 +55,7 @@ public class HashJoinNode extends PlanNode {
     private final TableRef     innerRef;
     private final JoinOperator joinOp;
     // predicates of the form "<lhs> = <rhs>", recorded as Pair(<lhs>, <rhs>)
-    private List<BinaryPredicate> eqJoinPredicates = Lists.newArrayList();
+    private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private  List<Expr> otherJoinConjuncts;
     private boolean isPushDown;
@@ -64,9 +64,9 @@ public class HashJoinNode extends PlanNode {
     private String colocateReason = ""; // if can not do colocate join, set reason here
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
-                        List<Expr> eqJoinPredicates, List<Expr> otherJoinConjuncts) {
+                        List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
         super(id, "HASH JOIN");
-        Preconditions.checkArgument(eqJoinPredicates != null && !eqJoinPredicates.isEmpty());
+        Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
@@ -74,9 +74,9 @@ public class HashJoinNode extends PlanNode {
         tblRefIds.addAll(inner.getTblRefIds());
         this.innerRef = innerRef;
         this.joinOp = innerRef.getJoinOp();
-        for (Expr eqJoinPredicate : eqJoinPredicates) {
+        for (Expr eqJoinPredicate : eqJoinConjuncts) {
             Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
-            this.eqJoinPredicates.add((BinaryPredicate) eqJoinPredicate);
+            this.eqJoinConjuncts.add((BinaryPredicate) eqJoinPredicate);
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
@@ -98,8 +98,8 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
-    public List<BinaryPredicate> getEqJoinPredicates() {
-        return eqJoinPredicates;
+    public List<BinaryPredicate> getEqJoinConjuncts() {
+        return eqJoinConjuncts;
     }
 
     public JoinOperator getJoinOp() {
@@ -139,8 +139,8 @@ public class HashJoinNode extends PlanNode {
 
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinPredicates =
-                Expr.substituteList(eqJoinPredicates, combinedChildSmap, analyzer, false);
-        eqJoinPredicates = newEqJoinPredicates.stream()
+                Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
+        eqJoinConjuncts = newEqJoinPredicates.stream()
                 .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts =
             Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
@@ -173,7 +173,7 @@ public class HashJoinNode extends PlanNode {
         // - the output cardinality of the join would be F.cardinality * 0.2
 
         long maxNumDistinct = 0;
-        for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
+        for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
             Expr rhsJoinExpr = eqJoinPredicate.getChild(1);
             if (lhsJoinExpr.unwrapSlotRef() == null) {
@@ -224,13 +224,13 @@ public class HashJoinNode extends PlanNode {
 
     @Override
     protected String debugString() {
-        return Objects.toStringHelper(this).add("eqJoinPredicates",
+        return Objects.toStringHelper(this).add("eqJoinConjuncts",
           eqJoinConjunctsDebugString()).addValue(super.debugString()).toString();
     }
 
     private String eqJoinConjunctsDebugString() {
         Objects.ToStringHelper helper = Objects.toStringHelper(this);
-        for (BinaryPredicate expr : eqJoinPredicates) {
+        for (BinaryPredicate expr : eqJoinConjuncts) {
             helper.add("lhs", expr.getChild(0)).add("rhs", expr.getChild(1));
         }
         return helper.toString();
@@ -239,9 +239,9 @@ public class HashJoinNode extends PlanNode {
     @Override
     public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
         super.getMaterializedIds(analyzer, ids);
-        // we also need to materialize everything referenced by eqJoinPredicates
+        // we also need to materialize everything referenced by eqJoinConjuncts
         // and otherJoinConjuncts
-        for (Expr eqJoinPredicate : eqJoinPredicates) {
+        for (Expr eqJoinPredicate : eqJoinConjuncts) {
             eqJoinPredicate.getIds(null, ids);
         }
         for (Expr e : otherJoinConjuncts) {
@@ -258,7 +258,7 @@ public class HashJoinNode extends PlanNode {
         msg.node_type = TPlanNodeType.HASH_JOIN_NODE;
         msg.hash_join_node = new THashJoinNode();
         msg.hash_join_node.join_op = joinOp.toThrift();
-        for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
+        for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             TEqJoinCondition eqJoinCondition =
                     new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
                                          eqJoinPredicate.getChild(1).treeToThrift());
@@ -282,7 +282,7 @@ public class HashJoinNode extends PlanNode {
 
         output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
 
-        for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
+        for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             output.append(eqJoinPredicate.toSql() +  "\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
