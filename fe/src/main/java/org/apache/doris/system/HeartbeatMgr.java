@@ -131,7 +131,9 @@ public class HeartbeatMgr extends Daemon {
             try {
                 // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very long.
                 HeartbeatResponse response = future.get();
-                LOG.info("get heartbeat response: {}", response);
+                if (response.getStatus() != HbStatus.OK) {
+                    LOG.warn("get bad heartbeat response: {}", response);
+                }
                 isChanged = handleHbResponse(response, false);
 
                 if (isChanged) {

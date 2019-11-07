@@ -105,6 +105,7 @@ public class StmtExecutorTest {
         EasyMock.expect(ctx.getConnectScheduler()).andReturn(scheduler).anyTimes();
         EasyMock.expect(ctx.getConnectionId()).andReturn(1).anyTimes();
         EasyMock.expect(ctx.getQualifiedUser()).andReturn("testUser").anyTimes();
+        EasyMock.expect(ctx.getForwardedStmtId()).andReturn(123L).anyTimes();
         ctx.setKilled();
         EasyMock.expectLastCall().anyTimes();
         ctx.updateReturnRows(EasyMock.anyInt());
