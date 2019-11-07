@@ -373,7 +373,7 @@ OLAPStatus ColumnData::prepare_block_read(
     }
     set_eof(false);
     if (start_key != nullptr) {
-        auto res = _seek_to_row(*start_key, find_start_key, false);
+        auto res = _seek_to_row(*start_key, !find_start_key, false);
         if (res == OLAP_SUCCESS) {
             *first_block = _read_block.get();
         } else if (res == OLAP_ERR_DATA_EOF) {
