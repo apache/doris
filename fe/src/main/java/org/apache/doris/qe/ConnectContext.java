@@ -45,6 +45,7 @@ public class ConnectContext {
 
     // set this id before analyze
     private volatile long stmtId;
+    private volatile long forwardedStmtId;
 
     private volatile TUniqueId queryId;
     // id for this connection
@@ -128,6 +129,14 @@ public class ConnectContext {
 
     public void setStmtId(long stmtId) {
         this.stmtId = stmtId;
+    }
+
+    public long getForwardedStmtId() {
+        return forwardedStmtId;
+    }
+
+    public void setForwardedStmtId(long forwardedStmtId) {
+        this.forwardedStmtId = forwardedStmtId;
     }
 
     public String getRemoteIP() {
