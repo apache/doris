@@ -150,7 +150,7 @@ public class FileSystemManager {
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
             && !authentication.equals(AUTHENTICATION_KERBEROS))) {
             logger.warn("invalid authentication:" + authentication);
-            throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                 "invalid authentication:" + authentication);
         }
         String hdfsUgi = username + "," + password;
