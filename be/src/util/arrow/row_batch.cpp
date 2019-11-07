@@ -320,9 +320,7 @@ private:
             }
             auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
             ARROW_RETURN_NOT_OK(builder.Append(*(typename T::c_type*)cell_ptr));
-            }
         }
-
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
 
