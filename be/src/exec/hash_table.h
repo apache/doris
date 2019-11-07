@@ -388,8 +388,8 @@ private:
     const int _num_build_tuples;
     // the row in hash table is preserved such as RIGHT_OUTER_JOIN
     const bool _null_preserved;
-    // true: the null value should be keep in 
-    // false: the null value should be filter
+    // true: the null-safe equal '<=>' is true. The row with null shoud be judged.
+    // false: the equal '=' is false. The row with null should be filtered.
     const std::vector<bool> _finds_nulls;
     // outer join || has null equal join should be true
     const bool _stores_nulls;
