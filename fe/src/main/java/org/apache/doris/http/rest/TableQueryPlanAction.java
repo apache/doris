@@ -120,7 +120,8 @@ public class TableQueryPlanAction extends RestBaseAction {
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
-            LOG.info("SQL syntax [{}]", sql);
+            LOG.info("receive SQL statement [{}] from external service [ user [{}] client_ip [{}] ] for database [{}] table [{}]",
+                    sql, authInfo.fullUserName, authInfo.remoteIp, dbName, tableName);
 
             String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
             // check privilege for select, otherwise return HTTP 401
