@@ -53,6 +53,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -74,6 +76,8 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  * the related tablet maybe pruned by query planer according the `where` predicate.
  */
 public class TableQueryPlanAction extends RestBaseAction {
+
+    public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
 
     public TableQueryPlanAction(ActionController controller) {
         super(controller);
@@ -116,6 +120,7 @@ public class TableQueryPlanAction extends RestBaseAction {
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
+            LOG.info("SQL syntax [{}]", sql);
 
             String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
             // check privilege for select, otherwise return HTTP 401
