@@ -98,6 +98,8 @@ message ColumnMetaPB {
     optional ZoneMapPB zone_map = 9;
     // // dictionary page for DICT_ENCODING
     optional PagePointerPB dict_page = 10;
+    // var length for string type
+    optional int32 length = 11;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
