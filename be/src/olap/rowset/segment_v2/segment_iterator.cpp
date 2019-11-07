@@ -27,6 +27,7 @@
 #include "olap/row_cursor.h"
 #include "olap/short_key_index.h"
 #include "olap/column_predicate.h"
+#include "olap/row.h"
 
 using strings::Substitute;
 
