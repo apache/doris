@@ -17,11 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -49,15 +44,22 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
 import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1330,7 +1332,11 @@ public class SingleNodePlanner {
             }
 
             Preconditions.checkState(lhsExpr != rhsExpr);
-            joinConjuncts.add(e);
+            Preconditions.checkState(e instanceof BinaryPredicate);
+            BinaryPredicate newEqJoinPredicate = (BinaryPredicate) e.clone();
+            newEqJoinPredicate.setChild(0, lhsExpr);
+            newEqJoinPredicate.setChild(1, rhsExpr);
+            joinConjuncts.add(newEqJoinPredicate);
         }
     }
 

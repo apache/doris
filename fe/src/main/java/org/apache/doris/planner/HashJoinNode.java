@@ -143,7 +143,7 @@ public class HashJoinNode extends PlanNode {
         eqJoinConjuncts = newEqJoinConjuncts.stream()
                 .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts =
-            Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
+                Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
     }
 
     @Override
