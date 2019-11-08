@@ -518,4 +518,45 @@ public class FEFunctionsTest {
         Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
         Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
     }
+
+    @Test
+    public void datePlusAndSubTest() throws AnalysisException {
+        DateLiteral dateLiteral = new DateLiteral("2019-11-11 00:00:00", Type.DATETIME);
+
+        Assert.assertEquals(new DateLiteral("2020-11-11 00:00:00", Type.DATETIME),
+                FEFunctions.yearsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2018-11-11 00:00:00", Type.DATETIME),
+                FEFunctions.yearsSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-12-11 00:00:00", Type.DATETIME),
+                FEFunctions.monthsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-10-11 00:00:00", Type.DATETIME),
+                FEFunctions.monthsSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-12 00:00:00", Type.DATETIME),
+                FEFunctions.daysAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 00:00:00", Type.DATETIME),
+                FEFunctions.daysSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 01:00:00", Type.DATETIME),
+                FEFunctions.hoursAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:00:00", Type.DATETIME),
+                FEFunctions.hoursSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 00:01:00", Type.DATETIME),
+                FEFunctions.minutesAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:59:00", Type.DATETIME),
+                FEFunctions.minutesSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 00:00:01", Type.DATETIME),
+                FEFunctions.secondsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:59:59", Type.DATETIME),
+                FEFunctions.secondsSub(dateLiteral, new IntLiteral(1)));
+    }
 }
