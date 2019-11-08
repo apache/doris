@@ -41,7 +41,6 @@ set(RUNTIME_FILES
     mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
-    pull_load_task_mgr.cpp
     raw_value.cpp
     raw_value_ir.cpp
     result_sink.cpp

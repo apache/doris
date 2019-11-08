@@ -92,7 +92,7 @@ public:
         return success;
     }
 
-    DecimalV2Value(int128_t int_value) {
+    explicit DecimalV2Value(int128_t int_value) {
         _value = int_value;
     }
 

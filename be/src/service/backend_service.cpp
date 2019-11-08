@@ -36,7 +36,6 @@
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
-#include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -168,35 +167,6 @@ void BackendService::fetch_data(TFetchDataResult& return_val,
     // maybe hang in this function
     Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
     status.set_t_status(&return_val);
-}
-
-void BackendService::register_pull_load_task(
-        TStatus& t_status, const TUniqueId& id, int num_senders) {
-    Status status = _exec_env->pull_load_task_mgr()->register_task(id, num_senders);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::deregister_pull_load_task(TStatus& t_status, const TUniqueId& id) {
-    Status status = _exec_env->pull_load_task_mgr()->deregister_task(id);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::report_pull_load_sub_task_info(
-        TStatus& t_status, const TPullLoadSubTaskInfo& task_info) {
-    Status status = _exec_env->pull_load_task_mgr()->report_sub_task_info(task_info);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::fetch_pull_load_task_info(
-        TFetchPullLoadTaskInfoResult& result, const TUniqueId& id) {
-    Status status = _exec_env->pull_load_task_mgr()->fetch_task_info(id, &result);
-    status.to_thrift(&result.status);
-}
-
-void BackendService::fetch_all_pull_load_task_infos(
-        TFetchAllPullLoadTaskInfosResult& result) {
-    Status status = _exec_env->pull_load_task_mgr()->fetch_all_task_infos(&result);
-    status.to_thrift(&result.status);
 }
 
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
