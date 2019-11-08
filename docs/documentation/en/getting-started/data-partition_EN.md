@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "Total user consumption",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "User maximum dwell time",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "User minimum dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "User minimum dwell time"
 )
 ENGINE=olap
 AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
