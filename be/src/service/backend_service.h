@@ -57,9 +57,6 @@ class TClientRequest;
 class TExecRequest;
 class TSessionState;
 class TQueryOptions;
-class TPullLoadSubTaskInfo;
-class TFetchPullLoadTaskInfoResult;
-class TFetchAllPullLoadTaskInfosResult;
 class TExportTaskRequest;
 class TExportStatusResult;
 
@@ -130,21 +127,6 @@ public:
 
     virtual void fetch_data(TFetchDataResult& return_val,
                             const TFetchDataParams& params);
-
-    virtual void register_pull_load_task(TStatus& status,
-                                         const TUniqueId& tid,
-                                         int num_senders) override;
-
-    virtual void deregister_pull_load_task(TStatus& status,
-                                           const TUniqueId& tid) override;
-
-    virtual void report_pull_load_sub_task_info(
-        TStatus& status, const TPullLoadSubTaskInfo& task_info) override;
-
-    virtual void fetch_pull_load_task_info(
-        TFetchPullLoadTaskInfoResult& result, const TUniqueId& id) override;
-
-    virtual void fetch_all_pull_load_task_infos(TFetchAllPullLoadTaskInfosResult& result) override;
 
     void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
 
