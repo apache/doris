@@ -204,6 +204,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/memory_scratch_sink_test
 ${DORIS_TEST_BINARY_DIR}/runtime/result_queue_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
+${DORIS_TEST_BINARY_DIR}/runtime/decimalv2_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/large_int_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test
