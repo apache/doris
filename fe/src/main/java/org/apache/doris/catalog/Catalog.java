@@ -1840,10 +1840,11 @@ public class Catalog {
         checksum ^= dbCount;
         dos.writeInt(dbCount);
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
-            long dbId = entry.getKey();
-            if (dbId >= NEXT_ID_INIT_VALUE) {
-                checksum ^= dbId;
-                Database db = entry.getValue();
+            Database db = entry.getValue();
+            String dbName = db.getFullName();
+            // Don't write information_schema db meta
+            if (!dbName.endsWith(InfoSchemaDb.DATABASE_NAME)) {
+                checksum ^= entry.getKey();
                 db.readLock();
                 try {
                     db.write(dos);
@@ -5738,11 +5739,17 @@ public class Catalog {
                 // for adding BE to some Cluster, but loadCluster is after loadBackend.
                 cluster.setBackendIdList(latestBackendIds);
 
-                final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
-                db.setClusterName(cluster.getName());
-                idToDb.put(db.getId(), db);
-                fullNameToDb.put(db.getFullName(), db);
-                cluster.addDb(db.getFullName(), db.getId());
+                String dbName = ClusterNamespace.getFullName(cluster.getName(), InfoSchemaDb.DATABASE_NAME);
+                if (!fullNameToDb.containsKey(dbName)) {
+                    final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
+                    db.setClusterName(cluster.getName());
+                    String errMsg = "InfoSchemaDb id shouldn't larger than 10000, please restart your FE server";
+                    // ensure InfoSchemaDb meta don't overwrite the normal db meta
+                    Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
+                    idToDb.put(db.getId(), db);
+                    fullNameToDb.put(db.getFullName(), db);
+                }
+                cluster.addDb(dbName, fullNameToDb.get(dbName).getId());
                 idToCluster.put(cluster.getId(), cluster);
                 nameToCluster.put(cluster.getName(), cluster);
             }
