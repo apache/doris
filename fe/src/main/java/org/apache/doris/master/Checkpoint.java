@@ -69,6 +69,13 @@ public class Checkpoint extends Daemon {
 
     @Override
     protected void runOneCycle() {
+        if (!Catalog.getInstance().isReady()) {
+            // here we use getInstance(), not getCurrentCatalog() because we truly want the Catalog instance,
+            // not the Checkpoint catalog instance.
+            // and if catalog is not ready, do not doing checkpoint.
+            return;
+        }
+
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
