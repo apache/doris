@@ -1015,11 +1015,12 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     // 4. check parent dir of source file, delete it when empty
     string source_parent_dir = schema_hash_root.parent_path().string(); // tablet_id level
     std::set<std::string> sub_dirs, sub_files;
-    if (!FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()).ok()) {
-        LOG(INFO) << "access dir failed. [dir=" << source_parent_dir << "]";
-        // This error is nothing serious. so we still return success.
-        return OLAP_SUCCESS;
-    }
+
+    RETURN_WITH_WARN_IF_ERROR(
+            FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()),
+            OLAP_SUCCESS,
+            "access dir failed. [dir=" + source_parent_dir);
+    
     if (sub_dirs.empty() && sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
