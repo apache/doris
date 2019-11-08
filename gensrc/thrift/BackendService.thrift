@@ -24,32 +24,6 @@ include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
 
-struct TPullLoadSubTaskInfo {
-    1: required Types.TUniqueId id
-    2: required i32 sub_task_id
-    3: required map<string, i64> file_map
-    4: required map<string, string> counters
-    5: optional string tracking_url
-}
-
-struct TPullLoadTaskInfo {
-    1: required Types.TUniqueId id
-    2: required Types.TEtlState etl_state
-    3: optional map<string, i64> file_map
-    4: optional map<string, string> counters
-    5: optional list<string> tracking_urls
-}
-
-struct TFetchPullLoadTaskInfoResult {
-    1: required Status.TStatus status
-    2: required TPullLoadTaskInfo task_info
-}
-
-struct TFetchAllPullLoadTaskInfosResult {
-    1: required Status.TStatus status
-    2: required list<TPullLoadTaskInfo> task_infos
-}
-
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
 }
@@ -138,20 +112,6 @@ service BackendService {
             1:AgentService.TMiniLoadEtlStatusRequest request);
 
     AgentService.TAgentResult delete_etl_files(1:AgentService.TDeleteEtlFilesRequest request);
-
-    // Register one pull load task.
-    Status.TStatus register_pull_load_task(1: Types.TUniqueId id, 2: i32 num_senders)
-
-    // Call by task coordinator to unregister this task.
-    // This task may be failed because load task have been finished or this task
-    // has been canceled by coordinator.
-    Status.TStatus deregister_pull_load_task(1: Types.TUniqueId id)
-
-    Status.TStatus report_pull_load_sub_task_info(1:TPullLoadSubTaskInfo task_info)
-
-    TFetchPullLoadTaskInfoResult fetch_pull_load_task_info(1:Types.TUniqueId id)
-
-    TFetchAllPullLoadTaskInfosResult fetch_all_pull_load_task_infos()
 
     Status.TStatus submit_export_task(1:TExportTaskRequest request);
 

@@ -46,7 +46,6 @@
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/pull_load_task_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -97,7 +96,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _disk_io_mgr = new DiskIoMgr();
     _tmp_file_mgr = new TmpFileMgr(this),
     _bfd_parser = BfdParser::create();
-    _pull_load_task_mgr = new PullLoadTaskMgr(config::pull_load_task_dir);
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
     _load_stream_mgr = new LoadStreamMgr();
@@ -116,11 +114,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "load path mgr init failed." << status.get_error_msg();
-        exit(-1);
-    }
-    status = _pull_load_task_mgr->init();
-    if (!status.ok()) {
-        LOG(ERROR) << "pull load task manager init failed." << status.get_error_msg();
         exit(-1);
     }
     _broker_mgr->init();
@@ -213,7 +206,6 @@ void ExecEnv::_destory() {
     delete _load_stream_mgr;
     delete _load_channel_mgr;
     delete _broker_mgr;
-    delete _pull_load_task_mgr;
     delete _bfd_parser;
     delete _tmp_file_mgr;
     delete _disk_io_mgr;

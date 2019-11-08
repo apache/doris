@@ -119,7 +119,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
     DecimalV2Value value1;
     ASSERT_EQ("0", value1.to_string(3));
 
-    DecimalV2Value value2(111111111); // 9 digits
+    DecimalV2Value value2(111111111, 0); // 9 digits
     std::cout << "value2: " << value2.get_debug_info() << std::endl;
     ASSERT_EQ("111111111", value2.to_string(3));
 
@@ -154,7 +154,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 
     // negative
     {
-        DecimalV2Value value2(-111111111); // 9 digits
+        DecimalV2Value value2(-111111111, 0); // 9 digits
         std::cout << "value2: " << value2.get_debug_info() << std::endl;
         ASSERT_EQ("-111111111", value2.to_string(3));
 
@@ -234,8 +234,7 @@ TEST_F(DecimalV2ValueTest, sub) {
                 "-999999999999999999.999999999")); // 27 digits
         DecimalV2Value sub_result = value2 - value1;
         std::cout << "sub_result: " << sub_result.get_debug_info() << std::endl;
-        DecimalV2Value expected_value = value2;
-        ASSERT_EQ(expected_value, sub_result);
+        ASSERT_STREQ("-1999999999999999999.999999998", sub_result.to_string().c_str());
         ASSERT_FALSE(sub_result.is_zero());
         ASSERT_TRUE(value1 > value2);
     }
@@ -310,7 +309,7 @@ TEST_F(DecimalV2ValueTest, to_int_frac_value) {
     {
         DecimalV2Value value(std::string("-123456789.987654321987654321"));
         ASSERT_EQ(-123456789, value.int_value());
-        ASSERT_EQ(-987654321, value.frac_value());
+        ASSERT_EQ(-987654322, value.frac_value());
     }
 }
 
