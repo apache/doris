@@ -17,11 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -49,15 +44,22 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
 import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1311,6 +1313,14 @@ public class SingleNodePlanner {
                 continue;
             }
 
+            /**
+             * The left and right child of origin predicates need to be swap sometimes.
+             * Case A:
+             * select * from t1 join t2 on t2.id=t1.id
+             * The left plan node is t1 and the right plan node is t2.
+             * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
+             * In this situation, the children of predicate need to be swap => t1.id=t2.id.
+             */
             Expr rhsExpr = null;
             if (e.getChild(0).isBoundByTupleIds(rhsIds)) {
                 rhsExpr = e.getChild(0);
@@ -1330,7 +1340,13 @@ public class SingleNodePlanner {
             }
 
             Preconditions.checkState(lhsExpr != rhsExpr);
-            joinConjuncts.add(e);
+            Preconditions.checkState(e instanceof BinaryPredicate);
+            // The new predicate id must same as the origin predicate.
+            // This expr id is used to mark as assigned in the future.
+            BinaryPredicate newEqJoinPredicate = (BinaryPredicate) e.clone();
+            newEqJoinPredicate.setChild(0, lhsExpr);
+            newEqJoinPredicate.setChild(1, rhsExpr);
+            joinConjuncts.add(newEqJoinPredicate);
         }
     }
 
