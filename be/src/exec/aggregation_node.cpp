@@ -148,7 +148,8 @@ Status AggregationNode::prepare(RuntimeState* state) {
 
     // TODO: how many buckets?
     _hash_tbl.reset(new HashTable(
-            _build_expr_ctxs, _probe_expr_ctxs, 1, true, id(), mem_tracker(), 1024));
+            _build_expr_ctxs, _probe_expr_ctxs, 1, true, 
+            vector<bool>(_build_expr_ctxs.size(), false), id(), mem_tracker(), 1024));
 
     if (_probe_expr_ctxs.empty()) {
         // create single output tuple now; we need to output something

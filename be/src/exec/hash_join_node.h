@@ -78,6 +78,9 @@ private:
     // _build_exprs (over child(1)) and _probe_exprs (over child(0))
     std::vector<ExprContext*> _probe_expr_ctxs;
     std::vector<ExprContext*> _build_expr_ctxs;
+    // true: the operator of eq join predicate is null safe equal => '<=>'
+    // false: the operator of eq join predicate is equal => '='
+    std::vector<bool> _is_null_safe_eq_join;
     std::list<ExprContext*> _push_down_expr_ctxs;
 
     // non-equi-join conjuncts from the JOIN clause
