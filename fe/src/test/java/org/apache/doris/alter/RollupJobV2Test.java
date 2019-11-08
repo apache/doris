@@ -94,6 +94,7 @@ public class RollupJobV2Test {
         clause.analyze(analyzer);
 
         FeConstants.runningUnitTest = true;
+        AgentTaskQueue.clearAllTasks();
     }
 
     @Test
