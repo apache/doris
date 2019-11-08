@@ -489,8 +489,8 @@ public class DistributedPlanner {
             List<Column> leftColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<Column> rightColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
 
-            List<BinaryPredicate> eqJoinPredicates = node.getEqJoinConjuncts();
-            for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
+            List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
+            for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
                 Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
                 Expr rhsJoinExpr = eqJoinPredicate.getChild(1);
                 if (lhsJoinExpr.unwrapSlotRef() == null || rhsJoinExpr.unwrapSlotRef() == null) {

@@ -1286,14 +1286,12 @@ public class SingleNodePlanner {
     /**
      * Return join conjuncts that can be used for hash table lookups. - for inner joins, those are equi-join predicates
      * in which one side is fully bound by lhsIds and the other by rhs' id; - for outer joins: same type of conjuncts as
-     * inner joins, but only from the JOIN clause Returns the conjuncts in 'joinConjuncts' (in which "<lhs> = <rhs>" is
-     * returned as Pair(<lhs>, <rhs>)) and also in their original form in 'joinPredicates'.
+     * inner joins, but only from the JOIN clause Returns the original form in 'joinPredicates'.
      */
     private void getHashLookupJoinConjuncts(Analyzer analyzer, PlanNode left, PlanNode right,
-                                            List<Pair<Expr, Expr>> joinConjuncts, List<Expr> joinPredicates,
+                                            List<Expr> joinConjuncts,
                                             Reference<String> errMsg, JoinOperator op) {
         joinConjuncts.clear();
-        joinPredicates.clear();
         final List<TupleId> lhsIds = left.getTblRefIds();
         final List<TupleId> rhsIds = right.getTblRefIds();
         List<Expr> candidates;
@@ -1333,9 +1331,7 @@ public class SingleNodePlanner {
             }
 
             Preconditions.checkState(lhsExpr != rhsExpr);
-            joinPredicates.add(e);
-            Pair<Expr, Expr> entry = Pair.create(lhsExpr, rhsExpr);
-            joinConjuncts.add(entry);
+            joinConjuncts.add(e);
         }
     }
 
@@ -1351,14 +1347,13 @@ public class SingleNodePlanner {
         // materialized by that node
         PlanNode inner = createTableRefNode(analyzer, innerRef);
 
-        List<Pair<Expr, Expr>> eqJoinConjuncts = Lists.newArrayList();
-        List<Expr> eqJoinPredicates = Lists.newArrayList();
+        List<Expr> eqJoinConjuncts = Lists.newArrayList();
         Reference<String> errMsg = new Reference<String>();
         // get eq join predicates for the TableRefs' ids (not the PlanNodes' ids, which
         // are materialized)
-        getHashLookupJoinConjuncts(analyzer, outer, inner, eqJoinConjuncts,
-                eqJoinPredicates, errMsg, innerRef.getJoinOp());
-        if (eqJoinPredicates.isEmpty()) {
+        getHashLookupJoinConjuncts(analyzer, outer, inner,
+                eqJoinConjuncts, errMsg, innerRef.getJoinOp());
+        if (eqJoinConjuncts.isEmpty()) {
 
             // only inner join can change to cross join
             if (innerRef.getJoinOp().isOuterJoin() || innerRef.getJoinOp().isSemiAntiJoin()) {
@@ -1375,7 +1370,7 @@ public class SingleNodePlanner {
             result.init(analyzer);
             return result;
         }
-        analyzer.markConjunctsAssigned(eqJoinPredicates);
+        analyzer.markConjunctsAssigned(eqJoinConjuncts);
 
         List<Expr> ojConjuncts = Lists.newArrayList();
         if (innerRef.getJoinOp().isOuterJoin()) {
@@ -1390,7 +1385,7 @@ public class SingleNodePlanner {
         }
 
         HashJoinNode result =
-                new HashJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef, eqJoinPredicates,
+                new HashJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,
                         ojConjuncts);
         result.init(analyzer);
         return result;

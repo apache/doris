@@ -138,9 +138,9 @@ public class HashJoinNode extends PlanNode {
         //assignedConjuncts = analyzr.getAssignedConjuncts();
 
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
-        List<Expr> newEqJoinPredicates =
+        List<Expr> newEqJoinConjuncts =
                 Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
-        eqJoinConjuncts = newEqJoinPredicates.stream()
+        eqJoinConjuncts = newEqJoinConjuncts.stream()
                 .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts =
             Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
