@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
+include "Opcodes.thrift"
 include "Partitions.thrift"
 
 enum TPlanNodeType {
@@ -260,6 +261,8 @@ struct TEqJoinCondition {
   1: required Exprs.TExpr left;
   // right-hand side of "<a> = <b>"
   2: required Exprs.TExpr right;
+  // operator of equal join
+  3: optional Opcodes.TExprOpcode opcode; 
 }
 
 enum TJoinOp {

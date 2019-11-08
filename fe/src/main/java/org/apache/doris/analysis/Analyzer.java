@@ -821,7 +821,7 @@ public class Analyzer {
             return;
         }
         BinaryPredicate binaryPred = (BinaryPredicate) e;
-        if (binaryPred.getOp() != BinaryPredicate.Operator.EQ) {
+        if (!binaryPred.getOp().isEquivalence()) {
             return;
         }
         if (tupleIds.size() < 2) {
