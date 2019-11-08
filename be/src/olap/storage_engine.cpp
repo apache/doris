@@ -720,8 +720,10 @@ OLAPStatus StorageEngine::_do_sweep(
             VLOG(10) << "get actual expire time " << actual_expire << " of dir: " << dir_name;
 
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                if (!FileUtils::remove_all(path_name).ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name;
+                Status ret = FileUtils::remove_all(path_name);
+                if (!ret.ok()) {
+                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name
+                                 << ", error=" << ret.to_string();
                     res = OLAP_ERR_OS_ERROR;
                     continue;
                 }

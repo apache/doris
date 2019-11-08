@@ -262,9 +262,11 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
     for (auto& rs : consistent_rowsets) {
         status = rs->copy_files_to(schema_hash_path);
         if (status != OLAP_SUCCESS) {
-            if (!FileUtils::remove_all(schema_hash_path).ok()) {
+            Status ret = FileUtils::remove_all(schema_hash_path);
+            if (!ret.ok()) {
                 LOG(FATAL) << "remove storage migration path failed. "
-                           << "schema_hash_path:" << schema_hash_path;
+                           << "schema_hash_path:" << schema_hash_path
+                           << " error: " << ret.to_string();
             }
             break;
         }

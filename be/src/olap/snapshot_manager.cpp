@@ -448,10 +448,11 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         }
         if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
             set<string> exist_old_files;
-            if (!FileUtils::list_dirs_files(schema_full_path, nullptr, &exist_old_files,
-                                            Env::Default()).ok()) {
+            Status ret = FileUtils::list_dirs_files(schema_full_path, nullptr, &exist_old_files,
+                                       Env::Default());
+            if (!ret.ok()) {
                 LOG(WARNING) << "failed to dir walk when convert old files. dir=" 
-                             << schema_full_path;
+                             << schema_full_path << ", error:" << ret.to_string();
                 break;
             }
             OlapSnapshotConverter converter;
@@ -469,7 +470,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 files_to_delete.push_back(full_file_path);
             }
             // remove all files
-            if (!FileUtils::remove_paths(files_to_delete).ok()) {
+            ret = FileUtils::remove_paths(files_to_delete);
+            if (!ret.ok()) {
+                LOG(WARNING) << "remove paths failed. error: " << ret.to_string(); 
                 break;
             }
             // save new header to snapshot header path

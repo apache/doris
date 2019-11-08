@@ -438,8 +438,11 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
             continue;
         } else {
             data_dir->add_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
-            if(!FileUtils::create_dir(schema_hash_dir).ok()) {
-                LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
+            Status ret = FileUtils::create_dir(schema_hash_dir);
+            if(!ret.ok()) {
+                LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir
+                             << " error: " << ret.to_string(); 
+                res = OLAP_ERR_CANNOT_CREATE_DIR;
                 continue;
             }
         }
@@ -447,8 +450,11 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
         tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
         if (tablet == nullptr) {
             LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << data_dir->path();
-            if (!FileUtils::remove_all(tablet_dir).ok()) {
-                LOG(WARNING) << "remove tablet dir:" << tablet_dir;
+            Status ret = FileUtils::remove_all(tablet_dir);
+            if (!ret.ok()) {
+                LOG(WARNING) << "remove tablet dir:" << tablet_dir 
+                             << ", error: " << ret.to_string();
+                res = OLAP_ERR_IO_ERROR;
             }
             continue;
         }

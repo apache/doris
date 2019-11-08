@@ -582,10 +582,11 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
     }
 
     set<string> clone_files;
-    if (!FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()).ok()) {
-        LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]";
-        return OLAP_ERR_DISK_FAILURE;
-    }
+    
+    RETURN_WITH_WARN_IF_ERROR(
+            FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()),
+            OLAP_ERR_DISK_FAILURE,
+            "failed to dir walk when clone. clone_dir=" + clone_dir);
 
     try {
        olap_header_msg.CopyFrom(file_header.message());
@@ -608,10 +609,9 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
         files_to_delete.push_back(full_file_path);
     }
     // remove all files
-    if (!FileUtils::remove_paths(files_to_delete).ok()) {
-        return OLAP_ERR_IO_ERROR;
-    }
-
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_paths(files_to_delete), OLAP_ERR_IO_ERROR,
+            "remove paths failed.")
+    
     res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
@@ -655,16 +655,20 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         // TODO(ygl): convert old format file into rowset
         // check all files in /clone and /tablet
         set<string> clone_files;
-        if (!FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()).ok()) {
-            LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]";
+        Status ret = FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default());
+        if (!ret.ok()) {
+            LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]"
+                         << " error: " << ret.to_string();
             res = OLAP_ERR_DISK_FAILURE;
             break;
         }
 
         set<string> local_files;
         string tablet_dir = tablet->tablet_path();
-        if (!FileUtils::list_dirs_files(tablet_dir, NULL, &local_files, Env::Default()).ok()) {
-            LOG(WARNING) << "failed to dir walk when clone. [tablet_dir=" << tablet_dir << "]";
+        ret = FileUtils::list_dirs_files(tablet_dir, NULL, &local_files, Env::Default());
+        if (!ret.ok()) {
+            LOG(WARNING) << "failed to dir walk when clone. [tablet_dir=" << tablet_dir << "]"
+                         << " error: " << ret.to_string();
             res = OLAP_ERR_DISK_FAILURE;
             break;
         }

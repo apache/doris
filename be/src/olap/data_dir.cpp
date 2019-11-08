@@ -388,7 +388,6 @@ OLAPStatus DataDir::_read_and_write_test_file() {
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {
-    OLAPStatus res = OLAP_SUCCESS;
     std::lock_guard<std::mutex> l(_mutex);
 
     std::stringstream shard_path_stream;
@@ -397,10 +396,8 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
     if (!FileUtils::check_exist(shard_path)) {
-        if (!FileUtils::create_dir(shard_path).ok()) {
-            LOG(WARNING) << "fail to create path. [path='" << shard_path << "']";
-            return res;
-        }
+        RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
+                                  "fail to create path. path=" + shard_path);
     }
 
     *shard = next_shard;
@@ -637,19 +634,19 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
         std::string pending_delta_path = data_path_prefix + PENDING_DELTA_PREFIX;
         if (FileUtils::check_exist(pending_delta_path)) {
             LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-            if(!FileUtils::remove_all(pending_delta_path).ok()) {
-                LOG(INFO) << "errors while remove pending delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(pending_delta_path), true,
+                                      "errors while remove pending delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         std::string incremental_delta_path = data_path_prefix + INCREMENTAL_DELTA_PREFIX;
         if (FileUtils::check_exist(incremental_delta_path)) {
             LOG(INFO) << "remove incremental delta path:" << incremental_delta_path;
-            if(!FileUtils::remove_all(incremental_delta_path).ok()) {
-                LOG(INFO) << "errors while remove incremental delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(incremental_delta_path), true,
+                                      "errors while remove incremental delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
@@ -930,33 +927,44 @@ void DataDir::perform_path_scan() {
         LOG(INFO) << "start to scan data dir path:" << _path;
         std::set<std::string> shards;
         std::string data_path = _path + DATA_PREFIX;
-        if (!FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default()).ok()) {
-            LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
-            return;
+
+        Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
+        if (!ret.ok()) {
+            LOG(WARNING) << "fail to walk dir. path=[" + data_path 
+                          << "] error[" << ret.to_string() << "]";
+            return ;
         }
+        
         for (const auto& shard : shards) {
             std::string shard_path = data_path + "/" + shard;
             std::set<std::string> tablet_ids;
-            if (!FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default()).ok()) {
-                LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
+            ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
+            if (!ret.ok()) {
+                LOG(WARNING) << "fail to walk dir. [path=" << shard_path 
+                             << "] error[" << ret.to_string() << "]";
                 continue;
             }
             for (const auto& tablet_id : tablet_ids) {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
                 _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
-                if (!FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
-                                                Env::Default()).ok()) {
-                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
+                ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
+                                           Env::Default());
+                if (!ret.ok()) {
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
+                                 << " error[" << ret.to_string() << "]";
                     continue;
                 }
                 for (const auto& schema_hash : schema_hashes) {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
                     _all_check_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
-                    if (!FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
-                                                    Env::Default()).ok()) {
-                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
+                    
+                    ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
+                                                     Env::Default()); 
+                    if (!ret.ok()) {
+                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path 
+                                     << "] error[" << ret.to_string() << "]";
                         continue;
                     }
                     for (const auto& rowset_file : rowset_files) {
@@ -974,9 +982,7 @@ void DataDir::perform_path_scan() {
 void DataDir::_process_garbage_path(const std::string& path) {
     if (FileUtils::check_exist(path)) {
         LOG(INFO) << "collect garbage dir path: " << path;
-        if (!FileUtils::remove_all(path).ok()) {
-            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
-        }
+        WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
 }
 
