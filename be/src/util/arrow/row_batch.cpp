@@ -233,7 +233,7 @@ public:
                 case TYPE_DATE:
                 case TYPE_DATETIME: {
                     char buf[64];
-                    const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                    const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
                     char* pos = time_val->to_string(buf);
                     ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
                     break;
