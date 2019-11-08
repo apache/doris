@@ -56,7 +56,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.logging.log4j.LogManager;
