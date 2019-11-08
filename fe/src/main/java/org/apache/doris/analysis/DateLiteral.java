@@ -161,6 +161,16 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
+    public DateLiteral(LocalDateTime dateTime, Type type) {
+        this.year = dateTime.getYear();
+        this.month = dateTime.getMonthOfYear();
+        this.day = dateTime.getDayOfMonth();
+        this.hour = dateTime.getHourOfDay();
+        this.minute = dateTime.getMinuteOfHour();
+        this.second = dateTime.getSecondOfMinute();
+        this.type = type;                                                            
+    }
+
     public DateLiteral(DateLiteral other) {
         super(other);
         hour = other.hour;
@@ -540,17 +550,38 @@ public class DateLiteral extends LiteralExpr {
         return builder;
     }
 
-    public DateLiteral plusDays(int day) throws AnalysisException {
-        LocalDateTime dateTime;
+    public LocalDateTime getTimeFormatter() throws AnalysisException {
         if (type == Type.DATE) {
-            dateTime = DATE_FORMATTER.parseLocalDateTime(getStringValue()).plusDays(day);                                        
+            return DATE_FORMATTER.parseLocalDateTime(getStringValue());                        
+        } else if (type == Type.DATETIME) {
+            return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue());
         } else {
-            dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue()).plusDays(day);
-        }
-        DateLiteral dateLiteral = new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
-                dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());                                
-        dateLiteral.setType(type);
-        return dateLiteral;
+            throw new AnalysisException("Not support date literal type");
+        }        
+    }
+
+    public DateLiteral plusYears(int year) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusYears(year), type);
+    }
+
+    public DateLiteral plusMonths(int month) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusMonths(month), type);
+    }
+
+    public DateLiteral plusDays(int day) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusDays(day), type);
+    }
+
+    public DateLiteral plusHours(int hour) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusHours(hour), type);
+    }
+
+    public DateLiteral plusMinutes(int minute) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
+    }
+
+    public DateLiteral plusSeconds(int second) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusSeconds(second), type);
     }
 
     public long getYear() {
