@@ -687,10 +687,15 @@ public class Catalog {
         File roleFile = new File(IMAGE_DIR, Storage.ROLE_FILE);
         File versionFile = new File(IMAGE_DIR, Storage.VERSION_FILE);
 
-        // helper node is the local node. This usually happens when the very
-        // first node to start,
-        // or when one node to restart.
-        if (isMyself()) {
+        // if helper node is point to self, or there is ROLE and VERSION file in local.
+        // get the node type from local
+        if (isMyself() || (roleFile.exists() && versionFile.exists())) {
+
+            if (!isMyself()) {
+                LOG.info("find ROLE and VERSION file in local, ignore helper nodes: {}", helperNodes);
+            }
+
+            // check file integrity, if has.
             if ((roleFile.exists() && !versionFile.exists())
                     || (!roleFile.exists() && versionFile.exists())) {
                 LOG.error("role file and version file must both exist or both not exist. "
