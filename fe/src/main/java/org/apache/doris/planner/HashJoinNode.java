@@ -54,7 +54,7 @@ public class HashJoinNode extends PlanNode {
 
     private final TableRef     innerRef;
     private final JoinOperator joinOp;
-    // predicates of the form "<lhs> = <rhs>", recorded as Pair(<lhs>, <rhs>)
+    // predicates of the form 'a=b' or 'a<=>b'
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private  List<Expr> otherJoinConjuncts;
