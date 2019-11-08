@@ -75,11 +75,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type,
     case TYPE_HLL:
     case TYPE_DECIMAL:
     case TYPE_LARGEINT:
-        *result = arrow::utf8();
-        break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-        *result = arrow::date64();
+        *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -232,6 +230,14 @@ public:
                     }
                     break;
                 }
+                case TYPE_DATE:
+                case TYPE_DATETIME: {
+                    char buf[64];
+                    const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
+                    char* pos = time_val->to_string(buf);
+                    ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                    break;
+                }
                 case TYPE_LARGEINT: {
                     char buf[48];
                     int len = 48;
@@ -254,30 +260,7 @@ public:
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
-
-    // process date/datetime
-    arrow::Status Visit(const arrow::Date64Type& type) override {
-        arrow::Date64Builder builder(_pool);
-        size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
-        for (size_t i = 0; i < num_rows; ++i) {
-            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
-            if (is_null) {
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
-                continue;
-            }
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-            int64_t ts = 0;
-            if (time_val->unix_timestamp(&ts, _time_zone)) {
-                ARROW_RETURN_NOT_OK(builder.Append(ts * 1000));
-            } else {
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
-            }             
-        }
-        return builder.Finish(&_arrays[_cur_field_idx]);
-    }
-
+    
     // process doris DecimalV2
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
         std::shared_ptr<arrow::DataType> s_decimal_ptr = std::make_shared<arrow::Decimal128Type>(27, 9);
