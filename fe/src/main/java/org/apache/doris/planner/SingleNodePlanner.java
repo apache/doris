@@ -1313,6 +1313,14 @@ public class SingleNodePlanner {
                 continue;
             }
 
+            /**
+             * The left and right child of origin predicates need to be swap sometimes.
+             * Case A:
+             * select * from t1 join t2 on t2.id=t1.id
+             * The left plan node is t1 and the right plan node is t2.
+             * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
+             * In this situation, the children of predicate need to be swap => t1.id=t2.id.
+             */
             Expr rhsExpr = null;
             if (e.getChild(0).isBoundByTupleIds(rhsIds)) {
                 rhsExpr = e.getChild(0);
@@ -1333,6 +1341,8 @@ public class SingleNodePlanner {
 
             Preconditions.checkState(lhsExpr != rhsExpr);
             Preconditions.checkState(e instanceof BinaryPredicate);
+            // The new predicate id must same as the origin predicate.
+            // This expr id is used to mark as assigned in the future.
             BinaryPredicate newEqJoinPredicate = (BinaryPredicate) e.clone();
             newEqJoinPredicate.setChild(0, lhsExpr);
             newEqJoinPredicate.setChild(1, rhsExpr);
