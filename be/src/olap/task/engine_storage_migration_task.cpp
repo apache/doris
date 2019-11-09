@@ -154,7 +154,15 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             res = OLAP_ERR_META_ALREADY_EXIST;
             break;
         }
-        FileUtils::create_dir(schema_hash_path);
+        
+        Status st = FileUtils::create_dir(schema_hash_path);
+
+        if (!st.ok()) {
+            res = OLAP_ERR_CANNOT_CREATE_DIR;
+            LOG(WARNING) << "fail to create path. path=" << schema_hash_path << ", error:" << st.to_string();
+            break;
+        }
+
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);

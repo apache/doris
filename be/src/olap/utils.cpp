@@ -1024,7 +1024,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     if (sub_dirs.empty() && sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        FileUtils::remove(source_parent_dir);
+        Env::Default()->delete_dir(source_parent_dir);
     }
 
     return OLAP_SUCCESS;

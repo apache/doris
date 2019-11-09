@@ -450,7 +450,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             set<string> exist_old_files;
             Status ret = FileUtils::list_dirs_files(schema_full_path, nullptr, &exist_old_files,
                                        Env::Default());
-            if (!ret.ok()) {
+            if (!ret.ok()) { 
+                res = OLAP_ERR_DISK_FAILURE;
                 LOG(WARNING) << "failed to dir walk when convert old files. dir=" 
                              << schema_full_path << ", error:" << ret.to_string();
                 break;
@@ -472,6 +473,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             // remove all files
             ret = FileUtils::remove_paths(files_to_delete);
             if (!ret.ok()) {
+                res = OLAP_ERR_IO_ERROR;
                 LOG(WARNING) << "remove paths failed. error: " << ret.to_string(); 
                 break;
             }
