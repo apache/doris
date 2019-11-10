@@ -5744,7 +5744,10 @@ public class Catalog {
                     final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());
                     String errMsg = "InfoSchemaDb id shouldn't larger than 10000, please restart your FE server";
-                    // ensure InfoSchemaDb meta don't overwrite the normal db meta
+                    // Every time we construct the InfoSchemaDb, which id will increment.
+                    // When InfoSchemaDb id larger than 10000 and put it to idToDb,
+                    // which may be overwrite the normal db meta in idToDb,
+                    // so we ensure InfoSchemaDb id less than 10000.
                     Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
                     idToDb.put(db.getId(), db);
                     fullNameToDb.put(db.getFullName(), db);
