@@ -38,7 +38,7 @@ public class Log4jConfig extends XmlConfiguration {
     
     private static String xmlConfTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + 
             "\n" + 
-            "<Configuration status=\"debug\" packages=\"org.apache.doris.common\">\n" + 
+            "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n" + 
             "  <Appenders>\n" + 
             "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
