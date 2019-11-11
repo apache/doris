@@ -34,7 +34,8 @@ public class Config extends ConfigBase {
      *      INFO, WARNING, ERROR, FATAL
      *      
      * sys_log_roll_num:
-     *      Maximal FE log files to be kept.
+     *      Maximal FE log files to be kept within an sys_log_roll_interval.
+     *      default is 10, which means there will be at most 10 log files in a day
      *      
      * sys_log_verbose_modules:
      *      Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
@@ -45,12 +46,21 @@ public class Config extends ConfigBase {
      * sys_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
      *      HOUR: log suffix is yyyyMMddHH
+     *      
+     * sys_log_delete_age:
+     *      default is 7 days, if log's last modify time is 7 days ago, it will be deleted.
+     *      support format:
+     *          7d      7 days
+     *          10h     10 hours
+     *          60m     60 mins
+     *          120s    120 seconds
      */
     @ConfField public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
     @ConfField public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
+    @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
     @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024";
 
@@ -60,7 +70,7 @@ public class Config extends ConfigBase {
      *      Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc.
      * 
      * audit_log_roll_num:
-     *      Maximal FE audit log files to be kept.
+     *      Maximal FE audit log files to be kept within an audit_log_roll_interval.
      *      
      * audit_log_modules:
      *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
@@ -71,12 +81,21 @@ public class Config extends ConfigBase {
      * audit_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
      *      HOUR: log suffix is yyyyMMddHH
+     *      
+     * audit_log_delete_age:
+     *      default is 30 days, if log's last modify time is 30 days ago, it will be deleted.
+     *      support format:
+     *          7d      7 days
+     *          10h     10 hours
+     *          60m     60 mins
+     *          120s    120 seconds
      */
     @ConfField public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
-    @ConfField public static int audit_log_roll_num = 90; // nearly 3 months
+    @ConfField public static int audit_log_roll_num = 90;
     @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
     @ConfField public static String audit_log_roll_interval = "DAY";
+    @ConfField public static String audit_log_delete_age = "30d";
     @Deprecated
     @ConfField public static String audit_log_roll_mode = "TIME-DAY";
 
