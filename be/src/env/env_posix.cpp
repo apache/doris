@@ -16,10 +16,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/uio.h>
+#include <memory>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
+#include "gutil/gscoped_ptr.h"
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
@@ -36,16 +38,16 @@ static Status io_error(const std::string& context, int err_number) {
     case ENAMETOOLONG:
     case ENOENT:
     case ENOTDIR:
-        return Status::NotFound(context, 1, errno_to_string(err_number));
+        return Status::NotFound(context, err_number, errno_to_string(err_number));
     case EEXIST:
-        return Status::AlreadyExist(context, 1, errno_to_string(err_number));
+        return Status::AlreadyExist(context, err_number, errno_to_string(err_number));
     case EOPNOTSUPP:
     case EXDEV: // No cross FS links allowed
-        return Status::NotSupported(context, 1, errno_to_string(err_number));
+        return Status::NotSupported(context, err_number, errno_to_string(err_number));
     case EIO:
         LOG(ERROR) << "I/O error, context=" << context;
     }
-    return Status::IOError(context, 1, errno_to_string(err_number));
+    return Status::IOError(context, err_number, errno_to_string(err_number));
 }
 
 Status do_sync(int fd, const string& filename) {
@@ -543,7 +545,7 @@ public:
         return Status::OK();
     }
 
-    Status file_exists(const std::string& fname) override {
+    Status path_exists(const std::string& fname) override {
         if (access(fname.c_str(), F_OK) != 0) {
             return io_error(fname, errno);
         }
@@ -594,6 +596,26 @@ public:
         if (mkdir(name.c_str(), 0755) != 0) {
             return io_error(name, errno);
         }
+        return Status::OK();
+    }
+
+    Status is_directory(const std::string& path, bool* is_dir) override {
+        struct stat path_stat;
+        if (stat(path.c_str(), &path_stat) != 0) {
+            return io_error(path, errno);
+        } else {
+            *is_dir = S_ISDIR(path_stat.st_mode);
+        }
+
+        return Status::OK();
+    }
+
+    Status canonicalize(const std::string& path, std::string* result) override {
+        std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
+        if (r == nullptr) {
+            return io_error(Substitute("Unable to canonicalize $0", path), errno);
+        }
+        *result = std::string(r.get());
         return Status::OK();
     }
 

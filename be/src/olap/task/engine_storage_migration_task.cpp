@@ -138,7 +138,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(tablet, root_path_stream.str());
         // if dir already exist then return err, it should not happen
         // should not remove the dir directly
-        if (check_dir_existed(schema_hash_path)) {
+        if (FileUtils::check_exist(schema_hash_path)) {
             LOG(INFO) << "schema hash path already exist, skip this path. "
                       << "schema_hash_path=" << schema_hash_path;
             res = OLAP_ERR_FILE_ALREADY_EXIST;
@@ -154,7 +154,15 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             res = OLAP_ERR_META_ALREADY_EXIST;
             break;
         }
-        create_dirs(schema_hash_path);
+        
+        Status st = FileUtils::create_dir(schema_hash_path);
+
+        if (!st.ok()) {
+            res = OLAP_ERR_CANNOT_CREATE_DIR;
+            LOG(WARNING) << "fail to create path. path=" << schema_hash_path << ", error:" << st.to_string();
+            break;
+        }
+
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
@@ -262,9 +270,11 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
     for (auto& rs : consistent_rowsets) {
         status = rs->copy_files_to(schema_hash_path);
         if (status != OLAP_SUCCESS) {
-            if (remove_all_dir(schema_hash_path) != OLAP_SUCCESS) {
+            Status ret = FileUtils::remove_all(schema_hash_path);
+            if (!ret.ok()) {
                 LOG(FATAL) << "remove storage migration path failed. "
-                           << "schema_hash_path:" << schema_hash_path;
+                           << "schema_hash_path:" << schema_hash_path
+                           << " error: " << ret.to_string();
             }
             break;
         }
