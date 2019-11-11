@@ -681,6 +681,7 @@ under the License.
                 </configuration>
             </plugin>
 
+            <!-- for FE java code style checking -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
@@ -702,6 +703,22 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- clean fe/target dir before building -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>auto-clean</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
 
         <pluginManagement>
