@@ -101,12 +101,12 @@ public:
                                       const std::string& fname,
                                       std::unique_ptr<RandomRWFile>* result) = 0;
 
-    // Returns OK if the named file exists.
+    // Returns OK if the path exists.
     //         NotFound if the named file does not exist,
     //                  the calling process does not have permission to determine
     //                  whether this file exists, or if the path is invalid.
     //         IOError if an IO Error was encountered
-    virtual Status file_exists(const std::string& fname) = 0;
+    virtual Status path_exists(const std::string& fname) = 0;
 
     // Store in *result the names of the children of the specified directory.
     // The names are relative to "dir".
@@ -139,6 +139,18 @@ public:
 
     // Create the specified directory. Returns error if directory exists.
     virtual Status create_dir(const std::string& dirname) = 0;
+
+    // Checks if the file is a directory. Returns an error if it doesn't
+    // exist, otherwise writes true or false into 'is_dir' appropriately.
+    virtual Status is_directory(const std::string& path, bool* is_dir) = 0;
+
+    // Canonicalize 'path' by applying the following conversions:
+    // - Converts a relative path into an absolute one using the cwd.
+    // - Converts '.' and '..' references.
+    // - Resolves all symbolic links.
+    //
+    // All directory entries in 'path' must exist on the filesystem.
+    virtual Status canonicalize(const std::string& path, std::string* result) = 0;
 
     // Creates directory if missing. Return Ok if it exists, or successful in
     // Creating.

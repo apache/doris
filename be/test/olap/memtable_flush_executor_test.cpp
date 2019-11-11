@@ -35,6 +35,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
 
@@ -47,8 +48,8 @@ void set_up() {
     char buffer[1024];
     getcwd(buffer, 1024);
     config::storage_root_path = std::string(buffer) + "/flush_test";
-    remove_all_dir(config::storage_root_path);
-    create_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -66,7 +67,7 @@ void tear_down() {
     delete k_engine;
     k_engine = nullptr;
     system("rm -rf ./flush_test");
-    remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 Schema create_schema() {

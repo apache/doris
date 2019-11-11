@@ -386,20 +386,7 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
 
 OLAPStatus copy_file(const std::string& src, const std::string& dest);
 
-bool check_dir_existed(const std::string& path);
-
-OLAPStatus create_dir(const std::string& path);
-OLAPStatus create_dirs(const std::string& path);
-
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
-
-OLAPStatus remove_files(const std::vector<std::string>& files);
-
-OLAPStatus remove_dir(const std::string& path);
-
-OLAPStatus remove_parent_dir(const std::string& path);
-
-OLAPStatus remove_all_dir(const std::string& path);
 
 //转换两个list
 template<typename T1, typename T2>
@@ -425,8 +412,6 @@ private:
     static __thread char _buf[BUF_SIZE];
 };
 
-OLAPStatus dir_walk(const std::string& root, std::set<std::string>* dirs, std::set<std::string>* files);
-
 inline bool is_io_error(OLAPStatus status) {
     return (((OLAP_ERR_IO_ERROR == status || OLAP_ERR_READ_UNENOUGH == status)&& errno == EIO)
                 || OLAP_ERR_CHECKSUM_ERROR == status
@@ -438,11 +423,6 @@ inline bool is_io_error(OLAPStatus status) {
 #define ENDSWITH(str, suffix)   \
     ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
-OLAPStatus remove_unused_files(const std::string& schema_hash_root,
-                           const std::set<std::string>& files,
-                           const std::string& header,
-                           const std::set<std::string>& indices,
-                           const std::set<std::string>& datas);
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
 template <typename T>

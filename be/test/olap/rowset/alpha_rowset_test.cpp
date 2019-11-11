@@ -24,6 +24,7 @@
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -52,27 +53,22 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    OLAPStatus res = create_dir(config::storage_root_path);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    FileUtils::remove_all(config::storage_root_path);
+    ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
     std::string data_path = config::storage_root_path + "/data";
-    res = create_dir(data_path);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    ASSERT_TRUE(FileUtils::create_dir(data_path).ok());
     std::string shard_path = data_path + "/0";
-    res = create_dir(shard_path);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    ASSERT_TRUE(FileUtils::create_dir(shard_path).ok());
     std::string tablet_path = shard_path + "/12345";
-    res = create_dir(tablet_path);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    ASSERT_TRUE(FileUtils::create_dir(tablet_path).ok());
     std::string schema_hash_path = tablet_path + "/1111";
-    res = create_dir(schema_hash_path);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    ASSERT_TRUE(FileUtils::create_dir(schema_hash_path).ok());
 }
 
 void tear_down() {
-    remove_all_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
 }
 
 void create_rowset_writer_context(TabletSchema* tablet_schema,
