@@ -67,7 +67,7 @@ public:
                                    uint64_t request_block_row_count,
                                    std::vector<OlapTuple>* ranges) = 0;
 
-    RowsetMetaSharedPtr rowset_meta() const { return _rowset_meta; }
+    const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
     bool is_pending() const { return _is_pending; }
 
