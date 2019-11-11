@@ -113,6 +113,11 @@ class RowRanges {
 public:
     RowRanges() : _count(0) { }
 
+    void clear() {
+        _ranges.clear();
+        _count = 0;
+    }
+
     // Creates a new RowRanges object with the single range [0, row_count).
     static RowRanges create_single(uint64_t row_count) {
         RowRanges ranges;

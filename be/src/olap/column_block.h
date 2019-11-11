@@ -32,8 +32,10 @@ class ColumnBlockCell;
 // It doesn't own any data, user should keep the life of input data.
 class ColumnBlock {
 public:
-    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap, size_t nrows, MemPool* pool)
-        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap),  _nrows(nrows), _pool(pool) { }
+    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap,
+                size_t nrows, MemPool* pool)
+        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap),
+          _nrows(nrows), _delete_state(DEL_NOT_SATISFIED), _pool(pool) { }
 
     const TypeInfo* type_info() const { return _type_info; }
     uint8_t* data() const { return _data; }
@@ -55,11 +57,18 @@ public:
 
     size_t nrows() const { return _nrows; }
 
+    void set_delete_state(DelCondSatisfied delete_state) {
+        _delete_state = delete_state;
+    }
+
+    DelCondSatisfied delete_state() const { return _delete_state; }
+
 private:
     const TypeInfo* _type_info;
     uint8_t* _data;
     uint8_t* _null_bitmap;
     size_t _nrows;
+    DelCondSatisfied _delete_state;
     MemPool* _pool;
 };
 
