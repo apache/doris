@@ -36,6 +36,7 @@
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 
 using namespace testing;
 using namespace doris;
@@ -46,13 +47,13 @@ namespace doris {
 void set_up() {
     config::storage_root_path = "./test_run/data_test";
     system("rm -rf ./test_run && mkdir -p ./test_run");
-    create_dir(config::storage_root_path);
+    FileUtils::create_dir(config::storage_root_path);
     touch_all_singleton();
 }
 
 void tear_down() {
     system("rm -rf ./test_run");
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -153,14 +154,14 @@ public:
         while (0 == access(_tablet_name.c_str(), F_OK)) {
             sleep(1);
         }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     void init_olap_row() {
         // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/row_tablet";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -185,8 +186,8 @@ public:
     void init_olap_column() {
         // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/column_tablet";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet

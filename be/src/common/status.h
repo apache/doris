@@ -256,6 +256,14 @@ private:
         } \
     } while (0);
 
+#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix) \
+    do {    \
+        const Status& _s = (stmt);  \
+        if (UNLIKELY(!_s.ok())) {   \
+            LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
+            return ret_code;    \
+        }   \
+    } while (0);
 }
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
