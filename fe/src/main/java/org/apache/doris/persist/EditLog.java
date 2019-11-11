@@ -762,8 +762,9 @@ public class EditLog {
                     txId, numTransactions, totalTimeTransactions, op);
         }
 
-        if (txId == Config.edit_log_roll_num) {
-            LOG.info("txId is equal to edit_log_roll_num {}, will roll edit.", txId);
+        if (txId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
+                    txId, Config.edit_log_roll_num);
             rollEditLog();
             txId = 0;
         }
