@@ -53,13 +53,14 @@ SegmentIterator::~SegmentIterator() {
 
 Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
+    RETURN_IF_ERROR(_init_column_iterators());
     RETURN_IF_ERROR(_get_row_ranges_by_keys());
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     if (!_row_ranges.is_empty()) {
         _cur_range_id = 0;
         _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
     }
-    RETURN_IF_ERROR(_init_column_iterators());
+    RETURN_IF_ERROR(_seek_columns(_schema.column_ids(), _cur_rowid));
     return Status::OK();
 }
 
@@ -137,11 +138,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
-    if (_opts.conditions != nullptr) {
-        RowRanges zone_map_row_ranges;
-        RETURN_IF_ERROR(_get_row_ranges_from_zone_map(&zone_map_row_ranges));
-        RowRanges::ranges_intersection(_row_ranges, zone_map_row_ranges, &_row_ranges);
-        // TODO(hkp): get row ranges from bloom filter and secondary index
+    if (_opts.conditions != nullptr || _opts.delete_conditions.size() > 0) {
+        RowRanges condition_row_ranges;
+        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
+        RowRanges::ranges_intersection(_row_ranges, condition_row_ranges, &_row_ranges);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -149,7 +149,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     return Status::OK();
 }
 
-Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges) {
+Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
     std::set<int32_t> cids;
     for (auto& column_condition : _opts.conditions->columns()) {
@@ -164,24 +164,18 @@ Status SegmentIterator::_get_row_ranges_from_zone_map(RowRanges* zone_map_row_ra
         }
     }
     for (auto& cid : cids) {
-        // get row ranges from zone map
-        if (!_segment->_column_readers[cid]->has_zone_map()) {
-            // there is no zone map for this column
-            continue;
-        }
-        // get row ranges by zone map of this column
-        RowRanges column_zone_map_row_ranges;
+        // get row ranges by conditions against zone map/bf indexes of this column,
+        RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         RETURN_IF_ERROR(
-            _segment->_column_readers[cid]->get_row_ranges_by_zone_map(
+            _column_iterators[cid]->get_row_ranges_by_conditions(
                 _opts.conditions->get_column(cid),
                 column_delete_conditions[cid],
-                _opts.stats,
-                &column_zone_map_row_ranges));
-        // intersection different columns's row ranges to get final row ranges by zone map
-        RowRanges::ranges_intersection(origin_row_ranges, column_zone_map_row_ranges, &origin_row_ranges);
+                &column_row_ranges));
+        // intersection different columns's row ranges to get final row ranges by conditions
+        RowRanges::ranges_intersection(origin_row_ranges, column_row_ranges, &origin_row_ranges);
     }
-    *zone_map_row_ranges = std::move(origin_row_ranges);
-    DorisMetrics::segment_rows_read_by_zone_map.increment(zone_map_row_ranges->count());
+    *condition_row_ranges = std::move(origin_row_ranges);
+    DorisMetrics::segment_rows_read_by_zone_map.increment(condition_row_ranges->count());
     return Status::OK();
 }
 
@@ -197,7 +191,7 @@ Status SegmentIterator::_init_column_iterators() {
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
-    return _seek_columns(_schema.column_ids(), _cur_rowid);
+    return Status::OK();
 }
 
 // Schema of lhs and rhs are different.
@@ -294,6 +288,7 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
         size_t num_rows = has_read ? first_read : *rows_read;
         auto column_block = block->column_block(cid);
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &column_block));
+        block->set_delete_state(column_block.delete_state());
         if (!has_read) {
             has_read = true;
             first_read = num_rows;
