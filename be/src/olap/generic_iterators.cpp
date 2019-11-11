@@ -257,7 +257,6 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
 
 Status MergeIterator::next_batch(RowBlockV2* block) {
     size_t row_idx = 0;
-    block->set_delete_state(DEL_NOT_SATISFIED);
     for (; row_idx < block->capacity() && !_merge_heap->empty(); ++row_idx) {
         auto ctx = _merge_heap->top();
         _merge_heap->pop();
@@ -266,6 +265,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         // copy current row to block
         copy_row(&dst_row, ctx->current_row(), block->pool());
 
+        // TODO(hkp): refactor conditions and filter rows here with delete conditions
         if (ctx->is_partial_delete()) {
             block->set_delete_state(DEL_PARTIAL_SATISFIED);
         }
