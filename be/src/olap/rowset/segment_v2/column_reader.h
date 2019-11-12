@@ -97,6 +97,7 @@ public:
     Status get_row_ranges_by_zone_map(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       OlapReaderStatistics* stats,
+                                      std::vector<uint32_t>* delete_partial_filtered_pages,
                                       RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
@@ -117,12 +118,14 @@ private:
             return Status::OK();
         });
     }
+
     Status _load_zone_map_index();
     Status _load_ordinal_index();
 
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
                                OlapReaderStatistics* stats,
+                               std::vector<uint32_t>* delete_partial_filtered_pages,
                                std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
@@ -170,6 +173,10 @@ public:
 
     virtual rowid_t get_current_ordinal() const = 0;
 
+    virtual Status get_row_ranges_by_conditions(CondColumn* cond_column,
+                                                const std::vector<CondColumn*>& delete_conditions,
+                                                RowRanges* row_ranges) { return Status::OK(); }
+
 #if 0
     // Call this function every time before next_batch.
     // This function will preload pages from disk into memory if necessary.
@@ -206,6 +213,13 @@ public:
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
+    // get row ranges by conditions
+    // - cond_column is user's query predicate
+    // - delete_conditions is a vector of delete predicate of different version
+    Status get_row_ranges_by_conditions(CondColumn* cond_column,
+                                      const std::vector<CondColumn*>& delete_conditions,
+                                      RowRanges* row_ranges) override;
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
     Status _load_next_page(bool* eos);
@@ -232,6 +246,9 @@ private:
 
     // current rowid
     rowid_t _current_rowid = 0;
+
+    // page indexes those are DEL_PARTIAL_SATISFIED
+    std::vector<uint32_t> _delete_partial_statisfied_pages;
 };
 
 // This iterator is used to read default value column

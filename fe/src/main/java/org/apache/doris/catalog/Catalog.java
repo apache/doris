@@ -545,6 +545,10 @@ public class Catalog {
         return tabletChecker;
     }
 
+    public ConcurrentHashMap<String, Database> getFullNameToDb() {
+        return fullNameToDb;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentCatalog().getClusterInfo();
@@ -1843,7 +1847,7 @@ public class Catalog {
             Database db = entry.getValue();
             String dbName = db.getFullName();
             // Don't write information_schema db meta
-            if (!dbName.endsWith(InfoSchemaDb.DATABASE_NAME)) {
+            if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
                 checksum ^= entry.getKey();
                 db.readLock();
                 try {
@@ -5739,20 +5743,25 @@ public class Catalog {
                 // for adding BE to some Cluster, but loadCluster is after loadBackend.
                 cluster.setBackendIdList(latestBackendIds);
 
-                String dbName = ClusterNamespace.getFullName(cluster.getName(), InfoSchemaDb.DATABASE_NAME);
-                if (!fullNameToDb.containsKey(dbName)) {
-                    final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
+                String dbName =  InfoSchemaDb.getFullInfoSchemaDbName(cluster.getName());
+                InfoSchemaDb db;
+                // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
+                // when checkpoint thread load image.
+                if (Catalog.getInstance().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getInstance().getFullNameToDb().get(dbName);
+                } else {
+                    db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());
-                    String errMsg = "InfoSchemaDb id shouldn't larger than 10000, please restart your FE server";
-                    // Every time we construct the InfoSchemaDb, which id will increment.
-                    // When InfoSchemaDb id larger than 10000 and put it to idToDb,
-                    // which may be overwrite the normal db meta in idToDb,
-                    // so we ensure InfoSchemaDb id less than 10000.
-                    Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
-                    idToDb.put(db.getId(), db);
-                    fullNameToDb.put(db.getFullName(), db);
                 }
-                cluster.addDb(dbName, fullNameToDb.get(dbName).getId());
+                String errMsg = "InfoSchemaDb id shouldn't larger than 10000, please restart your FE server";
+                // Every time we construct the InfoSchemaDb, which id will increment.
+                // When InfoSchemaDb id larger than 10000 and put it to idToDb,
+                // which may be overwrite the normal db meta in idToDb,
+                // so we ensure InfoSchemaDb id less than 10000.
+                Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
+                idToDb.put(db.getId(), db);
+                fullNameToDb.put(db.getFullName(), db);
+                cluster.addDb(dbName, db.getId());
                 idToCluster.put(cluster.getId(), cluster);
                 nameToCluster.put(cluster.getName(), cluster);
             }

@@ -61,8 +61,8 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     Status _get_row_ranges_by_column_conditions();
-    // TODO move column index related logic to ColumnReader
-    Status _get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges);
+
+    Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
 
     Status _init_column_iterators();
 

@@ -116,6 +116,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                 block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -164,6 +165,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
+            ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
             ASSERT_TRUE(st.ok());
             ASSERT_EQ(11, block.num_rows());
             auto column_block = block.column_block(0);
@@ -342,6 +344,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -403,6 +406,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
                 ASSERT_EQ(rows_read, block.num_rows());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -573,6 +577,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                 block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -727,6 +732,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -828,6 +834,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 block.clear();
                 st = iter->next_batch(&block);
                 ASSERT_TRUE(st.ok());
+                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 ASSERT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 

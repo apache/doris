@@ -20,6 +20,7 @@
 #include <set>
 #include <stdio.h>  // for remove()
 #include <unistd.h> // for link()
+#include <util/file_utils.h>
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/utils.h"
@@ -96,7 +97,7 @@ OLAPStatus BetaRowset::remove() {
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
         std::string dst_link_path = segment_file_path(dir, new_rowset_id, i);
-        if (check_dir_existed(dst_link_path)) {
+        if (FileUtils::check_exist(dst_link_path)) {
             LOG(WARNING) << "failed to create hard link, file already exist: " << dst_link_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
@@ -113,7 +114,7 @@ OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset
 OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
     for (int i = 0; i < num_segments(); ++i) {
         std::string dst_path = segment_file_path(dir, rowset_id(), i);
-        if (check_dir_existed(dst_path)) {
+        if (FileUtils::check_exist(dst_path)) {
             LOG(WARNING) << "file already exist: " << dst_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }

@@ -65,6 +65,8 @@ struct ParsedPage {
     // current offset when read this page
     // this means next row we will read
     uint32_t offset_in_page = 0;
+
+    uint32_t page_index = 0;
     
     bool contains(rowid_t rid) { return rid >= first_rowid && rid < (first_rowid + num_rows); }
     rowid_t last_rowid() { return first_rowid + num_rows - 1; }
@@ -176,12 +178,12 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
 Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                 const std::vector<CondColumn*>& delete_conditions,
                                                 OlapReaderStatistics* stats,
+                                                std::vector<uint32_t>* delete_partial_filtered_pages,
                                                 RowRanges* row_ranges) {
-    DCHECK(has_zone_map());
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, delete_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
@@ -189,6 +191,7 @@ Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
 Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                                          const std::vector<CondColumn*>& delete_conditions,
                                          OlapReaderStatistics* stats,
+                                         std::vector<uint32_t>* delete_partial_filtered_pages,
                                          std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _column_zone_map->get_column_zone_map();
@@ -214,12 +217,15 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
         if (cond_column == nullptr || cond_column->eval({min_value.get(), max_value.get()})) {
             bool should_read = true;
             for (auto& col_cond : delete_conditions) {
-                if (col_cond->del_eval({min_value.get(), max_value.get()}) == DEL_SATISFIED) {
+                int state = col_cond->del_eval({min_value.get(), max_value.get()});
+                if (state == DEL_SATISFIED) {
                     should_read = false;
                     rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
                     rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
-                    stats->rows_del_filtered =+ page_last_id - page_first_id + 1;
+                    stats->rows_del_filtered += page_last_id - page_first_id + 1;
                     break;
+                } else if (state == DEL_PARTIAL_SATISFIED) {
+                    delete_partial_filtered_pages->push_back(i);
                 }
             }
             if (should_read) {
@@ -236,6 +242,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
 }
 
 Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+    row_ranges->clear();
     for (auto i : page_indexes) {
         rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
         rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
@@ -358,6 +365,14 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
             }
         }
 
+        auto iter = std::find(_delete_partial_statisfied_pages.begin(),
+                _delete_partial_statisfied_pages.end(), _page->page_index);
+        bool is_partial = iter != _delete_partial_statisfied_pages.end();
+        if (is_partial) {
+            dst->set_delete_state(DEL_PARTIAL_SATISFIED);
+        } else {
+            dst->set_delete_state(DEL_NOT_SATISFIED);
+        }
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());
         size_t nrows_to_read = nrows_in_page;
@@ -476,7 +491,20 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     }
 
     page->offset_in_page = 0;
+    page->page_index = iter.cur_idx();
+    return Status::OK();
+}
 
+Status FileColumnIterator::get_row_ranges_by_conditions(CondColumn* cond_column,
+                                      const std::vector<CondColumn*>& delete_conditions,
+                                      RowRanges* row_ranges) {
+    if (!_reader->has_zone_map()) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions, 
+            _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
+    // TODO(hkp): get row ranges from bloom filter and secondary index
     return Status::OK();
 }
 

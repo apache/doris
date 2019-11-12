@@ -29,6 +29,7 @@
 #include "olap/txn_manager.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -51,8 +52,8 @@ public:
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
-        create_dirs(_engine_data_path);
-        create_dirs(_engine_data_path + "/meta");
+        FileUtils::create_dir(_engine_data_path);
+        FileUtils::create_dir(_engine_data_path + "/meta");
 
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
@@ -124,7 +125,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr.get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = check_dir_existed(tablet->tablet_path());
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
     ASSERT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -186,7 +187,7 @@ TEST_F(TabletMgrTest, DropTablet) {
 
     // check dir exist
     std::string tablet_path = tablet->tablet_path();
-    bool dir_exist = check_dir_existed(tablet_path);
+    bool dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 
     // do trash sweep, tablet will not be garbage collected
@@ -195,7 +196,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
     tablet = _tablet_mgr.get_tablet(111, 3333, true);
     ASSERT_TRUE(tablet != nullptr);
-    dir_exist = check_dir_existed(tablet_path);
+    dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 
     // reset tablet ptr
@@ -204,7 +205,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
     tablet = _tablet_mgr.get_tablet(111, 3333, true);
     ASSERT_TRUE(tablet == nullptr);
-    dir_exist = check_dir_existed(tablet_path);
+    dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(!dir_exist);
 }
 

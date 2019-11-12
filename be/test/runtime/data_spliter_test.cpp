@@ -29,6 +29,7 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_main.cpp"
+#include "util/file_utils.h"
 
 namespace doris {
 
@@ -276,7 +277,7 @@ int main(int argc, char** argv) {
     }
     // 覆盖be.conf中的配置
     doris::config::storage_root_path = "./test_run/mini_load";
-    doris::create_dirs(doris::config::storage_root_path);
+    doris::FileUtils::create_dir(doris::config::storage_root_path);
     doris::touch_all_singleton();
 
     doris::CpuInfo::init();
