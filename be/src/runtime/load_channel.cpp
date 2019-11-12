@@ -84,7 +84,7 @@ Status LoadChannel::add_batch(
     }
 
     // 2. check if mem consumption exceed limit
-    handle_mem_exceed_limit(false);
+    _handle_mem_exceed_limit();
 
     // 3. add batch to tablets channel
     if (request.has_row_batch()) {
@@ -106,15 +106,15 @@ Status LoadChannel::add_batch(
     return st;
 }
 
-void LoadChannel::handle_mem_exceed_limit(bool force) {
+void LoadChannel::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
-    if (!force && !_mem_tracker->any_limit_exceeded()) {
+    if (!_mem_tracker->any_limit_exceeded()) {
         return;
     }
 
     VLOG(1) << "mem consumption: " << _mem_tracker->consumption()
-        << " may exceed limit. force: " << force << ", load id: " << _load_id;
+        << " may exceed limit. load id: " << _load_id;
     std::shared_ptr<TabletsChannel> channel;
     if (_find_largest_max_consumption_tablets_channel(&channel)) {
         channel->reduce_mem_usage();
