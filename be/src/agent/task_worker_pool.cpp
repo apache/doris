@@ -893,7 +893,7 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
             // transaction_id should be greater than zero.
             // If it is not greater than zero, no need to execute
             // the following clear_transaction_task() function.
-            if (clear_transaction_task_req.__isset.partition_id) {
+            if (clear_transaction_task_req.partition_id.empty()) {
                 worker_pool_this->_env->storage_engine()->clear_transaction_task(
                         clear_transaction_task_req.transaction_id, clear_transaction_task_req.partition_id);
             } else {

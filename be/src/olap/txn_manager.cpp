@@ -137,7 +137,7 @@ OLAPStatus TxnManager::prepare_txn(
 
     // check if there are too many transactions on running.
     // if yes, reject the request.
-    if (_txn_tablet_map.size() > config::max_runnings_transactions) {
+    if (_txn_partition_map.size() > config::max_runnings_transactions) {
         LOG(WARNING) << "too many transactions: " << _txn_tablet_map.size() << ", limit: " << config::max_runnings_transactions;
         return OLAP_ERR_TOO_MANY_TRANSACTIONS;
     }
@@ -336,7 +336,7 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
         }
-        _clear_txn_partition_map(transaction_id, partiton_id);
+        _clear_txn_partition_map(transaction_id, partition_id);
     }
     return OLAP_SUCCESS;
 }
@@ -536,9 +536,9 @@ void TxnManager::_clear_txn_partition_map(int64_t transaction_id, int64_t partit
     auto it = _txn_partition_map.find(transaction_id);
     if (it != _txn_partition_map.end()) {
         it->second.erase(partition_id);
-    }
-    if (it->second.empty()) {
-        _txn_partition_map.erase(it);
+        if (it->second.empty()) {
+            _txn_partition_map.erase(it);
+        }
     }
 }
 

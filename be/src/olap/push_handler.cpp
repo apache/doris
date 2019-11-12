@@ -158,6 +158,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   // not call validate request here, because realtime load does not
   // contain version info
 
+  OLAPStatus res;
   // check delete condition if push for delete
   std::queue<DeletePredicatePB> del_preds;
   if (push_type == PUSH_FOR_DELETE) {
