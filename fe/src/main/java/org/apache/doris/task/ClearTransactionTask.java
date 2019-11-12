@@ -35,11 +35,8 @@ public class ClearTransactionTask extends AgentTask {
     }
     
     public TClearTransactionTaskRequest toThrift() {
-        TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest();
-        clearTransactionTaskRequest.setTransaction_id(transactionId);
-        if (partitionIds != null && !partitionIds.isEmpty()) {
-            clearTransactionTaskRequest.setPartition_id(partitionIds);
-        }
+        TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest(
+            transactionId, partitionIds);
         return clearTransactionTaskRequest;
     }
 }

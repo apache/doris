@@ -558,7 +558,7 @@ public class GlobalTransactionMgr {
         List<Long> allBeIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
         synchronized (clearTransactionTasks) {
             for (Long beId : allBeIds) {
-                ClearTransactionTask task = new ClearTransactionTask(beId, transactionState.getTransactionId(), null);
+                ClearTransactionTask task = new ClearTransactionTask(beId, transactionState.getTransactionId(), Lists.newArrayList());
                 clearTransactionTasks.add(task);
             }
 

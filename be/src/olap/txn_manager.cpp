@@ -147,7 +147,7 @@ OLAPStatus TxnManager::prepare_txn(
     // case 2: loading txn from meta env
     TabletTxnInfo load_info(load_id, nullptr);
     _txn_tablet_map[key][tablet_info] = load_info;
-    _insert_txn_partition_map(transaction_id, partition_id);
+    _insert_txn_partition_map_unlocked(transaction_id, partition_id);
 
     LOG(INFO) << "add transaction to engine successfully."
             << "partition_id: " << key.first
@@ -235,7 +235,7 @@ OLAPStatus TxnManager::commit_txn(
         WriteLock wrlock(&_txn_map_lock);
         TabletTxnInfo load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
-        _insert_txn_partition_map(transaction_id, partition_id);
+        _insert_txn_partition_map_unlocked(transaction_id, partition_id);
         LOG(INFO) << "commit transaction to engine successfully."
                 << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
@@ -300,7 +300,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
                 _txn_tablet_map.erase(it);
             }
         }
-        _clear_txn_partition_map(transaction_id, partition_id);
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         return OLAP_SUCCESS;
     }
 }
@@ -336,7 +336,7 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
         }
-        _clear_txn_partition_map(transaction_id, partition_id);
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return OLAP_SUCCESS;
 }
@@ -386,7 +386,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     if (it->second.empty()) {
         _txn_tablet_map.erase(it);
     }
-    _clear_txn_partition_map(transaction_id, partition_id);
+    _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     return OLAP_SUCCESS;
 }
 
@@ -436,7 +436,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
         }
-        _clear_txn_partition_map(it.first.second, it.first.first);
+        _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
     }
 }
 
@@ -518,13 +518,13 @@ void TxnManager::get_partition_ids(const TTransactionId transaction_id, std::vec
     ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_partition_map.find(transaction_id);
     if (it != _txn_partition_map.end()) {
-        for(int64_t partition_id : it->second) {
+        for (int64_t partition_id : it->second) {
             partition_ids->push_back(partition_id);
         }
     }
 }
 
-void TxnManager::_insert_txn_partition_map(int64_t transaction_id, int64_t partition_id) {
+void TxnManager::_insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
     auto find = _txn_partition_map.find(transaction_id);
     if (find == _txn_partition_map.end()) {
         _txn_partition_map[transaction_id] = std::unordered_set<int64_t>();
@@ -532,7 +532,7 @@ void TxnManager::_insert_txn_partition_map(int64_t transaction_id, int64_t parti
     _txn_partition_map[transaction_id].insert(partition_id);
 }
 
-void TxnManager::_clear_txn_partition_map(int64_t transaction_id, int64_t partition_id) {
+void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
     auto it = _txn_partition_map.find(transaction_id);
     if (it != _txn_partition_map.end()) {
         it->second.erase(partition_id);

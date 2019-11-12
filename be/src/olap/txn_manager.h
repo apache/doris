@@ -144,8 +144,9 @@ private:
     }
 
     // insert or remove (transaction_id, partition_id) from _txn_partition_map
-    void _insert_txn_partition_map(int64_t transaction_id, int64_t partition_id);
-    void _clear_txn_partition_map(int64_t transaction_id, int64_t partition_id);
+    // get _txn_map_lock before calling
+    void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+    void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
 private:
     RWMutex _txn_map_lock;
