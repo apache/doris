@@ -190,6 +190,13 @@ TEST_F(FileUtilsTest, TestCreateDir) {
     ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
 
     FileUtils::remove_all("./file_test");
+    
+    // absolute path;
+    std::string real_path;
+    Env::Default()->canonicalize(".", &real_path);
+    ASSERT_TRUE(FileUtils::create_dir(real_path + "/file_test/absolute/path/123/asdf").ok());
+    ASSERT_TRUE(FileUtils::is_dir("./file_test/absolute/path/123/asdf"));
+    FileUtils::remove_all("./file_test");
 }
 
 TEST_F(FileUtilsTest, TestListDirsFiles) {
