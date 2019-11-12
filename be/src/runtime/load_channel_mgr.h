@@ -42,7 +42,7 @@ public:
     LoadChannelMgr();
     ~LoadChannelMgr();
 
-    Status init(int64_t process_mem_limit);
+    Status init(MemTracker* mem_tracker);
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
@@ -60,10 +60,6 @@ private:
     int64_t _calc_total_mem_limit(int64_t process_mem_limit);
     // calculate the memory limit for a single load process.
     int64_t _calc_load_mem_limit(int64_t mem_limit);
-
-    // check if the total load mem consumption exceeds limit.
-    // If yes, it will pick a load channel to try to reduce memory consumption.
-    void _handle_mem_exceed_limit();
 
     Status _start_bg_worker();
 

@@ -109,7 +109,7 @@ Status LoadChannel::add_batch(
 void LoadChannel::handle_mem_exceed_limit(bool force) {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
-    if (!force && !_mem_tracker->limit_exceeded()) {
+    if (!force && !_mem_tracker->any_limit_exceeded()) {
         return;
     }
 

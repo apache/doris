@@ -120,7 +120,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
 
-    RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
+    RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker));
 
     return Status::OK();
 }

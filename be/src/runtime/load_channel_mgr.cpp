@@ -17,9 +17,11 @@
 
 #include "runtime/load_channel_mgr.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
 #include "service/backend_options.h"
+#include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "olap/lru_cache.h"
 
@@ -29,10 +31,12 @@ LoadChannelMgr::LoadChannelMgr():_is_stopped(false) {
     _lastest_success_channel = new_lru_cache(1024);
 }
 
-Status LoadChannelMgr::init(int64_t process_mem_limit) {
+Status LoadChannelMgr::init(MemTracker* process_mem_tracker) {
+    int64_t process_mem_limit = process_mem_tracker->limit();
     int64_t load_mem_limit = _calc_total_mem_limit(process_mem_limit);
-    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
+    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr", process_mem_tracker));
     RETURN_IF_ERROR(_start_bg_worker());
+    LOG(INFO) << "load channel manager using memory limit: " << PrettyPrinter::print(load_mem_limit, TUnit::BYTES);
     return Status::OK();
 }
 
@@ -116,10 +120,7 @@ Status LoadChannelMgr::add_batch(
         channel = it->second;
     }
 
-    // 2. check if mem consumption exceed limit
-    _handle_mem_exceed_limit(); 
-
-    // 3. add batch to load channel
+    // 2. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
     RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
@@ -133,34 +134,6 @@ Status LoadChannelMgr::add_batch(
         _lastest_success_channel->release(handle);
     }
     return Status::OK();
-}
-
-void LoadChannelMgr::_handle_mem_exceed_limit() {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_mem_tracker->limit_exceeded()) {
-        return;
-    }
-    
-    VLOG(1) << "total load mem consumption: " << _mem_tracker->consumption()
-        << " exceed limit: " << _mem_tracker->limit(); 
-    int64_t max_consume = 0;
-    std::shared_ptr<LoadChannel> channel;
-    for (auto& kv : _load_channels) {
-        if (kv.second->mem_consumption() > max_consume) {
-            max_consume = kv.second->mem_consumption();
-            channel = kv.second;
-        }
-    }
-    if (max_consume == 0) {
-        // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable load channel when total load mem limit execeed";
-        return;
-    }
-    DCHECK(channel.get() != nullptr);
-
-    // force reduce mem limit of the selected channel
-    channel->handle_mem_exceed_limit(true);
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
