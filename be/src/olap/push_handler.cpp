@@ -93,8 +93,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   PUniqueId load_id;
   load_id.set_hi(0);
   load_id.set_lo(0);
-  OLAPStatus res = StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
-      tablet, request.transaction_id, load_id);
+  RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
+      tablet, request.transaction_id, load_id));
 
   // prepare txn will be always successful
   // if current tablet is under schema change, origin tablet is successful and
@@ -140,8 +140,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         PUniqueId load_id;
         load_id.set_hi(0);
         load_id.set_lo(0);
-        res = StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
-            related_tablet, request.transaction_id, load_id);
+        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
+            related_tablet, request.transaction_id, load_id));
         // prepare txn will always be successful
         tablet_vars->push_back(TabletVars());
         TabletVars& new_item = tablet_vars->back();
