@@ -123,7 +123,7 @@ OLAPStatus DeltaWriter::init() {
                 if (!new_migration_rlock.own_lock()) {
                     return OLAP_ERR_RWLOCK_ERROR;
                 }
-                _storage_engine->txn_manager()->prepare_txn(_req.partition_id, _new_tablet, _req.txn_id, _req.load_id);
+                RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _new_tablet, _req.txn_id, _req.load_id));
             }
         }
     }
