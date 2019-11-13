@@ -120,7 +120,10 @@ Status LoadChannelMgr::add_batch(
         channel = it->second;
     }
 
-    // 2. add batch to load channel
+    // 2. check mem limit
+    _handle_mem_exceed_limit();
+
+    // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
     RETURN_IF_ERROR(channel->add_batch(request, tablet_vec));
