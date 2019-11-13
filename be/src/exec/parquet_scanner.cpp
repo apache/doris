@@ -72,12 +72,14 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         RETURN_IF_ERROR(_cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
         // range of current file
         const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
-        fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
-        {
-            COUNTER_UPDATE(_rows_read_counter, 1);
-            SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
-                break;// break iff true
+        if (range.__isset.num_of_columns_from_file) {
+            fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
+            {
+                COUNTER_UPDATE(_rows_read_counter, 1);
+                SCOPED_TIMER(_materialize_timer);
+                if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
+                    break;// break if true
+                }
             }
         }
     }
@@ -143,7 +145,11 @@ Status ParquetScanner::open_next_reader() {
             file_reader->close();
             continue;
         }
-        _cur_file_reader = new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
+        if (range.__isset.num_of_columns_from_file) {
+            _cur_file_reader = new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
+        } else {
+            _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _src_slot_descs.size());
+        }
         Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs);
         if (status.is_end_of_file()) {
             continue;
