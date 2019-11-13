@@ -59,7 +59,8 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    void _handle_mem_exceed_limit();
+    // If force is true, it will pick a tablets channel anyway.
+    void handle_mem_exceed_limit(bool force);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 

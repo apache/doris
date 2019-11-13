@@ -136,6 +136,42 @@ Status LoadChannelMgr::add_batch(
     return Status::OK();
 }
 
+void LoadChannelMgr::_handle_mem_exceed_limit() {
+    // lock so that only one thread can check mem limit
+    std::lock_guard<std::mutex> l(_lock);
+    // TODO(cmy): here we use find_limit_exceeded_tracker() to check, so that
+    // the total mem consumption can be restricted. But this lead to
+    // another problem: if query process takes most of memory, the load
+    // process will try to flush memtables very frequently, this may
+    // result in many small files.
+    MemTracker* tracker = _mem_tracker->find_limit_exceeded_tracker();
+    if (tracker == nullptr) {
+        return;
+    }
+
+    VLOG(1) << "total load mem consumption: " << _mem_tracker->consumption()
+        << " exceed limit: " << tracker->limit() << ", tracker: " << tracker->label();
+    int64_t max_consume = 0;
+    std::shared_ptr<LoadChannel> channel;
+    for (auto& kv : _load_channels) {
+        if (kv.second->mem_consumption() > max_consume) {
+            max_consume = kv.second->mem_consumption();
+            channel = kv.second;
+        }
+    }
+    if (max_consume == 0) {
+        if (tracker != _mem_tracker->parent()) {
+            // should not happen, add log to observe
+            LOG(WARNING) << "failed to find suitable load channel when total load mem limit execeed";
+        }
+        return;
+    }
+    DCHECK(channel.get() != nullptr);
+
+    // force reduce mem limit of the selected channel
+    channel->handle_mem_exceed_limit(true);
+}
+
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> cancelled_channel;
