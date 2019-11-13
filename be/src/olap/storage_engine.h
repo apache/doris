@@ -86,8 +86,9 @@ public:
                                   const bool is_schema_change_tablet,
                                   const TabletSharedPtr ref_tablet);
 
+    void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
-                                const std::vector<TPartitionId> partition_ids);
+                                const std::vector<TPartitionId>& partition_ids);
 
     // Instance should be inited from create_instance
     // MUST NOT be called in other circumstances.
