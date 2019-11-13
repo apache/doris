@@ -124,13 +124,11 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        final String NODE_INFO = "node_info";
-        sb.append(Joiner.on(" ").join("# TYPE", NODE_INFO, "gauge\n"));
-        sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"dead\"} ").append(
-                Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count()).append("\n");
-        sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"dead\"} ").append(
-                Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count()).append("\n");
-        sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
-                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
+        long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
+        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
+        sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
+        sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
+        sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");
     }
 }
