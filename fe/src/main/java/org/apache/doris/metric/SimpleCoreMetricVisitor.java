@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -123,6 +124,11 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        return;
+        long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
+        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
+        sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
+        sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
+        sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");
     }
 }

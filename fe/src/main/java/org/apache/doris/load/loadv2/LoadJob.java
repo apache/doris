@@ -232,6 +232,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return state;
     }
 
+    public EtlJobType getJobType() {
+        return jobType;
+    }
+
     public long getCreateTimestamp() {
         return createTimestamp;
     }

@@ -164,6 +164,10 @@ public abstract class AlterHandler extends Daemon {
         return alterJobsV2.values().stream().filter(e -> e.getJobState() == state && e.getDbId() == dbId).count();
     }
 
+    public Long getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState state) {
+        return alterJobsV2.values().stream().filter(e -> e.getJobState() == state).count();
+    }
+
     @Deprecated
     public Map<Long, AlterJob> unprotectedGetAlterJobs() {
         return this.alterJobs;

@@ -23,8 +23,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.persist.EditLog;
@@ -87,17 +87,17 @@ public final class MetricRepo {
 
         // 1. gauge
         // load jobs
-        Load load = Catalog.getInstance().getLoadInstance();
+        LoadManager loadManger = Catalog.getCurrentCatalog().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
-                GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+                GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                         "job statistics") {
                     @Override
-                    public Integer getValue() {
+                    public Long getValue() {
                         if (!Catalog.getInstance().isMaster()) {
-                            return 0;
+                            return 0L;
                         }
-                        return load.getLoadJobNumByTypeAndState(jobType, state);
+                        return loadManger.getLoadJobNum(state, jobType);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load"))
@@ -114,17 +114,17 @@ public final class MetricRepo {
                 continue;
             }
             
-            GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     "job statistics") {
                 @Override
-                public Integer getValue() {
+                public Long getValue() {
                     if (!Catalog.getInstance().isMaster()) {
-                        return 0;
+                        return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
-                        return alter.getSchemaChangeHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getSchemaChangeHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     } else {
-                        return alter.getRollupHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getRollupHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     }
                 }
             };
@@ -229,8 +229,7 @@ public final class MetricRepo {
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
-        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency",
-                                                                                     "ms"));
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
         isInit.set(true);
 
