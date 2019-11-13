@@ -76,7 +76,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
             }
         }
         
-        RETURN_IF_ERROR(env->create_dir(partial_path));
+        RETURN_IF_ERROR(env->create_dir_if_missing(partial_path));
     }
 
     return Status::OK();
