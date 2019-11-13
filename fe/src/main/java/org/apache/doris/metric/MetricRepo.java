@@ -23,8 +23,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.persist.EditLog;
@@ -76,6 +76,9 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
+    public static GaugeMetricImpl<Long> GAUGE_FRONTEND_DOWN_NUM;
+    public static GaugeMetricImpl<Long> GAUGE_BACKEND_DOWN_NUM;
+    public static GaugeMetricImpl<Long> GAUGE_BROKER_DOWN_NUM;
 
     private static Timer metricTimer = new Timer();
     private static MetricCalculator metricCalculator = new MetricCalculator();
@@ -87,17 +90,17 @@ public final class MetricRepo {
 
         // 1. gauge
         // load jobs
-        Load load = Catalog.getInstance().getLoadInstance();
+        LoadManager loadManger = Catalog.getCurrentCatalog().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
-                GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+                GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                         "job statistics") {
                     @Override
-                    public Integer getValue() {
+                    public Long getValue() {
                         if (!Catalog.getInstance().isMaster()) {
-                            return 0;
+                            return 0L;
                         }
-                        return load.getLoadJobNumByTypeAndState(jobType, state);
+                        return loadManger.getLoadJobNum(state, jobType);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load"))
@@ -114,17 +117,17 @@ public final class MetricRepo {
                 continue;
             }
             
-            GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     "job statistics") {
                 @Override
-                public Integer getValue() {
+                public Long getValue() {
                     if (!Catalog.getInstance().isMaster()) {
-                        return 0;
+                        return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
-                        return alter.getSchemaChangeHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getSchemaChangeHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     } else {
-                        return alter.getRollupHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getRollupHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     }
                 }
             };
@@ -185,6 +188,16 @@ public final class MetricRepo {
         GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query_error_rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
+        // node down num
+        GAUGE_FRONTEND_DOWN_NUM = new GaugeMetricImpl<>("frontend_down_num", "frontend down number");
+        GAUGE_FRONTEND_DOWN_NUM.setValue(0L);
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_FRONTEND_DOWN_NUM);
+        GAUGE_BACKEND_DOWN_NUM = new GaugeMetricImpl<>("backend_down_num", "backend down number");
+        GAUGE_BACKEND_DOWN_NUM.setValue(0L);
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_BACKEND_DOWN_NUM);
+        GAUGE_BROKER_DOWN_NUM = new GaugeMetricImpl<>("broker_down_num", "broker down number");
+        GAUGE_BROKER_DOWN_NUM.setValue(0L);
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_BROKER_DOWN_NUM);
 
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");

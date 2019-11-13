@@ -53,6 +53,10 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public static final String REQUEST_PER_SECOND = "rps";
     public static final String QUERY_ERR_RATE = "query_err_rate";
 
+    public static final String FRONTEND_DOWN_NUM = "frontend_down_num";
+    public static final String BACKEND_DOWN_NUM = "backend_down_num";
+    public static final String BROKER_DOWN_NUM = "broker_down_num";
+
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
@@ -61,6 +65,9 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(QUERY_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(REQUEST_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(QUERY_ERR_RATE, TYPE_DOUBLE);
+        CORE_METRICS.put(FRONTEND_DOWN_NUM, TYPE_LONG);
+        CORE_METRICS.put(BACKEND_DOWN_NUM, TYPE_LONG);
+        CORE_METRICS.put(BROKER_DOWN_NUM, TYPE_LONG);
     }
 
     public SimpleCoreMetricVisitor(String prefix) {
