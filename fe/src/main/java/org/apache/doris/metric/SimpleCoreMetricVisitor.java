@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -53,10 +54,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public static final String REQUEST_PER_SECOND = "rps";
     public static final String QUERY_ERR_RATE = "query_err_rate";
 
-    public static final String FRONTEND_DOWN_NUM = "frontend_down_num";
-    public static final String BACKEND_DOWN_NUM = "backend_down_num";
-    public static final String BROKER_DOWN_NUM = "broker_down_num";
-
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
@@ -65,9 +62,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(QUERY_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(REQUEST_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(QUERY_ERR_RATE, TYPE_DOUBLE);
-        CORE_METRICS.put(FRONTEND_DOWN_NUM, TYPE_LONG);
-        CORE_METRICS.put(BACKEND_DOWN_NUM, TYPE_LONG);
-        CORE_METRICS.put(BROKER_DOWN_NUM, TYPE_LONG);
     }
 
     public SimpleCoreMetricVisitor(String prefix) {
@@ -130,6 +124,13 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        return;
+        final String NODE_INFO = "node_info";
+        sb.append(Joiner.on(" ").join("# TYPE", NODE_INFO, "gauge\n"));
+        sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
     }
 }

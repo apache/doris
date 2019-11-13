@@ -76,9 +76,6 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
-    public static GaugeMetricImpl<Long> GAUGE_FRONTEND_DOWN_NUM;
-    public static GaugeMetricImpl<Long> GAUGE_BACKEND_DOWN_NUM;
-    public static GaugeMetricImpl<Long> GAUGE_BROKER_DOWN_NUM;
 
     private static Timer metricTimer = new Timer();
     private static MetricCalculator metricCalculator = new MetricCalculator();
@@ -188,16 +185,6 @@ public final class MetricRepo {
         GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query_error_rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
-        // node down num
-        GAUGE_FRONTEND_DOWN_NUM = new GaugeMetricImpl<>("frontend_down_num", "frontend down number");
-        GAUGE_FRONTEND_DOWN_NUM.setValue(0L);
-        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_FRONTEND_DOWN_NUM);
-        GAUGE_BACKEND_DOWN_NUM = new GaugeMetricImpl<>("backend_down_num", "backend down number");
-        GAUGE_BACKEND_DOWN_NUM.setValue(0L);
-        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_BACKEND_DOWN_NUM);
-        GAUGE_BROKER_DOWN_NUM = new GaugeMetricImpl<>("broker_down_num", "broker down number");
-        GAUGE_BROKER_DOWN_NUM.setValue(0L);
-        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_BROKER_DOWN_NUM);
 
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
@@ -242,8 +229,7 @@ public final class MetricRepo {
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
-        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency",
-                                                                                     "ms"));
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
         isInit.set(true);
 
