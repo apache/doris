@@ -145,7 +145,7 @@ Status ParquetScanner::open_next_reader() {
             file_reader->close();
             continue;
         }
-        if (range.__isset.num_of_columns_from_file ) {
+        if (range.__isset.num_of_columns_from_file) {
             _cur_file_reader = new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
         } else {
             _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _src_slot_descs.size());
