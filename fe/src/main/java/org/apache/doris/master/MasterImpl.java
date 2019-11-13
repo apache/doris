@@ -558,18 +558,14 @@ public class MasterImpl {
     
     private void finishClearAlterTask(AgentTask task, TFinishTaskRequest request) {
         ClearAlterTask clearAlterTask = (ClearAlterTask) task;
-        clearAlterTask.setFinished();
-        AgentTaskQueue.removeTask(task.getBackendId(), 
-                task.getTaskType(), 
-                task.getSignature());
+        clearAlterTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
     
     private void finishClearTransactionTask(AgentTask task, TFinishTaskRequest request) {
         ClearTransactionTask clearTransactionTask = (ClearTransactionTask) task;
-        clearTransactionTask.setFinished();
-        AgentTaskQueue.removeTask(task.getBackendId(), 
-                task.getTaskType(), 
-                task.getSignature());
+        clearTransactionTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
     
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {

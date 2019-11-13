@@ -93,6 +93,7 @@ public:
     }
 
     virtual void SetUp() {
+        config::max_runnings_transactions = 1000;
         
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
