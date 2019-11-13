@@ -447,7 +447,9 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         str_slot->len = value.size;
     }
 
-    fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
+    if (range.__isset.num_of_columns_from_file) {
+        fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
+    }
 
     return true;
 }
