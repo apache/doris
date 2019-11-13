@@ -153,6 +153,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
                 int offset = reinterpret_cast<intptr_t>(string_val->ptr);
                 string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
+
+                // Why we do this mask? Field len of StringValue is changed from int to size_t in
+                // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
+                // this works fine in version 0.10, however in 0.11 this will lead to an invalid
+                // length. So we make the high bits zero here.
+                string_val->len &= 0x7FFFFFFFL;
             }
         }
     }
@@ -251,6 +257,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
 
                 int offset = reinterpret_cast<intptr_t>(string_val->ptr);
                 string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
+
+                // Why we do this mask? Field len of StringValue is changed from int to size_t in
+                // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
+                // this works fine in version 0.10, however in 0.11 this will lead to an invalid
+                // length. So we make the high bits zero here.
+                string_val->len &= 0x7FFFFFFFL;
             }
         }
     }
