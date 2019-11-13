@@ -17,8 +17,6 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.catalog.Catalog;
-
 import java.util.TimerTask;
 
 /*
@@ -65,14 +63,6 @@ public class MetricCalculator extends TimerTask {
         double errRate = (double) (currentErrCounter - lastQueryErrCounter) / interval;
         MetricRepo.GAUGE_QUERY_ERR_RATE.setValue(errRate < 0 ? 0.0 : errRate);
         lastQueryErrCounter = currentErrCounter;
-        
-        // node down
-        long feDownNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        MetricRepo.GAUGE_FRONTEND_DOWN_NUM.setValue(feDownNum);
-        long beDownNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
-        MetricRepo.GAUGE_BACKEND_DOWN_NUM.setValue(beDownNum);
-        long brokerDownNum = Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
-        MetricRepo.GAUGE_BROKER_DOWN_NUM.setValue(brokerDownNum);
 
         lastTs = currentTs;
     }
