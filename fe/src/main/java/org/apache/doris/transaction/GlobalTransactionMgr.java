@@ -556,6 +556,7 @@ public class GlobalTransactionMgr {
         // for aborted transaction, we don't know which backends are involved, so we have to send clear task
         // to all backends.
         List<Long> allBeIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        AgentBatchTask batchTask = null;
         synchronized (clearTransactionTasks) {
             for (Long beId : allBeIds) {
                 ClearTransactionTask task = new ClearTransactionTask(beId, transactionState.getTransactionId(), Lists.newArrayList());
@@ -564,13 +565,16 @@ public class GlobalTransactionMgr {
 
             // try to group send tasks, not sending every time a txn is aborted. to avoid too many task rpc.
             if (clearTransactionTasks.size() > allBeIds.size() * 2) {
-                AgentBatchTask batchTask = new AgentBatchTask();
+                batchTask = new AgentBatchTask();
                 for (ClearTransactionTask clearTransactionTask : clearTransactionTasks) {
                     batchTask.addTask(clearTransactionTask);
                 }
-                AgentTaskExecutor.submit(batchTask);
                 clearTransactionTasks.clear();
             }
+        }
+
+        if (batchTask != null) {
+            AgentTaskExecutor.submit(batchTask);
         }
     }
 
