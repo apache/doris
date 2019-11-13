@@ -477,8 +477,15 @@ OLAPStatus StorageEngine::clear() {
     return OLAP_SUCCESS;
 }
 
+void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
+    // clear transaction task may not contains partitions ids, we should get partition id from txn manager.
+    std::vector<int64_t> partition_ids;
+    StorageEngine::instance()->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    clear_transaction_task(transaction_id, partition_ids);
+}
+
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
-                                        const vector<TPartitionId> partition_ids) {
+        const vector<TPartitionId>& partition_ids) {
     LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
