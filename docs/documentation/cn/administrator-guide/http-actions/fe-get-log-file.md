@@ -43,7 +43,7 @@ under the License.
 
     示例：
     
-    `curl -X HEAD -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log`
+    `curl -v -X HEAD -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log`
     
     返回结果：
     
