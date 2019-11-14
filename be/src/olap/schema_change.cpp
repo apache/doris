@@ -587,7 +587,10 @@ bool RowBlockMerger::merge(
         }
 
         if (KeysType::DUP_KEYS == _tablet->keys_type()) {
-            rowset_writer->add_row(row_cursor);
+            if (rowset_writer->add_row(row_cursor) != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to add row to rowset writer.";
+                goto MERGE_ERR;
+            }
             continue;
         }
 
@@ -601,7 +604,10 @@ bool RowBlockMerger::merge(
             }
         }
         agg_finalize_row(&row_cursor, mem_pool.get());
-        rowset_writer->add_row(row_cursor);
+        if (rowset_writer->add_row(row_cursor) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to add row to rowset writer.";
+            goto MERGE_ERR;
+        }
 
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
