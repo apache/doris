@@ -386,13 +386,11 @@ private:
 
     // Number of Tuple* in the build tuple row
     const int _num_build_tuples;
-    // the row in hash table is preserved such as RIGHT_OUTER_JOIN
-    const bool _null_preserved;
+    // outer join || has null equal join should be true
+    const bool _stores_nulls;
     // true: the null-safe equal '<=>' is true. The row with null shoud be judged.
     // false: the equal '=' is false. The row with null should be filtered.
     const std::vector<bool> _finds_nulls;
-    // outer join || has null equal join should be true
-    const bool _stores_nulls;
 
     const int32_t _initial_seed;
 

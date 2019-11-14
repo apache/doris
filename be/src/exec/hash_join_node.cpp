@@ -137,13 +137,15 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
     // TODO: default buckets
-    const bool null_preserved = _join_op == TJoinOp::RIGHT_OUTER_JOIN
+    const bool stores_nulls = _join_op == TJoinOp::RIGHT_OUTER_JOIN
         || _join_op == TJoinOp::FULL_OUTER_JOIN
         || _join_op == TJoinOp::RIGHT_ANTI_JOIN
-        || _join_op == TJoinOp::RIGHT_SEMI_JOIN;
+        || _join_op == TJoinOp::RIGHT_SEMI_JOIN
+        || (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(),
+                                        true) != _is_null_safe_eq_join.end());
     _hash_tbl.reset(new HashTable(
             _build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
-            null_preserved, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
+            stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
 
     _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
 
