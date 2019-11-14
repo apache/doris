@@ -109,14 +109,11 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         _input_rowsets = transient_rowsets;
     }
 		
-    if (_input_rowsets.empty()) {
-        // There are no rowsets choosed to do cumulative compaction.
+    if (_input_rowsets.size() <= 1) {
+        // There are no suitable rowsets choosed to do cumulative compaction.
         // Under this circumstance, cumulative_point should be set.
         // Otherwise, the next round will not choose rowsets. 
         _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
-    }
-
-    if (_input_rowsets.size() <= 1) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
