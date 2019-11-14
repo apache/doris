@@ -335,9 +335,29 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         VLOG(10) << "remove the old schema_full_path.";
         FileUtils::remove_all(schema_full_path);
     }
-    FileUtils::create_dir(schema_full_path);
-    path boost_path(snapshot_id_path);
-    string snapshot_id = canonical(boost_path).string();
+
+    Status st = FileUtils::create_dir(schema_full_path);
+    if (!st.ok()) {
+        LOG(WARNING) << "create path " + schema_full_path + "failed. error: " << st.to_string();
+        return OLAP_ERR_CANNOT_CREATE_DIR;
+    }
+    
+    string snapshot_id;
+    try {
+        path boost_path(snapshot_id_path);
+        boost::system::error_code error_code;
+        path real_path = canonical(boost_path, error_code);
+        if (error_code != boost::system::errc::success) {
+            LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << error_code;
+            return OLAP_ERR_CANNOT_CREATE_DIR;
+        } else {
+            snapshot_id = real_path.string();
+        }
+    } catch (std::exception e) {
+        LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << e.what();
+        return OLAP_ERR_CANNOT_CREATE_DIR;
+    }
+    
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {

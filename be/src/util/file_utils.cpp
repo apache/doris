@@ -52,9 +52,9 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
 
     string partial_path;
     for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
-        partial_path = partial_path.empty() ? it->string() : partial_path + "/" + it->string();
+        partial_path = partial_path + it->string() + "/";
         bool is_dir = false;
-        
+
         Status s = env->is_directory(partial_path, &is_dir);
         
         if (s.ok()) {
@@ -76,7 +76,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
             }
         }
         
-        RETURN_IF_ERROR(env->create_dir(partial_path));
+        RETURN_IF_ERROR(env->create_dir_if_missing(partial_path));
     }
 
     return Status::OK();

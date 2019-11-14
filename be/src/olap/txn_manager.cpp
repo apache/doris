@@ -134,11 +134,21 @@ OLAPStatus TxnManager::prepare_txn(
             }
         }
     }
+
+    // check if there are too many transactions on running.
+    // if yes, reject the request.
+    if (_txn_partition_map.size() > config::max_runnings_transactions) {
+        LOG(WARNING) << "too many transactions: " << _txn_tablet_map.size() << ", limit: " << config::max_runnings_transactions;
+        return OLAP_ERR_TOO_MANY_TRANSACTIONS;
+    }
+
     // not found load id
     // case 1: user start a new txn, rowset_ptr = null
     // case 2: loading txn from meta env
     TabletTxnInfo load_info(load_id, nullptr);
     _txn_tablet_map[key][tablet_info] = load_info;
+    _insert_txn_partition_map_unlocked(transaction_id, partition_id);
+
     LOG(INFO) << "add transaction to engine successfully."
             << "partition_id: " << key.first
             << ", transaction_id: " << key.second
@@ -225,6 +235,7 @@ OLAPStatus TxnManager::commit_txn(
         WriteLock wrlock(&_txn_map_lock);
         TabletTxnInfo load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
+        _insert_txn_partition_map_unlocked(transaction_id, partition_id);
         LOG(INFO) << "commit transaction to engine successfully."
                 << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
@@ -289,6 +300,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
                 _txn_tablet_map.erase(it);
             }
         }
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         return OLAP_SUCCESS;
     }
 }
@@ -324,7 +336,7 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
         }
-        return OLAP_SUCCESS;
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return OLAP_SUCCESS;
 }
@@ -374,6 +386,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     if (it->second.empty()) {
         _txn_tablet_map.erase(it);
     }
+    _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     return OLAP_SUCCESS;
 }
 
@@ -423,6 +436,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
         }
+        _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
     }
 }
 
@@ -498,6 +512,34 @@ bool TxnManager::get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, Ta
         }
     }
     return true;
+}
+
+void TxnManager::get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids) {
+    ReadLock txn_rdlock(&_txn_map_lock);
+    auto it = _txn_partition_map.find(transaction_id);
+    if (it != _txn_partition_map.end()) {
+        for (int64_t partition_id : it->second) {
+            partition_ids->push_back(partition_id);
+        }
+    }
+}
+
+void TxnManager::_insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
+    auto find = _txn_partition_map.find(transaction_id);
+    if (find == _txn_partition_map.end()) {
+        _txn_partition_map[transaction_id] = std::unordered_set<int64_t>();
+    }
+    _txn_partition_map[transaction_id].insert(partition_id);
+}
+
+void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
+    auto it = _txn_partition_map.find(transaction_id);
+    if (it != _txn_partition_map.end()) {
+        it->second.erase(partition_id);
+        if (it->second.empty()) {
+            _txn_partition_map.erase(it);
+        }
+    }
 }
 
 } // namespace doris
