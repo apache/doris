@@ -57,7 +57,7 @@ import java.nio.charset.StandardCharsets;
  *
  * {
  *     "TxnId": 27,
- *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de"
+ *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de",
  *     "Status": "Success",
  *     "Message": "OK",
  *     "NumberTotalRows": 10,
@@ -84,7 +84,7 @@ import java.nio.charset.StandardCharsets;
  *
  * {
  *     "TxnId": -1,
- *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de"
+ *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de",
  *     "Status": "Label Already Exists",
  *     "ExistingJobStatus": "FINISHED",
  *     "Message": "Label [39c25a5c-7000-496e-a98e-348a264c81de"] has already been used.",
