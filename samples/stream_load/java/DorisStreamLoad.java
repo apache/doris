@@ -125,6 +125,8 @@ public class DorisStreamLoad {
             StringEntity entity = new StringEntity(content);
             put.setHeader(HttpHeaders.EXPECT, "100-continue");
             put.setHeader(HttpHeaders.AUTHORIZATION, basicAuthHeader(DORIS_USER, DORIS_PASSWORD));
+            // the label header is optional, not necessary
+            // use label header can ensure at most once semantics
             put.setHeader("label", "39c25a5c-7000-496e-a98e-348a264c81de")
             put.setEntity(entity);
 
