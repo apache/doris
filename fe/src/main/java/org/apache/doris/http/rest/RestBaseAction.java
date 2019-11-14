@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
@@ -65,18 +66,20 @@ public class RestBaseAction extends BaseAction {
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
-        checkPassword(authInfo);
+        UserIdentity currentUser = checkPassword(authInfo);
         ConnectContext ctx = new ConnectContext(null);
+        ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
+        ctx.setCurrentUserIdentity(currentUser);
         ctx.setCluster(authInfo.cluster);
         ctx.setThreadLocalInfo();
-        executeWithoutPassword(authInfo, request, response);
+        executeWithoutPassword(request, response);
     }
 
     // If user password should be checked, the derived class should implement this method, NOT 'execute()',
     // otherwise, override 'execute()' directly
-    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         throw new DdlException("Not implemented");
     }

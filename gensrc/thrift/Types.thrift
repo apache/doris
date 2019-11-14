@@ -372,3 +372,11 @@ enum TLoadSourceType {
     RAW,
     KAFKA,
 }
+
+// represent a user identity
+struct TUserIdentity {
+    1: required string username
+    2: required string host
+    3: required bool is_domain
+}
+

@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaScanNode;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -98,16 +99,16 @@ public class SchemaScanNode extends ScanNode {
         if (schemaWild != null) {
             msg.schema_scan_node.setWild(schemaWild);
         }
-        if (user != null) {
-            msg.schema_scan_node.setUser(user);
-        }
+
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             msg.schema_scan_node.setThread_id(ConnectContext.get().getConnectionId());
         }
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
-        msg.schema_scan_node.setUser_ip(userIp);
+
+        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
+        msg.schema_scan_node.setCurrent_user_ident(tCurrentUser);
     }
 
     /**

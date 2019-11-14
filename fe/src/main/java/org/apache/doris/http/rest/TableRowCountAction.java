@@ -29,6 +29,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -60,7 +61,7 @@ public class TableRowCountAction extends RestBaseAction {
     }
 
     @Override
-    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
@@ -71,9 +72,9 @@ public class TableRowCountAction extends RestBaseAction {
                     || Strings.isNullOrEmpty(tableName)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
             }
-            String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");

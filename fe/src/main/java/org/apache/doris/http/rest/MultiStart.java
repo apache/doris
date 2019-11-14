@@ -25,6 +25,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
@@ -50,7 +51,7 @@ public class MultiStart extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {
@@ -61,8 +62,8 @@ public class MultiStart extends RestBaseAction {
             throw new DdlException("No label selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
-        checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
+        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // Mutli start request must redirect to master, because all following sub requests will be handled
         // on Master

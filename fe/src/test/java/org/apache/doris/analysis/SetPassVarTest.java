@@ -49,7 +49,7 @@ public class SetPassVarTest {
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUser);
+        ctx.setCurrentUserIdentity(currentUser);
     }
 
     @Test

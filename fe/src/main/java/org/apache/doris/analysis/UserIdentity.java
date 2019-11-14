@@ -25,6 +25,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -70,6 +71,24 @@ public class UserIdentity implements Writable {
         this.isDomain = isDomain;
     }
 
+    public static UserIdentity createAnalyzedUserIdentWithIp(String user, String host) {
+        UserIdentity userIdentity = new UserIdentity(user, host);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
+    }
+
+    public static UserIdentity createAnalyzedUserIdentWithDomain(String user, String domain) {
+        UserIdentity userIdentity = new UserIdentity(user, domain, true);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
+    }
+
+    public static UserIdentity fromThrift(TUserIdentity tUserIdent) {
+        UserIdentity userIdentity = new UserIdentity(tUserIdent.getUsername(), tUserIdent.getHost(), tUserIdent.is_domain);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
+    }
+
     public String getQualifiedUser() {
         Preconditions.checkState(isAnalyzed);
         return user;
@@ -105,28 +124,6 @@ public class UserIdentity implements Writable {
         isAnalyzed = true;
     }
 
-    public boolean include(UserIdentity self) {
-        Preconditions.checkState(isAnalyzed && self.isAnalyzed);
-        if (!user.equals(self.user)) {
-            return false;
-        }
-        
-        if (host.equals(self.host)) {
-            return true;
-        }
-
-        // same user with different host
-        try {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(host,
-                                                                              CaseSensibility.HOST.getCaseSensibility());
-            
-            return patternMatcher.match(self.host);
-        } catch (AnalysisException e) {
-            Preconditions.checkNotNull(null, e.getMessage());
-        }
-        return false;
-    }
-
     public static UserIdentity fromString(String userIdentStr) {
         if (Strings.isNullOrEmpty(userIdentStr)) {
             return null;
@@ -158,6 +155,12 @@ public class UserIdentity implements Writable {
         return null;
     }
 
+    public TUserIdentity toThrift() {
+        Preconditions.checkState(isAnalyzed);
+        TUserIdentity tUserIdent = new TUserIdentity(user, host, isDomain);
+        return tUserIdent;
+    }
+
     public static UserIdentity read(DataInput in) throws IOException {
         UserIdentity userIdentity = new UserIdentity();
         userIdentity.readFields(in);
@@ -170,10 +173,7 @@ public class UserIdentity implements Writable {
             return false;
         }
         UserIdentity other = (UserIdentity) obj;
-        if (this.isDomain != other.isDomain) {
-            return false;
-        }
-        return user.equals(other.getQualifiedUser()) && host.equals(other.getHost());
+        return user.equals(other.getQualifiedUser()) && host.equals(other.getHost()) && this.isDomain == other.isDomain;
     }
 
     @Override
@@ -199,6 +199,8 @@ public class UserIdentity implements Writable {
             } else {
                 sb.append("'").append(host).append("'");
             }
+        } else {
+            sb.append("%");
         }
         return sb.toString();
     }

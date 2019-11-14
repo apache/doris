@@ -35,15 +35,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /*
- * We support the following create user stmt
- * 1. create user user@ip [identified by 'password']
+ * We support the following create user stmts:
+ * 1. create user user@'ip' [identified by 'password']
  *      specify the user name at a certain ip(wildcard is accepted), with optional password.
  *      the user@ip must not exist in system
  *      
- * 2. create user user@[domain] [identified by 'password']
+ * 2. create user user@['domain'] [identified by 'password']
  *      specify the user name at a certain domain, with optional password.
- *      the user@[domain] must not exist in system
- *      the daemon thread will resolve this domain to user@ip format
+ *      the user@['domain'] must not exist in system
+ *      the daemon thread will resolve this domain to user@'ip' format
  *      
  * 3. create user user@xx [identified by 'password'] role role_name
  *      not only create the specified user, but also grant all privs of the specified role to the user.
