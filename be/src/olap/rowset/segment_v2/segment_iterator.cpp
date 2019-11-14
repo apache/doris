@@ -152,8 +152,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     RowRanges origin_row_ranges = RowRanges::create_single(num_rows());
     std::set<int32_t> cids;
-    for (auto& column_condition : _opts.conditions->columns()) {
-        cids.insert(column_condition.first);
+    if (_opts.conditions != nullptr) {
+        for (auto& column_condition : _opts.conditions->columns()) {
+            cids.insert(column_condition.first);
+        }
     }
     std::map<int, std::vector<CondColumn*>> column_delete_conditions;
     for (auto& delete_condition : _opts.delete_conditions) {
@@ -166,9 +168,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& cid : cids) {
         // get row ranges by conditions against zone map/bf indexes of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
+        CondColumn* column_cond = nullptr;
+        if (_opts.conditions != nullptr) {
+            column_cond = _opts.conditions->get_column(cid);
+        }
         RETURN_IF_ERROR(
             _column_iterators[cid]->get_row_ranges_by_conditions(
-                _opts.conditions->get_column(cid),
+                column_cond,
                 column_delete_conditions[cid],
                 &column_row_ranges));
         // intersection different columns's row ranges to get final row ranges by conditions
