@@ -259,9 +259,8 @@ public class HashJoinNode extends PlanNode {
         msg.hash_join_node = new THashJoinNode();
         msg.hash_join_node.join_op = joinOp.toThrift();
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            TEqJoinCondition eqJoinCondition =
-                    new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
-                                         eqJoinPredicate.getChild(1).treeToThrift());
+            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
+                    eqJoinPredicate.getChild(1).treeToThrift());
             eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
             msg.hash_join_node.addToEq_join_conjuncts(eqJoinCondition);
         }

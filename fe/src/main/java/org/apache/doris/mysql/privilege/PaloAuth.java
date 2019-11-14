@@ -199,6 +199,10 @@ public class PaloAuth implements Writable {
         }
     }
 
+    /*
+     * check password, if matched, save the userIdentity in matched entry.
+     * the following auth checking should use userIdentity saved in currentUser.
+     */
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser) {
         if (!Config.enable_auth_check) {
@@ -222,28 +226,29 @@ public class PaloAuth implements Writable {
         }
     }
 
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd) {
+    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) {
         if (!Config.enable_auth_check) {
             return true;
         }
         readLock();
         try {
-            return userPrivTable.checkPlainPassword(remoteUser, remoteHost, remotePasswd);
+            return userPrivTable.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
         } finally {
             readUnlock();
         }
     }
 
     public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
-        return checkGlobalPriv(ctx.getRemoteIP(), ctx.getQualifiedUser(), wanted);
+        return checkGlobalPriv(ctx.getCurrentUserIdentity(), wanted);
     }
 
-    public boolean checkGlobalPriv(String host, String user, PrivPredicate wanted) {
+    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         if (!Config.enable_auth_check) {
             return true;
         }
         PrivBitSet savedPrivs = PrivBitSet.of();
-        if (checkGlobalInternal(host, user, wanted, savedPrivs)) {
+        if (checkGlobalInternal(currentUser, wanted, savedPrivs)) {
             return true;
         }
 
@@ -252,31 +257,31 @@ public class PaloAuth implements Writable {
     }
 
     public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getRemoteIP(), qualifiedDb, ctx.getQualifiedUser(), wanted);
+        return checkDbPriv(ctx.getCurrentUserIdentity(), qualifiedDb, wanted);
     }
 
     /*
      * Check if 'user'@'host' on 'db' has 'wanted' priv.
      * If the given db is null, which means it will no check if database name is matched.
      */
-    public boolean checkDbPriv(String host, String db, String user, PrivPredicate wanted) {
+    public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
         if (!Config.enable_auth_check) {
             return true;
         }
         if (wanted.getPrivs().containsNodePriv()) {
-            LOG.debug("should not check NODE priv in Database level. host: {}, user: {}, db: {}",
-                      host, user, db);
+            LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
+                    currentUser, db);
             return false;
         }
 
         PrivBitSet savedPrivs = PrivBitSet.of();
-        if (checkGlobalInternal(host, user, wanted, savedPrivs)
-                || checkDbInternal(host, db, user, wanted, savedPrivs)) {
+        if (checkGlobalInternal(currentUser, wanted, savedPrivs)
+                || checkDbInternal(currentUser, db, wanted, savedPrivs)) {
             return true;
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (db != null && wanted == PrivPredicate.SHOW && checkTblWithDb(host, db, user)) {
+        if (db != null && wanted == PrivPredicate.SHOW && checkTblWithDb(currentUser, db)) {
             return true;
         }
 
@@ -289,33 +294,32 @@ public class PaloAuth implements Writable {
      * So we have to check if user has any privs of tables in this database.
      * if so, the database should be visible to this user.
      */
-    private boolean checkTblWithDb(String host, String db, String user) {
+    private boolean checkTblWithDb(UserIdentity currentUser, String db) {
         readLock();
         try {
-            return tablePrivTable.hasPrivsOfDb(host, db, user);
+            return tablePrivTable.hasPrivsOfDb(currentUser, db);
         } finally {
             readUnlock();
         }
     }
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx.getRemoteIP(), qualifiedDb, ctx.getQualifiedUser(), tbl, wanted);
+        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedDb, tbl, wanted);
     }
 
-    public boolean checkTblPriv(String host, String db, String user, String tbl, PrivPredicate wanted) {
+    public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
         if (!Config.enable_auth_check) {
             return true;
         }
         if (wanted.getPrivs().containsNodePriv()) {
-            LOG.debug("should check NODE priv in GLOBAL level. host: {}, user: {}, db: {}",
-                      host, user, db);
+            LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
             return false;
         }
 
         PrivBitSet savedPrivs = PrivBitSet.of();
-        if (checkGlobalInternal(host, user, wanted, savedPrivs)
-                || checkDbInternal(host, db, user, wanted, savedPrivs)
-                || checkTblInternal(host, db, user, tbl, wanted, savedPrivs)) {
+        if (checkGlobalInternal(currentUser, wanted, savedPrivs)
+                || checkDbInternal(currentUser, db, wanted, savedPrivs)
+                || checkTblInternal(currentUser, db, tbl, wanted, savedPrivs)) {
             return true;
         }
 
@@ -374,10 +378,10 @@ public class PaloAuth implements Writable {
         return false;
     }
 
-    private boolean checkGlobalInternal(String host, String user, PrivPredicate wanted, PrivBitSet savedPrivs) {
+    private boolean checkGlobalInternal(UserIdentity currentUser, PrivPredicate wanted, PrivBitSet savedPrivs) {
         readLock();
         try {
-            userPrivTable.getPrivs(host, user, savedPrivs);
+            userPrivTable.getPrivs(currentUser, savedPrivs);
             if (PaloPrivilege.satisfy(savedPrivs, wanted)) {
                 return true;
             }
@@ -387,11 +391,11 @@ public class PaloAuth implements Writable {
         }
     }
 
-    private boolean checkDbInternal(String host, String db, String user, PrivPredicate wanted,
+    private boolean checkDbInternal(UserIdentity currentUser, String db, PrivPredicate wanted,
             PrivBitSet savedPrivs) {
         readLock();
         try {
-            dbPrivTable.getPrivs(host, db, user, savedPrivs);
+            dbPrivTable.getPrivs(currentUser, db, savedPrivs);
             if (PaloPrivilege.satisfy(savedPrivs, wanted)) {
                 return true;
             }
@@ -401,11 +405,11 @@ public class PaloAuth implements Writable {
         return false;
     }
 
-    private boolean checkTblInternal(String host, String db, String user, String tbl,
+    private boolean checkTblInternal(UserIdentity currentUser, String db, String tbl,
             PrivPredicate wanted, PrivBitSet savedPrivs) {
         readLock();
         try {
-            tablePrivTable.getPrivs(host, db, user, tbl, savedPrivs);
+            tablePrivTable.getPrivs(currentUser, db, tbl, savedPrivs);
             if (PaloPrivilege.satisfy(savedPrivs, wanted)) {
                 return true;
             }

@@ -70,6 +70,12 @@ public class UserIdentity implements Writable {
         this.isDomain = isDomain;
     }
 
+    public static UserIdentity createAnalyzedUserIdent(String user, String host) {
+        UserIdentity userIdentity = new UserIdentity(user, host);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
+    }
+
     public String getQualifiedUser() {
         Preconditions.checkState(isAnalyzed);
         return user;

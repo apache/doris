@@ -26,6 +26,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -60,9 +61,9 @@ public class GetDdlStmtAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
-        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String dbName = request.getSingleParameter(DB_PARAM);
         String tableName = request.getSingleParameter(TABLE_PARAM);

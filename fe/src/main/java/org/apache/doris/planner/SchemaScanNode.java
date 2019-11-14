@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -98,16 +99,17 @@ public class SchemaScanNode extends ScanNode {
         if (schemaWild != null) {
             msg.schema_scan_node.setWild(schemaWild);
         }
-        if (user != null) {
-            msg.schema_scan_node.setUser(user);
-        }
+
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             msg.schema_scan_node.setThread_id(ConnectContext.get().getConnectionId());
         }
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
-        msg.schema_scan_node.setUser_ip(userIp);
+
+        UserIdentity currentUser = ConnectContext.get().getCurrentUserIdentity();
+        msg.schema_scan_node.setUser(currentUser.getQualifiedUser());
+        msg.schema_scan_node.setIp(currentUser.getHost());
     }
 
     /**

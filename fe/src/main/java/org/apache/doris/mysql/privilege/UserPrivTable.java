@@ -38,20 +38,26 @@ public class UserPrivTable extends PrivTable {
     public UserPrivTable() {
     }
 
-    public void getPrivs(String host, String user, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, PrivBitSet savedPrivs) {
         GlobalPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
+            if (!globalPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            /*
             // check host
             if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(host)) {
                 continue;
             }
-
+            
             // check user
             if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(user)) {
                 continue;
             }
+            */
 
             matchedEntry = globalPrivEntry;
             break;
@@ -119,14 +125,21 @@ public class UserPrivTable extends PrivTable {
                 }
                 return true;
             } else {
-                continue;
+                // case A. this means we already matched a entry by user@host, but password is incorrect.
+                // return false, NOT continue matching other entries.
+                // For example, there are 2 entries in order:
+                // 1. cmy@"192.168.%" identified by '123';
+                // 2. cmy@"%" identified by 'abc';
+                // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
+                return false;
             }
         }
 
         return false;
     }
 
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd) {
+    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) {
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
@@ -141,7 +154,13 @@ public class UserPrivTable extends PrivTable {
             }
 
             if (MysqlPassword.checkPlainPass(globalPrivEntry.getPassword(), remotePasswd)) {
+                if (currentUser != null) {
+                    currentUser.add(entry.getUserIdent());
+                }
                 return true;
+            } else {
+                // set case A. in checkPassword()
+                return false;
             }
         }
 

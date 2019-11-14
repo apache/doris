@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
@@ -27,7 +28,6 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.http.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
@@ -58,17 +58,9 @@ public class ShowProcAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) {
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
         // check authority
-        ActionAuthorizationInfo authInfo;
-        try {
-            authInfo = getAuthorizationInfo(request);
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
-        } catch (UnauthorizedException e) {
-            response.appendContent("Authentication Failed. " + e.getMessage());
-            sendResult(request, response);
-            return;
-        }
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String path = request.getSingleParameter("path");
         String forward = request.getSingleParameter("forward");
@@ -83,8 +75,8 @@ public class ShowProcAction extends RestBaseAction {
             ConnectContext context = new ConnectContext(null);
             context.setCatalog(Catalog.getCurrentCatalog());
             context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            context.setQualifiedUser(authInfo.fullUserName);
-            context.setRemoteIP(authInfo.remoteIp);
+            context.setQualifiedUser(ConnectContext.get().getQualifiedUser());
+            context.setRemoteIP(ConnectContext.get().getRemoteIP());
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
                     RedirectStatus.FORWARD_NO_SYNC);
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
