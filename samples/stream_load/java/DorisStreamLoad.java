@@ -65,8 +65,7 @@ import java.nio.charset.StandardCharsets;
  *     "NumberFilteredRows": 0,
  *     "NumberUnselectedRows": 0,
  *     "LoadBytes": 50,
- *     "LoadTimeMs": 151,
- *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de"
+ *     "LoadTimeMs": 151
  * }
  *
  * Attention:
@@ -94,8 +93,7 @@ import java.nio.charset.StandardCharsets;
  *     "NumberFilteredRows": 0,
  *     "NumberUnselectedRows": 0,
  *     "LoadBytes": 0,
- *     "LoadTimeMs": 0,
- *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de"
+ *     "LoadTimeMs": 0
  * }
  */
 public class DorisStreamLoad {
