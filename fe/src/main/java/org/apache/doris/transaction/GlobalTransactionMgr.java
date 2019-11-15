@@ -287,12 +287,11 @@ public class GlobalTransactionMgr implements Writable {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
-        
         LOG.debug("try to commit transaction: {}", transactionId);
         // 1. check status
         // the caller method already own db lock, we do not obtain db lock here
         Database db = catalog.getDb(dbId);
-        if (null == db) {
+        if (db == null) {
             throw new MetaNotFoundException("could not find db [" + dbId + "]");
         }
         TransactionState transactionState = idToTransactionState.get(transactionId);
@@ -475,6 +474,12 @@ public class GlobalTransactionMgr implements Writable {
         // 6. update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
         LOG.info("transaction:[{}] successfully committed", transactionState);
+
+        // 7. add publish version tasks. set task to null as a placeholder.
+        // tasks will be created when publishing version
+        for (long backendId : totalInvolvedBackends) {
+            transactionState.addPublishVersionTask(backendId, null);
+        }
     }
     
     public boolean commitAndPublishTransaction(Database db, long transactionId,
@@ -617,78 +622,73 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    /*
-     * get all txns which is ready to publish
-     * a ready-to-publish txn's partition's visible version should be ONE less than txn's commit version.
-     */
-    public List<TransactionState> getReadyToPublishTransactions() throws UserException {
-        List<TransactionState> readyPublishTransactionState = new ArrayList<>();
-        List<TransactionState> allCommittedTransactionState = null;
-        writeLock();
-        try {
-            // only send task to committed transaction
-            allCommittedTransactionState = idToTransactionState.values().stream()
-                    .filter(transactionState -> (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
-                    .collect(Collectors.toList());
-            for (TransactionState transactionState : allCommittedTransactionState) {
-                long dbId = transactionState.getDbId();
-                Database db = catalog.getDb(dbId);
-                if (null == db) {
-                    transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                    unprotectUpsertTransactionState(transactionState);
-                    continue;
-                }
-            }
-        } finally {
-            writeUnlock();
+    // the publishing transaction should meet:
+    // 1. the transaction state is COMMITTED
+    // 2. the partition's visible version plus one should equal transaction version.
+    private boolean couldPublishTransaction(TransactionState transactionState) {
+        Database db = catalog.getDb(transactionState.getDbId());
+        if (db == null) {
+            return false;
         }
-        
-        for (TransactionState transactionState : allCommittedTransactionState) {
-            boolean meetPublishPredicate = true;
-            long dbId = transactionState.getDbId();
-            Database db = catalog.getDb(dbId);
-            if (null == db) {
-                continue;
-            }
-            db.readLock();
+
+        boolean meetPublishPredicate = true;
+        db.readLock();
+        try {
+            readLock();
             try {
-                readLock();
-                try {
-                    for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                        OlapTable table = (OlapTable) db.getTable(tableCommitInfo.getTableId());
-                        if (null == table) {
-                            LOG.warn("table {} is dropped after commit, ignore this table",
-                                     tableCommitInfo.getTableId());
+                for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+                    OlapTable table = (OlapTable) db.getTable(tableCommitInfo.getTableId());
+                    if (table == null) {
+                        LOG.warn("table {} is dropped after commit, ignore this table",
+                                tableCommitInfo.getTableId());
+                        continue;
+                    }
+                    for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
+                        Partition partition = table.getPartition(partitionCommitInfo.getPartitionId());
+                        if (partition == null) {
+                            LOG.warn("partition {} is dropped after commit, ignore this partition",
+                                    partitionCommitInfo.getPartitionId());
                             continue;
                         }
-                        for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
-                            Partition partition = table.getPartition(partitionCommitInfo.getPartitionId());
-                            if (null == partition) {
-                                LOG.warn("partition {} is dropped after commit, ignore this partition",
-                                         partitionCommitInfo.getPartitionId());
-                                continue;
-                            }
-                            if (partitionCommitInfo.getVersion() != partition.getVisibleVersion() + 1) {
-                                meetPublishPredicate = false;
-                                break;
-                            }
-                        }
-                        if (!meetPublishPredicate) {
+                        if (partitionCommitInfo.getVersion() != partition.getVisibleVersion() + 1) {
+                            meetPublishPredicate = false;
                             break;
                         }
                     }
-                    if (meetPublishPredicate) {
-                        LOG.debug("transaction [{}] is ready to publish", transactionState);
-                        readyPublishTransactionState.add(transactionState);
+                    if (!meetPublishPredicate) {
+                        break;
                     }
-                } finally {
-                    readUnlock();
                 }
             } finally {
-                db.readUnlock();
+                readUnlock();
             }
+        } finally {
+            db.readUnlock();
         }
-        return readyPublishTransactionState;
+        if (meetPublishPredicate) {
+            LOG.debug("transaction [{}] is ready to publish", transactionState);
+            return true;
+        }
+        return false;
+    }
+
+    // will only be called by publish version daemon
+    public List<TransactionState> getReadyToPublishTransactions() {
+        List<TransactionState> allCommittedTransactionState;
+        readLock();
+        try {
+            allCommittedTransactionState = idToTransactionState.values().stream()
+                    .filter(transactionState -> (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
+                    .collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+
+        LOG.debug("there are {} transactions in COMMITTED status", allCommittedTransactionState.size());
+
+        return allCommittedTransactionState.stream()
+                .filter(this::couldPublishTransaction)
+                .collect(Collectors.toList());
     }
     
     /**
@@ -979,12 +979,6 @@ public class GlobalTransactionMgr implements Writable {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
     }
 
     private boolean unprotectAbortTransaction(long transactionId, String reason)
@@ -1272,7 +1266,7 @@ public class GlobalTransactionMgr implements Writable {
         readLock();
         try {
             TransactionState transactionState = idToTransactionState.get(txnId);
-            if (null == transactionState) {
+            if (transactionState == null) {
                 throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
             }
 
@@ -1295,7 +1289,7 @@ public class GlobalTransactionMgr implements Writable {
         readLock();
         try {
             TransactionState transactionState = idToTransactionState.get(tid);
-            if (null == transactionState) {
+            if (transactionState == null) {
                 throw new AnalysisException("Transaction[" + tid + "] does not exist.");
             }
             TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(tableId);

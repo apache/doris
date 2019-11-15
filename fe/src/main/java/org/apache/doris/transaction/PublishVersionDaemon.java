@@ -57,6 +57,52 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.error("errors while publish version to all backends", t);
         }
     }
+
+    private void sendPublishVersionTask(TransactionState transactionState, Set<Long> tabletBackends) {
+        // don't republish
+        if (transactionState.hasSendTask()) {
+            return;
+        }
+
+        List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
+        for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+            partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
+        }
+
+        List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
+        for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
+            TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                    commitInfo.getVersion(),
+                    commitInfo.getVersionHash());
+            partitionVersionInfos.add(versionInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("try to publish version info partitionid [{}], version [{}], version hash [{}]",
+                        commitInfo.getPartitionId(),
+                        commitInfo.getVersion(),
+                        commitInfo.getVersionHash());
+            }
+        }
+
+        // every backend-transaction identified a single task
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (long backendId : tabletBackends) {
+            PublishVersionTask task = new PublishVersionTask(backendId,
+                    transactionState.getTransactionId(),
+                    transactionState.getDbId(),
+                    partitionVersionInfos);
+            // add to AgentTaskQueue for handling finish report.
+            // not check return value, because the add will success
+            AgentTaskQueue.addTask(task);
+            batchTask.addTask(task);
+            LOG.debug("Add publish version task: {} to queue", task);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
+        transactionState.setHasSendTask(true);
+
+        if (!batchTask.getAllTasks().isEmpty()) {
+            AgentTaskExecutor.submit(batchTask);
+        }
+    }
     
     private void publishVersion() throws UserException {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -64,6 +110,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
             return;
         }
+        LOG.debug("there are {} transactions ready to be publishd or publishing", readyTransactionStates.size());
         // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
         // but should do more work. for example, if a table is migrate from one cluster to another cluster
         // should publish to two clusters.
@@ -74,30 +121,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
-        // every backend-transaction identified a single task
-        AgentBatchTask batchTask = new AgentBatchTask();
-        // traverse all ready transactions and dispatch the publish version task to all backends
+
         for (TransactionState transactionState : readyTransactionStates) {
-            if (transactionState.hasSendTask()) {
-                continue;
-            }
-            List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
-            for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
-            }
-            List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
-            for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(), 
-                        commitInfo.getVersion(), 
-                        commitInfo.getVersionHash());
-                partitionVersionInfos.add(versionInfo);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}], version hash [{}]", 
-                            commitInfo.getPartitionId(), 
-                            commitInfo.getVersion(), 
-                            commitInfo.getVersionHash());
-                }
-            }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
             // public version tasks are not persisted in catalog, so publishBackends may be empty.
             // so we have to try publish to all backends;
@@ -107,32 +132,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                 publishBackends.addAll(allBackends);
             }
 
-            for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId,
-                        transactionState.getTransactionId(),
-                        transactionState.getDbId(),
-                        partitionVersionInfos);
-                // add to AgentTaskQueue for handling finish report.
-                // not check return value, because the add will success
-                AgentTaskQueue.addTask(task);
-                batchTask.addTask(task);
-                transactionState.addPublishVersionTask(backendId, task);
-            }
-            transactionState.setHasSendTask(true);
-            LOG.info("send publish tasks for transaction: {}", transactionState.getTransactionId());
-        }
-        if (!batchTask.getAllTasks().isEmpty()) {
-            AgentTaskExecutor.submit(batchTask);
+            sendPublishVersionTask(transactionState, publishBackends);
         }
         
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
-        long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
-            if (currentTime - transactionState.getPublishVersionTime() < Config.publish_version_interval_ms * 2) {
-                // wait 2 rounds before handling publish result
-                continue;
-            }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
             Set<Long> publishErrorReplicaIds = Sets.newHashSet();
             List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
@@ -207,6 +212,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             
             if (shouldFinishTxn) {
+                LOG.debug("{} publish version time {} ms", transactionState,
+                        (System.currentTimeMillis() - transactionState.getPublishVersionTime()));
                 globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
