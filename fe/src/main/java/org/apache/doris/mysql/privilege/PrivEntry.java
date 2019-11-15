@@ -18,8 +18,10 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -45,8 +47,11 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     protected String origUser;
     protected boolean isAnyUser = false;
     protected PrivBitSet privSet;
-
+    // true if this entry is set by domain resolver
     protected boolean isSetByDomainResolver = false;
+    // true if origHost is a domain name.
+    // For global priv entry, if isDomain is true, it should only be used for priv checking, not password checking
+    protected boolean isDomain = false;
 
     // isClassNameWrote to guarantee the class name can only be written once when persisting.
     // see PrivEntry.read() for more details.
@@ -56,7 +61,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     }
 
     protected PrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher userPattern, String origUser,
-            PrivBitSet privSet) {
+            boolean isDomain, PrivBitSet privSet) {
         this.hostPattern = hostPattern;
         this.origHost = origHost;
         if (origHost.equals(ANY_HOST)) {
@@ -67,6 +72,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         if (origUser.equals(ANY_USER)) {
             isAnyUser = true;
         }
+        this.isDomain = isDomain;
         this.privSet = privSet;
     }
 
@@ -208,6 +214,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet.write(out);
 
         out.writeBoolean(isSetByDomainResolver);
+        out.writeBoolean(isDomain);
 
         isClassNameWrote = false;
     }
@@ -233,6 +240,9 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet = PrivBitSet.read(in);
 
         isSetByDomainResolver = in.readBoolean();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            isDomain = in.readBoolean();
+        }
     }
 
     @Override

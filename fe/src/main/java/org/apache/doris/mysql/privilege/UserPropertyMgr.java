@@ -80,6 +80,7 @@ public class UserPropertyMgr implements Writable {
     /*
      * Try to grant privs to whitelist of the user. 
      */
+    @Deprecated
     public void addOrGrantWhiteList(UserIdentity userIdentity, Map<TablePattern, PrivBitSet> privsMap,
             byte[] password, boolean errOnExist, boolean errOnNonExist) throws DdlException {
         Preconditions.checkArgument(userIdentity.isDomain());
@@ -96,6 +97,21 @@ public class UserPropertyMgr implements Writable {
         propertyMap.put(userIdentity.getQualifiedUser(), property);
     }
 
+    public void setPasswordForDomain(UserIdentity userIdentity, byte[] password, boolean errOnExist,
+            boolean errOnNonExist) throws DdlException {
+        Preconditions.checkArgument(userIdentity.isDomain());
+        UserProperty property = propertyMap.get(userIdentity.getQualifiedUser());
+        if (property == null) {
+            if (errOnNonExist) {
+                throw new DdlException("user " + userIdentity + " does not exist");
+            }
+            property = new UserProperty(userIdentity.getQualifiedUser());
+        }
+        property.setPasswordForDomain(userIdentity.getHost(), password, errOnExist);
+        // update propertyMap after setPasswordForDomain, cause setPasswordForDomain may throw exception
+        propertyMap.put(userIdentity.getQualifiedUser(), property);
+    }
+
     public void revokePrivsFromWhiteList(UserIdentity userIdentity, Map<TablePattern, PrivBitSet> privsMap,
             boolean errOnNonExist) throws DdlException {
         Preconditions.checkArgument(userIdentity.isDomain());
@@ -107,23 +123,20 @@ public class UserPropertyMgr implements Writable {
         property.revokePrivsFromWhiteList(userIdentity.getHost(), privsMap, errOnNonExist);
     }
 
-    public void dropUser(String qualifiedUser) {
-        propertyMap.remove(qualifiedUser);
+    public void dropDomain(UserIdentity userIdentity) {
+        Preconditions.checkArgument(userIdentity.isDomain());
+        UserProperty userProperty = propertyMap.get(userIdentity.getQualifiedUser());
+        if (userProperty == null) {
+            return;
+        }
+        userProperty.dropDamain(userIdentity.getHost());
         resourceVersion.incrementAndGet();
     }
 
-    public void setPassword(UserIdentity userIdent, byte[] password) throws DdlException {
-        Preconditions.checkArgument(userIdent.isDomain());
-        UserProperty property = propertyMap.get(userIdent.getQualifiedUser());
-        if (property == null) {
-            throw new DdlException("user " + userIdent.getQualifiedUser() + " does not exist");
+    public void dropUser(UserIdentity userIdent) {
+        if (propertyMap.remove(userIdent.getQualifiedUser()) != null) {
+            LOG.info("drop user {} from user property manager", userIdent.getQualifiedUser());
         }
-
-        if (property.getWhiteList().containsDomain(userIdent.getHost())) {
-            throw new DdlException("user " + userIdent + " does not exist");
-        }
-
-        property.getWhiteList().setPassword(password);
     }
 
     public void updateUserProperty(String user, List<Pair<String, String>> properties) throws DdlException {

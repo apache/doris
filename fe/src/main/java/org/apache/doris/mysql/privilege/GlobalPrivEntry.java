@@ -38,17 +38,17 @@ public class GlobalPrivEntry extends PrivEntry {
     }
 
     protected GlobalPrivEntry(PatternMatcher hostPattern, String origHost,
-            PatternMatcher userPattern, String origUser,
+            PatternMatcher userPattern, String origUser, boolean isDomain,
             byte[] password, PrivBitSet privSet) {
-        super(hostPattern, origHost, userPattern, origUser, privSet);
+        super(hostPattern, origHost, userPattern, origUser, isDomain, privSet);
         this.password = password;
     }
 
-    public static GlobalPrivEntry create(String host, String user, byte[] password,
-            PrivBitSet privs) throws AnalysisException {
+    public static GlobalPrivEntry create(String host, String user, boolean isDomain, byte[] password, PrivBitSet privs)
+            throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
-        return new GlobalPrivEntry(hostPattern, host, userPattern, user, password, privs);
+        return new GlobalPrivEntry(hostPattern, host, userPattern, user, isDomain, password, privs);
     }
 
     public byte[] getPassword() {
@@ -106,7 +106,8 @@ public class GlobalPrivEntry extends PrivEntry {
         }
 
         GlobalPrivEntry otherEntry = (GlobalPrivEntry) other;
-        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)) {
+        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
+                && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;

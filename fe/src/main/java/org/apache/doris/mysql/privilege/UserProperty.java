@@ -150,6 +150,7 @@ public class UserProperty implements Writable {
         return dbPrivMap;
     }
 
+    @Deprecated
     public void addOrGrantWhiteList(String domain, Map<TablePattern, PrivBitSet> tblPatternToPrivs,
             byte[] password, boolean errOnExist) throws DdlException {
         if (errOnExist && whiteList.containsDomain(domain)) {
@@ -172,7 +173,17 @@ public class UserProperty implements Writable {
         }
 
         if (password != null) {
-            whiteList.setPassword(password);
+            whiteList.setPassword(domain, password);
+        }
+    }
+
+    public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
+        if (errOnExist && whiteList.containsDomain(domain)) {
+            throw new DdlException("white list " + domain + " of user " + qualifiedUser + " already exists");
+        }
+
+        if (password != null) {
+            whiteList.setPassword(domain, password);
         }
     }
 
@@ -188,6 +199,10 @@ public class UserProperty implements Writable {
             whiteList.revokePrivsFromDomain(domain, entry.getKey(), entry.getValue(),
                                             errOnNonExist, false /* check */);
         }
+    }
+
+    public void dropDamain(String domain) {
+        whiteList.dropDomain(domain);
     }
 
     public void update(List<Pair<String, String>> properties) throws DdlException {

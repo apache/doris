@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -88,12 +89,12 @@ public abstract class PrivTable implements Writable {
         }
     }
 
-    // drop all entries which user name are matched
-    public void dropUser(String qualifiedUser) {
+    // drop all entries which user name are matched, and is not set by resolver
+    public void dropUser(UserIdentity userIdentity) {
         Iterator<PrivEntry> iter = entries.iterator();
         while (iter.hasNext()) {
             PrivEntry privEntry = iter.next();
-            if (privEntry.getOrigUser().equals(qualifiedUser)) {
+            if (privEntry.getUserIdent().equals(userIdentity) && !privEntry.isSetByDomainResolver()) {
                 iter.remove();
                 LOG.info("drop entry: {}", privEntry);
             }
@@ -165,6 +166,15 @@ public abstract class PrivTable implements Writable {
     private void mergePriv(PrivEntry first, PrivEntry second) {
         first.getPrivSet().or(second.getPrivSet());
         first.setSetByDomainResolver(first.isSetByDomainResolver() || second.isSetByDomainResolver());
+    }
+
+    public boolean doesUsernameExist(String qualifiedUsername) {
+        for (PrivEntry entry : entries) {
+            if (entry.getOrigUser().equals(qualifiedUsername)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // for test only

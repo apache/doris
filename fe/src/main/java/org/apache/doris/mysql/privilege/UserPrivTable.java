@@ -175,7 +175,10 @@ public class UserPrivTable extends PrivTable {
             }
             existingEntry = passwdEntry;
             addEntry(existingEntry, false /* err on exist */, false /* err on non exist */);
-        } else {
+        } else if (!checkOperationAllowed(existingEntry, passwdEntry, "SET PASSWORD")) {
+
+        }
+
             if (existingEntry.isSetByDomainResolver() && !passwdEntry.isSetByDomainResolver()) {
                 LOG.info("cannot set password, existing entry is set by resolver: {}", existingEntry);
                 throw new DdlException("Cannot set password, existing entry is set by resolver");

@@ -48,13 +48,13 @@ public class WhiteList implements Writable {
 
     // domain name -> (tbl pattern -> privs)
     // Domain names which need to be resolved to IPs.
-    // Currently, only implemented for Baidu Name Service (BNS)
-    private Map<String, Map<TablePattern, PrivBitSet>> domainMap = Maps.newConcurrentMap();
+    // Currently, only implemented for Baidu Name Service (BNS) or DNS
+    // private Map<String, Map<TablePattern, PrivBitSet>> domainMap = Maps.newConcurrentMap();
 
     // Domain name to resolved IPs
     private Map<String, Set<String>> resolvedIPMap = Maps.newConcurrentMap();
 
-    private byte[] password;
+    private Map<String, byte[]> passwordMap = Maps.newConcurrentMap();
 
     @Deprecated
     protected Set<String> ipWhiteLists = Sets.newHashSet();
@@ -74,8 +74,13 @@ public class WhiteList implements Writable {
         return starIpWhiteLists;
     }
 
-    public void setPassword(byte[] password) {
-        this.password = password;
+    public void dropDomain(String domain) {
+        passwordMap.remove(domain);
+        resolvedIPMap.remove(domain);
+    }
+
+    public void setPassword(String domain, byte[] password) {
+        this.passwordMap.put(domain, password);
     }
 
     public void addDomainWithPrivs(String domainName, TablePattern tblPattern, PrivBitSet privs) {
@@ -110,6 +115,9 @@ public class WhiteList implements Writable {
         }
     }
 
+    // handle new resolved IPs.
+    // it will only modify password entry of these resolved IPs. All other privileges are binded
+    // to the domain, so no need to modify.
     public void updateResolovedIps(String qualifiedUser, String domain, Set<String> newResolvedIPs) {
         Map<TablePattern, PrivBitSet> privsMap = domainMap.get(domain);
         if (privsMap == null) {
@@ -124,22 +132,8 @@ public class WhiteList implements Writable {
 
         // 1. grant for newly added IPs
         for (String newIP : newResolvedIPs) {
-            UserIdentity userIdent = new UserIdentity(qualifiedUser, newIP);
-            userIdent.setIsAnalyzed();
-            for (Map.Entry<TablePattern, PrivBitSet> entry : privsMap.entrySet()) {
-                try {
-                    // we copy the PrivBitSet, cause we don't want use the same PrivBitSet object in different place.
-                    // otherwise, when we change the privs of the domain, the priv entry will be changed synchronously,
-                    // which is not expected.
-                    Catalog.getCurrentCatalog().getAuth().grantPrivs(userIdent, entry.getKey(),
-                                                                     entry.getValue().copy(),
-                                                                     false /* err on non exist */,
-                                                                     true /* set by resolver */);
-                } catch (DdlException e) {
-                    LOG.warn("should not happen", e);
-                }
-            }
-
+            UserIdentity userIdent = UserIdentity.createAnalyzedUserIdent(qualifiedUser, newIP);
+            byte[] password = passwordMap.get(domain);
             // set password
             try {
                 Catalog.getCurrentCatalog().getAuth().setPasswordInternal(userIdent, password,
@@ -154,20 +148,7 @@ public class WhiteList implements Writable {
         // 2. delete privs which does not exist anymore.
         for (String preIP : preResolvedIPs) {
             if (!newResolvedIPs.contains(preIP)) {
-                UserIdentity userIdent = new UserIdentity(qualifiedUser, preIP);
-                userIdent.setIsAnalyzed();
-                for (Map.Entry<TablePattern, PrivBitSet> entry : privsMap.entrySet()) {
-                    try {
-                        Catalog.getCurrentCatalog().getAuth().revokePrivs(userIdent, entry.getKey(),
-                                                                          entry.getValue(),
-                                                                          false, /* err on non exist */
-                                                                          true /* set by domain */,
-                                                                          true /* delete entry when empty */);
-                    } catch (DdlException e) {
-                        LOG.warn("should not happen", e);
-                    }
-                }
-
+                UserIdentity userIdent = UserIdentity.createAnalyzedUserIdent(qualifiedUser, preIP);
                 // delete password
                 Catalog.getCurrentCatalog().getAuth().deletePassworEntry(userIdent);
             }
@@ -266,12 +247,8 @@ public class WhiteList implements Writable {
                 entry.getKey().write(out);
                 entry.getValue().write(out);
             }
-        }
 
-        if (password == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
+            byte[] password = passwordMap.get(domain);
             out.writeInt(password.length);
             out.write(password);
         }
@@ -319,12 +296,27 @@ public class WhiteList implements Writable {
                     PrivBitSet privs = PrivBitSet.read(in);
                     privsMap.put(tablePattern, privs);
                 }
+
+                if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+                    int passwordLen = in.readInt();
+                    byte[] password = new byte[passwordLen];
+                    in.readFully(password);
+                    passwordMap.put(domain, password);
+                }
             }
 
-            if (in.readBoolean()) {
-                int passwordLen = in.readInt();
-                password = new byte[passwordLen];
-                in.readFully(password);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_66) {
+                byte[] password = null;
+                if (in.readBoolean()) {
+                    int passwordLen = in.readInt();
+                    password = new byte[passwordLen];
+                    in.readFully(password);
+                } else {
+                    password = new byte[0];
+                }
+                for (String domain : domainMap.keySet()) {
+                    passwordMap.put(domain, password);
+                }
             }
         }
     }

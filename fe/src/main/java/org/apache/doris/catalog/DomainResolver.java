@@ -73,7 +73,7 @@ public class DomainResolver extends Daemon {
         // resolve domain name
         for (String domain : domainSet) {
             Set<String> resolvedIPs = Sets.newHashSet();
-            if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithBNS(domain, resolvedIPs)) {
+            if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithDNS(domain, resolvedIPs)) {
                 continue;
             }
             LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
