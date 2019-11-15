@@ -44,7 +44,6 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
-import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
@@ -118,7 +117,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.RELEASE_SNAPSHOT) {
+                    && taskType != TTaskType.RELEASE_SNAPSHOT && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -163,9 +162,6 @@ public class MasterImpl {
                     break;
                 case CLEAR_ALTER_TASK:
                     finishClearAlterTask(task, request);
-                    break;
-                case CLEAR_TRANSACTION_TASK:
-                    finishClearTransactionTask(task, request);
                     break;
                 case DROP:
                     finishDropReplica(task);
@@ -390,7 +386,7 @@ public class MasterImpl {
             RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
             AlterJob alterJob = rollupHandler.getAlterJob(olapTable.getId());
             if (alterJob == null && olapTable.getState() == OlapTableState.ROLLUP) {
-                // this happends when:
+                // this happens when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
                 // and delete task is first send to base tablet, so it will return 2 tablets info.
                 // the second tablet is rollup tablet and it is no longer exist in alterJobs queue.
@@ -559,12 +555,6 @@ public class MasterImpl {
     private void finishClearAlterTask(AgentTask task, TFinishTaskRequest request) {
         ClearAlterTask clearAlterTask = (ClearAlterTask) task;
         clearAlterTask.setFinished(true);
-        AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
-    }
-    
-    private void finishClearTransactionTask(AgentTask task, TFinishTaskRequest request) {
-        ClearTransactionTask clearTransactionTask = (ClearTransactionTask) task;
-        clearTransactionTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
     

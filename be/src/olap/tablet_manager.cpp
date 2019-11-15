@@ -955,6 +955,11 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
 
 OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     LOG(INFO) << "begin to process report all tablets info.";
+
+    // build the expired txn map first, outside the tablet map lock
+    std::map<TabletInfo, std::set<int64_t>> expire_txn_map;
+    StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
+
     ReadLock rlock(&_tablet_map_lock);
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
@@ -976,11 +981,15 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             TTabletInfo tablet_info;
             tablet_ptr->build_tablet_report_info(&tablet_info);
 
-            // report expire transaction
+            // find expire transaction corresponding to this tablet
+            TabletInfo tinfo = TabletInfo(tablet_ptr->tablet_id(), tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
             vector<int64_t> transaction_ids;
-            // TODO(ygl): tablet manager and txn manager may be dead lock
-            StorageEngine::instance()->txn_manager()->get_expire_txns(tablet_ptr->tablet_id(), 
-                tablet_ptr->schema_hash(), tablet_ptr->tablet_uid(), &transaction_ids);
+            auto find = expire_txn_map.find(tinfo);
+            if (find != expire_txn_map.end()) {
+                for(auto& it : find->second) {
+                    transaction_ids.push_back(it);
+                }
+            }
             tablet_info.__set_transaction_ids(transaction_ids);
 
             tablet.tablet_infos.push_back(tablet_info);
