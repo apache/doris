@@ -125,7 +125,11 @@ void StreamLoadAction::handle(HttpRequest* req) {
     }
 
     auto str = ctx->to_json();
-    HttpChannel::send_reply(req, str);
+    HttpStatus http_status = HttpStatus::OK;
+    if (!ctx->status.ok()) {
+        http_status = HttpStatus::NOT_ACCEPTABLE;
+    }
+    HttpChannel::send_reply(req, http_status, str);
 
     // update statstics
     k_streaming_load_requests_total.increment(1);

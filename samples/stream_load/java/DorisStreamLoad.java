@@ -79,7 +79,7 @@ import java.nio.charset.StandardCharsets;
  *     at shaded.org.apache.http.impl.execchain.RedirectExec.execute(RedirectExec.java:110)
  *     at shaded.org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:184)
  *
- *2 run this class more than once, the status code for http response is still ok, and you will see
+ *2 run this class more than once, the status code for http response is NOT_ACCEPTABLE(406), and you will see
  *  the following output:
  *
  * {
