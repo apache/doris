@@ -897,7 +897,6 @@ public class ReportHandler extends Daemon {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId, 
                     transactionId, transactionsToClear.get(transactionId));
             batchTask.addTask(clearTransactionTask);
-            AgentTaskQueue.addTask(clearTransactionTask);
         }
         
         AgentTaskExecutor.submit(batchTask);
