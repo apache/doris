@@ -352,7 +352,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("with", new Integer(SqlParserSymbols.KW_WITH));
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
-        keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
+        keywordMap.put("||", new Integer(SqlParserSymbols.KW_OR));
    }
     
   // map from token id to token description
@@ -547,10 +547,6 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
   Integer kw_id = keywordMap.get(text.toLowerCase());
   /* Integer kw_id = keywordMap.get(text); */
   if (kw_id != null) {
-    if ((kw_id == SqlParserSymbols.KW_PIPE) &&
-      ((sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) == 0)) {
-      return newToken(SqlParserSymbols.KW_OR, "or");
-    }
     return newToken(kw_id.intValue(), text);
   } else {
     return newToken(SqlParserSymbols.IDENT, text);

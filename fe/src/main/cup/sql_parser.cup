@@ -210,7 +210,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
-    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_PIPE, KW_ORDER, KW_OUTER, KW_OVER,
+    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PATH, KW_PRECEDING,
     KW_PASSWORD, KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
@@ -427,7 +427,6 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_PIPE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -3498,14 +3497,6 @@ non_pred_expr ::=
   //{: RESULT = new FunctionCallExpr(fn_name, params); :}
   | analytic_expr:e
   {: RESULT = e; :}
-  /* For case like expr || expr, we return a concat function */
-  | expr:e1 KW_PIPE expr:e2
-  {:
-     ArrayList<Expr> params = new ArrayList<Expr>();
-     params.add(e1);
-     params.add(e2);
-     RESULT = new FunctionCallExpr("concat", params);
-  :}
   /* Since "IF" is a keyword, need to special case this function */
   | KW_IF LPAREN expr_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr("if", exprs); :}
