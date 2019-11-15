@@ -132,7 +132,9 @@ public:
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                  TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
-    bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, std::vector<int64_t>* transaction_ids);
+    // get all expired txns and save tham in expire_txn_map.
+    // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
+    void build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map);
 
     void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
