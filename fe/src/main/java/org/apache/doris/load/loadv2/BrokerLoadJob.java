@@ -276,7 +276,7 @@ public class BrokerLoadJob extends LoadJob {
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         dataSourceInfo = new PullLoadSourceInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt),
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt = null;
         try {

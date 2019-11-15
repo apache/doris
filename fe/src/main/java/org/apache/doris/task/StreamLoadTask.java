@@ -192,7 +192,7 @@ public class StreamLoadTask {
     // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
         String columnsSQL = new String("COLUMNS (" + columns + ")");
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)), 0L);
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL), 0L));
         ImportColumnsStmt columnsStmt;
         try {
             columnsStmt = (ImportColumnsStmt) parser.parse().value;
@@ -220,7 +220,7 @@ public class StreamLoadTask {
 
     private void setWhereExpr(String whereString) throws UserException {
         String whereSQL = new String("WHERE " + whereString);
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)), 0L);
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL), 0L));
         ImportWhereStmt whereStmt;
         try {
             whereStmt = (ImportWhereStmt) parser.parse().value;

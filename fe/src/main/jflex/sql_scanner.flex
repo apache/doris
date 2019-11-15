@@ -53,6 +53,11 @@ import org.apache.doris.common.util.SqlUtils;
 
     private static final BigInteger LARGEINT_MAX_ABS = new BigInteger("170141183460469231731687303715884105728"); // 2^127
 
+    // This param will affect the tokens returned by scanner.
+    // For example:
+    // In PIPES_AS_CONCAT_MODE(0x0002), scanner will return token with id as KW_PIPE instead of KW_OR when '||' is scanned.
+    private long sql_mode;
+
     // map from keyword string to token id
     // we use a linked hash map because the insertion order is important.
     // for example, we want "and" to come after "&&" to make sure error reporting
@@ -325,7 +330,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("with", new Integer(SqlParserSymbols.KW_WITH));
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
-        keywordMap.put("||", new Integer(SqlParserSymbols.KW_OR));
+        keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
    }
     
   // map from token id to token description
