@@ -946,8 +946,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             TTabletInfo tablet_info;
             tablet_ptr->build_tablet_report_info(&tablet_info);
 
-            // report expire transaction
-            // first, we build a expired map to avoid iterating txn map too many times.
+            // find expire transaction corresponding to this tablet
             TabletInfo tinfo = TabletInfo(tablet_ptr->tablet_id(), tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
             vector<int64_t> transaction_ids;
             auto find = expire_txn_map.find(tinfo);
@@ -956,10 +955,6 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
                     transaction_ids.push_back(it);
                 }
             }
-
-            // TODO(ygl): tablet manager and txn manager may be dead lock
-            // StorageEngine::instance()->txn_manager()->get_expire_txns(tablet_ptr->tablet_id(), 
-            //    tablet_ptr->schema_hash(), tablet_ptr->tablet_uid(), &transaction_ids);
             tablet_info.__set_transaction_ids(transaction_ids);
 
             tablet.tablet_infos.push_back(tablet_info);
