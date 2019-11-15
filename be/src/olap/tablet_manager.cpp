@@ -920,16 +920,17 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
 
 OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     LOG(INFO) << "begin to process report all tablets info.";
+
+    // build the expired txn map first, outside the tablet map lock
+    std::map<TabletInfo, std::set<int64_t>> expire_txn_map;
+    StorageEngine::instance()->txn_manager()->build_expire_txn_map(expire_txn_map);
+
     ReadLock rlock(&_tablet_map_lock);
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
     if (tablets_info == nullptr) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
-
-    // build the expired txn map first
-    std::map<TabletInfo, std::set<int64_t>> expire_txn_map;
-    StorageEngine::instance()->txn_manager()->build_expire_txn_map(expire_txn_map);
 
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
