@@ -26,11 +26,14 @@
 namespace doris {
 
 struct StorePath {
-    StorePath() : capacity_bytes(-1) { }
+    StorePath() : capacity_bytes(-1), storage_medium(TStorageMedium::HDD){ }
     StorePath(const std::string& path_, int64_t capacity_bytes_)
         : path(path_), capacity_bytes(capacity_bytes_) { }
+    StorePath(const std::string& path_, int64_t capacity_bytes_, TStorageMedium::type storage_medium_)
+        : path(path_), capacity_bytes(capacity_bytes_), storage_medium(storage_medium_) { }
     std::string path;
     int64_t capacity_bytes;
+    TStorageMedium::type storage_medium;
 };
 
 OLAPStatus parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
