@@ -58,6 +58,28 @@ import org.apache.doris.common.util.SqlUtils;
     // In PIPES_AS_CONCAT_MODE(0x0002), scanner will return token with id as KW_PIPE instead of KW_OR when '||' is scanned.
     private long sql_mode;
 
+    /**
+       * Creates a new scanner to chain-call the generated constructor.
+       * There is also a java.io.InputStream version of this constructor.
+       * If you use this constructor, sql_mode will be set to 0 (default)
+       *
+       * @param   in  the java.io.Reader to read input from.
+       */
+    public SqlScanner(java.io.Reader in) {
+      this(in, 0L);
+    }
+
+    /**
+       * Creates a new scanner chain-call the generated constructor.
+       * There is also java.io.Reader version of this constructor.
+       * If you use this constructor, sql_mode will be set to 0 (default)
+       *
+       * @param   in  the java.io.Inputstream to read input from.
+       */
+    public SqlScanner(java.io.InputStream in, Long sql_mode) {
+      this(in, 0L);
+    }
+
     // map from keyword string to token id
     // we use a linked hash map because the insertion order is important.
     // for example, we want "and" to come after "&&" to make sure error reporting
@@ -525,7 +547,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
   Integer kw_id = keywordMap.get(text.toLowerCase());
   /* Integer kw_id = keywordMap.get(text); */
   if (kw_id != null) {
-    if ((kw_id == SqlParserSymbols.KW_PIPE) && (sql_mode != null) &&
+    if ((kw_id == SqlParserSymbols.KW_PIPE) &&
       ((sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) != 0)) {
       return newToken(SqlParserSymbols.KW_OR, "or");
     }
