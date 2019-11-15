@@ -76,7 +76,7 @@ import org.apache.doris.common.util.SqlUtils;
        *
        * @param   in  the java.io.Inputstream to read input from.
        */
-    public SqlScanner(java.io.InputStream in, Long sql_mode) {
+    public SqlScanner(java.io.InputStream in) {
       this(in, 0L);
     }
 
@@ -548,7 +548,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
   /* Integer kw_id = keywordMap.get(text); */
   if (kw_id != null) {
     if ((kw_id == SqlParserSymbols.KW_PIPE) &&
-      ((sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) != 0)) {
+      ((sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) == 0)) {
       return newToken(SqlParserSymbols.KW_OR, "or");
     }
     return newToken(kw_id.intValue(), text);
