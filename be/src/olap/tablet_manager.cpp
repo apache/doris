@@ -923,7 +923,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::set<int64_t>> expire_txn_map;
-    StorageEngine::instance()->txn_manager()->build_expire_txn_map(expire_txn_map);
+    StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
 
     ReadLock rlock(&_tablet_map_lock);
     DorisMetrics::report_all_tablets_requests_total.increment(1);

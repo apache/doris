@@ -298,9 +298,9 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
                       << ", rowsetid: " << rowset_ptr->rowset_id();
             if (it->second.empty()) {
                 _txn_tablet_map.erase(it);
+                _clear_txn_partition_map_unlocked(transaction_id, partition_id);
             }
         }
-        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         return OLAP_SUCCESS;
     }
 }
@@ -335,8 +335,8 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
                   << ", tablet: " << tablet_info.to_string();
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
+            _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         }
-        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return OLAP_SUCCESS;
 }
@@ -385,8 +385,8 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     it->second.erase(tablet_info);
     if (it->second.empty()) {
         _txn_tablet_map.erase(it);
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
-    _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     return OLAP_SUCCESS;
 }
 
@@ -435,8 +435,8 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
         }
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
+            _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
         }
-        _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
     }
 }
 
@@ -487,19 +487,19 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     return found;
 }
 
-void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>& expire_txn_map) {
+void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map) {
     time_t now = time(nullptr);
     int64_t counter = 0;
     // traverse the txn map, and get all expired txns
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
-        for (auto& ij : it.second) {
-            double diff = difftime(now, ij.second.creation_time);
+        for (auto& t_map : it.second) {
+            double diff = difftime(now, t_map.second.creation_time);
             if (diff >= config::pending_data_expire_time_sec) {
-                if (expire_txn_map.find(ij.first) == expire_txn_map.end()) {
-                    expire_txn_map[ij.first] = std::set<int64_t>();
+                if (expire_txn_map->find(t_map.first) == expire_txn_map->end()) {
+                    (*expire_txn_map)[t_map.first] = std::set<int64_t>();
                 }
-                expire_txn_map[ij.first].insert(it.first.second);
+                (*expire_txn_map)[t_map.first].insert(it.first.second);
                 counter++;
             }
         }
