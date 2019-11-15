@@ -321,6 +321,7 @@ public class ConnectProcessor {
         ctx.setQualifiedUser(request.user);
         ctx.setCatalog(Catalog.getInstance());
         ctx.getState().reset();
+        ctx.getSessionVariable().setSqlMode(request.sqlMode);
         if (request.isSetCluster()) {
             ctx.setCluster(request.cluster);
         }
