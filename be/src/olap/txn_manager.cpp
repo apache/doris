@@ -487,31 +487,24 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     return found;
 }
 
-bool TxnManager::get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
-    std::vector<int64_t>* transaction_ids) {
-    if (transaction_ids == nullptr) {
-        LOG(WARNING) << "parameter is null when get_expire_txns by tablet";
-        return false;
-    }
+void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>& expire_txn_map) {
     time_t now = time(nullptr);
-    TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
+    int64_t counter = 0;
+    // traverse the txn map, and get all expired txns
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
-        auto txn_info = it.second.find(tablet_info);
-        if (txn_info != it.second.end()) {
-            double diff = difftime(now, txn_info->second.creation_time);
+        for (auto& ij : it.second) {
+            double diff = difftime(now, ij.second.creation_time);
             if (diff >= config::pending_data_expire_time_sec) {
-                transaction_ids->push_back(it.first.second);
-                LOG(INFO) << "find expire pending data. " 
-                        << " tablet_id=" << tablet_id
-                        << " schema_hash=" << schema_hash 
-                        << " tablet_uid=" << tablet_uid.to_string()
-                        << " transaction_id=" << it.first.second 
-                        << " exist_sec=" << diff;
+                if (expire_txn_map.find(ij.first) == expire_txn_map.end()) {
+                    expire_txn_map[ij.first] = std::set<int64_t>();
+                }
+                expire_txn_map[ij.first].insert(it.first.second);
+                counter++;
             }
         }
     }
-    return true;
+    LOG(INFO) << "get " << counter << " expired txns";
 }
 
 void TxnManager::get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids) {

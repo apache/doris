@@ -94,7 +94,7 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const R
 
 OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-    LOG(INFO) << "start to remove rowset, key:" << key;
+    VLOG(3) << "start to remove rowset, key:" << key;
     OLAPStatus status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     LOG(INFO) << "remove rowset key:" << key << " finished";
     return status;
