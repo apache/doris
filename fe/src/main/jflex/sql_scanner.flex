@@ -44,6 +44,7 @@ import org.apache.doris.common.util.SqlUtils;
 %unicode
 %line
 %column
+%ctorarg Long sql_mode
 %{
     // Help to judge a integer-literal is bigger than LARGEINT_MAX
     // NOTE: the 'longMin' is not '-2^63' here, to make sure the return value functions
@@ -430,6 +431,9 @@ import org.apache.doris.common.util.SqlUtils;
       return writer.toString();
   }
 %}
+%init{
+    this.sql_mode = sql_mode;
+%init}
 
 LineTerminator = \r|\n|\r\n
 NonTerminator = [^\r\n]
@@ -516,6 +520,10 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
   Integer kw_id = keywordMap.get(text.toLowerCase());
   /* Integer kw_id = keywordMap.get(text); */
   if (kw_id != null) {
+    if ((kw_id == SqlParserSymbols.KW_PIPE) && (sql_mode != null) &&
+      ((sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) != 0)) {
+      return newToken(SqlParserSymbols.KW_OR, "or");
+    }
     return newToken(kw_id.intValue(), text);
   } else {
     return newToken(SqlParserSymbols.IDENT, text);
