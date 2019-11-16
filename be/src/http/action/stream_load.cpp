@@ -355,6 +355,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
 
+    if (ctx->timeout_second != -1) {
+        request.__set_timeout(ctx->timeout_second);
+    }
+
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 #ifndef BE_TEST
