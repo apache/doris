@@ -46,7 +46,7 @@ import java.nio.charset.StandardCharsets;
  * CREATE TABLE `stream_test` (
  *   `id` bigint(20) COMMENT "",
  *   `id2` bigint(20) COMMENT "",
- *   `username` varchar(32) COMMENT "",
+ *   `username` varchar(32) COMMENT ""
  * ) ENGINE=OLAP
  * DUPLICATE KEY(`id`)
  * DISTRIBUTED BY HASH(`id`) BUCKETS 20;
