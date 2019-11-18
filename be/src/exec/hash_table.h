@@ -98,7 +98,9 @@ public:
     HashTable(
         const std::vector<ExprContext*>& build_exprs,
         const std::vector<ExprContext*>& probe_exprs,
-        int num_build_tuples, bool stores_nulls, int32_t initial_seed,
+        int num_build_tuples, bool stores_nulls, 
+        const std::vector<bool>& finds_nulls,
+        int32_t initial_seed,
         MemTracker* mem_tracker,
         int64_t num_buckets);
 
@@ -384,7 +386,11 @@ private:
 
     // Number of Tuple* in the build tuple row
     const int _num_build_tuples;
+    // outer join || has null equal join should be true
     const bool _stores_nulls;
+    // true: the null-safe equal '<=>' is true. The row with null shoud be judged.
+    // false: the equal '=' is false. The row with null should be filtered.
+    const std::vector<bool> _finds_nulls;
 
     const int32_t _initial_seed;
 

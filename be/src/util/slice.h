@@ -236,6 +236,55 @@ struct SliceMap {
     typedef std::map<Slice, T, Slice::Comparator> type;
 };
 
+// A move-only type which manage the lifecycle of externally allocated data.
+// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// the underlying buffer as a Slice.
+//
+// Usage example:
+//   OwnedSlice read_page(PagePointer pp);
+//   {
+//     OwnedSlice page_data(new uint8_t[pp.size], pp.size);
+//     Status s = _file.read_at(pp.offset, owned.slice());
+//     if (!s.ok()) {
+//       return s; // `page_data` destructs, deallocate underlying buffer
+//     }
+//     return page_data; // transfer ownership of buffer into the caller
+//   }
+//
+class OwnedSlice {
+public:
+    OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
+
+    OwnedSlice(uint8_t* _data, size_t size) :_slice(_data, size) {}
+
+    OwnedSlice(OwnedSlice&& src) : _slice(src._slice) {
+        src._slice.data = nullptr;
+        src._slice.size = 0;
+    }
+
+    OwnedSlice& operator= (OwnedSlice&& src) {
+        if (this != &src) {
+            std::swap(_slice, src._slice);
+        }
+        return *this;
+    }
+
+    ~OwnedSlice(){
+        delete[] _slice.data;
+    }
+
+    const Slice& slice() const {
+        return _slice;
+    }
+
+private:
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
+    Slice _slice;
+};
+
 }  // namespace doris
 
 #endif  // DORIS_BE_SRC_OLAP_STRING_SLICE_H

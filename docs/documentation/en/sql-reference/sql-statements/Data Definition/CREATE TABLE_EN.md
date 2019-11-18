@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # CREATE TABLE
 ## description
 
@@ -60,7 +79,11 @@
             This type can only be queried by BITMAP_UNION、BITMAP_COUNT、TO_BITMAP functions.
                             
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column is value column.
-        SUM、MAX、MIN、REPLACE、HLL_UNION(Only for HLL type), BITMAP_UNION(Only for BITMAP type)
+    
+        * SUM、MAX、MIN、REPLACE
+        * HLL_UNION: Only for HLL type
+        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns.
+        * BITMAP_UNION: Only for BITMAP type
 
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
 

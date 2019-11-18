@@ -75,11 +75,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type,
     case TYPE_HLL:
     case TYPE_DECIMAL:
     case TYPE_LARGEINT:
-        *result = arrow::utf8();
-        break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-        *result = arrow::date64();
+        *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -211,6 +209,11 @@ public:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+                continue;
+            }
             auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
             PrimitiveType primitive_type = _cur_slot_ref->type().type;
             switch (primitive_type) {
@@ -218,17 +221,21 @@ public:
                 case TYPE_CHAR:
                 case TYPE_HLL: {
                     const StringValue* string_val = (const StringValue*)(cell_ptr);
-                    if (string_val == nullptr) {
-                        ARROW_RETURN_NOT_OK(builder.AppendNull());
+                    if (string_val->len == 0) {
+                        // 0x01 is a magic num, not usefull actually, just for present ""
+                        //char* tmp_val = reinterpret_cast<char*>(0x01);
+                        ARROW_RETURN_NOT_OK(builder.Append(""));        
                     } else {
-                        if (string_val->len == 0) {
-                            // 0x01 is a magic num, not usefull actually, just for present ""
-                            //char* tmp_val = reinterpret_cast<char*>(0x01);
-                            ARROW_RETURN_NOT_OK(builder.Append(""));        
-                        } else {
-                            ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
-                        }
-                    }   
+                        ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
+                    }
+                    break;
+                }
+                case TYPE_DATE:
+                case TYPE_DATETIME: {
+                    char buf[64];
+                    const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
+                    char* pos = time_val->to_string(buf);
+                    ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
                     break;
                 }
                 case TYPE_LARGEINT: {
@@ -241,12 +248,8 @@ public:
                 }
                 case TYPE_DECIMAL: {
                     const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                    if (decimal_val == nullptr) {
-                        ARROW_RETURN_NOT_OK(builder.AppendNull());
-                    } else {
-                        std::string decimal_str = decimal_val->to_string();
-                        ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
-                    }
+                    std::string decimal_str = decimal_val->to_string();
+                    ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
                     break;
                 }
                 default: {
@@ -257,29 +260,7 @@ public:
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
-
-    // process date/datetime
-    arrow::Status Visit(const arrow::Date64Type& type) override {
-        arrow::Date64Builder builder(_pool);
-        size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
-            } else {
-                const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                int64_t ts = 0;
-                if (time_val->unix_timestamp(&ts, _time_zone)) {
-                    ARROW_RETURN_NOT_OK(builder.Append(ts * 1000));
-                } else {
-                    ARROW_RETURN_NOT_OK(builder.AppendNull());
-                }
-            }
-        }
-        return builder.Finish(&_arrays[_cur_field_idx]);
-    }
-
+    
     // process doris DecimalV2
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
         std::shared_ptr<arrow::DataType> s_decimal_ptr = std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -287,16 +268,17 @@ public:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
-            } else {
-                PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
-                int64_t high = (p_value->value) >> 64;
-                uint64 low = p_value->value;
-                arrow::Decimal128 value(high, low);
-                ARROW_RETURN_NOT_OK(builder.Append(value));
+                continue;
             }
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            PackedInt128* p_value = reinterpret_cast<PackedInt128*>(cell_ptr);
+            int64_t high = (p_value->value) >> 64;
+            uint64 low = p_value->value;
+            arrow::Decimal128 value(high, low);
+            ARROW_RETURN_NOT_OK(builder.Append(value));
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
@@ -314,14 +296,14 @@ private:
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
         for (size_t i = 0; i < num_rows; ++i) {
-            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
-            if (cell_ptr == nullptr) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
-            } else {
-                ARROW_RETURN_NOT_OK(builder.Append(*(typename T::c_type*)cell_ptr));
+                continue;
             }
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            ARROW_RETURN_NOT_OK(builder.Append(*(typename T::c_type*)cell_ptr));
         }
-
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
 

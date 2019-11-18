@@ -41,33 +41,30 @@ using strings::Substitute;
 
 class NullBitmapBuilder {
 public:
-    NullBitmapBuilder() : _offset(0), _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) { }
-    NullBitmapBuilder(size_t reserve_bits)
-        : _offset(0), _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) { }
+    NullBitmapBuilder() : _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) {
+    }
+
+    explicit NullBitmapBuilder(size_t reserve_bits)
+        : _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) {
+    }
+
     void add_run(bool value, size_t run) {
         _rle_encoder.Put(value, run);
-        _offset += run;
     }
-    Slice finish() {
-        auto len = _rle_encoder.Flush();
-        return Slice(_bitmap_buf.data(), len);
+
+    OwnedSlice finish() {
+        _rle_encoder.Flush();
+        return _bitmap_buf.build();
     }
+
     void reset() {
-        _offset = 0;
         _rle_encoder.Clear();
     }
 
     uint64_t size() {
         return _bitmap_buf.size();
     }
-    // slice returned by finish should be deleted by caller
-    void release() {
-        size_t capacity = _bitmap_buf.capacity();
-        _bitmap_buf.release();
-        _bitmap_buf.reserve(capacity);
-    }
 private:
-    size_t _offset;
     faststring _bitmap_buf;
     RleEncoder<bool> _rle_encoder;
 };
@@ -199,9 +196,9 @@ uint64_t ColumnWriter::estimate_buffer_size() {
     uint64_t size = 0;
     Page* page = _pages.head;
     while (page != nullptr) {
-        size += page->data.get_size();
+        size += page->data.slice().size;
         if (_is_nullable) {
-            size += page->null_bitmap.get_size();
+            size += page->null_bitmap.slice().get_size();
         }
         page = page->next;
     }
@@ -228,10 +225,10 @@ Status ColumnWriter::write_data() {
     }
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
-        Slice dict_page;
+        OwnedSlice dict_page;
         _page_builder->get_dictionary_page(&dict_page);
         std::vector<Slice> origin_data;
-        origin_data.push_back(dict_page);
+        origin_data.push_back(dict_page.slice());
         RETURN_IF_ERROR(_write_physical_page(&origin_data, &_dict_page_pp));
     }
     return Status::OK();
@@ -245,8 +242,8 @@ Status ColumnWriter::write_ordinal_index() {
 
 Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
-        Slice data = _column_zone_map_builder->finish();
-        std::vector<Slice> slices{data};
+        OwnedSlice data = _column_zone_map_builder->finish();
+        std::vector<Slice> slices{data.slice()};
         return _write_physical_page(&slices, &_zone_map_pp);
     }
     return Status::OK();
@@ -287,13 +284,13 @@ Status ColumnWriter::_write_data_page(Page* page) {
     // 2. row count
     put_varint32(&header, page->num_rows);
     if (_is_nullable) {
-        put_varint32(&header, page->null_bitmap.size);
+        put_varint32(&header, page->null_bitmap.slice().get_size());
     }
     origin_data.emplace_back(header.data(), header.size());
     if (_is_nullable) {
-        origin_data.push_back(page->null_bitmap);
+        origin_data.push_back(page->null_bitmap.slice());
     }
-    origin_data.push_back(page->data);
+    origin_data.push_back(page->data.slice());
     // TODO(zc): upadte page's statistics
 
     PagePointer pp;
@@ -352,11 +349,9 @@ Status ColumnWriter::_finish_current_page() {
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
     page->data = _page_builder->finish();
-    _page_builder->release();
     _page_builder->reset();
     if (_is_nullable) {
         page->null_bitmap = _null_bitmap_builder->finish();
-        _null_bitmap_builder->release();
         _null_bitmap_builder->reset();
     }
     // update last first rowid

@@ -58,7 +58,7 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override;
 
-    Slice finish() override;
+    OwnedSlice finish() override;
 
     void reset() override;
 
@@ -70,16 +70,7 @@ public:
 
     Status get_last_value(void* value) const override;
 
-    Status get_dictionary_page(Slice* dictionary_page) override;
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buffer.release();
-        (void)ret;
-    }
+    Status get_dictionary_page(OwnedSlice* dictionary_page) override;
 
 private:
     PageBuilderOptions _options;

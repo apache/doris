@@ -21,11 +21,11 @@
 
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
-#include "util/bitmap.h" // for BitmapChange
-#include "util/slice.h" // for slice
+#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
+#include "util/bitmap.h" // for BitmapChange
+#include "util/slice.h" // for OwnedSlice
 
 namespace doris {
 
@@ -105,15 +105,9 @@ private:
     struct Page {
         int32_t first_rowid;
         int32_t num_rows;
-        Slice null_bitmap = Slice((uint8_t*)nullptr, 0);
-        Slice data = Slice((uint8_t*)nullptr, 0);
-
+        OwnedSlice null_bitmap;
+        OwnedSlice data;
         Page* next = nullptr;
-
-        ~Page() {
-            delete[] null_bitmap.data;
-            delete[] data.data;
-        }
     };
 
     struct PageHead {

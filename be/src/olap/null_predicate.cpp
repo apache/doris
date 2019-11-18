@@ -34,13 +34,19 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     }
     uint16_t* sel = batch->selected();
     bool* null_array = batch->column(_column_id)->is_null();
-    uint16_t new_size = 0;
     if (batch->column(_column_id)->no_nulls() && _is_null) {
-        batch->set_size(new_size);
+        batch->set_size(0);
         batch->set_selected_in_use(true);
         return;
     }
 
+    if (batch->column(_column_id)->no_nulls() && !_is_null) {
+        batch->set_size(n);
+        batch->set_selected_in_use(false);
+        return;
+    }
+
+    uint16_t new_size = 0;
     if (batch->selected_in_use()) {
         for (uint16_t j = 0; j != n; ++j) {
             uint16_t i = sel[j];

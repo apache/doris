@@ -93,7 +93,7 @@ Status DataDir::init() {
         LOG(WARNING) << "fail to allocate memory. size=" <<  TEST_FILE_BUF_SIZE;
         return Status::InternalError("No memory");
     }
-    if (!check_dir_existed(_path)) {
+    if (!FileUtils::check_exist(_path)) {
         LOG(WARNING) << "opendir failed, path=" << _path;
         return Status::InternalError("opendir failed");
     }
@@ -203,7 +203,7 @@ Status DataDir::_init_extension_and_capacity() {
     }
 
     std::string data_path = _path + DATA_PREFIX;
-    if (!check_dir_existed(data_path) && create_dir(data_path) != OLAP_SUCCESS) {
+    if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
         LOG(WARNING) << "failed to create data root path. path=" << data_path;
         return Status::InternalError("invalid store path: failed to create data directory");
     }
@@ -388,7 +388,6 @@ OLAPStatus DataDir::_read_and_write_test_file() {
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {
-    OLAPStatus res = OLAP_SUCCESS;
     std::lock_guard<std::mutex> l(_mutex);
 
     std::stringstream shard_path_stream;
@@ -396,12 +395,9 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    if (!check_dir_existed(shard_path)) {
-        res = create_dir(shard_path);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create path. [path='" << shard_path << "']";
-            return res;
-        }
+    if (!FileUtils::check_exist(shard_path)) {
+        RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
+                                  "fail to create path. path=" + shard_path);
     }
 
     *shard = next_shard;
@@ -636,21 +632,21 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         // remove incremental dir and pending dir
         std::string pending_delta_path = data_path_prefix + PENDING_DELTA_PREFIX;
-        if (check_dir_existed(pending_delta_path)) {
+        if (FileUtils::check_exist(pending_delta_path)) {
             LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-            if(remove_all_dir(pending_delta_path) != OLAP_SUCCESS) {
-                LOG(INFO) << "errors while remove pending delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(pending_delta_path), true,
+                                      "errors while remove pending delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         std::string incremental_delta_path = data_path_prefix + INCREMENTAL_DELTA_PREFIX;
-        if (check_dir_existed(incremental_delta_path)) {
+        if (FileUtils::check_exist(incremental_delta_path)) {
             LOG(INFO) << "remove incremental delta path:" << incremental_delta_path;
-            if(remove_all_dir(incremental_delta_path) != OLAP_SUCCESS) {
-                LOG(INFO) << "errors while remove incremental delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(incremental_delta_path), true,
+                                      "errors while remove incremental delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
@@ -931,31 +927,44 @@ void DataDir::perform_path_scan() {
         LOG(INFO) << "start to scan data dir path:" << _path;
         std::set<std::string> shards;
         std::string data_path = _path + DATA_PREFIX;
-        if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
-            return;
+
+        Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
+        if (!ret.ok()) {
+            LOG(WARNING) << "fail to walk dir. path=[" + data_path 
+                          << "] error[" << ret.to_string() << "]";
+            return ;
         }
+        
         for (const auto& shard : shards) {
             std::string shard_path = data_path + "/" + shard;
             std::set<std::string> tablet_ids;
-            if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
+            ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
+            if (!ret.ok()) {
+                LOG(WARNING) << "fail to walk dir. [path=" << shard_path 
+                             << "] error[" << ret.to_string() << "]";
                 continue;
             }
             for (const auto& tablet_id : tablet_ids) {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
                 _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
-                if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
+                ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
+                                           Env::Default());
+                if (!ret.ok()) {
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
+                                 << " error[" << ret.to_string() << "]";
                     continue;
                 }
                 for (const auto& schema_hash : schema_hashes) {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
                     _all_check_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
-                    if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
-                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
+                    
+                    ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
+                                                     Env::Default()); 
+                    if (!ret.ok()) {
+                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path 
+                                     << "] error[" << ret.to_string() << "]";
                         continue;
                     }
                     for (const auto& rowset_file : rowset_files) {
@@ -971,12 +980,9 @@ void DataDir::perform_path_scan() {
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (check_dir_existed(path)) {
+    if (FileUtils::check_exist(path)) {
         LOG(INFO) << "collect garbage dir path: " << path;
-        OLAPStatus status = remove_all_dir(path);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
-        }
+        WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
 }
 

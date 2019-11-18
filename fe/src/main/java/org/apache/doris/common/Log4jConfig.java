@@ -38,7 +38,7 @@ public class Log4jConfig extends XmlConfiguration {
     
     private static String xmlConfTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + 
             "\n" + 
-            "<Configuration status=\"debug\" packages=\"org.apache.doris.common\">\n" + 
+            "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n" + 
             "  <Appenders>\n" + 
             "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
@@ -48,7 +48,12 @@ public class Log4jConfig extends XmlConfiguration {
             "        <TimeBasedTriggeringPolicy/>\n" + 
             "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n" + 
             "      </Policies>\n" + 
-            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n" +
+            "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n" +
+            "          <IfFileName glob=\"fe.log.*\" />\n" +
+            "          <IfLastModified age=\"${sys_log_delete_age}\" />\n" +
+            "        </Delete>\n" +
+            "      </DefaultRolloverStrategy>\n" +
             "    </RollingFile>\n" + 
             "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
@@ -58,7 +63,12 @@ public class Log4jConfig extends XmlConfiguration {
             "        <TimeBasedTriggeringPolicy/>\n" + 
             "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n" + 
             "      </Policies>\n" + 
-            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n" +
+            "        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n" +
+            "          <IfFileName glob=\"fe.warn.log.*\" />\n" +
+            "          <IfLastModified age=\"${sys_log_delete_age}\" />\n" +
+            "        </Delete>\n" +
+            "      </DefaultRolloverStrategy>\n" +
             "    </RollingFile>\n" + 
             "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
@@ -68,7 +78,12 @@ public class Log4jConfig extends XmlConfiguration {
             "        <TimeBasedTriggeringPolicy/>\n" + 
             "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n" + 
             "      </Policies>\n" + 
-            "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n" +
+            "        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n" +
+            "          <IfFileName glob=\"fe.audit.log.*\" />\n" +
+            "          <IfLastModified age=\"${audit_log_delete_age}\" />\n" +
+            "        </Delete>\n" +
+            "      </DefaultRolloverStrategy>\n" +
             "    </RollingFile>\n" + 
             "  </Appenders>\n" + 
             "  <Loggers>\n" + 
@@ -103,6 +118,7 @@ public class Log4jConfig extends XmlConfiguration {
         // sys log config
         String sysLogDir = Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
+        String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
         
         if (!(sysLogLevel.equalsIgnoreCase("INFO") || 
                 sysLogLevel.equalsIgnoreCase("WARN") ||
@@ -126,6 +142,7 @@ public class Log4jConfig extends XmlConfiguration {
         String auditLogRollPattern = "%d{yyyyMMdd}";
         String auditRollNum = String.valueOf(Config.audit_log_roll_num);
         String auditRollMaxSize = String.valueOf(Config.log_roll_size_mb);
+        String auditDeleteAge = String.valueOf(Config.audit_log_delete_age);
         if (Config.audit_log_roll_interval.equals("HOUR")) {
             auditLogRollPattern = "%d{yyyyMMddHH}";
         } else if (Config.audit_log_roll_interval.equals("DAY")) {
@@ -150,12 +167,14 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("sys_file_pattern", sysLogRollPattern);
         properties.put("sys_roll_maxsize", sysRollMaxSize);
         properties.put("sys_roll_num", sysRollNum);
+        properties.put("sys_log_delete_age", sysDeleteAge);
         properties.put("sys_log_level", sysLogLevel);
         
         properties.put("audit_log_dir", auditLogDir);
         properties.put("audit_file_pattern", auditLogRollPattern);
         properties.put("audit_roll_maxsize", auditRollMaxSize);
         properties.put("audit_roll_num", auditRollNum);
+        properties.put("audit_log_delete_age", auditDeleteAge);
         
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
@@ -191,7 +210,7 @@ public class Log4jConfig extends XmlConfiguration {
     }
 
     public Log4jConfig(final ConfigurationSource configSource) {
-        super(configSource);
+        super(LoggerContext.getContext(), configSource);
     }
  
     public synchronized static void initLogging() throws IOException {

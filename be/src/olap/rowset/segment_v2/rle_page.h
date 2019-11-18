@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/common.h" // for rowid_t
+#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
-#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
 #include "util/coding.h" // for encode_fixed32_le/decode_fixed32_le
+#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
+#include "util/slice.h" // for OwnedSlice
 
 namespace doris {
 namespace segment_v2 {
@@ -105,13 +106,14 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
         encode_fixed32_le(&_buf[0], _count);
-        return Slice(_buf.data(), _buf.size());
+        return _buf.build();
     }
 
     void reset() override {
@@ -144,15 +146,6 @@ public:
         }
         memcpy(value, &_last_value, SIZE_OF_TYPE);
         return Status::OK();
-    }
-
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buf.release();
-        (void)ret;
     }
 
 private:

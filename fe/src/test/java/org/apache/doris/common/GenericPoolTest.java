@@ -29,15 +29,12 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TFetchAllPullLoadTaskInfosResult;
 import org.apache.doris.thrift.TFetchDataParams;
 import org.apache.doris.thrift.TFetchDataResult;
-import org.apache.doris.thrift.TFetchPullLoadTaskInfoResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPullLoadSubTaskInfo;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
@@ -167,36 +164,6 @@ public class GenericPoolTest {
 
         @Override
         public TAgentResult make_snapshot(TSnapshotRequest snapshot_request) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus register_pull_load_task(TUniqueId id, int num_senders) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus deregister_pull_load_task(TUniqueId id) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus report_pull_load_sub_task_info(TPullLoadSubTaskInfo task_info) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TFetchPullLoadTaskInfoResult fetch_pull_load_task_info(TUniqueId id) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TFetchAllPullLoadTaskInfosResult fetch_all_pull_load_task_infos() throws TException {
             // TODO Auto-generated method stub
             return null;
         }

@@ -89,8 +89,10 @@ Status Segment::new_iterator(
                 return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
             }
             FieldType type = type_info->type();
-            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
+            const Field* field = schema.column(column_id);
+            int32_t var_length = field->length();
+            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, var_length));
+            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, var_length));
             if (c_zone_map.has_not_null()) {
                 min_value->from_string(c_zone_map.min());
                 max_value->from_string(c_zone_map.max());
@@ -198,11 +200,12 @@ Status Segment::_create_column_readers() {
 Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
-        if (!tablet_column.has_default_value()) {
+        if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(tablet_column.default_value(),
+                new DefaultValueColumnIterator(tablet_column.has_default_value(),
+                tablet_column.default_value(),
                 tablet_column.is_nullable(), tablet_column.type()));
         ColumnIteratorOptions iter_opts;
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));

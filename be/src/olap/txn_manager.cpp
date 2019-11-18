@@ -134,11 +134,21 @@ OLAPStatus TxnManager::prepare_txn(
             }
         }
     }
+
+    // check if there are too many transactions on running.
+    // if yes, reject the request.
+    if (_txn_partition_map.size() > config::max_runnings_transactions) {
+        LOG(WARNING) << "too many transactions: " << _txn_tablet_map.size() << ", limit: " << config::max_runnings_transactions;
+        return OLAP_ERR_TOO_MANY_TRANSACTIONS;
+    }
+
     // not found load id
     // case 1: user start a new txn, rowset_ptr = null
     // case 2: loading txn from meta env
     TabletTxnInfo load_info(load_id, nullptr);
     _txn_tablet_map[key][tablet_info] = load_info;
+    _insert_txn_partition_map_unlocked(transaction_id, partition_id);
+
     LOG(INFO) << "add transaction to engine successfully."
             << "partition_id: " << key.first
             << ", transaction_id: " << key.second
@@ -225,6 +235,7 @@ OLAPStatus TxnManager::commit_txn(
         WriteLock wrlock(&_txn_map_lock);
         TabletTxnInfo load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
+        _insert_txn_partition_map_unlocked(transaction_id, partition_id);
         LOG(INFO) << "commit transaction to engine successfully."
                 << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
@@ -287,6 +298,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
                       << ", rowsetid: " << rowset_ptr->rowset_id();
             if (it->second.empty()) {
                 _txn_tablet_map.erase(it);
+                _clear_txn_partition_map_unlocked(transaction_id, partition_id);
             }
         }
         return OLAP_SUCCESS;
@@ -323,8 +335,8 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
                   << ", tablet: " << tablet_info.to_string();
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
+            _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         }
-        return OLAP_SUCCESS;
     }
     return OLAP_SUCCESS;
 }
@@ -373,6 +385,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     it->second.erase(tablet_info);
     if (it->second.empty()) {
         _txn_tablet_map.erase(it);
+        _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return OLAP_SUCCESS;
 }
@@ -422,6 +435,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
         }
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
+            _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
         }
     }
 }
@@ -473,31 +487,52 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     return found;
 }
 
-bool TxnManager::get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
-    std::vector<int64_t>* transaction_ids) {
-    if (transaction_ids == nullptr) {
-        LOG(WARNING) << "parameter is null when get_expire_txns by tablet";
-        return false;
-    }
+void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map) {
     time_t now = time(nullptr);
-    TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
+    int64_t counter = 0;
+    // traverse the txn map, and get all expired txns
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
-        auto txn_info = it.second.find(tablet_info);
-        if (txn_info != it.second.end()) {
-            double diff = difftime(now, txn_info->second.creation_time);
+        for (auto& t_map : it.second) {
+            double diff = difftime(now, t_map.second.creation_time);
             if (diff >= config::pending_data_expire_time_sec) {
-                transaction_ids->push_back(it.first.second);
-                LOG(INFO) << "find expire pending data. " 
-                        << " tablet_id=" << tablet_id
-                        << " schema_hash=" << schema_hash 
-                        << " tablet_uid=" << tablet_uid.to_string()
-                        << " transaction_id=" << it.first.second 
-                        << " exist_sec=" << diff;
+                if (expire_txn_map->find(t_map.first) == expire_txn_map->end()) {
+                    (*expire_txn_map)[t_map.first] = std::set<int64_t>();
+                }
+                (*expire_txn_map)[t_map.first].insert(it.first.second);
+                counter++;
             }
         }
     }
-    return true;
+    LOG(INFO) << "get " << counter << " expired txns";
+}
+
+void TxnManager::get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids) {
+    ReadLock txn_rdlock(&_txn_map_lock);
+    auto it = _txn_partition_map.find(transaction_id);
+    if (it != _txn_partition_map.end()) {
+        for (int64_t partition_id : it->second) {
+            partition_ids->push_back(partition_id);
+        }
+    }
+}
+
+void TxnManager::_insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
+    auto find = _txn_partition_map.find(transaction_id);
+    if (find == _txn_partition_map.end()) {
+        _txn_partition_map[transaction_id] = std::unordered_set<int64_t>();
+    }
+    _txn_partition_map[transaction_id].insert(partition_id);
+}
+
+void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id) {
+    auto it = _txn_partition_map.find(transaction_id);
+    if (it != _txn_partition_map.end()) {
+        it->second.erase(partition_id);
+        if (it->second.empty()) {
+            _txn_partition_map.erase(it);
+        }
+    }
 }
 
 } // namespace doris

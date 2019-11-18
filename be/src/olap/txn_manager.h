@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <rapidjson/document.h>
 #include <pthread.h>
@@ -70,6 +72,7 @@ public:
 
     ~TxnManager() {
         _txn_tablet_map.clear();
+        _txn_partition_map.clear();
         _txn_locks.clear();
     }
 
@@ -129,19 +132,33 @@ public:
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                  TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
-    bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, std::vector<int64_t>* transaction_ids);
+    // get all expired txns and save tham in expire_txn_map.
+    // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
+    void build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map);
 
     void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
+
+    void get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids);
     
 private:
     RWMutex* _get_txn_lock(TTransactionId txn_id) {
         return _txn_locks[txn_id % _txn_lock_num].get();
     }
 
+    // insert or remove (transaction_id, partition_id) from _txn_partition_map
+    // get _txn_map_lock before calling
+    void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+    void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+
 private:
     RWMutex _txn_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> _txn_tablet_map;
+    // transaction_id -> corresponding partition ids
+    // This is mainly for the clear txn task received from FE, which may only has transaction id,
+    // so we need this map to find out which partitions are corresponding to a transaction id.
+    // This map should be constructed/deconstructed/modified alongside with '_txn_tablet_map'
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _txn_partition_map;
 
     const int32_t _txn_lock_num = 100;
     std::map<int32_t, std::shared_ptr<RWMutex>> _txn_locks;

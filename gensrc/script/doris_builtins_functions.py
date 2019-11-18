@@ -446,6 +446,7 @@ visible_functions = [
     [['ifnull'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['ifnull'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['ifnull'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
+    [['ifnull'], 'DATE', ['DATE', 'DATE'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],

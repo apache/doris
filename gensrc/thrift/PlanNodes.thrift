@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
+include "Opcodes.thrift"
 include "Partitions.thrift"
 
 enum TPlanNodeType {
@@ -115,7 +116,7 @@ struct TBrokerRangeDesc {
     // total size of the file
     8: optional i64 file_size
     // number of columns from file
-    9: optional i32 num_of_columns_from_file = 0
+    9: optional i32 num_of_columns_from_file
     // columns parsed from file path should be after the columns read from file
     10: optional list<string> columns_from_path
 }
@@ -260,6 +261,8 @@ struct TEqJoinCondition {
   1: required Exprs.TExpr left;
   // right-hand side of "<a> = <b>"
   2: required Exprs.TExpr right;
+  // operator of equal join
+  3: optional Opcodes.TExprOpcode opcode; 
 }
 
 enum TJoinOp {

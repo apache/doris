@@ -154,6 +154,7 @@ ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
+${DORIS_TEST_BINARY_DIR}/util/radix_sort_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
@@ -203,6 +204,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/memory_scratch_sink_test
 ${DORIS_TEST_BINARY_DIR}/runtime/result_queue_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
+${DORIS_TEST_BINARY_DIR}/runtime/decimalv2_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/large_int_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test

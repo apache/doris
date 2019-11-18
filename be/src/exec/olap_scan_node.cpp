@@ -193,9 +193,10 @@ Status OlapScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-
+   
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // if conjunct is constant, compute direct and set eos = true
+
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
             void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
             if (value == NULL || *reinterpret_cast<bool*>(value) == false) {

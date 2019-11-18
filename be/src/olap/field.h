@@ -52,6 +52,7 @@ public:
     virtual ~Field() = default;
 
     inline size_t size() const { return _type_info->size(); }
+    inline int32_t length() const { return _length; }
     inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
 
@@ -477,6 +478,7 @@ public:
             case OLAP_FIELD_AGGREGATION_MIN:
             case OLAP_FIELD_AGGREGATION_MAX:
             case OLAP_FIELD_AGGREGATION_REPLACE:
+            case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
                 switch (column.type()) {
                     case OLAP_FIELD_TYPE_CHAR:
                         return new CharField(column);

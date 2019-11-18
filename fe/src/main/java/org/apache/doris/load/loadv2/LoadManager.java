@@ -332,6 +332,15 @@ public class LoadManager implements Writable{
         }
     }
 
+    public long getLoadJobNum(JobState jobState, EtlJobType jobType) {
+        readLock();
+        try {
+            return idToLoadJob.values().stream().filter(j -> j.getState() == jobState && j.getJobType() == jobType).count();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
 

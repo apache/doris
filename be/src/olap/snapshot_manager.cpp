@@ -36,6 +36,8 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
 
+#include "env/env.h"
+
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
 using boost::filesystem::copy_option;
@@ -107,7 +109,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0
                 && snapshot_path.compare(abs_path.size(),
                         SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) == 0) {
-            remove_all_dir(snapshot_path);
+            FileUtils::remove_all(snapshot_path);
             LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
 
             return OLAP_SUCCESS;
@@ -123,7 +125,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
     const int32_t& schema_hash, TabletSharedPtr tablet) {
     OLAPStatus res = OLAP_SUCCESS;   
     // check clone dir existed
-    if (!check_dir_existed(clone_dir)) {
+    if (!FileUtils::check_exist(clone_dir)) {
         res = OLAP_ERR_DIR_NOT_EXIST;
         LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" 
                      << clone_dir;
@@ -329,13 +331,33 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string schema_full_path = get_schema_hash_full_path(
             ref_tablet, snapshot_id_path);
     string header_path = _get_header_full_path(ref_tablet, schema_full_path);
-    if (check_dir_existed(schema_full_path)) {
+    if (FileUtils::check_exist(schema_full_path)) {
         VLOG(10) << "remove the old schema_full_path.";
-        remove_all_dir(schema_full_path);
+        FileUtils::remove_all(schema_full_path);
     }
-    create_dirs(schema_full_path);
-    path boost_path(snapshot_id_path);
-    string snapshot_id = canonical(boost_path).string();
+
+    Status st = FileUtils::create_dir(schema_full_path);
+    if (!st.ok()) {
+        LOG(WARNING) << "create path " + schema_full_path + "failed. error: " << st.to_string();
+        return OLAP_ERR_CANNOT_CREATE_DIR;
+    }
+    
+    string snapshot_id;
+    try {
+        path boost_path(snapshot_id_path);
+        boost::system::error_code error_code;
+        path real_path = canonical(boost_path, error_code);
+        if (error_code != boost::system::errc::success) {
+            LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << error_code;
+            return OLAP_ERR_CANNOT_CREATE_DIR;
+        } else {
+            snapshot_id = real_path.string();
+        }
+    } catch (std::exception e) {
+        LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << e.what();
+        return OLAP_ERR_CANNOT_CREATE_DIR;
+    }
+    
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
@@ -446,9 +468,12 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         }
         if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
             set<string> exist_old_files;
-            if ((res = dir_walk(schema_full_path, nullptr, &exist_old_files)) != OLAP_SUCCESS) {
+            Status ret = FileUtils::list_dirs_files(schema_full_path, nullptr, &exist_old_files,
+                                       Env::Default());
+            if (!ret.ok()) { 
+                res = OLAP_ERR_DISK_FAILURE;
                 LOG(WARNING) << "failed to dir walk when convert old files. dir=" 
-                             << schema_full_path;
+                             << schema_full_path << ", error:" << ret.to_string();
                 break;
             }
             OlapSnapshotConverter converter;
@@ -466,8 +491,10 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 files_to_delete.push_back(full_file_path);
             }
             // remove all files
-            res = remove_files(files_to_delete);
-            if (res != OLAP_SUCCESS) {
+            ret = FileUtils::remove_paths(files_to_delete);
+            if (!ret.ok()) {
+                res = OLAP_ERR_IO_ERROR;
+                LOG(WARNING) << "remove paths failed. error: " << ret.to_string(); 
                 break;
             }
             // save new header to snapshot header path
@@ -508,9 +535,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="
                      << snapshot_id_path.c_str();
 
-        if (check_dir_existed(snapshot_id_path)) {
+        if (FileUtils::check_exist(snapshot_id_path)) {
             VLOG(3) << "remove snapshot path. [path=" << snapshot_id_path << "]";
-            remove_all_dir(snapshot_id_path);
+            FileUtils::remove_all(snapshot_id_path);
         }
     } else {
         *snapshot_path = snapshot_id;

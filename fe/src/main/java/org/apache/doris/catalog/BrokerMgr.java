@@ -66,6 +66,19 @@ public class BrokerMgr {
         return brokerListMap;
     }
 
+    public List<FsBroker> getAllBrokers() {
+        List<FsBroker> brokers = Lists.newArrayList();
+        lock.lock();
+        try {
+            for (List<FsBroker> list : brokerListMap.values()) {
+                brokers.addAll(list);
+            }
+        } finally {
+            lock.unlock();
+        }
+        return brokers;
+    }
+
     public void execute(ModifyBrokerClause clause) throws DdlException {
         switch (clause.getOp()) {
             case OP_ADD:

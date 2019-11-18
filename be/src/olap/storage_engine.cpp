@@ -477,8 +477,15 @@ OLAPStatus StorageEngine::clear() {
     return OLAP_SUCCESS;
 }
 
+void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
+    // clear transaction task may not contains partitions ids, we should get partition id from txn manager.
+    std::vector<int64_t> partition_ids;
+    StorageEngine::instance()->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    clear_transaction_task(transaction_id, partition_ids);
+}
+
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
-                                        const vector<TPartitionId> partition_ids) {
+        const vector<TPartitionId>& partition_ids) {
     LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
@@ -690,7 +697,7 @@ void StorageEngine::_clean_unused_txns() {
 OLAPStatus StorageEngine::_do_sweep(
         const string& scan_root, const time_t& local_now, const int32_t expire) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (!check_dir_existed(scan_root)) {
+    if (!FileUtils::check_exist(scan_root)) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -720,8 +727,10 @@ OLAPStatus StorageEngine::_do_sweep(
             VLOG(10) << "get actual expire time " << actual_expire << " of dir: " << dir_name;
 
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                if (remove_all_dir(path_name) != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name;
+                Status ret = FileUtils::remove_all(path_name);
+                if (!ret.ok()) {
+                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name
+                                 << ", error=" << ret.to_string();
                     res = OLAP_ERR_OS_ERROR;
                     continue;
                 }

@@ -31,6 +31,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
@@ -69,7 +70,8 @@ public class FileSystemManager {
     private static final String KERBEROS_PRINCIPAL = "kerberos_principal";
     private static final String KERBEROS_KEYTAB = "kerberos_keytab";
     private static final String KERBEROS_KEYTAB_CONTENT = "kerberos_keytab_content";
-
+    private static final String DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN =
+            "dfs.namenode.kerberos.principal.pattern";
     // arguments for ha hdfs
     private static final String DFS_NAMESERVICES_KEY = "dfs.nameservices";
     private static final String DFS_HA_NAMENODES_PREFIX = "dfs.ha.namenodes.";
@@ -140,22 +142,17 @@ public class FileSystemManager {
                         "invalid hdfs path. authority is null");
             }
         }
-        String username = properties.containsKey(USER_NAME_KEY) ? properties.get(USER_NAME_KEY) : "";
-        String password = properties.containsKey(PASSWORD_KEY) ? properties.get(PASSWORD_KEY) : "";
-        String dfsNameServices =
-                properties.containsKey(DFS_NAMESERVICES_KEY) ? properties.get(DFS_NAMESERVICES_KEY) : "";
-        String authentication = AUTHENTICATION_SIMPLE;
-        if (properties.containsKey(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION)) {
-            authentication = properties.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
-            if (Strings.isNullOrEmpty(authentication)
-                    || (!authentication.equals(AUTHENTICATION_SIMPLE)
-                    && !authentication.equals(AUTHENTICATION_KERBEROS))) {
-                logger.warn("invalid authentication:" + authentication);
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                        "invalid authentication:" + authentication);
-            }
+        String username = properties.getOrDefault(USER_NAME_KEY, "");
+        String password = properties.getOrDefault(PASSWORD_KEY, "");
+        String dfsNameServices = properties.getOrDefault(DFS_NAMESERVICES_KEY, "");
+        String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
+            AUTHENTICATION_SIMPLE);
+        if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
+            && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+            logger.warn("invalid authentication:" + authentication);
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                "invalid authentication:" + authentication);
         }
-
         String hdfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = null;
         BrokerFileSystem fileSystem = null;
@@ -204,7 +201,7 @@ public class FileSystemManager {
             if (fileSystem.getDFSFileSystem() == null) {
                 logger.info("could not find file system for path " + path + " create a new one");
                 // create a new filesystem
-                Configuration conf = new Configuration();
+                Configuration conf = new HdfsConfiguration();
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 String tmpFilePath = null;
@@ -292,6 +289,10 @@ public class FileSystemManager {
                     }
                     if (properties.containsKey(FS_DEFAULTFS_KEY)) {
                         conf.set(FS_DEFAULTFS_KEY, properties.get(FS_DEFAULTFS_KEY));
+                    }
+                    if (properties.containsKey(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN)) {
+                        conf.set(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN,
+                            properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
                     }
                 }
 

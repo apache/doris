@@ -545,6 +545,10 @@ public class Catalog {
         return tabletChecker;
     }
 
+    public ConcurrentHashMap<String, Database> getFullNameToDb() {
+        return fullNameToDb;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentCatalog().getClusterInfo();
@@ -687,10 +691,15 @@ public class Catalog {
         File roleFile = new File(IMAGE_DIR, Storage.ROLE_FILE);
         File versionFile = new File(IMAGE_DIR, Storage.VERSION_FILE);
 
-        // helper node is the local node. This usually happens when the very
-        // first node to start,
-        // or when one node to restart.
-        if (isMyself()) {
+        // if helper node is point to self, or there is ROLE and VERSION file in local.
+        // get the node type from local
+        if (isMyself() || (roleFile.exists() && versionFile.exists())) {
+
+            if (!isMyself()) {
+                LOG.info("find ROLE and VERSION file in local, ignore helper nodes: {}", helperNodes);
+            }
+
+            // check file integrity, if has.
             if ((roleFile.exists() && !versionFile.exists())
                     || (!roleFile.exists() && versionFile.exists())) {
                 LOG.error("role file and version file must both exist or both not exist. "
@@ -1835,10 +1844,11 @@ public class Catalog {
         checksum ^= dbCount;
         dos.writeInt(dbCount);
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
-            long dbId = entry.getKey();
-            if (dbId >= NEXT_ID_INIT_VALUE) {
-                checksum ^= dbId;
-                Database db = entry.getValue();
+            Database db = entry.getValue();
+            String dbName = db.getFullName();
+            // Don't write information_schema db meta
+            if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
+                checksum ^= entry.getKey();
                 db.readLock();
                 try {
                     db.write(dos);
@@ -5733,11 +5743,25 @@ public class Catalog {
                 // for adding BE to some Cluster, but loadCluster is after loadBackend.
                 cluster.setBackendIdList(latestBackendIds);
 
-                final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
-                db.setClusterName(cluster.getName());
+                String dbName =  InfoSchemaDb.getFullInfoSchemaDbName(cluster.getName());
+                InfoSchemaDb db;
+                // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
+                // when checkpoint thread load image.
+                if (Catalog.getInstance().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getInstance().getFullNameToDb().get(dbName);
+                } else {
+                    db = new InfoSchemaDb(cluster.getName());
+                    db.setClusterName(cluster.getName());
+                }
+                String errMsg = "InfoSchemaDb id shouldn't larger than 10000, please restart your FE server";
+                // Every time we construct the InfoSchemaDb, which id will increment.
+                // When InfoSchemaDb id larger than 10000 and put it to idToDb,
+                // which may be overwrite the normal db meta in idToDb,
+                // so we ensure InfoSchemaDb id less than 10000.
+                Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
                 idToDb.put(db.getId(), db);
                 fullNameToDb.put(db.getFullName(), db);
-                cluster.addDb(db.getFullName(), db.getId());
+                cluster.addDb(dbName, db.getId());
                 idToCluster.put(cluster.getId(), cluster);
                 nameToCluster.put(cluster.getName(), cluster);
             }

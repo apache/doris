@@ -101,13 +101,15 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
     }
 }
 
-Slice BinaryDictPageBuilder::finish() {
+OwnedSlice BinaryDictPageBuilder::finish() {
+    DCHECK(!_finished);
     _finished = true;
 
-    Slice data_slice = _data_page_builder->finish();
-    _buffer.append(data_slice.data, data_slice.size);
+    OwnedSlice data_slice = _data_page_builder->finish();
+    // TODO(gaodayue) separate page header and content to avoid this copy
+    _buffer.append(data_slice.slice().data, data_slice.slice().size);
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return Slice(_buffer);
+    return _buffer.build();
 }
 
 void BinaryDictPageBuilder::reset() {
@@ -162,7 +164,7 @@ Status BinaryDictPageBuilder::get_last_value(void* value) const {
     return Status::OK();
 }
 
-Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
+Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
     _dictionary.clear();
     _dict_builder->reset();
     size_t add_count = 1;
@@ -172,7 +174,6 @@ Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
         RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item), &add_count));
     }
     *dictionary_page = _dict_builder->finish();
-    _dict_builder->release();
     _dict_items.clear();
     return Status::OK();
 }

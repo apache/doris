@@ -100,6 +100,8 @@ message ColumnMetaPB {
     optional PagePointerPB dict_page = 10;
     // bitmap index
     optional BitmapIndexColumnPB bitmap_index = 11;
+    // var length for string type
+    optional int32 length = 12;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;

@@ -56,15 +56,45 @@ import java.nio.charset.StandardCharsets;
  * 3 run this class, you should see the following output:
  *
  * {
+ *     "TxnId": 27,
+ *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de",
  *     "Status": "Success",
  *     "Message": "OK",
+ *     "NumberTotalRows": 10,
  *     "NumberLoadedRows": 10,
  *     "NumberFilteredRows": 0,
+ *     "NumberUnselectedRows": 0,
  *     "LoadBytes": 50,
- *     "LoadTimeMs": 151,
- *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de"
+ *     "LoadTimeMs": 151
  * }
  *
+ * Attention:
+ *
+ * 1 wrong dependency version(such as 4.4) of httpclient may cause shaded.org.apache.http.ProtocolException
+ *   Caused by: shaded.org.apache.http.ProtocolException: Content-Length header already present
+ *     at shaded.org.apache.http.protocol.RequestContent.process(RequestContent.java:96)
+ *     at shaded.org.apache.http.protocol.ImmutableHttpProcessor.process(ImmutableHttpProcessor.java:132)
+ *     at shaded.org.apache.http.impl.execchain.ProtocolExec.execute(ProtocolExec.java:182)
+ *     at shaded.org.apache.http.impl.execchain.RetryExec.execute(RetryExec.java:88)
+ *     at shaded.org.apache.http.impl.execchain.RedirectExec.execute(RedirectExec.java:110)
+ *     at shaded.org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:184)
+ *
+ *2 run this class more than once, the status code for http response is still ok, and you will see
+ *  the following output:
+ *
+ * {
+ *     "TxnId": -1,
+ *     "Label": "39c25a5c-7000-496e-a98e-348a264c81de",
+ *     "Status": "Label Already Exists",
+ *     "ExistingJobStatus": "FINISHED",
+ *     "Message": "Label [39c25a5c-7000-496e-a98e-348a264c81de"] has already been used.",
+ *     "NumberTotalRows": 0,
+ *     "NumberLoadedRows": 0,
+ *     "NumberFilteredRows": 0,
+ *     "NumberUnselectedRows": 0,
+ *     "LoadBytes": 0,
+ *     "LoadTimeMs": 0
+ * }
  */
 public class DorisStreamLoad {
     private final static String DORIS_HOST = "xxx.com";
@@ -95,6 +125,9 @@ public class DorisStreamLoad {
             StringEntity entity = new StringEntity(content);
             put.setHeader(HttpHeaders.EXPECT, "100-continue");
             put.setHeader(HttpHeaders.AUTHORIZATION, basicAuthHeader(DORIS_USER, DORIS_PASSWORD));
+            // the label header is optional, not necessary
+            // use label header can ensure at most once semantics
+            put.setHeader("label", "39c25a5c-7000-496e-a98e-348a264c81de")
             put.setEntity(entity);
 
             try (CloseableHttpResponse response = client.execute(put)) {

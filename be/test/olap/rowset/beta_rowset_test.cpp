@@ -34,6 +34,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -45,18 +46,14 @@ protected:
     OlapReaderStatistics _stats;
 
     void SetUp() override {
-        OLAPStatus s;
-        if (check_dir_existed(kRowsetDir)) {
-            s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
+        if (FileUtils::check_exist(kRowsetDir)) {
+            ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
-        s = create_dir(kRowsetDir);
-        ASSERT_EQ(OLAP_SUCCESS, s);
+        ASSERT_TRUE(FileUtils::create_dir(kRowsetDir).ok());
     }
     void TearDown() override {
-        if (check_dir_existed(kRowsetDir)) {
-            auto s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
+        if (FileUtils::check_exist(kRowsetDir)) {
+            ASSERT_TRUE(FileUtils::remove_all(kRowsetDir).ok());
         }
     }
 

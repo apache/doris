@@ -91,8 +91,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS)
     private boolean isReportSucc = false;
 
+    // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE)
-    private String sqlMode = "";
+    private long sqlMode = 0L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     private String resourceGroup = "normal";
@@ -213,11 +214,11 @@ public class SessionVariable implements Serializable, Writable {
         return waitTimeout;
     }
 
-    public String getSqlMode() {
+    public long getSqlMode() {
         return sqlMode;
     }
 
-    public void setSqlMode(String sqlMode) {
+    public void setSqlMode(long sqlMode) {
         this.sqlMode = sqlMode;
     }
 
@@ -505,7 +506,7 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, txIsolation);
         out.writeBoolean(autoCommit);
         Text.writeString(out, resourceGroup);
-        Text.writeString(out, sqlMode);
+        out.writeLong(sqlMode);
         out.writeBoolean(isReportSucc);
         out.writeInt(queryTimeoutS);
         out.writeLong(maxExecMemByte);
@@ -540,7 +541,13 @@ public class SessionVariable implements Serializable, Writable {
         txIsolation = Text.readString(in);
         autoCommit = in.readBoolean();
         resourceGroup = Text.readString(in);
-        sqlMode = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
+            sqlMode = in.readLong();
+        } else {
+            // read old version SQL mode
+            Text.readString(in);
+            sqlMode = 0L;
+        }
         isReportSucc = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();

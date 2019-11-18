@@ -81,7 +81,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -882,7 +881,6 @@ public class ReportHandler extends Daemon {
     
 
     private static void handleSetTabletMetaInfo(long backendId, SetMultimap<Long, Integer> tabletWithoutPartitionId) {
-        
         LOG.info("find [{}] tablets without partition id, try to set them", tabletWithoutPartitionId.size());
         if (tabletWithoutPartitionId.size() < 1) {
             return;
@@ -897,10 +895,8 @@ public class ReportHandler extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId, 
-                    transactionId, 
-                    new ArrayList<Long>(transactionsToClear.get(transactionId)));
+                    transactionId, transactionsToClear.get(transactionId));
             batchTask.addTask(clearTransactionTask);
-            AgentTaskQueue.addTask(clearTransactionTask);
         }
         
         AgentTaskExecutor.submit(batchTask);
