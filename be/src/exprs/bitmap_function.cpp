@@ -77,8 +77,7 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
             error_msg << "The to_bitmap function argument: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " type isn't integer family or exceed unsigned integer max value"
-            << std::numeric_limits<uint32_t>::max();;
+            << " type isn't integer family or exceed unsigned integer max value 4294967295";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
