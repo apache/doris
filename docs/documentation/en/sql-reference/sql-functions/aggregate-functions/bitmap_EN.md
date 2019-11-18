@@ -31,6 +31,8 @@ under the License.
 
 `BITMAP_UNION_INT(expr)` : Calculate the distinct value number of TINYINT,SMALLINT and INT type column. Same as COUNT(DISTINCT expr)
 
+`BITMAP_EMPTY()`: Generate empty bitmap column for insert into or load data.
+
 Notice：
 
 	1. TO_BITMAP function only receives TINYINT,SMALLINT,INT.
