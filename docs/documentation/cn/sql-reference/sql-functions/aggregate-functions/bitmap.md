@@ -31,6 +31,8 @@ under the License.
 `BITMAP_UNION_INT(expr)` : 计算TINYINT,SMALLINT和INT类型的列中不同值的个数，返回值和
 COUNT(DISTINCT expr)相同
 
+`BITMAP_EMPTY()`: 生成空Bitmap列，用于insert或导入的时填充默认值
+
 
 注意：
 
@@ -85,4 +87,4 @@ mysql> select bitmap_count(bitmap_union(id2)) from bitmap_test;
 
 ## keyword
 
-BITMAP,BITMAP_COUNT,BITMAP_UNION,BITMAP_UNION_INT,TO_BITMAP
+BITMAP,BITMAP_COUNT,BITMAP_EMPTY,BITMAP_UNION,BITMAP_UNION_INT,TO_BITMAP

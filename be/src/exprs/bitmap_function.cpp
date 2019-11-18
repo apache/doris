@@ -30,6 +30,14 @@ void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->ptr = (uint8_t*)new RoaringBitmap();
 }
 
+StringVal BitmapFunctions::bitmap_empty(FunctionContext* ctx) {
+    RoaringBitmap bitmap;
+    std::string buf;
+    buf.resize(bitmap.size());
+    bitmap.serialize((char*)buf.c_str());
+    return AnyValUtil::from_string_temp(ctx, buf);
+}
+
 template <typename T>
 void BitmapFunctions::bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst) {
     if (src.is_null) {
