@@ -45,7 +45,8 @@ import java.nio.charset.StandardCharsets;
  *
  * CREATE TABLE `stream_test` (
  *   `id` bigint(20) COMMENT "",
- *   `id2` bigint(20) COMMENT ""
+ *   `id2` bigint(20) COMMENT "",
+ *   `username` varchar(32) COMMENT ""
  * ) ENGINE=OLAP
  * DUPLICATE KEY(`id`)
  * DISTRIBUTED BY HASH(`id`) BUCKETS 20;
@@ -122,12 +123,12 @@ public class DorisStreamLoad {
 
         try (CloseableHttpClient client = httpClientBuilder.build()) {
             HttpPut put = new HttpPut(loadUrl);
-            StringEntity entity = new StringEntity(content);
+            StringEntity entity = new StringEntity(content, "UTF-8");
             put.setHeader(HttpHeaders.EXPECT, "100-continue");
             put.setHeader(HttpHeaders.AUTHORIZATION, basicAuthHeader(DORIS_USER, DORIS_PASSWORD));
             // the label header is optional, not necessary
             // use label header can ensure at most once semantics
-            put.setHeader("label", "39c25a5c-7000-496e-a98e-348a264c81de")
+            put.setHeader("label", "39c25a5c-7000-496e-a98e-348a264c81de");
             put.setEntity(entity);
 
             try (CloseableHttpResponse response = client.execute(put)) {
@@ -155,8 +156,9 @@ public class DorisStreamLoad {
     public static void main(String[] args) throws Exception {
         int id1 = 1;
         int id2 = 10;
+        String id3 = "张三";
         int rowNumber = 10;
-        String oneRow = id1 + "\t" + id2 + "\n";
+        String oneRow = id1 + "\t" + id2 + "\t" + id3 + "\n";
 
         StringBuilder stringBuilder = new StringBuilder();
         for (int i = 0; i < rowNumber; i++) {
