@@ -48,6 +48,7 @@ import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -238,7 +239,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
-            sessionVariables.put(SessionVariable.SQL_MODE, "0");
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
 
@@ -400,10 +401,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return TimeUtils.DEFAULT_TIME_ZONE;
         }
         return value;
-    }
-
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
     }
 
     public RoutineLoadProgress getProgress() {
@@ -1246,7 +1243,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
         } else {
             // old version of load does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, "0");
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
 
         // parse the origin stmt to get routine load desc

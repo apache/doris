@@ -45,6 +45,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -89,6 +90,8 @@ public class BrokerLoadJob extends LoadJob {
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
     private List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
+    // sessionVariable's name -> sessionVariable's value
+    // we persist these sessionVariables due to the session is not available when replaying the job.
     private Map<String, String> sessionVariables = Maps.newHashMap();
 
     // only for log replay
@@ -110,7 +113,7 @@ public class BrokerLoadJob extends LoadJob {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
-            sessionVariables.put(SessionVariable.SQL_MODE, "0");
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
 
@@ -547,7 +550,7 @@ public class BrokerLoadJob extends LoadJob {
             }
         } else {
             // old version of load does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, "0");
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
 

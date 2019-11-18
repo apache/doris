@@ -406,14 +406,14 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
-    4: required i64 sqlMode
-    5: optional Types.TResourceInfo resourceInfo
-    6: optional string cluster
-    7: optional i64 execMemLimit
-    8: optional i32 queryTimeout
-    9: optional string user_ip
-    10: optional string time_zone
-    11: optional i64 stmt_id
+    4: optional Types.TResourceInfo resourceInfo
+    5: optional string cluster
+    6: optional i64 execMemLimit
+    7: optional i32 queryTimeout
+    8: optional string user_ip
+    9: optional string time_zone
+    10: optional i64 stmt_id
+    11: required i64 sqlMode
 }
 
 struct TColumnDefinition {
