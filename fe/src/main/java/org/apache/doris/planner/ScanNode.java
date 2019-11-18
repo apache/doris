@@ -18,13 +18,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -77,24 +73,6 @@ abstract public class ScanNode extends PlanNode {
             return expr.castTo(slotDesc.getType());
         } else {
             return expr;
-        }
-    }
-
-    protected void checkBitmapCompatibility(SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
-        boolean isCompatible = true;
-        if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
-            if (!(expr instanceof FunctionCallExpr)) {
-                isCompatible = false;
-            } else {
-                FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
-                    isCompatible = false;
-                }
-            }
-        }
-        if (!isCompatible) {
-            throw new AnalysisException("bitmap_union column must use to_bitmap function, like "
-                    + slotDesc.getColumn().getName() + "=to_bitmap(xxx)");
         }
     }
 
