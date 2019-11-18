@@ -26,6 +26,7 @@ class BitmapFunctions {
 public:
     static void init();
     static void bitmap_init(FunctionContext* ctx, StringVal* slot);
+    static StringVal bitmap_empty(FunctionContext* ctx);
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
     // the input src's ptr need to point a RoaringBitmap, this function will release the
