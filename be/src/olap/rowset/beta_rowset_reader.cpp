@@ -27,23 +27,23 @@
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-    : _rowset(std::move(rowset)) {
+    : _rowset(std::move(rowset)), _stats(&_owned_stats) {
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
-    if (_context->stats == nullptr) {
+    if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
         // When doing schema change/compaction,
         // only statistics of this RowsetReader is necessary.
-        _context->stats = &_owned_stats;
+        _stats = _context->stats;
     }
     // SegmentIterator will load seek columns on demand
     Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
-    read_options.stats = _context->stats;
+    read_options.stats = _stats;
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
@@ -114,7 +114,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     // read next input block
     _input_block->clear();
     {
-        SCOPED_RAW_TIMER(&_context->stats->block_fetch_ns);
+        SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
         auto s = _iterator->next_batch(_input_block.get());
         if (!s.ok()) {
             if (s.is_end_of_file()) {
@@ -129,7 +129,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     // convert to output block
     _output_block->clear();
     {
-        SCOPED_RAW_TIMER(&_context->stats->block_convert_ns);
+        SCOPED_RAW_TIMER(&_stats->block_convert_ns);
         _input_block->convert_to_row_block(_row.get(), _output_block.get());
     }
     *block = _output_block.get();
