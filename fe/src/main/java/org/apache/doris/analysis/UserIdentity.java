@@ -70,8 +70,14 @@ public class UserIdentity implements Writable {
         this.isDomain = isDomain;
     }
 
-    public static UserIdentity createAnalyzedUserIdent(String user, String host) {
+    public static UserIdentity createAnalyzedUserIdentWithIp(String user, String host) {
         UserIdentity userIdentity = new UserIdentity(user, host);
+        userIdentity.setIsAnalyzed();
+        return userIdentity;
+    }
+
+    public static UserIdentity createAnalyzedUserIdentWithDomain(String user, String domain) {
+        UserIdentity userIdentity = new UserIdentity(user, domain, true);
         userIdentity.setIsAnalyzed();
         return userIdentity;
     }
@@ -176,10 +182,7 @@ public class UserIdentity implements Writable {
             return false;
         }
         UserIdentity other = (UserIdentity) obj;
-        if (this.isDomain != other.isDomain) {
-            return false;
-        }
-        return user.equals(other.getQualifiedUser()) && host.equals(other.getHost());
+        return user.equals(other.getQualifiedUser()) && host.equals(other.getHost()) && this.isDomain == other.isDomain;
     }
 
     @Override

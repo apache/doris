@@ -32,7 +32,7 @@ public class HttpAuthManagerTest {
         String sessionId = "test_session_id"; 
         String username = "test-user";
         SessionValue sessionValue = new SessionValue();
-        sessionValue.currentUser = UserIdentity.createAnalyzedUserIdent(username, "%");
+        sessionValue.currentUser = UserIdentity.createAnalyzedUserIdentWithIp(username, "%");
         authMgr.addSessionValue(sessionId, sessionValue);
         Assert.assertEquals(1, authMgr.getAuthSessions().size());
         System.out.println("username in test: " + authMgr.getSessionValue(sessionId).currentUser);

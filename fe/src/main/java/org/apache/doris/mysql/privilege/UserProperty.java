@@ -18,13 +18,11 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
-import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ResourceGroup;
 import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -150,36 +148,9 @@ public class UserProperty implements Writable {
         return dbPrivMap;
     }
 
-    @Deprecated
-    public void addOrGrantWhiteList(String domain, Map<TablePattern, PrivBitSet> tblPatternToPrivs,
-            byte[] password, boolean errOnExist) throws DdlException {
-        if (errOnExist && whiteList.containsDomain(domain)) {
-            throw new DdlException("white list " + domain + " of user " + qualifiedUser + " already exists");
-        }
-
-        if (tblPatternToPrivs.isEmpty()) {
-            // maybe this is a create user operation, so privs is empty
-            TablePattern tablePattern = new TablePattern("*", "*");
-            try {
-                tablePattern.analyze("");
-            } catch (AnalysisException e) {
-                LOG.warn("should not happen", e);
-            }
-            whiteList.addDomainWithPrivs(domain, tablePattern, PrivBitSet.of());
-        } else {
-            for (Map.Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
-                whiteList.addDomainWithPrivs(domain, entry.getKey(), entry.getValue());
-            }
-        }
-
-        if (password != null) {
-            whiteList.setPassword(domain, password);
-        }
-    }
-
     public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
         if (errOnExist && whiteList.containsDomain(domain)) {
-            throw new DdlException("white list " + domain + " of user " + qualifiedUser + " already exists");
+            throw new DdlException("Domain " + domain + " of user " + qualifiedUser + " already exists");
         }
 
         if (password != null) {
@@ -187,22 +158,8 @@ public class UserProperty implements Writable {
         }
     }
 
-    public void revokePrivsFromWhiteList(String domain, Map<TablePattern, PrivBitSet> privsMap,
-            boolean errOnNonExist) throws DdlException {
-        // we need to check it before doing any change
-        for (Map.Entry<TablePattern, PrivBitSet> entry : privsMap.entrySet()) {
-            whiteList.revokePrivsFromDomain(domain, entry.getKey(), entry.getValue(),
-                                            errOnNonExist, true /* check */);
-        }
-
-        for (Map.Entry<TablePattern, PrivBitSet> entry : privsMap.entrySet()) {
-            whiteList.revokePrivsFromDomain(domain, entry.getKey(), entry.getValue(),
-                                            errOnNonExist, false /* check */);
-        }
-    }
-
-    public void dropDamain(String domain) {
-        whiteList.dropDomain(domain);
+    public void removeDamain(String domain) {
+        whiteList.removeDomain(domain);
     }
 
     public void update(List<Pair<String, String>> properties) throws DdlException {
@@ -442,10 +399,6 @@ public class UserProperty implements Writable {
         return result;
     }
 
-    public void getAuthInfo(List<List<String>> userAuthInfos) {
-        whiteList.getAuthInfo(qualifiedUser, userAuthInfos);
-    }
-
     public static UserProperty read(DataInput in) throws IOException {
         UserProperty userProperty = new UserProperty();
         userProperty.readFields(in);
@@ -538,6 +491,9 @@ public class UserProperty implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_21) {
             whiteList.readFields(in);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_66) {
+                whiteList.convertOldDomainPrivMap(qualifiedUser);
+            }
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {

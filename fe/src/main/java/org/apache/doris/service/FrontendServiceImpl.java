@@ -149,7 +149,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> dbNames = catalog.getDbNames();
         LOG.debug("get db names: {}", dbNames);
         
-        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdent(params.user, params.user_ip);
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         for (String fullName : dbNames) {
             if (!catalog.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                 continue;
@@ -185,7 +185,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // database privs should be checked in analysis phrase
 
         Database db = Catalog.getInstance().getDb(params.db);
-        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdent(params.user, params.user_ip);
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
@@ -222,7 +222,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // database privs should be checked in analysis phrase
 
         Database db = Catalog.getInstance().getDb(params.db);
-        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdent(params.user, params.user_ip);
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         if (db != null) {
             db.readLock();
             try {
@@ -268,7 +268,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setColumns(columns);
 
         // database privs should be checked in analysis phrase
-        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdent(params.user, params.user_ip);
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                 params.getTable_name(), PrivPredicate.SHOW)) {
             return result;

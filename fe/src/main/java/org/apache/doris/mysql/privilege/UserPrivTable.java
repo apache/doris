@@ -47,18 +47,6 @@ public class UserPrivTable extends PrivTable {
                 continue;
             }
 
-            /*
-            // check host
-            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(host)) {
-                continue;
-            }
-            
-            // check user
-            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(user)) {
-                continue;
-            }
-            */
-
             matchedEntry = globalPrivEntry;
             break;
         }
@@ -121,7 +109,11 @@ public class UserPrivTable extends PrivTable {
                             || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
                 // found the matched entry
                 if (currentUser != null) {
-                    currentUser.add(entry.getUserIdent());
+                    if (entry.isSetByDomainResolver()) {
+                        currentUser.add(globalPrivEntry.getDomainUserIdent());
+                    } else {
+                        currentUser.add(entry.getUserIdent());
+                    }
                 }
                 return true;
             } else {
@@ -155,7 +147,11 @@ public class UserPrivTable extends PrivTable {
 
             if (MysqlPassword.checkPlainPass(globalPrivEntry.getPassword(), remotePasswd)) {
                 if (currentUser != null) {
-                    currentUser.add(entry.getUserIdent());
+                    if (entry.isSetByDomainResolver()) {
+                        currentUser.add(globalPrivEntry.getDomainUserIdent());
+                    } else {
+                        currentUser.add(entry.getUserIdent());
+                    }
                 }
                 return true;
             } else {
@@ -167,33 +163,20 @@ public class UserPrivTable extends PrivTable {
         return false;
     }
 
-    public void setPassword(GlobalPrivEntry passwdEntry, boolean addIfNotExist) throws DdlException {
-        GlobalPrivEntry existingEntry = (GlobalPrivEntry) getExistingEntry(passwdEntry);
-        if (existingEntry == null) {
-            if (!addIfNotExist) {
-                throw new DdlException("User " + passwdEntry.getUserIdent() + " does not exist");
-            }
-            existingEntry = passwdEntry;
-            addEntry(existingEntry, false /* err on exist */, false /* err on non exist */);
-        } else if (!checkOperationAllowed(existingEntry, passwdEntry, "SET PASSWORD")) {
-
-        }
-
-            if (existingEntry.isSetByDomainResolver() && !passwdEntry.isSetByDomainResolver()) {
-                LOG.info("cannot set password, existing entry is set by resolver: {}", existingEntry);
-                throw new DdlException("Cannot set password, existing entry is set by resolver");
-            } else if (!existingEntry.isSetByDomainResolver() && passwdEntry.isSetByDomainResolver()) {
-                LOG.info("Cannot set password, existing entry is not set by resolver: {}", existingEntry);
-                throw new DdlException("Cannot set password, existing entry is not set by resolver");
-            }
-        }
-
-        existingEntry.setPassword(passwdEntry.getPassword());
+    /*
+     * set password for specified entry. It is same as adding an entry to the user priv table.
+     */
+    public void setPassword(GlobalPrivEntry passwdEntry, boolean errOnNonExist) throws DdlException {
+        GlobalPrivEntry addedEntry = (GlobalPrivEntry) addEntry(passwdEntry, false /* err on exist */,
+                errOnNonExist /* err on non exist */);
+        addedEntry.setPassword(passwdEntry.getPassword());
     }
 
-    public boolean doesUserExist(UserIdentity userIdent, boolean exactMatch) {
+    // return true only if user exist and not set by domain
+    // user set by domain should be checked in property manager
+    public boolean doesUserExist(UserIdentity userIdent) {
         for (PrivEntry privEntry : entries) {
-            if (privEntry.match(userIdent, exactMatch)) {
+            if (privEntry.match(userIdent, true /* exact match */) && !privEntry.isSetByDomainResolver()) {
                 return true;
             }
         }

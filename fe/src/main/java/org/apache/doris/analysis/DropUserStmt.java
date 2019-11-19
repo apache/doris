@@ -26,7 +26,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // drop user cmy@['domain'];
-// drop user cmy
+// drop user cmy  <==> drop user cmy@'%'
 // drop user cmy@'192.168.1.%'
 public class DropUserStmt extends DdlStmt {
     private UserIdentity userIdent;

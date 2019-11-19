@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
@@ -33,6 +34,11 @@ public class GlobalPrivEntry extends PrivEntry {
     private static final Logger LOG = LogManager.getLogger(GlobalPrivEntry.class);
 
     private byte[] password;
+    // set domainUserIdent when this a password entry and is set by domain resolver.
+    // so that when user checking password with user@'IP' and match a entry set by the resolver,
+    // it should return this domainUserIdent as "current user". And user can use this user ident to get privileges
+    // further.
+    private UserIdentity domainUserIdent;
 
     protected GlobalPrivEntry() {
     }
@@ -57,6 +63,14 @@ public class GlobalPrivEntry extends PrivEntry {
 
     public void setPassword(byte[] password) {
         this.password = password;
+    }
+
+    public void setDomainUserIdent(UserIdentity domainUserIdent) {
+        this.domainUserIdent = domainUserIdent;
+    }
+
+    public UserIdentity getDomainUserIdent() {
+        return domainUserIdent;
     }
 
     /*
@@ -118,6 +132,7 @@ public class GlobalPrivEntry extends PrivEntry {
         StringBuilder sb = new StringBuilder();
         sb.append("global priv. host: ").append(origHost).append(", user: ").append(origUser);
         sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
+        sb.append(", domain user ident: ").append(domainUserIdent);
         return sb.toString();
     }
 
@@ -144,5 +159,4 @@ public class GlobalPrivEntry extends PrivEntry {
         password = new byte[passwordLen];
         in.readFully(password);
     }
-
 }
