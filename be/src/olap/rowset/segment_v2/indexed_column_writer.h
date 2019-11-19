@@ -26,6 +26,8 @@
 #include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -72,7 +74,7 @@ public:
 
     Status init();
 
-    // add a single not-null value TODO support batch-write
+    // add a single not-null value
     Status add(const void* value);
 
     Status finish(IndexedColumnMetaPB* meta);
@@ -81,9 +83,7 @@ private:
     Status _finish_current_data_page();
 
     // Append the given data page, update ordinal index or value index if they're used.
-    Status _append_data_page(const std::vector<Slice>& data_page,
-                             rowid_t first_rowid,
-                             void* first_value);
+    Status _append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid);
 
     // Append the given page into the file. After return, *pp points to the newly
     // inserted page.
@@ -96,9 +96,14 @@ private:
     IndexedColumnWriterOptions _options;
     const TypeInfo* _typeinfo;
     WritableFile* _file;
+    // only used for `_first_value`
+    MemTracker _mem_tracker;
+    MemPool _mem_pool;
 
     rowid_t _num_values;
     uint32_t _num_data_pages;
+    // remember the first value in current page
+    faststring _first_value;
     PagePointer _last_data_page;
 
     // the following members are initialized in init()

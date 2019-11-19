@@ -41,10 +41,13 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
         : _options(options),
           _typeinfo(typeinfo),
           _file(output_file),
+          _mem_tracker(-1),
+          _mem_pool(&_mem_tracker),
           _num_values(0),
           _num_data_pages(0),
           _validx_key_coder(nullptr),
           _compress_codec(nullptr) {
+    _first_value.resize(_typeinfo->size());
 }
 
 IndexedColumnWriter::~IndexedColumnWriter() = default;
@@ -72,6 +75,10 @@ Status IndexedColumnWriter::init() {
 }
 
 Status IndexedColumnWriter::add(const void* value) {
+    if (_options.write_value_index && _data_page_builder->count() == 0) {
+        // remember page's first value because it's used to build value index
+        _typeinfo->deep_copy(_first_value.data(), value, &_mem_pool);
+    }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
     _num_values++;
@@ -93,26 +100,13 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     put_varint32(&page_header, first_rowid);
     put_varint32(&page_header, page_row_count);
 
-    Slice page_data = _data_page_builder->finish();
-    _data_page_builder->release();
-
-    std::vector<Slice> data_page;
-    data_page.emplace_back(page_header);
-    data_page.push_back(page_data);
-
-    faststring first_value_buf;
-    first_value_buf.resize(_typeinfo->size());
-    RETURN_IF_ERROR(_data_page_builder->get_first_value(first_value_buf.data()));
-
-    RETURN_IF_ERROR(_append_data_page(data_page, first_rowid, first_value_buf.data()));
-
+    OwnedSlice page_data = _data_page_builder->finish();
     _data_page_builder->reset();
-    return Status::OK();
+
+    return _append_data_page({Slice(page_header), page_data.slice()}, first_rowid);
 }
 
-Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page,
-                                              rowid_t first_rowid,
-                                              void* first_value) {
+Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid) {
     RETURN_IF_ERROR(_append_page(data_page, &_last_data_page));
     _num_data_pages++;
 
@@ -125,7 +119,7 @@ Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_pag
 
     if (_options.write_value_index) {
         std::string key;
-        _validx_key_coder->full_encode_ascending(first_value, &key);
+        _validx_key_coder->full_encode_ascending(_first_value.data(), &key);
         // TODO short separate key optimize
         _value_index_builder->add(key, _last_data_page);
         // TODO record last key in short separate key optimize

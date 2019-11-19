@@ -61,10 +61,6 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         size_t num_added = 0;
         uint32_t value_code = -1;
         for (int i = 0; i < *count; ++i, ++src) {
-            if (_data_page_builder->count() == 0) {
-                _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()), src->get_size());
-            }
-
             auto iter = _dictionary.find(*src);
             if (iter != _dictionary.end()) {
                 value_code = iter->second;
@@ -133,35 +129,6 @@ size_t BinaryDictPageBuilder::count() const {
 
 uint64_t BinaryDictPageBuilder::size() const {
     return _pool.total_allocated_bytes() + _data_page_builder->size();
-}
-
-Status BinaryDictPageBuilder::get_first_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_first_value(value);
-    }
-    *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-    return Status::OK();
-}
-
-Status BinaryDictPageBuilder::get_last_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_last_value(value);
-    }
-    uint32_t value_code;
-    RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
-    // TODO _dict_items is cleared in get_dictionary_page, which could cause
-    // get_last_value to fail when it's called after get_dictionary_page.
-    // the solution is to read last value from _dict_builder instead of _dict_items
-    *reinterpret_cast<Slice*>(value) = _dict_items[value_code];
-    return Status::OK();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {

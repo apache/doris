@@ -134,15 +134,12 @@ public:
                 bitmap_sizes.push_back(bitmap_size);
             }
 
-            // TODO change to OLAP_FIELD_TYPE_BITMAP when it's added
-            const TypeInfo* bitmap_typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            const TypeInfo* bitmap_typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
 
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;
-            // TODO change to EncodingInfo::get_default_encoding(bitmap_typeinfo, false) when
-            // we support OLAP_FIELD_TYPE_BITMAP
-            options.encoding = PLAIN_ENCODING; // hard code to avoid pick up DICT_ENCODING
+            options.encoding = EncodingInfo::get_default_encoding(bitmap_typeinfo, false);
             // we already store compressed bitmap, use NO_COMPRESSION to save some cpu
             options.compression = NO_COMPRESSION;
 

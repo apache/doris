@@ -72,16 +72,6 @@ public:
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
 
-    // Return the first value in this page.
-    // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
-    virtual Status get_first_value(void* value) const = 0;
-
-    // Return the last value in this page.
-    // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
-    virtual Status get_last_value(void* value) const = 0;
-
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };
