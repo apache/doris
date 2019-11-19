@@ -55,7 +55,7 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     for (auto& dir : allow_dirs) {
         std::string p;
         WARN_IF_ERROR(FileUtils::canonicalize(dir, &p), "canonicalize path " + dir + " failed");
-        _allow_paths.emplace_back(p);
+        _allow_paths.emplace_back(std::move(p));
     }
 }
 
