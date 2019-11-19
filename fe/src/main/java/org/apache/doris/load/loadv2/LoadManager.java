@@ -225,20 +225,20 @@ public class LoadManager implements Writable{
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
-        addLoadJob(loadJob);
+        addLoadJobImpl(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                          .add("msg", "replay create load job")
                          .build());
     }
 
     private void addLoadJob(LoadJob loadJob) {
-        addLoadJob(loadJob);
+        addLoadJobImpl(loadJob);
         // add callback before txn created, because callback will be performed on replay without txn begin
         // register txn state listener
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
-    private void addLoadJob(LoadJob loadJob) {
+    private void addLoadJobImpl(LoadJob loadJob) {
         idToLoadJob.put(loadJob.getId(), loadJob);
         long dbId = loadJob.getDbId();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
