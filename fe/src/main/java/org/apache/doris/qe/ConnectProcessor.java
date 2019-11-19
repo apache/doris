@@ -321,7 +321,6 @@ public class ConnectProcessor {
         ctx.setQualifiedUser(request.user);
         ctx.setCatalog(Catalog.getInstance());
         ctx.getState().reset();
-        ctx.getSessionVariable().setSqlMode(request.sqlMode);
         if (request.isSetCluster()) {
             ctx.setCluster(request.cluster);
         }
@@ -342,6 +341,9 @@ public class ConnectProcessor {
         }
         if (request.isSetStmt_id()) {
             ctx.setForwardedStmtId(request.getStmt_id());
+        }
+        if (request.isSetSqlMode()) {
+            ctx.getSessionVariable().setSqlMode(request.sqlMode);
         }
 
         ctx.setThreadLocalInfo();
