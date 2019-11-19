@@ -50,7 +50,9 @@ public:
     // than requested if the page is full.
     //
     // vals size should be decided according to the page build type
-    virtual doris::Status add(const uint8_t* vals, size_t* count) = 0;
+    // TODO make sure vals is natually-aligned to its type so that impls can use aligned load
+    // instead of memcpy to copy values.
+    virtual Status add(const uint8_t* vals, size_t* count) = 0;
 
     // Finish building the current page, return the encoded data.
     // This api should be followed by reset() before reusing the builder

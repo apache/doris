@@ -88,6 +88,7 @@ public:
         DCHECK(!_finished);
         auto new_vals = reinterpret_cast<const CppType*>(vals);
         for (int i = 0; i < *count; ++i) {
+            // note: vals is not guaranteed to be aligned for now, thus memcpy here
             CppType value;
             memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
             _rle_encoder->Put(value);
