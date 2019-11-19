@@ -1024,6 +1024,37 @@ public class AuthTest {
         resolver.runOneCycle();
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
+        
+        // 37. drop zhangsan@'172.18.1.1' and zhangsan@'10.1.1.1'
+        dropUserStmt = new DropUserStmt(new UserIdentity("zhangsan", "172.18.1.1", false));
+        try {
+            dropUserStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        
+        try {
+            auth.dropUser(dropUserStmt);
+        } catch (DdlException e) {
+            Assert.fail();
+        }
+        
+        dropUserStmt = new DropUserStmt(new UserIdentity("zhangsan", "10.1.1.1", false));
+        try {
+            dropUserStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        
+        try {
+            auth.dropUser(dropUserStmt);
+        } catch (DdlException e) {
+            Assert.fail();
+        }
+        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde", null));
+
     }
 
 }
