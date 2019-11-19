@@ -44,6 +44,7 @@ import org.apache.doris.common.util.SqlUtils;
 %unicode
 %line
 %column
+%ctorarg Long sql_mode
 %{
     // Help to judge a integer-literal is bigger than LARGEINT_MAX
     // NOTE: the 'longMin' is not '-2^63' here, to make sure the return value functions
@@ -51,6 +52,33 @@ import org.apache.doris.common.util.SqlUtils;
     private static final BigInteger LONG_MAX = new BigInteger("9223372036854775807"); // 2^63 - 1
 
     private static final BigInteger LARGEINT_MAX_ABS = new BigInteger("170141183460469231731687303715884105728"); // 2^127
+
+    // This param will affect the tokens returned by scanner.
+    // For example:
+    // In PIPES_AS_CONCAT_MODE(0x0002), scanner will return token with id as KW_PIPE instead of KW_OR when '||' is scanned.
+    private long sql_mode;
+
+    /**
+       * Creates a new scanner to chain-call the generated constructor.
+       * There is also a java.io.InputStream version of this constructor.
+       * If you use this constructor, sql_mode will be set to 0 (default)
+       *
+       * @param   in  the java.io.Reader to read input from.
+       */
+    public SqlScanner(java.io.Reader in) {
+      this(in, 0L);
+    }
+
+    /**
+       * Creates a new scanner chain-call the generated constructor.
+       * There is also java.io.Reader version of this constructor.
+       * If you use this constructor, sql_mode will be set to 0 (default)
+       *
+       * @param   in  the java.io.Inputstream to read input from.
+       */
+    public SqlScanner(java.io.InputStream in) {
+      this(in, 0L);
+    }
 
     // map from keyword string to token id
     // we use a linked hash map because the insertion order is important.
@@ -430,6 +458,9 @@ import org.apache.doris.common.util.SqlUtils;
       return writer.toString();
   }
 %}
+%init{
+    this.sql_mode = sql_mode;
+%init}
 
 LineTerminator = \r|\n|\r\n
 NonTerminator = [^\r\n]
