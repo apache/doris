@@ -23,6 +23,7 @@
 #include <gflags/gflags.h>
 
 #include "common/status.h"
+#include "util/file_utils.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
 #include "olap/tablet_meta_manager.h"
@@ -31,7 +32,6 @@
 #include "olap/utils.h"
 #include "json2pb/pb_to_json.h"
 
-using boost::filesystem::canonical;
 using boost::filesystem::path;
 using doris::DataDir;
 using doris::OLAP_SUCCESS;
@@ -40,6 +40,7 @@ using doris::OLAPStatus;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
+using doris::FileUtils;
 
 const std::string HEADER_PREFIX = "tabletmeta_";
 
@@ -132,21 +133,19 @@ int main(int argc, char **argv) {
             return -1;
         }
 
-        path root_path(FLAGS_root_path);
-        try {
-            root_path = canonical(root_path);
-        }
-        catch (...) {
-            std::cout << "invalid root path:" << FLAGS_root_path << std::endl;
+        std::string root_path;
+        Status st = FileUtils::canonicalize(FLAGS_root_path, &root_path);
+        if (!st.ok()) {
+            std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string() << std::endl;
             return -1;
         }
 
-        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(root_path.string()));
+        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(root_path));
         if (data_dir == nullptr) {
             std::cout << "new data dir failed" << std::endl;
             return -1;
         }
-        Status st = data_dir->init();
+        st = data_dir->init();
         if (!st.ok()) {
             std::cout << "data_dir load failed" << std::endl;
             return -1;

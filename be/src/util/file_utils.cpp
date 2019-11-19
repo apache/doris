@@ -315,5 +315,9 @@ bool FileUtils::check_exist(const std::string& path, Env* env) {
     return env->path_exists(path).ok();
 }
 
+Status FileUtils::canonicalize(const std::string& path, std::string* real_path) {
+    return Env::Default()->canonicalize(path, real_path);
+}
+
 }
 
