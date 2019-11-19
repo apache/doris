@@ -171,9 +171,9 @@ public class GlobalTransactionMgr implements Writable {
                 }
                 // there should be at most 1 txn in PREPARE/COMMITTED/VISIBLE status
                 Preconditions.checkState(notAbortedTxns.size() <= 1, notAbortedTxns);
-                if (requestId != null && !notAbortedTxns.isEmpty()) {
+                if (!notAbortedTxns.isEmpty()) {
                     TransactionState notAbortedTxn = notAbortedTxns.get(0);
-                    if (notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                    if (requestId != null && notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
                             && notAbortedTxn.getRequsetId() != null && notAbortedTxn.getRequsetId().equals(requestId)) {
                         // this may be a retry request for same job, just return existing txn id.
                         return notAbortedTxn.getTransactionId();

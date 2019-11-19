@@ -530,7 +530,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * This method will cancel job without edit log and lock
      *
      * @param failMsg
-     * @param abortTxn true: abort txn when cancel job, false: only change the state of job and ignore abort txn
+     * @param abortTxn
+     *            true: abort txn when cancel job, false: only change the state of job and ignore abort txn
      */
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -567,9 +568,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("transaction_id", transactionId)
-                                 .add("error_msg", "failed to abort txn when job is cancelled, txn will be aborted later")
-                                 .build());
+                        .add("transaction_id", transactionId)
+                        .add("error_msg", "failed to abort txn when job is cancelled. " + e.getMessage())
+                        .build());
             }
         }
         

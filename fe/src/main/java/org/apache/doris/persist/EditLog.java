@@ -564,7 +564,6 @@ public class EditLog {
                     final TransactionState state = (TransactionState) journal.getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
-
                     break;
                 }
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {

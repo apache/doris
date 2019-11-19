@@ -469,6 +469,7 @@ public class TransactionState implements Writable {
         sb.append("transaction id: ").append(transactionId);
         sb.append(", label: ").append(label);
         sb.append(", db id: ").append(dbId);
+        sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(coordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
