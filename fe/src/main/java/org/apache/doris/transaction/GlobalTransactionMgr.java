@@ -991,7 +991,8 @@ public class GlobalTransactionMgr implements Writable {
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            throw new UserException("transaction's state is already committed or visible, could not abort");
+            throw new UserException("transaction's state is already "
+                    + transactionState.getTransactionStatus() + ", could not abort");
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
@@ -1012,10 +1013,10 @@ public class GlobalTransactionMgr implements Writable {
             transactionState.replaySetTransactionStatus();
             Database db = catalog.getDb(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                LOG.debug("replay a committed transaction {}", transactionState);
+                LOG.info("replay a committed transaction {}", transactionState);
                 updateCatalogAfterCommitted(transactionState, db);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                LOG.debug("replay a visible transaction {}", transactionState);
+                LOG.info("replay a visible transaction {}", transactionState);
                 updateCatalogAfterVisible(transactionState, db);
             }
             TransactionState preTxnState = idToTransactionState.get(transactionState.getTransactionId());

@@ -51,6 +51,7 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashBasedTable;
@@ -389,11 +390,36 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (isCompleted() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
                 return;
             }
+
+            // we need to check the txn' status before doing cancel, because following case:
+            // 1. txn A committed on master, and replayed on follower X, but load job' state is still LOADING.
+            // 2. master down, follower X become master, and starting LoadTimeoutChecker thread.
+            // 3. because the load job' state is still LOADING, and isCommitting is false, the cancel will be done,
+            //    and result in job' state as CANCELLED but txn' status is COMMITTED.
+            if (transactionCannotAbort()) {
+                return;
+            }
+
             unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
         } finally {
             writeUnlock();
         }
         logFinalOperation();
+    }
+
+    // return false if corresponding txn can not be aborted.
+    private boolean transactionCannotAbort() {
+        TransactionState txn = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+        if (txn == null) {
+            // this should be happen
+            LOG.warn("txn does not exist: {}, load job: {}", transactionId, id);
+            return false;
+        }
+        if (txn.getTransactionStatus() != TransactionStatus.PREPARE) {
+            LOG.info("txn status is {}. can not abort. txn id: {}. load job: {}", txn.getTransactionStatus(), transactionId, id);
+            return false;
+        }
+        return true;
     }
 
     protected void unprotectedExecuteJob() {
