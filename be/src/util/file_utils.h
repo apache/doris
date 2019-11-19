@@ -111,6 +111,14 @@ public:
     
     // check path(file or directory) exist with env
     static bool check_exist(const std::string& path, Env* env);
+
+    // Canonicalize 'path' by applying the following conversions:
+    // - Converts a relative path into an absolute one using the cwd.
+    // - Converts '.' and '..' references.
+    // - Resolves all symbolic links.
+    //
+    // All directory entries in 'path' must exist on the filesystem.
+    static Status canonicalize(const std::string& path, std::string* real_path);
 };
 
 }
