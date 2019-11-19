@@ -76,6 +76,7 @@ public class MasterOpExecutor {
         params.setSql(originStmt);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
+        params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
         params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
         params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
