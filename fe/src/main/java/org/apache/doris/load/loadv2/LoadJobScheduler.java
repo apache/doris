@@ -73,7 +73,8 @@ public class LoadJobScheduler extends Daemon {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);
-                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()), false);
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
+                        false, true);
                 continue;
             } catch (BeginTransactionException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())

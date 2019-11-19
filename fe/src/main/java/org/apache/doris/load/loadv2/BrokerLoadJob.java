@@ -282,7 +282,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
                                      + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
     }
 
@@ -326,7 +326,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
 
@@ -421,7 +421,8 @@ public class BrokerLoadJob extends LoadJob {
 
         // check data quality
         if (!checkDataQuality()) {
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),
+                    true, true);
             return;
         }
         Database db = null;
@@ -432,7 +433,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "db has been deleted when job is loading")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
         }
         db.writeLock();
         try {
@@ -449,7 +450,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         } finally {
             db.writeUnlock();

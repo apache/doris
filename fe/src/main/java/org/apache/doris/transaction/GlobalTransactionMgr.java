@@ -35,6 +35,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
@@ -62,6 +63,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -77,7 +79,7 @@ import java.util.stream.Collectors;
  * 3. abort
  * Attention: all api in txn manager should get db lock or load lock first, then get txn manager's lock, or there will be dead lock
  */
-public class GlobalTransactionMgr {
+public class GlobalTransactionMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(GlobalTransactionMgr.class);
     
     // the lock is used to control the access to transaction states
@@ -87,8 +89,12 @@ public class GlobalTransactionMgr {
     
     // transactionId -> TransactionState
     private Map<Long, TransactionState> idToTransactionState = Maps.newConcurrentMap();
-    // db id -> (label -> txn id)
-    private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels = HashBasedTable.create();
+    // db id -> (label -> txn ids)
+    // this is used for checking if label already used. a label may correspond to multiple txns,
+    // and only one is success.
+    // this member should be consistent with idToTransactionState, which means if a txn exist in idToTransactionState,
+    // it must exists in dbIdToTxnLabels, and vice versa
+    private com.google.common.collect.Table<Long, String, Set<Long>> dbIdToTxnLabels = HashBasedTable.create();
     // count the number of running txns of each database, except for the routine load txn
     private Map<Long, Integer> runningTxnNums = Maps.newHashMap();
     // count only the number of running routine load txns of each database
@@ -145,20 +151,37 @@ public class GlobalTransactionMgr {
             Preconditions.checkNotNull(coordinator);
             Preconditions.checkNotNull(label);
             FeNameFormat.checkLabel(label);
-            Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
-            if (txnLabels != null && txnLabels.containsKey(label)) {
-                TransactionState existTxn = getTransactionState(txnLabels.get(label));
-                // check timestamp
-                if (requestId != null) {
-                    if (existTxn != null && existTxn.getTransactionStatus() == TransactionStatus.PREPARE
-                            && existTxn.getRequsetId() != null && existTxn.getRequsetId().equals(requestId)) {
-                        // this may be a retry request for same job, just return existing txn id.
-                        return txnLabels.get(label);
+
+            /*
+             * Check if label already used, by following steps
+             * 1. get all existing transactions
+             * 2. if there is a PREPARE transaction, check if this is a retry request. If yes, return the
+             *    existing txn id.
+             * 3. if there is a non-aborted transaction, throw label already used exception.
+             */
+            Set<Long> existingTxnIds = dbIdToTxnLabels.get(dbId, label);
+            if (existingTxnIds != null && !existingTxnIds.isEmpty()) {
+                List<TransactionState> notAbortedTxns = Lists.newArrayList();
+                for (long txnId : existingTxnIds) {
+                    TransactionState txn = idToTransactionState.get(txnId);
+                    Preconditions.checkNotNull(txn);
+                    if (txn.getTransactionStatus() != TransactionStatus.ABORTED) {
+                        notAbortedTxns.add(txn);
                     }
                 }
-                throw new LabelAlreadyUsedException(label, existTxn.getTransactionStatus());
+                // there should be at most 1 txn in PREPARE/COMMITTED/VISIBLE status
+                Preconditions.checkState(notAbortedTxns.size() <= 1, notAbortedTxns);
+                if (requestId != null && !notAbortedTxns.isEmpty()) {
+                    TransactionState notAbortedTxn = notAbortedTxns.get(0);
+                    if (notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                            && notAbortedTxn.getRequsetId() != null && notAbortedTxn.getRequsetId().equals(requestId)) {
+                        // this may be a retry request for same job, just return existing txn id.
+                        return notAbortedTxn.getTransactionId();
+                    }
+                    throw new LabelAlreadyUsedException(label, notAbortedTxn.getTransactionStatus());
+                }
             }
-            
+
             checkRunningTxnExceedLimit(dbId, sourceType);
           
             long tid = idGenerator.getNextTransactionId();
@@ -203,15 +226,13 @@ public class GlobalTransactionMgr {
     public TransactionStatus getLabelState(long dbId, String label) {
         readLock();
         try {
-            Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
-            if (txnLabels == null) {
+            Set<Long> existingTxnIds = dbIdToTxnLabels.get(dbId, label);
+            if (existingTxnIds == null || existingTxnIds.isEmpty()) {
                 return TransactionStatus.UNKNOWN;
             }
-            Long transactionId = txnLabels.get(label);
-            if (transactionId == null) {
-                return TransactionStatus.UNKNOWN;
-            }
-            return idToTransactionState.get(transactionId).getTransactionStatus();
+            // find the latest txn (which id is largest)
+            long maxTxnId = existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+            return idToTransactionState.get(maxTxnId).getTransactionStatus();
         } finally {
             readUnlock();
         }
@@ -224,8 +245,8 @@ public class GlobalTransactionMgr {
             if (state == null) {
                 return;
             }
-            editLog.logDeleteTransactionState(state);
             replayDeleteTransactionState(state);
+            editLog.logDeleteTransactionState(state);
         } finally {
             writeUnlock();
         }
@@ -493,18 +514,29 @@ public class GlobalTransactionMgr {
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
         Long transactionId = null;
-        writeLock();
+        readLock();
         try {
-            Map<String, Long> dbTxns = dbIdToTxnLabels.row(dbId);
-            if (dbTxns == null) {
+            Set<Long> existingTxns = dbIdToTxnLabels.get(dbId, label);
+            if (existingTxns == null || existingTxns.isEmpty()) {
                 throw new UserException("transaction not found, label=" + label);
             }
-            transactionId = dbTxns.get(label);
-            if (transactionId == null) {
+            // find PREPARE txn
+            TransactionState prepareTxn = null;
+            for (Long txnId : existingTxns) {
+                TransactionState txn = idToTransactionState.get(txnId);
+                if (txn.getTransactionStatus() == TransactionStatus.PREPARE) {
+                    prepareTxn = txn;
+                    break;
+                }
+            }
+
+            if (prepareTxn == null) {
                 throw new UserException("transaction not found, label=" + label);
             }
+
+            transactionId = prepareTxn.getTransactionId();
         } finally {
-            writeUnlock();
+            readUnlock();
         }
         abortTransaction(transactionId, reason);
     }
@@ -837,7 +869,7 @@ public class GlobalTransactionMgr {
 
         List<Long> timeoutTxns = Lists.newArrayList();
         List<Long> expiredTxns = Lists.newArrayList();
-        writeLock();
+        readLock();
         try {
             for (TransactionState transactionState : idToTransactionState.values()) {
                 if (transactionState.isExpired(currentMillis)) {
@@ -849,7 +881,7 @@ public class GlobalTransactionMgr {
                 }
             }
         } finally {
-            writeUnlock();
+            readUnlock();
         }
 
         // delete expired txns
@@ -1000,7 +1032,11 @@ public class GlobalTransactionMgr {
         writeLock();
         try {
             idToTransactionState.remove(transactionState.getTransactionId());
-            dbIdToTxnLabels.remove(transactionState.getDbId(), transactionState.getLabel());
+            Set<Long> txnIds = dbIdToTxnLabels.get(transactionState.getDbId(), transactionState.getLabel());
+            txnIds.remove(transactionState.getTransactionId());
+            if (txnIds.isEmpty()) {
+                dbIdToTxnLabels.remove(transactionState.getDbId(), transactionState.getLabel());
+            }
         } finally {
             writeUnlock();
         }
@@ -1112,13 +1148,12 @@ public class GlobalTransactionMgr {
     }
     
     private void updateTxnLabels(TransactionState transactionState) {
-        // if the transaction is aborted, then its label could be reused
-        if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            dbIdToTxnLabels.remove(transactionState.getDbId(), transactionState.getLabel());
-        } else {
-            dbIdToTxnLabels.put(transactionState.getDbId(), transactionState.getLabel(),
-                                transactionState.getTransactionId());
+        Set<Long> txnIds = dbIdToTxnLabels.get(transactionState.getDbId(), transactionState.getLabel());
+        if (txnIds == null) {
+            txnIds = Sets.newHashSet();
+            dbIdToTxnLabels.put(transactionState.getDbId(), transactionState.getLabel(), txnIds);
         }
+        txnIds.add(transactionState.getTransactionId());
     }
     
     private void updateDBRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
@@ -1278,7 +1313,7 @@ public class GlobalTransactionMgr {
         return this.idGenerator;
     }
 
-    // this two function used to read snapshot or write snapshot
+    @Override
     public void write(DataOutput out) throws IOException {
         int numTransactions = idToTransactionState.size();
         out.writeInt(numTransactions);
@@ -1288,6 +1323,7 @@ public class GlobalTransactionMgr {
         idGenerator.write(out);
     }
     
+    @Override
     public void readFields(DataInput in) throws IOException {
         int numTransactions = in.readInt();
         for (int i = 0; i < numTransactions; ++i) {

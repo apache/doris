@@ -422,6 +422,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 break;
             case FINISHED:
                 executeFinish();
+                break;
             default:
                 break;
         }
@@ -432,14 +433,17 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         state = JobState.LOADING;
     }
 
-    public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn) {
+    // if needLog is false, no need to write edit log.
+    public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn, boolean needLog) {
         writeLock();
         try {
             unprotectedExecuteCancel(failMsg, abortTxn);
         } finally {
             writeUnlock();
         }
-        logFinalOperation();
+        if (needLog) {
+            logFinalOperation();
+        }
     }
 
     public void cancelJob(FailMsg failMsg) throws DdlException {
@@ -799,6 +803,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnState.getReason());
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         } finally {
             writeUnlock();
         }
@@ -828,6 +833,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         } finally {
             writeUnlock();
         }

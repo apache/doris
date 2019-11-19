@@ -106,7 +106,7 @@ public class LoadManager implements Writable{
                                                + "please retry later.");
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
-            createLoadJob(loadJob);
+            addLoadJob(loadJob);
         } finally {
             writeUnlock();
         }
@@ -135,23 +135,17 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
+            // checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
-            createLoadJob(loadJob);
+            // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add
             // Mini load job must be executed before release write lock.
             // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
             loadJob.unprotectedExecute();
-        } catch (DuplicatedRequestException e) {
-            LOG.info(new LogBuilder(LogKey.LOAD_JOB, e.getDuplicatedRequestId())
-                             .add("msg", "the duplicated request returns the txn id "
-                                     + "which was created by the same mini load")
-                             .build());
-            return dbIdToLabelToLoadJobs.get(database.getId()).get(request.getLabel())
-                    .stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst()
-                    .get().getTransactionId();
+            addLoadJob(loadJob);
         } catch (UserException e) {
             if (loadJob != null) {
-                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
+                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false,
+                        false /* no need to write edit log, because createLoadJob log is not wrote yet */);
             }
             throw e;
         } finally {
@@ -231,13 +225,13 @@ public class LoadManager implements Writable{
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
-        createLoadJob(loadJob);
+        addLoadJob(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                          .add("msg", "replay create load job")
                          .build());
     }
 
-    private void createLoadJob(LoadJob loadJob) {
+    private void addLoadJob(LoadJob loadJob) {
         addLoadJob(loadJob);
         // add callback before txn created, because callback will be performed on replay without txn begin
         // register txn state listener
@@ -310,6 +304,15 @@ public class LoadManager implements Writable{
 
     public void replayEndLoadJob(LoadJobFinalOperation operation) {
         LoadJob job = idToLoadJob.get(operation.getId());
+        if (job == null) {
+            // This should not happen.
+            // Last time I found that when user submit a job with already used label, an END_LOAD_JOB edit log
+            // will be wrote but the job is not added to 'idToLoadJob', so this job here we got will be null.
+            // And this bug has been fixed.
+            // Just add a log here to observe.
+            LOG.warn("job does not exist when replaying end load job edit log: {}", operation);
+            return;
+        }
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId())
                          .add("operation", operation)
