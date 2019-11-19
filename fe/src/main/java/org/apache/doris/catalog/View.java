@@ -27,6 +27,7 @@ import org.apache.doris.common.io.Text;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -145,7 +146,8 @@ public class View extends Table {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
-        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef));
+        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef),
+                ConnectContext.get().getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         ParseNode node;
         try {
