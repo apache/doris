@@ -549,7 +549,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
   if (kw_id != null) {
     // if MODE_PIPES_AS_CONCAT is not active, treat '||' symbol as same as 'or' symbol
     if ((kw_id == SqlParserSymbols.KW_PIPE) &&
-      (this.sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT == 0)) {
+      ((this.sql_mode & SqlModeHelper.MODE_PIPES_AS_CONCAT) == 0)) {
       return newToken(SqlParserSymbols.KW_OR, text);
     }
     return newToken(kw_id.intValue(), text);
