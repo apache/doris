@@ -772,6 +772,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             replayTxnAttachment(txnState);
+            transactionId = txnState.getTransactionId();
             state = JobState.COMMITTED;
         } finally {
             writeUnlock();

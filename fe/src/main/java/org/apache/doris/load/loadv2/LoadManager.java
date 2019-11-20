@@ -43,7 +43,6 @@ import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -596,18 +595,20 @@ public class LoadManager implements Writable{
     // by timeout checker, which is not right.
     // So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
     // state to COMMITTED.
+    // this method should be removed at next upgrading.
     public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
             if (job.getState() == JobState.LOADING) {
-                TransactionState txn = txnMgr.getTransactionState(job.getTransactionId());
-                if (txn != null && txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                // unfortunately, transaction id in load job is also not persisted, so we have to traverse
+                // all transactions to find it.
+                TransactionState txn = txnMgr.getCommittedTransactionStateByCallbackId(job.getCallbackId());
+                if (txn != null) {
                     job.updateState(JobState.COMMITTED);
                     LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
                             job.getId(), txn.getTransactionId());
                 }
             }
         }
-
     }
 
     @Override
