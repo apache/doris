@@ -402,7 +402,6 @@ public class Coordinator {
                     queryOptions.query_timeout * 1000);
         } else {
             // This is a load process.
-            Preconditions.checkState(queryOptions.getQuery_type() == TQueryType.LOAD);
             this.queryOptions.setIs_report_success(true);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
