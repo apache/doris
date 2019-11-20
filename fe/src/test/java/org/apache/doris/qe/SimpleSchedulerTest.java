@@ -189,12 +189,12 @@ public class SimpleSchedulerTest {
         threeBackends.put((long) 102, backendC);
         ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
 
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(100));
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(101));
+        SimpleScheduler.addToBlacklist(Long.valueOf(100));
+        SimpleScheduler.addToBlacklist(Long.valueOf(101));
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         // only backendc can work
         Assert.assertEquals(address.hostname, "addressC");
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(102));
+        SimpleScheduler.addToBlacklist(Long.valueOf(102));
         // no backend can work
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         Assert.assertNull(address);

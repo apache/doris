@@ -130,7 +130,7 @@ public class SimpleScheduler {
         return null;
     }
     
-    public static void updateBlacklistBackends(Long backendID) {
+    public static void addToBlacklist(Long backendID) {
         if (backendID == null) {
             return;
         }
