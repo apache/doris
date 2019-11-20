@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/options.h"
 #include "olap/data_dir.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
@@ -133,15 +134,21 @@ int main(int argc, char **argv) {
         }
 
         path root_path(FLAGS_root_path);
+        doris::StorePath path;
         try {
             root_path = canonical(root_path);
+            auto res = parse_root_path(root_path.string(), &path);
+            if (res != OLAP_SUCCESS){
+                std::cout << "parse root path failed:" << root_path.string() << std::endl;
+                return -1;
+            }
         }
         catch (...) {
             std::cout << "invalid root path:" << FLAGS_root_path << std::endl;
             return -1;
         }
 
-        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(root_path.string()));
+        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
         if (data_dir == nullptr) {
             std::cout << "new data dir failed" << std::endl;
             return -1;
