@@ -48,12 +48,12 @@ message MetadataPairPB {
 enum EncodingTypePB {
     UNKNOWN_ENCODING = 0;
     DEFAULT_ENCODING = 1;
-    PLAIN_ENCODING = 2; // for non-binary type
+    PLAIN_ENCODING = 2;
     PREFIX_ENCODING = 3;
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
-    BINARY_PLAIN_ENCODING = 7;
+    FOR_ENCODING = 7; // Frame-Of-Reference
 }
 
 enum CompressionTypePB {
@@ -98,8 +98,10 @@ message ColumnMetaPB {
     optional ZoneMapPB zone_map = 9;
     // // dictionary page for DICT_ENCODING
     optional PagePointerPB dict_page = 10;
+    // bitmap index
+    optional BitmapIndexColumnPB bitmap_index = 11;
     // var length for string type
-    optional int32 length = 11;
+    optional int32 length = 12;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
@@ -162,5 +164,59 @@ message SegmentFooterPB {
 
     // Short key index's page
     optional PagePointerPB short_key_index_page = 9;
+}
+
+message IndexPageFooterPB {
+  // required: number of entries in this page
+  optional int32 num_entries = 1;
+
+  enum Type {
+    UNKNOWN_INDEX_PAGE_TYPE = 0;
+    LEAF = 1;
+    INTERNAL = 2;
+  };
+  // required: type of the index page
+  optional Type type = 2;
+}
+
+message BTreeMetaPB {
+  // required: pointer to either root index page or sole data page based on is_root_data_page
+  optional PagePointerPB root_page = 1;
+  // required: true if we only have one data page, in which case root points to that page directly
+  optional bool is_root_data_page = 2;
+}
+
+message IndexedColumnMetaPB {
+    // required: FieldType value
+    optional int32 data_type = 1;
+    // required: encoding for this column
+    optional EncodingTypePB encoding = 2;
+    // required: total number of values in this column
+    optional int64 num_values = 3;
+    // present iff this column has ordinal index
+    optional BTreeMetaPB ordinal_index_meta = 4;
+    // present iff this column contains sorted values and has value index
+    optional BTreeMetaPB value_index_meta = 5;
+    // compression type for data and index page
+    optional CompressionTypePB compression = 6 [default=NO_COMPRESSION];
+    // optional bool is_nullable = 7 [default=false];
+}
+
+message BitmapIndexColumnPB {
+    enum BitmapType {
+        UNKNOWN_BITMAP_TYPE = 0;
+        ROARING_BITMAP = 1;
+    }
+    optional uint32 column_id = 1;
+    optional uint32 unique_id = 2;
+    // required: whether the index contains null key.
+    // if true, the last bitmap (ordinal:dict_column.num_values) in bitmap_column is
+    // the bitmap for null key. we don't store null key in dict_column.
+    optional bool has_null = 3;
+    // required: meta for ordered dictionary part
+    optional IndexedColumnMetaPB dict_column = 4;
+    // required: meta for bitmaps part
+    optional IndexedColumnMetaPB bitmap_column = 5;
+    optional BitmapType bitmap_type = 6 [default=ROARING_BITMAP];
 }
 

@@ -173,7 +173,7 @@ private:
     CppType cell(int idx) const {
         DCHECK_GE(idx, 0);
         CppType ret;
-        memcpy(&ret, &_data[idx * SIZE_OF_TYPE], sizeof(CppType));
+        memcpy(&ret, &_data[idx * SIZE_OF_TYPE], SIZE_OF_TYPE);
         return ret;
     }
 
