@@ -86,14 +86,13 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
-        DCHECK_EQ(reinterpret_cast<uintptr_t>(vals) & (alignof(CppType) - 1), 0)
-                << "Pointer passed to Add() must be naturally-aligned";
-
-        const CppType* new_vals = reinterpret_cast<const CppType*>(vals);
+        auto new_vals = reinterpret_cast<const CppType*>(vals);
         for (int i = 0; i < *count; ++i) {
-            _rle_encoder->Put(new_vals[i]);
+            // note: vals is not guaranteed to be aligned for now, thus memcpy here
+            CppType value;
+            memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
+            _rle_encoder->Put(value);
         }
-        
         _count += *count;
         return Status::OK();
     }

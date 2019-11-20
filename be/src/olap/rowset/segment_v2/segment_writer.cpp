@@ -62,10 +62,10 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         if (column.is_key()) {
             opts.need_zone_map = true;
         }
+        // TODO set opts.need_bitmap_index based on table properties
 
         std::unique_ptr<Field> field(FieldFactory::create(column));
         DCHECK(field.get() != nullptr);
-
         std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
@@ -109,7 +109,9 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_data());
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
+    RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_short_key_index());
+
     RETURN_IF_ERROR(_write_footer());
     *segment_file_size = _output_file->size();
     return Status::OK();
@@ -134,6 +136,13 @@ Status SegmentWriter::_write_ordinal_index() {
 Status SegmentWriter::_write_zone_map() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_zone_map());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_bitmap_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_bitmap_index());
     }
     return Status::OK();
 }

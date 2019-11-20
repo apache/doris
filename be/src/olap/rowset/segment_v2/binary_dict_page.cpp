@@ -17,12 +17,10 @@
 
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
+#include "common/logging.h"
 #include "util/slice.h" // for Slice
 #include "gutil/strings/substitute.h" // for Substitute
-#include "runtime/mem_pool.h"
-
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
-#include "olap/rowset/segment_v2/rle_page.h"
 
 namespace doris {
 namespace segment_v2 {
