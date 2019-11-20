@@ -31,6 +31,7 @@ import java.util.ArrayList;
 
 import org.apache.doris.analysis.SqlParserSymbols;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.qe.SqlModeHelper;
 
 %%
 
