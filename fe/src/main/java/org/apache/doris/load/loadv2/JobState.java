@@ -18,8 +18,9 @@
 package org.apache.doris.load.loadv2;
 
 public enum JobState {
-    PENDING,
-    LOADING,
-    FINISHED,
-    CANCELLED
+    PENDING, // init state
+    LOADING, // job is running
+    COMMITTED, // transaction is committed but not visible
+    FINISHED, // transaction is visible and job is finished
+    CANCELLED // transaction is aborted and job is cancelled
 }
