@@ -1700,7 +1700,7 @@ column_definition ::=
 
 opt_is_allow_null ::=
     {:
-        RESULT = false;
+        RESULT = true;
     :}
     | KW_NULL
     {:
