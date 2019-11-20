@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
@@ -103,7 +104,7 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
-            BeginTransactionException {
+            BeginTransactionException, DuplicatedRequestException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -119,7 +120,7 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testBeginTransactionWithSameLabel() throws LabelAlreadyUsedException, AnalysisException,
-            BeginTransactionException {
+            BeginTransactionException, DuplicatedRequestException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
         try {
@@ -599,7 +600,7 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testDeleteTransaction() throws LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+            AnalysisException, BeginTransactionException, DuplicatedRequestException {
 
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,

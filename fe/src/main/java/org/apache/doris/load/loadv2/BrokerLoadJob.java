@@ -224,10 +224,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been completed
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
@@ -298,13 +298,14 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
+
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("task_id", attachment.getTaskId())
@@ -387,10 +388,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }

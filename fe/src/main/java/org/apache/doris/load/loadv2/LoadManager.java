@@ -41,6 +41,9 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -293,7 +296,7 @@ public class LoadManager implements Writable{
             if (loadJobList == null) {
                 throw new DdlException("Load job does not exist");
             }
-            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isCompleted()).findFirst();
+            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isTxnDone()).findFirst();
             if (!loadJobOptional.isPresent()) {
                 throw new DdlException("There is no uncompleted job which label is " + stmt.getLabel());
             }
@@ -586,6 +589,25 @@ public class LoadManager implements Writable{
         if (job != null) {
             job.updateScannedRows(loadId, fragmentId, scannedRows);
         }
+    }
+
+    // in previous implementation, there is a bug that when the job's corresponding transaction is
+    // COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
+    // by timeout checker, which is not right.
+    // So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
+    // state to COMMITTED.
+    public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
+        for (LoadJob job : idToLoadJob.values()) {
+            if (job.getState() == JobState.LOADING) {
+                TransactionState txn = txnMgr.getTransactionState(job.getTransactionId());
+                if (txn != null && txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    job.updateState(JobState.COMMITTED);
+                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
+                            job.getId(), txn.getTransactionId());
+                }
+            }
+        }
+
     }
 
     @Override

@@ -52,7 +52,6 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashBasedTable;
@@ -120,12 +119,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // This param is set true during txn is committing.
     // During committing, the load job could not be cancelled.
     protected boolean isCommitting = false;
-    // This param is set true in mini load.
-    // The streaming mini load could not be cancelled by frontend.
-    protected boolean isCancellable = true;
-
-    // only for persistence param
-    private boolean isJobTypeRead = false;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -133,6 +126,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected TUniqueId requestId;
 
     protected LoadStatistic loadStatistic = new LoadStatistic();
+
+    // only for persistence param
+    private boolean isJobTypeRead = false;
 
     public static class LoadStatistic {
         // number of rows processed on BE, this number will be updated periodically by query report.
@@ -242,12 +238,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return createTimestamp;
     }
 
-    public long getDeadlineMs() {
+    protected long getDeadlineMs() {
         return createTimestamp + timeoutSecond * 1000;
     }
 
-    public long getLeftTimeMs() {
-        return getDeadlineMs() - System.currentTimeMillis();
+    private boolean isTimeout() {
+        return System.currentTimeMillis() > getDeadlineMs();
     }
 
     public long getFinishTimestamp() {
@@ -292,6 +288,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      */
     abstract Set<String> getTableNames() throws MetaNotFoundException;
 
+    // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED)
+    public boolean isTxnDone() {
+        return state == JobState.COMMITTED || state == JobState.FINISHED || state == JobState.CANCELLED;
+    }
+
+    // return true if job is done(FINISHED/CANCELLED)
     public boolean isCompleted() {
         return state == JobState.FINISHED || state == JobState.CANCELLED;
     }
@@ -390,16 +392,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void processTimeout() {
         writeLock();
         try {
-            if (isCompleted() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
-                return;
-            }
-
-            // we need to check the txn' status before doing cancel, because following case:
-            // 1. txn A committed on master, and replayed on follower X, but load job' state is still LOADING.
-            // 2. master down, follower X become master, and starting LoadTimeoutChecker thread.
-            // 3. because the load job' state is still LOADING, and isCommitting is false, the cancel will be done,
-            //    and result in job' state as CANCELLED but txn' status is COMMITTED.
-            if (transactionCannotAbort()) {
+            if (isTxnDone() || !isTimeout() || isCommitting) {
                 return;
             }
 
@@ -408,21 +401,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             writeUnlock();
         }
         logFinalOperation();
-    }
-
-    // return false if corresponding txn can not be aborted.
-    private boolean transactionCannotAbort() {
-        TransactionState txn = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
-        if (txn == null) {
-            // this should be happen
-            LOG.warn("txn does not exist: {}, load job: {}", transactionId, id);
-            return false;
-        }
-        if (txn.getTransactionStatus() != TransactionStatus.PREPARE) {
-            LOG.info("txn status is {}. can not abort. txn id: {}. load job: {}", txn.getTransactionStatus(), transactionId, id);
-            return false;
-        }
-        return true;
     }
 
     protected void unprotectedExecuteJob() {
@@ -449,6 +427,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             case LOADING:
                 executeLoad();
                 break;
+            case COMMITTED:
+                executeCommitted();
+                break;
             case FINISHED:
                 executeFinish();
                 break;
@@ -460,6 +441,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     private void executeLoad() {
         loadStartTimestamp = System.currentTimeMillis();
         state = JobState.LOADING;
+    }
+
+    private void executeCommitted() {
+        state = JobState.COMMITTED;
     }
 
     // if needLog is false, no need to write edit log.
@@ -478,8 +463,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void cancelJob(FailMsg failMsg) throws DdlException {
         writeLock();
         try {
-            // check
-            if (!isCancellable) {
+            // mini load can not be cancelled by frontend
+            if (jobType == EtlJobType.MINI) {
                 throw new DdlException("Job could not be cancelled in type " + jobType.name());
             }
             if (isCommitting) {
@@ -488,10 +473,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                          + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "Job could not be cancelled when job is completed")
+                                 .add("error_msg", "Job could not be cancelled when job is " + state)
                                  .build());
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
@@ -759,8 +744,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         writeLock();
         try {
-            if (isCompleted()) {
-                throw new TransactionException("txn could not be committed when job has been cancelled");
+            if (isTxnDone()) {
+                throw new TransactionException("txn could not be committed because job is: " + state);
             }
             isCommitting = true;
         } finally {
@@ -776,6 +761,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             isCommitting = false;
+            state = JobState.COMMITTED;
         } finally {
             writeUnlock();
         }
@@ -786,6 +772,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             replayTxnAttachment(txnState);
+            state = JobState.COMMITTED;
         } finally {
             writeUnlock();
         }
@@ -808,7 +795,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         writeLock();
         try {
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 return;
             }
             // record attachment in load job
