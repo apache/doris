@@ -71,15 +71,15 @@ dorisSparkRDD.collect()
 
 ### General
 
-| Key                              | Default Value     | Comment                                           |
-| -------------------------------- | ----------------- | ------------------------------------------------- |
-| doris.fenodes                    | --                | Doris Restful接口地址，支持多个地址，使用逗号分隔 |
-| doris.table.identifier           | --                | DataFame/RDD对应的Doris表名                       |
-| doris.request.retries            | 3                 | 向Doris发送请求的重试次数                         |
-| doris.request.connect.timeout.ms | 30000             | 向Doris发送请求的连接超时时间                     |
-| doris.request.read.timeout.ms    | 30000             | 向Doris发送请求的读取超时时间                     |
-| doris.request.tablet.size        | Integer.MAX_VALUE | 一个RDD Partition对应的Doris Tablet个数           |
-| doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数                        |
+| Key                              | Default Value     | Comment                                                      |
+| -------------------------------- | ----------------- | ------------------------------------------------------------ |
+| doris.fenodes                    | --                | Doris Restful接口地址，支持多个地址，使用逗号分隔            |
+| doris.table.identifier           | --                | DataFame/RDD对应的Doris表名                                  |
+| doris.request.retries            | 3                 | 向Doris发送请求的重试次数                                    |
+| doris.request.connect.timeout.ms | 30000             | 向Doris发送请求的连接超时时间                                |
+| doris.request.read.timeout.ms    | 30000             | 向Doris发送请求的读取超时时间                                |
+| doris.request.tablet.size        | Integer.MAX_VALUE | 一个RDD Partition对应的Doris Tablet个数。<br />此数值设置越小，则会生成越多的Partition。<br />从而提升Spark侧的并行度，但同时会对Doris造成更大的压力。 |
+| doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数。<br />增大此数值可减少Spark与Doris之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
 
 ### SQL and Dataframe Only
 
@@ -91,12 +91,12 @@ dorisSparkRDD.collect()
 
 ### RDD Only
 
-| Key                         | Default Value | Comment                                     |
-| --------------------------- | ------------- | ------------------------------------------- |
-| doris.request.auth.user     | --            | 访问Doris的用户名                           |
-| doris.request.auth.password | --            | 访问Doris的密码                             |
-| doris.read.field            | --            | 读取Doris表的列名列表，多列之间使用逗号分隔 |
-| doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris   |
+| Key                         | Default Value | Comment                                                      |
+| --------------------------- | ------------- | ------------------------------------------------------------ |
+| doris.request.auth.user     | --            | 访问Doris的用户名                                            |
+| doris.request.auth.password | --            | 访问Doris的密码                                              |
+| doris.read.field            | --            | 读取Doris表的列名列表，多列之间使用逗号分隔                  |
+| doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris。<br />Doris使用此表达式完成源端数据过滤。 |
 
 
 
