@@ -42,6 +42,7 @@ OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
     path->path = tmp_vec[0];
+
     // parse root path capacity and storage medium
     std::string capacity_str, medium_str;
 

@@ -49,6 +49,7 @@ OLAPStatus parse_conf_store_paths(const std::string &config_path,
 struct EngineOptions {
     // list paths that tablet will be put into.
     std::vector<StorePath> store_paths;
-    UniqueId backend_uid{0, 0};
+    UniqueId backend_uid {0, 0};
 };
+
 }

@@ -55,23 +55,23 @@ namespace doris {
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
-DataDir::DataDir(const std::string& path, int64_t capacity_bytes,TStorageMedium::type storage_medium,
-        TabletManager* tablet_manager, TxnManager* txn_manager)
-        : _path(path),
-        _capacity_bytes(capacity_bytes),
-        _available_bytes(0),
-        _disk_capacity_bytes(0),
-        _storage_medium(storage_medium),
-        _is_used(false),
-        _tablet_manager(tablet_manager),
-        _txn_manager(txn_manager),
-        _cluster_id(-1),
-        _to_be_deleted(false),
-        _current_shard(0),
-        _test_file_read_buf(nullptr),
-        _test_file_write_buf(nullptr),
-        _meta(nullptr) {
-}
+DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
+                 TStorageMedium::type storage_medium,
+                 TabletManager* tablet_manager, TxnManager* txn_manager)
+    : _path(path),
+      _capacity_bytes(capacity_bytes),
+      _available_bytes(0),
+      _disk_capacity_bytes(0),
+      _storage_medium(storage_medium),
+      _is_used(false),
+      _tablet_manager(tablet_manager),
+      _txn_manager(txn_manager),
+      _cluster_id(-1),
+      _to_be_deleted(false),
+      _current_shard(0),
+      _test_file_read_buf(nullptr),
+      _test_file_write_buf(nullptr),
+      _meta(nullptr) {}
 
 DataDir::~DataDir() {
     free(_test_file_read_buf);
