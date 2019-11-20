@@ -20,7 +20,7 @@
 mvn clean package
 ```
 
-
+编译成功后，会在`target`目录下生成文件`doris-spark-1.0.0-SNAPSHOT.jar`。将此文件复制到`Spark`的`ClassPath`中即可使用`Spark-Doris-Connector`。例如，`Local`模式运行的`Spark`，将此文件放入`jars`文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
 
 ## QuickStart
 
@@ -81,15 +81,15 @@ dorisSparkRDD.collect()
 | doris.request.tablet.size        | Integer.MAX_VALUE | 一个RDD Partition对应的Doris Tablet个数           |
 | doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数                        |
 
-### SQL and Dataframe
+### SQL and Dataframe Only
 
 | Key                             | Default Value | Comment                                                      |
 | ------------------------------- | ------------- | ------------------------------------------------------------ |
 | user                            | --            | 访问Doris的用户名                                            |
 | password                        | --            | 访问Doris的密码                                              |
-| doris.filter.query.in.value.max | 100           | 谓词下推中，in表达式value列表元素最大数量。<br />超过此数量，则in表达式在Spark侧处理。 |
+| doris.filter.query.in.value.max | 100           | 谓词下推中，in表达式value列表元素最大数量。<br />超过此数量，则in表达式条件过滤在Spark侧处理。 |
 
-### RDD
+### RDD Only
 
 | Key                         | Default Value | Comment                                     |
 | --------------------------- | ------------- | ------------------------------------------- |
