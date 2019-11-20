@@ -30,12 +30,14 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
@@ -115,7 +117,8 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
-            long timeoutSecond) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+            long timeoutSecond)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
         return beginTransaction(dbId, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
@@ -129,11 +132,12 @@ public class GlobalTransactionMgr implements Writable {
      *
      * @param coordinator
      * @throws BeginTransactionException
+     * @throws DuplicatedRequestException
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, String label, TUniqueId requestId,
             String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
         
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
@@ -176,7 +180,8 @@ public class GlobalTransactionMgr implements Writable {
                     if (requestId != null && notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
                             && notAbortedTxn.getRequsetId() != null && notAbortedTxn.getRequsetId().equals(requestId)) {
                         // this may be a retry request for same job, just return existing txn id.
-                        return notAbortedTxn.getTransactionId();
+                        throw new DuplicatedRequestException(DebugUtil.printId(requestId),
+                                notAbortedTxn.getTransactionId(), "");
                     }
                     throw new LabelAlreadyUsedException(label, notAbortedTxn.getTransactionStatus());
                 }
@@ -196,6 +201,8 @@ public class GlobalTransactionMgr implements Writable {
             }
 
             return tid;
+        } catch (DuplicatedRequestException e) {
+            throw e;
         } catch (Exception e) {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_REJECT.increase(1L);

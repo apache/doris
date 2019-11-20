@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
@@ -353,7 +354,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
     }
 
     /**
@@ -363,8 +364,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws LabelAlreadyUsedException the job is duplicated
      * @throws BeginTransactionException the limit of load job is exceeded
      * @throws AnalysisException there are error params in job
+     * @throws DuplicatedRequestException 
      */
-    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         writeLock();
         try {
             unprotectedExecute();
@@ -373,7 +375,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void unprotectedExecute()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;

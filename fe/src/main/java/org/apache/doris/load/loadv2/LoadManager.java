@@ -31,6 +31,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.EtlJobType;
@@ -137,11 +138,17 @@ public class LoadManager implements Writable{
         try {
             // checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
-            // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add
+            // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add.
+            // NOTICE(cmy): this order is only for Mini Load, because mini load's unprotectedExecute() only do beginTxn().
+            // for other kind of load job,
             // Mini load job must be executed before release write lock.
             // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
             loadJob.unprotectedExecute();
             addLoadJob(loadJob);
+        } catch (DuplicatedRequestException e) {
+            // this is a duplicate request, just return previous txn id
+            LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
                 loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false,
@@ -225,20 +232,13 @@ public class LoadManager implements Writable{
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
-        addLoadJobImpl(loadJob);
+        addLoadJob(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                          .add("msg", "replay create load job")
                          .build());
     }
 
     private void addLoadJob(LoadJob loadJob) {
-        addLoadJobImpl(loadJob);
-        // add callback before txn created, because callback will be performed on replay without txn begin
-        // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
-    }
-
-    private void addLoadJobImpl(LoadJob loadJob) {
         idToLoadJob.put(loadJob.getId(), loadJob);
         long dbId = loadJob.getDbId();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
@@ -249,6 +249,9 @@ public class LoadManager implements Writable{
             labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
+        // add callback before txn created, because callback will be performed on replay without txn begin
+        // register txn state listener
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
     public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
@@ -532,8 +535,7 @@ public class LoadManager implements Writable{
                 if (loadJobOptional.isPresent()) {
                     LoadJob loadJob = loadJobOptional.get();
                     if (loadJob.getRequestId() != null && requestId != null && loadJob.getRequestId().equals(requestId)) {
-                        throw new DuplicatedRequestException(String.valueOf(loadJob.getId()),
-                                "The request is duplicated with " + loadJob.getId());
+                        throw new DuplicatedRequestException(DebugUtil.printId(loadJob.getRequestId()), "load job: " + loadJob.getId());
                     }
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
