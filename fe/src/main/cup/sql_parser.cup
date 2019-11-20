@@ -3223,6 +3223,22 @@ expr_list ::=
   :}
   ;
 
+expr_pipe_list ::=
+  expr:e1 KW_PIPE expr:e2
+  {:
+    ArrayList<Expr> list = new ArrayList<Expr>();
+    list.add(e1);
+    list.add(e2);
+    RESULT = list;
+  :}
+  | expr_pipe_list:list KW_PIPE expr:e
+  {:
+    list.add(e);
+    RESULT = list;
+  :}
+  ;
+
+
 where_clause ::=
    /* empty */
   {: RESULT = null; :}
@@ -3542,21 +3558,6 @@ non_pred_expr ::=
   {: RESULT = new BoolLiteral(true); :}
   | KW_NULL KW_IS KW_NOT KW_NULL
   {: RESULT = new BoolLiteral(false); :}
-  ;
-
-expr_pipe_list ::=
-  expr:e1 KW_PIPE expr:e2
-  {:
-    ArrayList<Expr> list = new ArrayList<Expr>();
-    list.add(e1);
-    list.add(e2);
-    RESULT = list;
-  :}
-  | expr_pipe_list:list KW_PIPE expr:e
-  {:
-    list.add(e);
-    RESULT = list;
-  :}
   ;
 
 func_arg_list ::=
