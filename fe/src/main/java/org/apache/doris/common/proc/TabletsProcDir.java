@@ -40,7 +40,7 @@ import java.util.List;
  */
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("Version")
+            .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
             .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
             .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
@@ -50,7 +50,7 @@ public class TabletsProcDir implements ProcDirInterface {
 
     private Database db;
     private MaterializedIndex index;
-    
+
     public TabletsProcDir(Database db, MaterializedIndex index) {
         this.db = db;
         this.index = index;
@@ -71,6 +71,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(tabletId);
                     tabletInfo.add(-1); // replica id
                     tabletInfo.add(-1); // backend id
+                    tabletInfo.add(-1); // schema hash
                     tabletInfo.add("N/A"); // host name
                     tabletInfo.add(-1); // version
                     tabletInfo.add(-1); // version hash
@@ -101,6 +102,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
                         tabletInfo.add(replica.getBackendId());
+                        tabletInfo.add(replica.getSchemaHash());
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getVersionHash());
                         tabletInfo.add(replica.getLastSuccessVersion());
