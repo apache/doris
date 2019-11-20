@@ -67,6 +67,9 @@ public class SqlModeHelper {
 
     public final static long MODE_LAST = 1L << 33;
 
+    /* When a new session is create, its sql mode is set to MODE_DEFAULT */
+    public final static long MODE_DEFAULT = 0L;
+
     public final static long MODE_ALLOWED_MASK =
             (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
                     MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |

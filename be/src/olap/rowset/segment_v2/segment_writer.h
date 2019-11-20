@@ -70,6 +70,7 @@ private:
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
+    Status _write_bitmap_index();
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);

@@ -624,10 +624,14 @@ public class ShowExecutor {
                                                         aggType));
                         }
                     }
+                } else {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, db.getFullName() + "." + showStmt.getTable());
                 }
             } finally {
                 db.readUnlock();
             }
+        } else {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getDb() + "." + showStmt.getTable());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

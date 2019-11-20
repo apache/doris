@@ -499,7 +499,7 @@ public class Coordinator {
                         case TIMEOUT:
                             throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
                         case THRIFT_RPC_ERROR:
-                            SimpleScheduler.updateBlacklistBackends(pair.first.backend.getId());
+                            SimpleScheduler.addToBlacklist(pair.first.backend.getId());
                             throw new RpcException(pair.first.backend.getHost(), "rpc failed");
                         default:
                             throw new UserException(errMsg);
@@ -1334,7 +1334,7 @@ public class Coordinator {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.updateBlacklistBackends(addressToBackendID.get(brpcAddress));
+                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress));
                 }
 
                 this.hasCanceled = true;
@@ -1373,7 +1373,7 @@ public class Coordinator {
             try {
                 return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
             } catch (RpcException e) {
-                SimpleScheduler.updateBlacklistBackends(backend.getId());
+                SimpleScheduler.addToBlacklist(backend.getId());
                 throw e;
             }
         }

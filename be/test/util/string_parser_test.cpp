@@ -47,6 +47,21 @@ void test_int_value(const char* s, T exp_val, StringParser::ParseResult exp_resu
     }
 }
 
+// Tests conversion of s to integer with and without leading/trailing whitespace
+template<typename T>
+void test_unsigned_int_value(const char* s, T exp_val, StringParser::ParseResult exp_result) {
+    for (int i = 0; i < space_len; ++i) {
+        for (int j = 0; j < space_len; ++j) {
+            // All combinations of leading and/or trailing whitespace.
+            std::string str = space[i] + s + space[j];
+            StringParser::ParseResult result;
+            T val = StringParser::string_to_unsigned_int<T>(str.data(), str.length(), &result);
+            EXPECT_EQ(exp_val, val) << str;
+            EXPECT_EQ(result, exp_result);
+        }
+    }
+}
+
 // Tests conversion of s, given a base, to an integer with and without leading/trailing whitespace
 template<typename T>
 void test_int_value(const char* s, int base, T exp_val, StringParser::ParseResult exp_result) {
@@ -209,13 +224,59 @@ TEST(StringToInt, Limit) {
     test_int_value<int32_t>("2147483647", 2147483647, StringParser::PARSE_SUCCESS);
     test_int_value<int32_t>("-2147483648", -2147483648, StringParser::PARSE_SUCCESS);
     test_int_value<int64_t>(
-            "9223372036854775807",
-            std::numeric_limits<int64_t>::max(),
-            StringParser::PARSE_SUCCESS);
+        "9223372036854775807",
+        std::numeric_limits<int64_t>::max(),
+        StringParser::PARSE_SUCCESS);
     test_int_value<int64_t>(
-            "-9223372036854775808",
-            std::numeric_limits<int64_t>::min(),
-            StringParser::PARSE_SUCCESS);
+        "-9223372036854775808",
+        std::numeric_limits<int64_t>::min(),
+        StringParser::PARSE_SUCCESS);
+}
+
+TEST(StringToUnsignedInt, Basic) {
+    test_unsigned_int_value<uint8_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("123", 123, StringParser::PARSE_SUCCESS);
+
+    test_unsigned_int_value<uint8_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("12345", 12345, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("12345678", 12345678, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("12345678901234", 12345678901234, StringParser::PARSE_SUCCESS);
+
+    test_unsigned_int_value<uint8_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("-10", 0, StringParser::PARSE_FAILURE);
+
+    test_unsigned_int_value<uint8_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("+1", 0, StringParser::PARSE_FAILURE);
+
+    test_unsigned_int_value<uint8_t>("+0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("-0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("+0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("-0", 0, StringParser::PARSE_FAILURE);
+}
+
+TEST(StringToUnsignedInt, Limit) {
+    test_unsigned_int_value<uint8_t>("255", 255, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("65535", 65535, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("4294967295", 4294967295, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("18446744073709551615",
+                                      std::numeric_limits<uint64_t>::max(),
+                                      StringParser::PARSE_SUCCESS);
+}
+
+TEST(StringToUnsignedInt, Overflow) {
+    test_unsigned_int_value<uint8_t>("256", 255, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint16_t>("65536", 65535, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint32_t>("4294967296", 4294967295, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint64_t>(
+        "18446744073709551616",
+        std::numeric_limits<uint64_t>::max(),
+        StringParser::PARSE_OVERFLOW);
 }
 
 TEST(StringToInt, Overflow) {

@@ -342,6 +342,9 @@ public class ConnectProcessor {
         if (request.isSetStmt_id()) {
             ctx.setForwardedStmtId(request.getStmt_id());
         }
+        if (request.isSetSqlMode()) {
+            ctx.getSessionVariable().setSqlMode(request.sqlMode);
+        }
 
         ctx.setThreadLocalInfo();
 

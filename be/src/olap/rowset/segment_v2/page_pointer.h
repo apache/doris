@@ -18,9 +18,11 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "util/coding.h"
+#include "util/faststring.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -50,6 +52,11 @@ struct PagePointer {
         }
         return decode_varint32_ptr(data, limit, &size);
     }
+
+    void encode_to(faststring* dst) const {
+        put_varint64_varint32(dst, offset, size);
+    }
+
     void encode_to(std::string* dst) const {
         put_varint64_varint32(dst, offset, size);
     }
