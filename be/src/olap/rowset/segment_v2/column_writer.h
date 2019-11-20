@@ -43,8 +43,10 @@ struct ColumnWriterOptions {
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
     bool need_zone_map = false;
+    bool need_bitmap_index = false;
 };
 
+class BitmapIndexWriter;
 class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalPageIndexBuilder;
@@ -96,6 +98,7 @@ public:
     Status write_data();
     Status write_ordinal_index();
     Status write_zone_map();
+    Status write_bitmap_index();
     void write_meta(ColumnMetaPB* meta);
 
 private:
@@ -148,6 +151,8 @@ private:
     std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builder;
     std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
     std::unique_ptr<Field> _field;
+    std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
+    BitmapIndexColumnPB _bitmap_index_meta;
 
     PagePointer _ordinal_index_pp;
     PagePointer _zone_map_pp;

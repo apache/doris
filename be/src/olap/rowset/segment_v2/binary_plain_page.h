@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"

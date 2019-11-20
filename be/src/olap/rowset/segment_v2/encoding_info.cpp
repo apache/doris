@@ -17,10 +17,12 @@
 
 #include "olap/rowset/segment_v2/encoding_info.h"
 
+#include <type_traits>
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
 #include "gutil/strings/substitute.h"
@@ -34,11 +36,14 @@ struct EncodingMapHash {
     }
 };
 
-template<FieldType type, EncodingTypePB encoding>
+template<FieldType type,
+         EncodingTypePB encoding,
+         typename CppType,
+         typename Enabled = void>
 struct TypeEncodingTraits { };
 
-template<FieldType type>
-struct TypeEncodingTraits<type, PLAIN_ENCODING> {
+template<FieldType type, typename CppType>
+struct TypeEncodingTraits<type, PLAIN_ENCODING, CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new PlainPageBuilder<type>(opts);
         return Status::OK();
@@ -50,7 +55,7 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING> {
 };
 
 template<FieldType type>
-struct TypeEncodingTraits<type, BINARY_PLAIN_ENCODING> {
+struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new BinaryPlainPageBuilder(opts);
         return Status::OK();
@@ -61,8 +66,9 @@ struct TypeEncodingTraits<type, BINARY_PLAIN_ENCODING> {
     }
 };
 
-template<FieldType type>
-struct TypeEncodingTraits<type, BIT_SHUFFLE> {
+template<FieldType type, typename CppType>
+struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
+                          typename std::enable_if<!std::is_same<CppType, Slice>::value>::type> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new BitshufflePageBuilder<type>(opts);
         return Status::OK();
@@ -73,20 +79,20 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE> {
     }
 };
 
-template<FieldType type>
-struct TypeEncodingTraits<type, RLE> {
+template<>
+struct TypeEncodingTraits<OLAP_FIELD_TYPE_BOOL, RLE, bool> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new RlePageBuilder<type>(opts);
+        *builder = new RlePageBuilder<OLAP_FIELD_TYPE_BOOL>(opts);
         return Status::OK();
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
-        *decoder = new RlePageDecoder<type>(data, opts);
+        *decoder = new RlePageDecoder<OLAP_FIELD_TYPE_BOOL>(data, opts);
         return Status::OK();
     }
 };
 
 template<FieldType type>
-struct TypeEncodingTraits<type, DICT_ENCODING> {
+struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new BinaryDictPageBuilder(opts);
         return Status::OK();
@@ -97,10 +103,23 @@ struct TypeEncodingTraits<type, DICT_ENCODING> {
     }
 };
 
-template<FieldType Type, EncodingTypePB Encoding>
-struct EncodingTraits : TypeEncodingTraits<Type, Encoding> {
-    static const FieldType type = Type;
-    static const EncodingTypePB encoding = Encoding;
+template<FieldType type, typename CppType>
+struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
+                          typename std::enable_if<std::is_integral<CppType>::value>::type> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new FrameOfReferencePageBuilder<type>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template<FieldType field_type, EncodingTypePB encoding_type>
+struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type, typename CppTypeTraits<field_type>::CppType> {
+    static const FieldType type = field_type;
+    static const EncodingTypePB encoding = encoding_type;
 };
 
 
@@ -109,23 +128,27 @@ public:
     EncodingInfoResolver();
     ~EncodingInfoResolver();
 
-    EncodingTypePB get_default_encoding_type(FieldType type) const {
-        auto it = _default_encoding_type_map.find(type);
-        if (it != std::end(_default_encoding_type_map)) {
+    EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek) const {
+        auto& encoding_map = optimize_value_seek ? _value_seek_encoding_map : _default_encoding_type_map;
+        auto it = encoding_map.find(type);
+        if (it != encoding_map.end()) {
             return it->second;
         }
-        return DEFAULT_ENCODING;
+        return UNKNOWN_ENCODING;
     }
 
     Status get(FieldType data_type, EncodingTypePB encoding_type, const EncodingInfo** out);
 
 private:
-    template<FieldType type, EncodingTypePB encoding_type>
+    template<FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek = false>
     void _add_map() {
         EncodingTraits<type, encoding_type> traits;
         std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
         if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
             _default_encoding_type_map[type] = encoding_type;
+        }
+        if (optimize_value_seek && _value_seek_encoding_map.find(type) == _value_seek_encoding_map.end()) {
+            _value_seek_encoding_map[type] = encoding_type;
         }
         auto key = std::make_pair(type, encoding_type);
         _encoding_map.emplace(key, encoding.release());
@@ -133,18 +156,25 @@ private:
 
     std::unordered_map<FieldType, EncodingTypePB, std::hash<int>> _default_encoding_type_map;
 
+    // default encoding for each type which optimizes value seek
+    std::unordered_map<FieldType, EncodingTypePB, std::hash<int>> _value_seek_encoding_map;
+
     std::unordered_map<std::pair<FieldType, EncodingTypePB>,
         EncodingInfo*, EncodingMapHash> _encoding_map;
 };
 
 EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
@@ -153,10 +183,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_CHAR, BINARY_PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_VARCHAR, BINARY_PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_HLL, BINARY_PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
@@ -166,7 +196,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_OBJECT, BINARY_PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_OBJECT, PLAIN_ENCODING>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {
@@ -181,7 +212,7 @@ Status EncodingInfoResolver::get(
         EncodingTypePB encoding_type,
         const EncodingInfo** out) {
     if (encoding_type == DEFAULT_ENCODING) {
-        encoding_type = get_default_encoding_type(data_type);
+        encoding_type = get_default_encoding(data_type, false);
     }
     auto key = std::make_pair(data_type, encoding_type);
     auto it = _encoding_map.find(key);
@@ -210,8 +241,8 @@ Status EncodingInfo::get(const TypeInfo* type_info,
     return s_encoding_info_resolver.get(type_info->type(), encoding_type, out);
 }
 
-EncodingTypePB EncodingInfo::get_default_encoding_type(const TypeInfo* type_info) {
-    return s_encoding_info_resolver.get_default_encoding_type(type_info->type());
+EncodingTypePB EncodingInfo::get_default_encoding(const TypeInfo* type_info, bool optimize_value_seek) {
+    return s_encoding_info_resolver.get_default_encoding(type_info->type(), optimize_value_seek);
 }
 
 }
