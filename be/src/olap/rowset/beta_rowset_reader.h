@@ -46,7 +46,7 @@ public:
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     int64_t filtered_rows() override {
-        return _context->stats->rows_del_filtered;
+        return _stats->rows_del_filtered;
     }
 
 private:
