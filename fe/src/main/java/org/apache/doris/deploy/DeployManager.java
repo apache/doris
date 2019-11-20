@@ -323,6 +323,12 @@ public class DeployManager extends Daemon {
             return;
         }
 
+        if (!Catalog.getCurrentCatalog().isReady()) {
+            // this deploy manager thread is started before catalog is ready.
+            // so we have to wait the catalog to be ready.
+            return;
+        }
+
         // 0. init
         if (!init()) {
             return;
