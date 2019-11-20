@@ -71,7 +71,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
       _current_shard(0),
       _test_file_read_buf(nullptr),
       _test_file_write_buf(nullptr),
-      _meta(nullptr) {}
+      _meta(nullptr) {
+}
 
 DataDir::~DataDir() {
     free(_test_file_read_buf);
