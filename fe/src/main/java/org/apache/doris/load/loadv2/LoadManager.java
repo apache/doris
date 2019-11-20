@@ -234,10 +234,17 @@ public class LoadManager implements Writable{
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
-        addLoadJob(loadJob);
+        createLoadJob(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                          .add("msg", "replay create load job")
                          .build());
+    }
+
+    private void createLoadJob(LoadJob loadJob) {
+        addLoadJob(loadJob);
+        // add callback before txn created, because callback will be performed on replay without txn begin
+        // register txn state listener
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
     private void addLoadJob(LoadJob loadJob) {
@@ -251,9 +258,6 @@ public class LoadManager implements Writable{
             labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
-        // add callback before txn created, because callback will be performed on replay without txn begin
-        // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
     public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
