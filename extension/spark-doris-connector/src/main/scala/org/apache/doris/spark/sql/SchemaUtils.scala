@@ -48,7 +48,7 @@ private[spark] object SchemaUtils {
    * @return inner schema struct
    */
   def discoverSchemaFromFe(cfg: Settings): Schema = {
-    RestService.discoverSchema(cfg, logger)
+    RestService.getSchema(cfg, logger)
   }
 
   /**

@@ -121,6 +121,6 @@ dorisSparkRDD.collect()
 | VARCHAR    | DataTypes.StringType             |
 | DECIMALV2  | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
-| HLL        | 不支持                           |
+| HLL        | Unsupported datatype             |
 
-<sup>1</sup>: Connector中，将`DATE`和`DATETIME`映射为`String`，这是因为`Doris`内部使用`Int`类型的时间戳，覆盖时间范围无法满足实际需求。所以使用`String`类型直接返回对应的时间可读文本。 
+<sup>1</sup>: Connector中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用`String`类型直接返回对应的时间可读文本。

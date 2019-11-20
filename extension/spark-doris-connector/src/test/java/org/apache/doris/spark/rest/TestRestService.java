@@ -86,7 +86,7 @@ public class TestRestService {
     @Test
     public void testChoiceFe() throws Exception {
         String validFes = "1,2 , 3";
-        String fe = RestService.choiceFe(validFes, logger);
+        String fe = RestService.randomEndpoint(validFes, logger);
         List<String> feNodes = new ArrayList<>(3);
         feNodes.add("1");
         feNodes.add("2");
@@ -96,12 +96,12 @@ public class TestRestService {
         String emptyFes = "";
         thrown.expect(IllegalArgumentException.class);
         thrown.expectMessage("argument 'fenodes' is illegal, value is '" + emptyFes + "'.");
-        RestService.choiceFe(emptyFes, logger);
+        RestService.randomEndpoint(emptyFes, logger);
 
         String nullFes = null;
         thrown.expect(IllegalArgumentException.class);
         thrown.expectMessage("argument 'fenodes' is illegal, value is '" + nullFes + "'.");
-        RestService.choiceFe(nullFes, logger);
+        RestService.randomEndpoint(nullFes, logger);
     }
 
     @Test
@@ -124,25 +124,25 @@ public class TestRestService {
         Field k5 = new Field("k5", "DECIMALV2", "", 9, 0);
         expected.put(k1);
         expected.put(k5);
-        Assert.assertEquals(expected, RestService.feResponseToSchema(res, logger));
+        Assert.assertEquals(expected, RestService.parseSchema(res, logger));
 
         String notJsonRes = "not json";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response is not a json. res:"));
-        RestService.feResponseToSchema(notJsonRes, logger);
+        RestService.parseSchema(notJsonRes, logger);
 
         String notSchemaRes = "{\"property\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\"},"
                 + "{\"name\":\"k5\",\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\"}],"
                 + "\"status\":200}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response cannot map to schema. res: "));
-        RestService.feResponseToSchema(notSchemaRes, logger);
+        RestService.parseSchema(notSchemaRes, logger);
 
         String notOkRes = "{\"properties\":[{\"type\":\"TINYINT\",\"name\":\"k1\",\"comment\":\"\"},{\"name\":\"k5\","
                 + "\"scale\":\"0\",\"comment\":\"\",\"type\":\"DECIMALV2\",\"precision\":\"9\"}],\"status\":20}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response is not OK, status is "));
-        RestService.feResponseToSchema(notOkRes, logger);
+        RestService.parseSchema(notOkRes, logger);
     }
 
     @Test
@@ -181,24 +181,24 @@ public class TestRestService {
         expected.setStatus(200);
         expected.setOpaqued_query_plan("query_plan");
 
-        QueryPlan actual = RestService.feResponseToQueryPlan(res, logger);
+        QueryPlan actual = RestService.getQueryPlan(res, logger);
         Assert.assertEquals(expected, actual);
 
         String notJsonRes = "not json";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response is not a json. res:"));
-        RestService.feResponseToSchema(notJsonRes, logger);
+        RestService.parseSchema(notJsonRes, logger);
 
         String notQueryPlanRes = "{\"hello\": \"world\"}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response cannot map to schema. res: "));
-        RestService.feResponseToSchema(notQueryPlanRes, logger);
+        RestService.parseSchema(notQueryPlanRes, logger);
 
         String notOkRes = "{\"partitions\":{\"11017\":{\"routings\":[\"be1\",\"be2\"],\"version\":3,"
                 + "\"versionHash\":1,\"schemaHash\":1}},\"opaqued_query_plan\":\"queryPlan\",\"status\":20}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Doris FE's response is not OK, status is "));
-        RestService.feResponseToSchema(notOkRes, logger);
+        RestService.parseSchema(notOkRes, logger);
     }
 
     @Test
@@ -209,7 +209,7 @@ public class TestRestService {
                 + "\"11021\":{\"routings\":[\"be3\"],\"version\":3,\"versionHash\":1,\"schemaHash\":1}},"
                 + "\"opaqued_query_plan\":\"query_plan\",\"status\":200}";
 
-        QueryPlan queryPlan = RestService.feResponseToQueryPlan(res, logger);
+        QueryPlan queryPlan = RestService.getQueryPlan(res, logger);
 
         List<Long> be1Tablet = new ArrayList<>();
         be1Tablet.add(11017L);
@@ -220,21 +220,21 @@ public class TestRestService {
         expected.put("be1", be1Tablet);
         expected.put("be3", be3Tablet);
 
-        Assert.assertEquals(expected, RestService.selectTabletBe(queryPlan, logger));
+        Assert.assertEquals(expected, RestService.selectBeForTablet(queryPlan, logger));
 
         String noBeRes = "{\"partitions\":{"
                 + "\"11021\":{\"routings\":[],\"version\":3,\"versionHash\":1,\"schemaHash\":1}},"
                 + "\"opaqued_query_plan\":\"query_plan\",\"status\":200}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Cannot choice Doris BE for tablet"));
-        RestService.selectTabletBe(RestService.feResponseToQueryPlan(noBeRes, logger), logger);
+        RestService.selectBeForTablet(RestService.getQueryPlan(noBeRes, logger), logger);
 
         String notNumberRes = "{\"partitions\":{"
                 + "\"11021xxx\":{\"routings\":[\"be1\"],\"version\":3,\"versionHash\":1,\"schemaHash\":1}},"
                 + "\"opaqued_query_plan\":\"query_plan\",\"status\":200}";
         thrown.expect(DorisException.class);
         thrown.expectMessage(startsWith("Parse tablet id "));
-        RestService.selectTabletBe(RestService.feResponseToQueryPlan(noBeRes, logger), logger);
+        RestService.selectBeForTablet(RestService.getQueryPlan(noBeRes, logger), logger);
     }
 
     @Test

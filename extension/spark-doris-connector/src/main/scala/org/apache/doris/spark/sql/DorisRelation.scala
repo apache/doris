@@ -19,8 +19,9 @@ package org.apache.doris.spark.sql
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.math.min
 
-import org.apache.doris.spark.cfg.ConfigurationOptions.DORIS_FILTER_QUERY_IN_VALUE_MAX
+import org.apache.doris.spark.cfg.ConfigurationOptions._
 import org.apache.doris.spark.cfg.{ConfigurationOptions, SparkSettings}
 
 import org.apache.spark.rdd.RDD
@@ -40,7 +41,9 @@ private[sql] class DorisRelation(
     conf
   }
 
-  private lazy val inValueLengthLimit = cfg.getProperty(DORIS_FILTER_QUERY_IN_VALUE_MAX, "100").toInt
+  private lazy val inValueLengthLimit =
+    min(cfg.getProperty(DORIS_FILTER_QUERY_IN_VALUE_MAX, "100").toInt,
+      DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT)
 
   private lazy val lazySchema = SchemaUtils.discoverSchema(cfg)
 

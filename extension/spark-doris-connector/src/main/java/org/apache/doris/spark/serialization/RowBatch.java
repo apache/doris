@@ -20,15 +20,13 @@ package org.apache.doris.spark.serialization;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.sql.Date;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
-import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
@@ -136,7 +134,7 @@ public class RowBatch {
             if (!hasNext()) {
                 String errMsg = "Get row offset:" + offsetInOneBatch + " larger than row size: " + rowCountInOneBatch;
                 logger.error(errMsg);
-                throw new IndexOutOfBoundsException(errMsg);
+                throw new NoSuchElementException(errMsg);
             }
             Row row = new Row(fieldVectors.size());
             for (int j = 0; j < fieldVectors.size(); j++) {

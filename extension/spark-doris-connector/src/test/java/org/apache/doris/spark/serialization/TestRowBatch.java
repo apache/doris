@@ -21,15 +21,13 @@ import static org.hamcrest.core.StringStartsWith.startsWith;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
-import java.sql.Date;
-import java.sql.Timestamp;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
-import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
@@ -240,7 +238,7 @@ public class TestRowBatch {
                 + "\"type\":\"DECIMAL\",\"precision\":\"9\"},{\"type\":\"CHAR\",\"name\":\"k6\",\"comment\":\"\"}],"
                 + "\"status\":200}";
 
-        Schema schema = RestService.feResponseToSchema(schemaStr, logger);
+        Schema schema = RestService.parseSchema(schemaStr, logger);
 
         RowBatch rowBatch = new RowBatch(scanBatchResult, schema);
 
@@ -299,7 +297,7 @@ public class TestRowBatch {
         Assert.assertEquals(expectedRow3, actualRow3);
 
         Assert.assertFalse(rowBatch.hasNext());
-        thrown.expect(IndexOutOfBoundsException.class);
+        thrown.expect(NoSuchElementException.class);
         thrown.expectMessage(startsWith("Get row offset:"));
         rowBatch.next();
     }
@@ -354,7 +352,7 @@ public class TestRowBatch {
 
         String schemaStr = "{\"properties\":[{\"type\":\"BINARY\",\"name\":\"k7\",\"comment\":\"\"}], \"status\":200}";
 
-        Schema schema = RestService.feResponseToSchema(schemaStr, logger);
+        Schema schema = RestService.parseSchema(schemaStr, logger);
 
         RowBatch rowBatch = new RowBatch(scanBatchResult, schema);
 
@@ -371,7 +369,7 @@ public class TestRowBatch {
         Assert.assertArrayEquals(binaryRow2, (byte[])actualRow2.get(0));
 
         Assert.assertFalse(rowBatch.hasNext());
-        thrown.expect(IndexOutOfBoundsException.class);
+        thrown.expect(NoSuchElementException.class);
         thrown.expectMessage(startsWith("Get row offset:"));
         rowBatch.next();
     }
@@ -418,7 +416,7 @@ public class TestRowBatch {
                 + "\"precision\": 9, \"name\":\"k7\",\"comment\":\"\"}], "
                 + "\"status\":200}";
 
-        Schema schema = RestService.feResponseToSchema(schemaStr, logger);
+        Schema schema = RestService.parseSchema(schemaStr, logger);
 
         RowBatch rowBatch = new RowBatch(scanBatchResult, schema);
 
@@ -435,7 +433,7 @@ public class TestRowBatch {
         Assert.assertEquals(Decimal.apply(10000000000L, 11, 9), (Decimal)actualRow2.get(0));
 
         Assert.assertFalse(rowBatch.hasNext());
-        thrown.expect(IndexOutOfBoundsException.class);
+        thrown.expect(NoSuchElementException.class);
         thrown.expectMessage(startsWith("Get row offset:"));
         rowBatch.next();
     }

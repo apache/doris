@@ -53,7 +53,6 @@ import org.apache.doris.spark.exception.ShouldNeverHappenException;
 import org.apache.doris.spark.rest.models.QueryPlan;
 import org.apache.doris.spark.rest.models.Schema;
 import org.apache.doris.spark.rest.models.Tablet;
-import org.apache.doris.spark.util.ErrorMessages;
 import org.apache.http.HttpStatus;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -101,9 +100,8 @@ public class RestService implements Serializable {
                 ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_DEFAULT);
         int retries = cfg.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES,
                 ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT);
-        logger.trace("connect timeout set to '{}'.", connectTimeout);
-        logger.trace("socket timeout set to '{}'.", socketTimeout);
-        logger.trace("retries set to '{}'.", retries);
+        logger.trace("connect timeout set to '{}'. socket timeout set to '{}'. retries set to '{}'.",
+                connectTimeout, socketTimeout, retries);
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectTimeout(connectTimeout)
@@ -181,7 +179,7 @@ public class RestService implements Serializable {
      * @throws IllegalArgumentException fe nodes is illegal
      */
     @VisibleForTesting
-    static String choiceFe(String feNodes, Logger logger) throws IllegalArgumentException {
+    static String randomEndpoint(String feNodes, Logger logger) throws IllegalArgumentException {
         logger.trace("Parse fenodes '{}'.", feNodes);
         if (StringUtils.isEmpty(feNodes)) {
             logger.error(ILLEGAL_ARGUMENT_MESSAGE, "fenodes", feNodes);
@@ -203,7 +201,7 @@ public class RestService implements Serializable {
     static String getUriStr(Settings cfg, Logger logger) throws IllegalArgumentException {
         String[] identifier = parseIdentifier(cfg.getProperty(DORIS_TABLE_IDENTIFIER), logger);
         return "http://" +
-                choiceFe(cfg.getProperty(DORIS_FENODES), logger) + API_PREFIX +
+                randomEndpoint(cfg.getProperty(DORIS_FENODES), logger) + API_PREFIX +
                 "/" + identifier[0] +
                 "/" + identifier[1] +
                 "/";
@@ -216,13 +214,13 @@ public class RestService implements Serializable {
      * @return Doris table schema
      * @throws DorisException throw when discover failed
      */
-    public static Schema discoverSchema(Settings cfg, Logger logger)
+    public static Schema getSchema(Settings cfg, Logger logger)
             throws DorisException {
         logger.trace("Finding schema.");
         HttpGet httpGet = new HttpGet(getUriStr(cfg, logger) + SCHEMA);
         String response = send(cfg, httpGet, logger);
         logger.debug("Find schema response is '{}'.", response);
-        return feResponseToSchema(response, logger);
+        return parseSchema(response, logger);
     }
 
     /**
@@ -233,7 +231,7 @@ public class RestService implements Serializable {
      * @throws DorisException throw when translate failed
      */
     @VisibleForTesting
-    public static Schema feResponseToSchema(String response, Logger logger) throws DorisException {
+    public static Schema parseSchema(String response, Logger logger) throws DorisException {
         logger.trace("Parse response '{}' to schema.", response);
         ObjectMapper mapper = new ObjectMapper();
         Schema schema;
@@ -294,8 +292,8 @@ public class RestService implements Serializable {
 
         String resStr = send(cfg, httpPost, logger);
         logger.debug("Find partition response is '{}'.", resStr);
-        QueryPlan queryPlan = feResponseToQueryPlan(resStr, logger);
-        Map<String, List<Long>> be2Tablets = selectTabletBe(queryPlan, logger);
+        QueryPlan queryPlan = getQueryPlan(resStr, logger);
+        Map<String, List<Long>> be2Tablets = selectBeForTablet(queryPlan, logger);
         return tabletsMapToPartition(
                 cfg,
                 be2Tablets,
@@ -313,7 +311,7 @@ public class RestService implements Serializable {
      * @throws DorisException throw when translate failed.
      */
     @VisibleForTesting
-    static QueryPlan feResponseToQueryPlan(String response, Logger logger) throws DorisException {
+    static QueryPlan getQueryPlan(String response, Logger logger) throws DorisException {
         logger.trace("Parsing fe response to query plan.");
         ObjectMapper mapper = new ObjectMapper();
         QueryPlan queryPlan;
@@ -355,7 +353,7 @@ public class RestService implements Serializable {
      * @throws DorisException throw when select failed.
      */
     @VisibleForTesting
-    static  Map<String, List<Long>> selectTabletBe(QueryPlan queryPlan, Logger logger) throws DorisException {
+    static  Map<String, List<Long>> selectBeForTablet(QueryPlan queryPlan, Logger logger) throws DorisException {
         logger.trace("Choice tablet targeting Doris BE.");
         Map<String, List<Long>> be2Tablets = new HashMap<>();
         for (Map.Entry<String, Tablet> part : queryPlan.getPartitions().entrySet()) {

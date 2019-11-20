@@ -28,6 +28,7 @@ public interface ConfigurationOptions {
     String DORIS_READ_FIELD = "doris.read.field";
     String DORIS_FILTER_QUERY = "doris.filter.query";
     String DORIS_FILTER_QUERY_IN_VALUE_MAX = "doris.filter.query.in.value.max";
+    int DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT = 10000;
 
     String DORIS_USER = "doris.user";
     String DORIS_REQUEST_AUTH_USER = "doris.request.auth.user";
