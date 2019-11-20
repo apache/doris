@@ -335,7 +335,7 @@ public class CreateTableStmt extends DdlStmt {
                     col.setAggregationTypeImplicit(true);
                 }
             }
-            columns.add(columnDef.toColumn());
+            columns.add(col);
         }
     }
 
