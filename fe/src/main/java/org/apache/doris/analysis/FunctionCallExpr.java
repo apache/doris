@@ -401,6 +401,24 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT)) {
+            if (children.size() <= 2) {
+                throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) " +
+                        "function requires at least three parameters");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                Column column = slotRef.getDesc().getColumn();
+                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("intersect_count function first arg must be bitmap column");
+                }
+            } else {
+                throw new AnalysisException("intersect_count function first arg must be bitmap column");
+            }
+            return;
+        }
+
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT))) {
             if (children.size() != 1) {
                 throw new AnalysisException("BITMAP_COUNT function could only have one child");

@@ -204,6 +204,9 @@ public:
     // argument).
     int get_num_args() const;
 
+    // Returns _constant_args size
+    int get_num_constant_args() const;
+
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns NULL if arg_idx is invalid.
     const TypeDesc* get_arg_type(int arg_idx) const;
