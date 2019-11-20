@@ -248,6 +248,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 # ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
+${DORIS_TEST_BINARY_DIR}/olap/options_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
