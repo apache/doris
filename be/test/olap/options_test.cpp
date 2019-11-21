@@ -108,7 +108,7 @@ TEST_F(OptionsTest, parse_root_path) {
 
 }  // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
 
     int ret = doris::OLAP_SUCCESS;
