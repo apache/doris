@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
@@ -33,7 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class RoutineLoadScheduler extends Daemon {
+public class RoutineLoadScheduler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
     private static final int DEFAULT_INTERVAL_SECONDS = 10;
@@ -52,7 +52,7 @@ public class RoutineLoadScheduler extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         try {
             process();
         } catch (Throwable e) {

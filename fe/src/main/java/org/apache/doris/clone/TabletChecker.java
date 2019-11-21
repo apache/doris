@@ -33,7 +33,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
  * This checker is responsible for checking all unhealthy tablets.
  * It does not responsible for any scheduler of tablet repairing or balance
  */
-public class TabletChecker extends Daemon {
+public class TabletChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
@@ -154,7 +154,7 @@ public class TabletChecker extends Daemon {
      * If a tablet is not healthy, a TabletInfo will be created and sent to TabletScheduler for repairing.
      */
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
         if (pendingNum > TabletScheduler.MAX_SCHEDULING_TABLETS

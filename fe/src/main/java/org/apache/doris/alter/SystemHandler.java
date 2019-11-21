@@ -81,8 +81,8 @@ public class SystemHandler extends AlterHandler {
     }
 
     @Override
-    protected void runOneCycle() {
-        super.runOneCycle();
+    protected void runAfterCatalogReady() {
+        super.runAfterCatalogReady();
 
         List<AlterJob> cancelledJobs = Lists.newArrayList();
         List<AlterJob> finishedJobs = Lists.newArrayList();
