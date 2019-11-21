@@ -248,6 +248,12 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
             isDomain = in.readBoolean();
         }
+
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
     }
 
     @Override

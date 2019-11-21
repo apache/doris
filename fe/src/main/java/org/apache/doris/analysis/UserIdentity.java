@@ -117,28 +117,6 @@ public class UserIdentity implements Writable {
         isAnalyzed = true;
     }
 
-    public boolean include(UserIdentity self) {
-        Preconditions.checkState(isAnalyzed && self.isAnalyzed);
-        if (!user.equals(self.user)) {
-            return false;
-        }
-        
-        if (host.equals(self.host)) {
-            return true;
-        }
-
-        // same user with different host
-        try {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(host,
-                                                                              CaseSensibility.HOST.getCaseSensibility());
-            
-            return patternMatcher.match(self.host);
-        } catch (AnalysisException e) {
-            Preconditions.checkNotNull(null, e.getMessage());
-        }
-        return false;
-    }
-
     public static UserIdentity fromString(String userIdentStr) {
         if (Strings.isNullOrEmpty(userIdentStr)) {
             return null;
@@ -208,6 +186,8 @@ public class UserIdentity implements Writable {
             } else {
                 sb.append("'").append(host).append("'");
             }
+        } else {
+            sb.append("%");
         }
         return sb.toString();
     }
