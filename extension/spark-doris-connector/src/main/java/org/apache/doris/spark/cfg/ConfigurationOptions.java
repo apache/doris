@@ -27,7 +27,7 @@ public interface ConfigurationOptions {
     String DORIS_TABLE_IDENTIFIER = "doris.table.identifier";
     String DORIS_READ_FIELD = "doris.read.field";
     String DORIS_FILTER_QUERY = "doris.filter.query";
-    String DORIS_FILTER_QUERY_IN_VALUE_MAX = "doris.filter.query.in.value.max";
+    String DORIS_FILTER_QUERY_IN_MAX_COUNT = "doris.filter.query.in.max.count";
     int DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT = 10000;
 
     String DORIS_USER = "doris.user";
@@ -41,8 +41,8 @@ public interface ConfigurationOptions {
     String DORIS_REQUEST_CONNECT_TIMEOUT_MS = "doris.request.connect.timeout.ms";
     String DORIS_REQUEST_READ_TIMEOUT_MS = "doris.request.read.timeout.ms";
     int DORIS_REQUEST_RETRIES_DEFAULT = 3;
-    int DORIS_REQUEST_CONNECT_TIMEOUT_DEFAULT = 30 * 1000;
-    int DORIS_REQUEST_READ_TIMEOUT_DEFAULT = 30 * 1000;
+    int DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT = 30 * 1000;
+    int DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT = 30 * 1000;
 
     String DORIS_TABLET_SIZE = "doris.request.tablet.size";
     int DORIS_TABLET_SIZE_DEFAULT = Integer.MAX_VALUE;

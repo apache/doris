@@ -87,7 +87,7 @@ dorisSparkRDD.collect()
 | ------------------------------- | ------------- | ------------------------------------------------------------ |
 | user                            | --            | 访问Doris的用户名                                            |
 | password                        | --            | 访问Doris的密码                                              |
-| doris.filter.query.in.value.max | 100           | 谓词下推中，in表达式value列表元素最大数量。<br />超过此数量，则in表达式条件过滤在Spark侧处理。 |
+| doris.filter.query.in.max.count | 100           | 谓词下推中，in表达式value列表元素最大数量。<br />超过此数量，则in表达式条件过滤在Spark侧处理。 |
 
 ### RDD Only
 

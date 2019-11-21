@@ -42,7 +42,7 @@ private[sql] class DorisRelation(
   }
 
   private lazy val inValueLengthLimit =
-    min(cfg.getProperty(DORIS_FILTER_QUERY_IN_VALUE_MAX, "100").toInt,
+    min(cfg.getProperty(DORIS_FILTER_QUERY_IN_MAX_COUNT, "100").toInt,
       DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT)
 
   private lazy val lazySchema = SchemaUtils.discoverSchema(cfg)

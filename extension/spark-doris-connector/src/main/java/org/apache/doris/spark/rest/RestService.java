@@ -95,9 +95,9 @@ public class RestService implements Serializable {
     private static String send(Settings cfg, HttpRequestBase request, Logger logger) throws
             ConnectedFailedException {
         int connectTimeout = cfg.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_DEFAULT);
+                ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT);
         int socketTimeout = cfg.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_DEFAULT);
+                ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT);
         int retries = cfg.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES,
                 ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT);
         logger.trace("connect timeout set to '{}'. socket timeout set to '{}'. retries set to '{}'.",
@@ -273,7 +273,6 @@ public class RestService implements Serializable {
      * @throws DorisException throw when find partition failed
      */
     public static List<PartitionDefinition> findPartitions(Settings cfg, Logger logger) throws DorisException {
-        logger.trace("Finding partitions.");
         String[] tableIdentifiers = parseIdentifier(cfg.getProperty(DORIS_TABLE_IDENTIFIER), logger);
         String sql = "select " + cfg.getProperty(DORIS_READ_FIELD, "*") +
                 " from `" + tableIdentifiers[0] + "`.`" + tableIdentifiers[1] + "`";

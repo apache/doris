@@ -58,14 +58,13 @@ public class BackendClient {
     public BackendClient(Routing routing, Settings settings) throws ConnectedFailedException {
         this.routing = routing;
         this.connectTimeout = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_DEFAULT);
+                ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT);
         this.socketTimeout = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_DEFAULT);
+                ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT);
         this.retries = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES,
                 ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT);
-        logger.trace("connect timeout set to '{}'.", this.connectTimeout);
-        logger.trace("socket timeout set to '{}'.", this.socketTimeout);
-        logger.trace("retries set to '{}'.", this.retries);
+        logger.trace("connect timeout set to '{}'. socket timeout set to '{}'. retries set to '{}'.",
+                this.connectTimeout, this.socketTimeout, this.retries);
         open();
     }
 
@@ -138,7 +137,7 @@ public class BackendClient {
                 }
                 return result;
             } catch (TException e) {
-                logger.info("Open scanner from {} failed.", routing, e);
+                logger.warn("Open scanner from {} failed.", routing, e);
                 ex = e;
             }
         }
@@ -173,7 +172,7 @@ public class BackendClient {
                 }
                 return result;
             } catch (TException e) {
-                logger.info("Get next from {} failed.", routing, e);
+                logger.warn("Get next from {} failed.", routing, e);
                 ex = e;
             }
         }
