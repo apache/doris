@@ -19,14 +19,17 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Catalog;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /*
  * MasterDaemon is a kind of thread only master FE will start.
  * And it will wait master FE to be ready before running.
  */
 public class MasterDaemon extends Daemon {
+    private static final Logger LOG = LogManager.getLogger(MasterDaemon.class);
 
     public MasterDaemon() {
-
     }
 
     public MasterDaemon(String name) {
@@ -39,11 +42,17 @@ public class MasterDaemon extends Daemon {
 
     @Override
     protected final void runOneCycle() {
-        if (!Catalog.getInstance().isReady()) {
+        while (!Catalog.getInstance().isReady()) {
             // here we use getInstance(), not getCurrentCatalog() because we truly want the Catalog instance,
             // not the Checkpoint catalog instance.
             // and if catalog is not ready, do not run
-            return;
+            try {
+                // not return, but sleep a while. to avoid some thread with large running interval will
+                // wait for a long time to start again.
+                Thread.sleep(10 * 1000);
+            } catch (InterruptedException e) {
+                LOG.warn("interrupted exception. thread: {}", getName(), e);
+            }
         }
 
         runAfterCatalogReady();
