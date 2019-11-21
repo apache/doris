@@ -61,6 +61,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import junit.framework.AssertionFailedError;
@@ -106,7 +107,11 @@ abstract public class DorisHttpTestCase {
     public static long testPartitionCurrentVersionHash = 12312;
     public static long testPartitionNextVersionHash = 123123123;
 
-    public static final int HTTP_PORT = 32474;
+    public static final int HTTP_PORT;
+    static {
+        Random r = new Random(System.currentTimeMillis());
+        HTTP_PORT = 30000 + r.nextInt(10000);
+    }
 
     protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
 
