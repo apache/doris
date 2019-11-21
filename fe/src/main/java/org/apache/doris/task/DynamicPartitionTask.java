@@ -21,7 +21,16 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.system.HeartbeatMgr;
@@ -38,9 +47,9 @@ import java.util.List;
 public class DynamicPartitionTask extends Daemon {
     private static final Logger LOG = LogManager.getLogger(HeartbeatMgr.class);
 
-    public static final String TIMESTAMP_FORMAT = "yyyyMMdd";
-    public static final String DATE_FORMAT = "yyyy-MM-dd";
-    public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
+    private static final String DATE_FORMAT = "yyyy-MM-dd";
+    private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     @Override
     protected void runOneCycle() {
