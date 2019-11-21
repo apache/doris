@@ -178,6 +178,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
+import org.apache.doris.task.DynamicPartitionTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -364,6 +365,8 @@ public class Catalog {
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
+
+    private DynamicPartitionTask dynamicPartitionTask;
 
     private SmallFileMgr smallFileMgr;
 
@@ -664,6 +667,12 @@ public class Catalog {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+
+        // 7. auto add partition thread
+        dynamicPartitionTask = new DynamicPartitionTask();
+        dynamicPartitionTask.setName("dynamicPartitionTask");
+        dynamicPartitionTask.setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
+        dynamicPartitionTask.start();
     }
 
     // wait until FE is ready.
@@ -3428,6 +3437,31 @@ public class Catalog {
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
                 distributionInfo);
         olapTable.setComment(stmt.getComment());
+        String timeUnit = stmt.getProperties().get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+        String template = stmt.getProperties().get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TEMPLATE);
+        String end = stmt.getProperties().get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END);
+        String buckets = stmt.getProperties().get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+        if (!((timeUnit == null || timeUnit.isEmpty()) &&
+                (template == null || template.isEmpty()) &&
+                (end == null || end.isEmpty()) &&
+                (buckets == null || buckets.isEmpty()))) {
+            if (timeUnit == null || timeUnit.isEmpty()) {
+                throw new DdlException("Must assign dynamic_partition.time_unit properties");
+            }
+            if (template == null || template.isEmpty()) {
+                throw new DdlException("Must assign dynamic_partition.template properties");
+            }
+            if (end == null || end.isEmpty()) {
+                throw new DdlException("Must assign dynamic_partition.end properties");
+            }
+            if (buckets == null || buckets.isEmpty()) {
+                throw new DdlException("Must assign dynamic_partition.buckets properties");
+            }
+            olapTable.setDynamicPartitionTimeUnit(timeUnit);
+            olapTable.setDynamicPartitionTemplate(template);
+            olapTable.setDynamicPartitionEnd(Integer.valueOf(end));
+            olapTable.setDynamicPartitionBuckets(Integer.valueOf(buckets));
+        }
 
         // set base index id
         long baseIndexId = getNextId();
@@ -3569,6 +3603,7 @@ public class Catalog {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
+                    PropertyAnalyzer.analyzeDynamicPartition(properties);
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked

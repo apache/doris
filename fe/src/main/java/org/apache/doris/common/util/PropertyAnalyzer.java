@@ -26,8 +26,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.DynamicPartitionTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -46,11 +48,20 @@ public class PropertyAnalyzer {
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
 
+    public static final String DAY = "day";
+    public static final String WEEK = "week";
+    public static final String MONTH = "month";
+
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
+
+    public static final String PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT = "dynamic_partition.time_unit";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_TEMPLATE = "dynamic_partition.template";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_END = "dynamic_partition.end";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_BUCKETS = "dynamic_partition.buckets";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -60,14 +71,14 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
-    
+
     public static final String PROPERTIES_KUDU_MASTER_ADDRS = "kudu_master_addrs";
 
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
-    
+
     public static final String PROPERTIES_TIMEOUT = "timeout";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -135,7 +146,7 @@ public class PropertyAnalyzer {
         Preconditions.checkNotNull(storageMedium);
         return new DataProperty(storageMedium, coolDownTimeStamp);
     }
-    
+
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
@@ -155,7 +166,7 @@ public class PropertyAnalyzer {
 
         return shortKeyColumnCount;
     }
-    
+
     public static Short analyzeReplicationNum(Map<String, String> properties, short oldReplicationNum)
             throws AnalysisException {
         Short replicationNum = oldReplicationNum;
@@ -372,5 +383,43 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    public static void analyzeDynamicPartition(Map<String, String> properties) throws AnalysisException {
+        if (properties == null ) {
+            return;
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT)) {
+            String timeUnit = properties.get(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+            if (timeUnit.equalsIgnoreCase(DAY) || timeUnit.equalsIgnoreCase(WEEK) || timeUnit.equalsIgnoreCase(MONTH)) {
+                properties.remove(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+            } else {
+                throw new AnalysisException("Unsupported time unit: " + timeUnit);
+            }
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_TEMPLATE)) {
+            FeNameFormat.checkPartitionName(properties.get(PROPERTIES_DYNAMIC_PARTITION_TEMPLATE));
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_TEMPLATE);
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_END)) {
+            String end = properties.get(PROPERTIES_DYNAMIC_PARTITION_END);
+            try {
+                if (Integer.parseInt(end) <= 0) {
+                    throw new AnalysisException("Dynamic partition end must greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid dynamic partition end: " + end);
+            }
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_END);
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_BUCKETS)) {
+            String buckets = properties.get(PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+            try {
+                Integer.parseInt(buckets);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid dynamic partition buckets: " + buckets);
+            }
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+        }
     }
 }

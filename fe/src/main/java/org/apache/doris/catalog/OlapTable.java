@@ -111,7 +111,12 @@ public class OlapTable extends Table {
     private double bfFpp;
 
     private String colocateGroup;
-    
+
+    private String dynamicPartitionTimeUnit;
+    private String dynamicPartitionTemplate;
+    private int dynamicPartitionEnd;
+    private int dynamicPartitionBuckets;
+
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
     // using same id is not suitable for our new framework.
@@ -819,6 +824,12 @@ public class OlapTable extends Table {
         }
 
         out.writeLong(baseIndexId);
+
+        //dynamic partition properties
+        Text.writeString(out, dynamicPartitionTimeUnit);
+        Text.writeString(out, dynamicPartitionTemplate);
+        out.writeInt(dynamicPartitionEnd);
+        out.writeInt(dynamicPartitionBuckets);
     }
 
     @Override
@@ -912,6 +923,13 @@ public class OlapTable extends Table {
         } else {
             // the old table use table id as base index id
             baseIndexId = id;
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            dynamicPartitionTimeUnit = Text.readString(in);
+            dynamicPartitionTemplate = Text.readString(in);
+            dynamicPartitionEnd = in.readInt();
+            dynamicPartitionBuckets = in.readInt();
         }
     }
 
@@ -1105,4 +1123,37 @@ public class OlapTable extends Table {
         }
         return hasChanged;
     }
+
+    public String getDynamicPartitionTimeUnit() {
+        return dynamicPartitionTimeUnit;
+    }
+
+    public void setDynamicPartitionTimeUnit(String dynamicPartitionTimeUnit) {
+        this.dynamicPartitionTimeUnit = dynamicPartitionTimeUnit;
+    }
+
+    public String getDynamicPartitionTemplate() {
+        return dynamicPartitionTemplate;
+    }
+
+    public void setDynamicPartitionTemplate(String dynamicPartitionTemplate) {
+        this.dynamicPartitionTemplate = dynamicPartitionTemplate;
+    }
+
+    public int getDynamicPartitionBuckets() {
+        return dynamicPartitionBuckets;
+    }
+
+    public void setDynamicPartitionBuckets(int dynamicPartitionBuckets) {
+        this.dynamicPartitionBuckets = dynamicPartitionBuckets;
+    }
+
+    public int getDynamicPartitionEnd() {
+        return dynamicPartitionEnd;
+    }
+
+    public void setDynamicPartitionEnd(int dynamicPartitionEnd) {
+        this.dynamicPartitionEnd = dynamicPartitionEnd;
+    }
+
 }
