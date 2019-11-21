@@ -37,7 +37,8 @@ class OptionsTest : public testing::Test {
 };
 
 TEST_F(OptionsTest, parse_root_path) {
-    std::string path_prefix = boost::filesystem::system_complete("./test_run").string();
+    std::string path_prefix =
+        boost::filesystem::system_complete("./test_run").string();
     std::string path1 = path_prefix + "/palo";
     std::string path2 = path_prefix + "/palo.ssd";
 
