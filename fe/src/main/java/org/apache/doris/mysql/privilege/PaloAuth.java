@@ -908,7 +908,12 @@ public class PaloAuth implements Writable {
             }
             GlobalPrivEntry gEntry = (GlobalPrivEntry) entry;
             userAuthInfo.add(userIdent.toString());
-            userAuthInfo.add((gEntry.getPassword() == null || gEntry.getPassword().length == 0) ? "No" : "Yes");
+            if (userIdent.isDomain()) {
+                // for domain user ident, password is saved in property manager
+                userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
+            } else {
+                userAuthInfo.add((gEntry.getPassword() == null || gEntry.getPassword().length == 0) ? "No" : "Yes");
+            }
             userAuthInfo.add(gEntry.getPrivSet().toString() + " (" + gEntry.isSetByDomainResolver() + ")");
             break;
         }

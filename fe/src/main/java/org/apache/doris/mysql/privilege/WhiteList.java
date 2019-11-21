@@ -85,7 +85,9 @@ public class WhiteList implements Writable {
                     Catalog.getCurrentCatalog().getAuth().setPasswordInternal(userIdent, password, domainUserIdent,
                             false /* err on non exist */, true /* set by resolver */, true /* is replay */);
                 } catch (DdlException e) {
-                    LOG.warn("should not happen", e);
+                    // this may happen when this user ident is already set by user, so that resolver can not
+                    // overwrite it. just add a debug log to observer.
+                    LOG.debug("failed to set password for user ident: {}, {}", userIdent, e.getMessage());
                 }
             }
         }
