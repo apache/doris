@@ -110,9 +110,8 @@ public class PaloAuth implements Writable {
         return tablePrivTable;
     }
 
-    private GlobalPrivEntry grantGlobalPrivs(UserIdentity userIdentity,
-            boolean errOnExist, boolean errOnNonExist, boolean grantByResolver, PrivBitSet privs)
-            throws DdlException {
+    private GlobalPrivEntry grantGlobalPrivs(UserIdentity userIdentity, boolean errOnExist, boolean errOnNonExist,
+            PrivBitSet privs) throws DdlException {
         if (errOnExist && errOnNonExist) {
             throw new DdlException("Can only specified errOnExist or errOnNonExist");
         }
@@ -121,7 +120,7 @@ public class PaloAuth implements Writable {
             // password set here will not overwrite the password of existing entry, no need to worry.
             entry = GlobalPrivEntry.create(userIdentity.getHost(), userIdentity.getQualifiedUser(),
                     userIdentity.isDomain(), new byte[0] /* no use */, privs);
-            entry.setSetByDomainResolver(grantByResolver);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -129,13 +128,13 @@ public class PaloAuth implements Writable {
         return entry;
     }
 
-    private void revokeGlobalPrivs(UserIdentity userIdentity, PrivBitSet privs, boolean revokeByResovler,
-            boolean errOnNonExist) throws DdlException {
+    private void revokeGlobalPrivs(UserIdentity userIdentity, PrivBitSet privs, boolean errOnNonExist)
+            throws DdlException {
         GlobalPrivEntry entry;
         try {
             entry = GlobalPrivEntry.create(userIdentity.getHost(), userIdentity.getQualifiedUser(),
                     userIdentity.isDomain(), new byte[0] /* no use */, privs);
-            entry.setSetByDomainResolver(revokeByResovler);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -145,25 +144,25 @@ public class PaloAuth implements Writable {
     }
 
     private void grantDbPrivs(UserIdentity userIdentity, String db, boolean errOnExist, boolean errOnNonExist,
-            boolean grantByResolver, PrivBitSet privs) throws DdlException {
+            PrivBitSet privs) throws DdlException {
         DbPrivEntry entry;
         try {
             entry = DbPrivEntry.create(userIdentity.getHost(), db, userIdentity.getQualifiedUser(),
                     userIdentity.isDomain(), privs);
-            entry.setSetByDomainResolver(grantByResolver);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         dbPrivTable.addEntry(entry, errOnExist, errOnNonExist);
     }
 
-    private void revokeDbPrivs(UserIdentity userIdentity, String db, PrivBitSet privs, boolean setByResolver,
-            boolean errOnNonExist) throws DdlException {
+    private void revokeDbPrivs(UserIdentity userIdentity, String db, PrivBitSet privs, boolean errOnNonExist)
+            throws DdlException {
         DbPrivEntry entry;
         try {
             entry = DbPrivEntry.create(userIdentity.getHost(), db, userIdentity.getQualifiedUser(),
                     userIdentity.isDomain(), privs);
-            entry.setSetByDomainResolver(setByResolver);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -172,12 +171,12 @@ public class PaloAuth implements Writable {
     }
 
     private void grantTblPrivs(UserIdentity userIdentity, String db, String tbl, boolean errOnExist,
-            boolean errOnNonExist, boolean grantByDomain, PrivBitSet privs) throws DdlException {
+            boolean errOnNonExist, PrivBitSet privs) throws DdlException {
         TablePrivEntry entry;
         try {
             entry = TablePrivEntry.create(userIdentity.getHost(), db, userIdentity.getQualifiedUser(), tbl,
                     userIdentity.isDomain(), privs);
-            entry.setSetByDomainResolver(grantByDomain);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -185,12 +184,12 @@ public class PaloAuth implements Writable {
     }
 
     private void revokeTblPrivs(UserIdentity userIdentity, String db, String tbl, PrivBitSet privs,
-            boolean setByResolver, boolean errOnNonExist) throws DdlException {
+            boolean errOnNonExist) throws DdlException {
         TablePrivEntry entry;
         try {
             entry = TablePrivEntry.create(userIdentity.getHost(), db, userIdentity.getQualifiedUser(), tbl,
                     userIdentity.isDomain(), privs);
-            entry.setSetByDomainResolver(setByResolver);
+            entry.setSetByDomainResolver(false);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -471,7 +470,6 @@ public class PaloAuth implements Writable {
                 for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
                     // use PrivBitSet copy to avoid same object being changed synchronously
                     grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
-                            false /* not set by domain */,
                             false /* err on non exist */, true /* is replay */);
                 }
             }
@@ -493,7 +491,7 @@ public class PaloAuth implements Writable {
                     LOG.warn("should not happen", e);
                 }
                 grantInternal(userIdent, null /* role */, tblPattern, PrivBitSet.of(PaloPrivilege.SELECT_PRIV),
-                              false, false /* err on non exist */, true /* is replay */);
+                        false /* err on non exist */, true /* is replay */);
             }
 
             if (!isReplay) {
@@ -554,21 +552,21 @@ public class PaloAuth implements Writable {
     public void grant(GrantStmt stmt) throws DdlException {
         PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
         grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                      false /* not set by domain */, true /* err on non exist */, false /* not replay */);
+                true /* err on non exist */, false /* not replay */);
     }
 
     public void replayGrant(PrivInfo privInfo) {
         try {
             grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
-                          privInfo.getTblPattern(), privInfo.getPrivs(),
-                          false /* not set by domain */, true /* err on non exist */, true /* is replay */);
+                    privInfo.getTblPattern(), privInfo.getPrivs(),
+                    true /* err on non exist */, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void grantInternal(UserIdentity userIdent, String role, TablePattern tblPattern,
-            PrivBitSet privs, boolean grantByResolver, boolean errOnNonExist, boolean isReplay)
+            PrivBitSet privs, boolean errOnNonExist, boolean isReplay)
             throws DdlException {
         writeLock();
         try {
@@ -581,11 +579,11 @@ public class PaloAuth implements Writable {
                 for (UserIdentity user : existingRole.getUsers()) {
                     for (Map.Entry<TablePattern, PrivBitSet> entry : existingRole.getTblPatternToPrivs().entrySet()) {
                         // copy the PrivBitSet
-                        grantPrivs(user, entry.getKey(), entry.getValue().copy(), errOnNonExist, grantByResolver);
+                        grantPrivs(user, entry.getKey(), entry.getValue().copy(), errOnNonExist);
                     }
                 }
             } else {
-                grantPrivs(userIdent, tblPattern, privs, errOnNonExist, grantByResolver);
+                grantPrivs(userIdent, tblPattern, privs, errOnNonExist);
             }
 
             if (!isReplay) {
@@ -599,9 +597,8 @@ public class PaloAuth implements Writable {
     }
 
     public void grantPrivs(UserIdentity userIdent, TablePattern tblPattern, PrivBitSet privs,
-            boolean errOnNonExist, boolean grantByResolver) throws DdlException {
-        LOG.debug("grant {} on {} to {}, err on non exist: {}, grant by resovler: {}",
-                  privs, tblPattern, userIdent, errOnNonExist, grantByResolver);
+            boolean errOnNonExist) throws DdlException {
+        LOG.debug("grant {} on {} to {}, err on non exist: {}", privs, tblPattern, userIdent, errOnNonExist);
 
         writeLock();
         try {
@@ -616,13 +613,12 @@ public class PaloAuth implements Writable {
                     grantGlobalPrivs(userIdent,
                                      false /* err on exist */,
                                      errOnNonExist,
-                                     grantByResolver, privs);
+                                     privs);
                     break;
                 case DATABASE:
                     grantDbPrivs(userIdent, tblPattern.getQuolifiedDb(),
                                  false /* err on exist */,
                                  false /* err on non exist */,
-                                 grantByResolver,
                                  privs);
                     break;
                 case TABLE:
@@ -630,7 +626,6 @@ public class PaloAuth implements Writable {
                                   tblPattern.getTbl(),
                                   false /* err on exist */,
                                   false /* err on non exist */,
-                                  grantByResolver,
                                   privs);
                     break;
                 default:
@@ -676,11 +671,11 @@ public class PaloAuth implements Writable {
                 if (existingRole != null) {
                     // revoke privs from users of this role
                     for (UserIdentity user : existingRole.getUsers()) {
-                        revokePrivs(user, tblPattern, privs, false /* set by resolver */, false /* err on non exist */);
+                        revokePrivs(user, tblPattern, privs, false /* err on non exist */);
                     }
                 }
             } else {
-                revokePrivs(userIdent, tblPattern, privs, false /* set by resolver */, errOnNonExist);
+                revokePrivs(userIdent, tblPattern, privs, errOnNonExist);
             }
 
             if (!isReplay) {
@@ -694,18 +689,18 @@ public class PaloAuth implements Writable {
     }
 
     public void revokePrivs(UserIdentity userIdent, TablePattern tblPattern, PrivBitSet privs,
-            boolean setByResolver, boolean errOnNonExist) throws DdlException {
+            boolean errOnNonExist) throws DdlException {
         writeLock();
         try {
             switch (tblPattern.getPrivLevel()) {
                 case GLOBAL:
-                    revokeGlobalPrivs(userIdent, privs, setByResolver, errOnNonExist);
+                    revokeGlobalPrivs(userIdent, privs, errOnNonExist);
                     break;
                 case DATABASE:
-                    revokeDbPrivs(userIdent, tblPattern.getQuolifiedDb(), privs, setByResolver, errOnNonExist);
+                    revokeDbPrivs(userIdent, tblPattern.getQuolifiedDb(), privs, errOnNonExist);
                     break;
                 case TABLE:
-                    revokeTblPrivs(userIdent, tblPattern.getQuolifiedDb(), tblPattern.getTbl(), privs, setByResolver,
+                    revokeTblPrivs(userIdent, tblPattern.getQuolifiedDb(), tblPattern.getTbl(), privs,
                                    errOnNonExist);
                     break;
                 default:

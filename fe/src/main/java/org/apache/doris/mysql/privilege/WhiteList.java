@@ -172,8 +172,8 @@ public class WhiteList implements Writable {
         }
     }
 
-    // in previous implementation(before meta version 66), we save privs in the domainPrivsMap.
-    // and now, these privs corresponding to the domains are saved directly in priv tables.
+    // in previous implementation(before meta version 67), we save privs in the domainPrivsMap.
+    // and now, these privs which corresponding to the domains should be saved directly in priv tables.
     // so we need to convert them.
     public void convertOldDomainPrivMap(String user) {
         Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67);
@@ -182,10 +182,10 @@ public class WhiteList implements Writable {
             for (Map.Entry<TablePattern, PrivBitSet> privEntry : domainEntry.getValue().entrySet()) {
                 TablePattern tablePattern = privEntry.getKey();
                 PrivBitSet privBitSet = privEntry.getValue();
-                UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(user, domain);
+                UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithDomain(user, domain);
                 try {
                     Catalog.getCurrentCatalog().getAuth().grantPrivs(userIdent, tablePattern, privBitSet,
-                            false /* err on non exist */, true /* grant by resolve */);
+                            false /* err on non exist */);
                 } catch (DdlException e) {
                     // this may happen if priv entry is already set by user. just print a log here.
                     LOG.warn("failed to grant privs {} on {} to user {} when convert old domain priv map.",
