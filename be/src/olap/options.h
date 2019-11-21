@@ -41,6 +41,7 @@ struct StorePath {
     TStorageMedium::type storage_medium;
 };
 
+// parse a single root path of storage_root_path
 OLAPStatus parse_root_path(const std::string &root_path, StorePath *path);
 
 OLAPStatus parse_conf_store_paths(const std::string &config_path,

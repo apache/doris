@@ -46,8 +46,9 @@ using doris::FileUtils;
 const std::string HEADER_PREFIX = "tabletmeta_";
 
 DEFINE_string(root_path, "", "storage root path");
-DEFINE_string(operation, "get_meta",
-              "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");
+DEFINE_string(
+    operation, "get_meta",
+    "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");
 DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
 DEFINE_string(json_meta_path, "", "absolute json meta file path");
@@ -58,9 +59,13 @@ std::string get_usage(const std::string& progname) {
     ss << progname << " is the Doris BE Meta tool.\n";
     ss << "Stop BE first before use this tool.\n";
     ss << "Usage:\n";
-    ss << "./meta_tool --operation=get_meta --root_path=/path/to/storage/path --tablet_id=tabletid --schema_hash=schemahash\n";
-    ss << "./meta_tool --operation=load_meta --root_path=/path/to/storage/path --json_meta_path=path\n";
-    ss << "./meta_tool --operation=delete_meta --root_path=/path/to/storage/path --tablet_id=tabletid --schema_hash=schemahash\n";
+    ss << "./meta_tool --operation=get_meta --root_path=/path/to/storage/path "
+          "--tablet_id=tabletid --schema_hash=schemahash\n";
+    ss << "./meta_tool --operation=load_meta --root_path=/path/to/storage/path "
+          "--json_meta_path=path\n";
+    ss << "./meta_tool --operation=delete_meta "
+          "--root_path=/path/to/storage/path --tablet_id=tabletid "
+          "--schema_hash=schemahash\n";
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     return ss.str();
 }
@@ -68,7 +73,7 @@ std::string get_usage(const std::string& progname) {
 void show_meta() {
     TabletMeta tablet_meta;
     OLAPStatus s = tablet_meta.create_from_file(FLAGS_pb_meta_path);
-    if (s != OLAP_SUCCESS){
+    if (s != OLAP_SUCCESS) {
         std::cout << "load pb meta file:" << FLAGS_pb_meta_path << " failed"
                   << ", status:" << s << std::endl;
         return;
@@ -82,9 +87,10 @@ void show_meta() {
     std::cout << json_meta << std::endl;
 }
 
-void get_meta(DataDir *data_dir) {
+void get_meta(DataDir* data_dir) {
     std::string value;
-    OLAPStatus s = TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
+    OLAPStatus s = TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id,
+                                                    FLAGS_schema_hash, &value);
     if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
@@ -93,9 +99,10 @@ void get_meta(DataDir *data_dir) {
     std::cout << value << std::endl;
 }
 
-void load_meta(DataDir *data_dir) {
+void load_meta(DataDir* data_dir) {
     // load json tablet meta into meta
-    OLAPStatus s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
+    OLAPStatus s =
+        TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
     if (s != OLAP_SUCCESS) {
         std::cout << "load meta failed, status:" << s << std::endl;
         return;
@@ -103,32 +110,29 @@ void load_meta(DataDir *data_dir) {
     std::cout << "load meta successfully" << std::endl;
 }
 
-void delete_meta(DataDir *data_dir) {
-    OLAPStatus s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
+void delete_meta(DataDir* data_dir) {
+    OLAPStatus s =
+        TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
     if (s != OLAP_SUCCESS) {
-        std::cout << "delete tablet meta failed for tablet_id:" << FLAGS_tablet_id
-                  << ", schema_hash:" << FLAGS_schema_hash
+        std::cout << "delete tablet meta failed for tablet_id:"
+                  << FLAGS_tablet_id << ", schema_hash:" << FLAGS_schema_hash
                   << ", status:" << s << std::endl;
         return;
     }
     std::cout << "delete meta successfully" << std::endl;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_meta") {
         show_meta();
-    }
-    else {
+    } else {
         // operations that need root path should be written here
-        std::set<std::string> valid_operations = {
-            "get_meta",
-            "load_meta",
-            "delete_meta"
-        };
+        std::set<std::string> valid_operations = {"get_meta", "load_meta",
+                                                  "delete_meta"};
         if (valid_operations.find(FLAGS_operation) == valid_operations.end()) {
             std::cout << "invalid operation:" << FLAGS_operation << std::endl;
             return -1;
@@ -137,17 +141,20 @@ int main(int argc, char **argv) {
         std::string root_path;
         Status st = FileUtils::canonicalize(FLAGS_root_path, &root_path);
         if (!st.ok()) {
-            std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string() << std::endl;
+            std::cout << "invalid root path:" << FLAGS_root_path
+                      << ", error: " << st.to_string() << std::endl;
             return -1;
         }
         doris::StorePath path;
         auto res = parse_root_path(root_path.string(), &path);
-        if (res != OLAP_SUCCESS){
-                std::cout << "parse root path failed:" << root_path.string() << std::endl;
-                return -1;
+        if (res != OLAP_SUCCESS) {
+            std::cout << "parse root path failed:" << root_path.string()
+                      << std::endl;
+            return -1;
         }
 
-        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(
+            path.path, path.capacity_bytes, path.storage_medium));
         if (data_dir == nullptr) {
             std::cout << "new data dir failed" << std::endl;
             return -1;
@@ -166,7 +173,7 @@ int main(int argc, char **argv) {
             delete_meta(data_dir.get());
         } else {
             std::cout << "invalid operation:" << FLAGS_operation << "\n"
-                    << usage << std::endl;
+                      << usage << std::endl;
             return -1;
         }
     }
