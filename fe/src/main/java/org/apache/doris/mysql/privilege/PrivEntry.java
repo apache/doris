@@ -57,6 +57,8 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     // see PrivEntry.read() for more details.
     protected boolean isClassNameWrote = false;
 
+    private UserIdentity userIdentity;
+
     protected PrivEntry() {
     }
 
@@ -74,6 +76,11 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         }
         this.isDomain = isDomain;
         this.privSet = privSet;
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
     }
 
     public PatternMatcher getHostPattern() {
@@ -117,9 +124,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     }
 
     public UserIdentity getUserIdent() {
-        UserIdentity userIdent = new UserIdentity(origUser, origHost);
-        userIdent.setIsAnalyzed();
-        return userIdent;
+        return userIdentity;
     }
 
     public boolean match(UserIdentity userIdent, boolean exactMatch) {
@@ -240,7 +245,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet = PrivBitSet.read(in);
 
         isSetByDomainResolver = in.readBoolean();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
             isDomain = in.readBoolean();
         }
     }

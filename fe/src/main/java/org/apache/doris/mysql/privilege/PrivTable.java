@@ -118,9 +118,12 @@ public abstract class PrivTable implements Writable {
 
     public void revoke(PrivEntry entry, boolean errOnNonExist, boolean deleteEntryWhenEmpty) throws DdlException {
         PrivEntry existingEntry = getExistingEntry(entry);
-        if (existingEntry == null && errOnNonExist) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
-                    entry.getOrigHost());
+        if (existingEntry == null) {
+            if (errOnNonExist) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
+                        entry.getOrigHost());
+            }
+            return;
         }
 
         checkOperationAllowed(existingEntry, entry, "REVOKE");
