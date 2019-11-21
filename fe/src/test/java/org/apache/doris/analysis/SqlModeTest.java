@@ -1,9 +1,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.qe.SqlModeHelper;
-import org.easymock.EasyMock;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.io.StringReader;
