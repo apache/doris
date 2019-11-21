@@ -336,7 +336,8 @@ public class TransactionState implements Writable {
             switch (transactionStatus) {
                 case COMMITTED:
                     // Maybe listener has been deleted. The txn need to be aborted later.
-                    throw new TransactionException("Failed to commit txn when callback could not be found");
+                    throw new TransactionException(
+                            "Failed to commit txn when callback " + callbackId + "could not be found");
                 default:
                     break;
             }

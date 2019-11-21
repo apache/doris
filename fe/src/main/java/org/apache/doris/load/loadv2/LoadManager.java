@@ -109,7 +109,7 @@ public class LoadManager implements Writable{
                                                + "please retry later.");
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
-            addLoadJob(loadJob);
+            createLoadJob(loadJob);
         } finally {
             writeUnlock();
         }
@@ -146,7 +146,7 @@ public class LoadManager implements Writable{
             // Mini load job must be executed before release write lock.
             // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
             loadJob.unprotectedExecute();
-            addLoadJob(loadJob);
+            createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
             LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
@@ -240,6 +240,7 @@ public class LoadManager implements Writable{
                          .build());
     }
 
+    // add load job and also add to to callback factory
     private void createLoadJob(LoadJob loadJob) {
         addLoadJob(loadJob);
         // add callback before txn created, because callback will be performed on replay without txn begin
