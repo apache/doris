@@ -31,7 +31,7 @@
     <properties>
         <scala.version>2.11</scala.version>
         <spark.version>2.3.4</spark.version>
-        <libthrift.version>0.9.3</libthrift.version>
+        <libthrift.version>0.12.0</libthrift.version>
         <arrow.version>0.8.0</arrow.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
