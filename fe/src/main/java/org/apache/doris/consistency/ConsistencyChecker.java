@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.consistency.CheckConsistencyJob.JobState;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -49,7 +49,7 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class ConsistencyChecker extends Daemon {
+public class ConsistencyChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ConsistencyChecker.class);
     
     private static final int MAX_JOB_NUM = 100;
@@ -111,7 +111,7 @@ public class ConsistencyChecker extends Daemon {
     }
     
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (itsTime()) {
             // for each round. try chose enough new tablets to check
             // only add new job when it's work time

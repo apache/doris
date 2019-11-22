@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,7 +28,7 @@ import org.apache.logging.log4j.Logger;
  * The job which is not finished, not cancelled, not isCommitting will be checked.
  * The standard of timeout is CurrentTS > (CreateTs + timeoutSeconds * 1000).
  */
-public class LoadTimeoutChecker extends Daemon {
+public class LoadTimeoutChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadTimeoutChecker.class);
 
     private LoadManager loadManager;
@@ -39,7 +39,7 @@ public class LoadTimeoutChecker extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         try {
             loadManager.processTimeoutJobs();
         } catch (Throwable e) {

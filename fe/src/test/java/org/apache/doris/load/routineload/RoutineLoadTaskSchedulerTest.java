@@ -110,6 +110,6 @@ public class RoutineLoadTaskSchedulerTest {
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
-        routineLoadTaskScheduler.runOneCycle();
+        routineLoadTaskScheduler.runAfterCatalogReady();
     }
 }
