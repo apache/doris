@@ -371,6 +371,7 @@ public class LoadManager implements Writable{
         }
     }
 
+    // only for those jobs which transaction is not started
     public void processTimeoutJobs() {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }

@@ -390,13 +390,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void processTimeout() {
+        // this is only for jobs which transaction is not started.
+        // if transaction is started, global transaction manager will handle the timeout.
         writeLock();
         try {
-            if (isTxnDone() || !isTimeout() || isCommitting) {
+            if (state != JobState.PENDING) {
                 return;
             }
 
-            unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
+            unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), false);
             logFinalOperation();
         } finally {
             writeUnlock();
@@ -463,6 +465,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void cancelJob(FailMsg failMsg) throws DdlException {
         writeLock();
         try {
+            checkAuth("CANCEL LOAD");
+
             // mini load can not be cancelled by frontend
             if (jobType == EtlJobType.MINI) {
                 throw new DdlException("Job could not be cancelled in type " + jobType.name());
@@ -481,7 +485,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
 
-            checkAuth("CANCEL LOAD");
             unprotectedExecuteCancel(failMsg, true);
             logFinalOperation();
         } finally {
@@ -572,6 +575,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         // remove callback before abortTransaction(), so that the afterAborted() callback will not be called again
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+
         if (abortTxn) {
             // abort txn
             try {
