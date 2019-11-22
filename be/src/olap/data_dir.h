@@ -37,6 +37,7 @@ class DataDir {
 public:
     DataDir(const std::string& path,
             int64_t capacity_bytes = -1,
+            TStorageMedium::type storage_medium = TStorageMedium::HDD,
             TabletManager* tablet_manager = nullptr,
             TxnManager* txn_manager = nullptr);
     ~DataDir();
@@ -129,7 +130,7 @@ public:
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
-    Status _init_extension_and_capacity();
+    Status _init_capacity();
     Status _init_file_system();
     Status _init_meta();
 
