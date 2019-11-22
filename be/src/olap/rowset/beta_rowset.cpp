@@ -27,7 +27,8 @@
 
 namespace doris {
 
-std::string BetaRowset::segment_file_path(const std::string& dir, const RowsetId& rowset_id, int segment_id) {
+std::string BetaRowset::segment_file_path(
+        const std::string& dir, const RowsetId& rowset_id, int segment_id) {
     return strings::Substitute("$0/$1_$2.dat", dir, rowset_id.to_string(), segment_id);
 }
 
@@ -37,13 +38,15 @@ BetaRowset::BetaRowset(const TabletSchema* schema,
     : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
 }
 
+BetaRowset::~BetaRowset() { }
+
 OLAPStatus BetaRowset::init() {
     return OLAP_SUCCESS; // no op
 }
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
-OLAPStatus BetaRowset::do_load_once(bool use_cache) {
-    // open all segments under the current rowset
+OLAPStatus BetaRowset::do_load_once(bool /*use_cache*/) {
+    // Open all segments under the current rowset
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
@@ -60,6 +63,7 @@ OLAPStatus BetaRowset::do_load_once(bool use_cache) {
 
 OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     RETURN_NOT_OK(load());
+    // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
@@ -80,6 +84,7 @@ OLAPStatus BetaRowset::remove() {
     for (int i = 0; i < num_segments(); ++i) {
         std::string path = segment_file_path(_rowset_path, rowset_id(), i);
         LOG(INFO) << "deleting " << path;
+        // TODO(lingbin): use Env API
         if (::remove(path.c_str()) != 0) {
             char errmsg[64];
             LOG(WARNING) << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
@@ -97,11 +102,14 @@ OLAPStatus BetaRowset::remove() {
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
         std::string dst_link_path = segment_file_path(dir, new_rowset_id, i);
+        // TODO(lingbin): use Env API? or EnvUtil?
         if (FileUtils::check_exist(dst_link_path)) {
             LOG(WARNING) << "failed to create hard link, file already exist: " << dst_link_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
         std::string src_file_path = segment_file_path(_rowset_path, rowset_id(), i);
+        // TODO(lingbin): how external storage support link?
+        //     use copy? or keep refcount to avoid being delete?
         if (link(src_file_path.c_str(), dst_link_path.c_str()) != 0) {
             LOG(WARNING) << "fail to create hard link. from=" << src_file_path << ", "
                          << "to=" << dst_link_path << ", " << "errno=" << Errno::no();
