@@ -17,8 +17,8 @@
 
 #include "olap/options.h"
 
-#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 
 #include "common/logging.h"
@@ -29,36 +29,101 @@ namespace doris {
 
 // compatible with old multi path configuration:
 // /path1,2014;/path2,2048
-OLAPStatus parse_conf_store_paths(
-        const std::string& config_path,
-        std::vector<StorePath>* paths) {
+OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
     try {
-        std::vector<std::string> item_vec;
-        boost::split(item_vec, config_path, boost::is_any_of(";"), boost::token_compress_on);
-        for (auto& item : item_vec) {
-            std::vector<std::string> tmp_vec;
-            boost::split(tmp_vec, item, boost::is_any_of(","), boost::token_compress_on);
+        std::vector<std::string> tmp_vec;
+        boost::split(tmp_vec, root_path, boost::is_any_of(","),
+                     boost::token_compress_on);
 
-            // parse root path name
-            boost::trim(tmp_vec[0]);
-            tmp_vec[0].erase(tmp_vec[0].find_last_not_of("/") + 1);
-            if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
-                LOG(WARNING) << "invalid store path. path=" << tmp_vec[0];
+        // parse root path name
+        boost::trim(tmp_vec[0]);
+        tmp_vec[0].erase(tmp_vec[0].find_last_not_of("/") + 1);
+        if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
+            LOG(WARNING) << "invalid store path. path=" << tmp_vec[0];
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+        path->path = tmp_vec[0];
+
+        // parse root path capacity and storage medium
+        std::string capacity_str, medium_str;
+
+        boost::filesystem::path boost_path = tmp_vec[0];
+        std::string extension =
+            boost::filesystem::canonical(boost_path).extension().string();
+        if (!extension.empty()) {
+            medium_str = extension.substr(1);
+        }
+
+        for (int i = 1; i < tmp_vec.size(); i++) {
+            // <property>:<value> or <value>
+            std::string property, value;
+            std::size_t found = tmp_vec[i].find(':');
+            if (found != std::string::npos) {
+                property = boost::trim_copy(tmp_vec[i].substr(0, found));
+                value = boost::trim_copy(tmp_vec[i].substr(found + 1));
+            } else {
+                // <value> only supports setting capacity
+                property = "capacity";
+                value = boost::trim_copy(tmp_vec[i]);
+            }
+            if (boost::iequals(property, "capacity")) {
+                capacity_str = value;
+            } else if (boost::iequals(property, "medium")) {
+                // property 'medium' has a higher priority than the extension of
+                // path, so it can override medium_str
+                medium_str = value;
+            } else {
+                LOG(WARNING) << "invalid property of store path, " << property;
                 return OLAP_ERR_INPUT_PARAMETER_ERROR;
             }
+        }
 
-            // parse root path capacity
-            int64_t capacity_bytes = -1;
-            if (tmp_vec.size() > 1) {
-                if (!valid_signed_number<int64_t>(tmp_vec[1])
-                        || strtol(tmp_vec[1].c_str(), NULL, 10) < 0) {
-                    LOG(WARNING) << "invalid capacity of store path, capacity=" << tmp_vec[1];
-                    return OLAP_ERR_INPUT_PARAMETER_ERROR;
-                }
-                capacity_bytes = strtol(tmp_vec[1].c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
+        path->capacity_bytes = -1;
+        if (!capacity_str.empty()) {
+            if (!valid_signed_number<int64_t>(capacity_str) ||
+                strtol(capacity_str.c_str(), NULL, 10) < 0) {
+                LOG(WARNING) << "invalid capacity of store path, capacity="
+                             << capacity_str;
+                return OLAP_ERR_INPUT_PARAMETER_ERROR;
             }
+            path->capacity_bytes =
+                strtol(capacity_str.c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
+        }
 
-            paths->emplace_back(tmp_vec[0], capacity_bytes);
+        path->storage_medium = TStorageMedium::HDD;
+        if (!medium_str.empty()) {
+            if (boost::iequals(medium_str, "ssd")) {
+                path->storage_medium = TStorageMedium::SSD;
+            } else if (boost::iequals(medium_str, "hdd")) {
+                path->storage_medium = TStorageMedium::HDD;
+            } else {
+                LOG(WARNING) << "invalid storage medium. medium=" << medium_str;
+                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            }
+        }
+    } catch (...) {
+        LOG(WARNING) << "invalid store path. path=" << root_path;
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus parse_conf_store_paths(const std::string& config_path,
+                                  std::vector<StorePath>* paths) {
+    try {
+        std::vector<std::string> item_vec;
+        boost::split(item_vec, config_path, boost::is_any_of(";"),
+                     boost::token_compress_on);
+        for (auto& item : item_vec) {
+            StorePath path;
+            auto res = parse_root_path(item, &path);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "get config store path failed. path="
+                             << config_path;
+                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            }
+            paths->emplace_back(std::move(path));
         }
     } catch (...) {
         LOG(WARNING) << "get config store path failed. path=" << config_path;
@@ -67,5 +132,4 @@ OLAPStatus parse_conf_store_paths(
 
     return OLAP_SUCCESS;
 }
-
 }
