@@ -146,7 +146,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 OLAPStatus StorageEngine::open() {
     // init store_map
     for (auto& path : _options.store_paths) {
-        DataDir* store = new DataDir(path.path, path.capacity_bytes,
+        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                 _tablet_manager.get(), _txn_manager.get());
         auto st = store->init();
         if (!st.ok()) {

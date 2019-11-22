@@ -56,20 +56,22 @@ static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-        TabletManager* tablet_manager, TxnManager* txn_manager)
-        : _path(path),
-        _capacity_bytes(capacity_bytes),
-        _available_bytes(0),
-        _disk_capacity_bytes(0),
-        _is_used(false),
-        _tablet_manager(tablet_manager),
-        _txn_manager(txn_manager),
-        _cluster_id(-1),
-        _to_be_deleted(false),
-        _current_shard(0),
-        _test_file_read_buf(nullptr),
-        _test_file_write_buf(nullptr),
-        _meta(nullptr) {
+                 TStorageMedium::type storage_medium,
+                 TabletManager* tablet_manager, TxnManager* txn_manager)
+    : _path(path),
+      _capacity_bytes(capacity_bytes),
+      _available_bytes(0),
+      _disk_capacity_bytes(0),
+      _storage_medium(storage_medium),
+      _is_used(false),
+      _tablet_manager(tablet_manager),
+      _txn_manager(txn_manager),
+      _cluster_id(-1),
+      _to_be_deleted(false),
+      _current_shard(0),
+      _test_file_read_buf(nullptr),
+      _test_file_write_buf(nullptr),
+      _meta(nullptr) {
 }
 
 DataDir::~DataDir() {
@@ -105,7 +107,7 @@ Status DataDir::init() {
 
     RETURN_IF_ERROR(update_capacity());
     RETURN_IF_ERROR(_init_cluster_id());
-    RETURN_IF_ERROR(_init_extension_and_capacity());
+    RETURN_IF_ERROR(_init_capacity());
     RETURN_IF_ERROR(_init_file_system());
     RETURN_IF_ERROR(_init_meta());
 
@@ -175,22 +177,8 @@ Status DataDir::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
     return Status::OK();
 }
 
-Status DataDir::_init_extension_and_capacity() {
+Status DataDir::_init_capacity() {
     boost::filesystem::path boost_path = _path;
-    std::string extension = boost::filesystem::canonical(boost_path).extension().string();
-    if (extension != "") {
-        if (boost::iequals(extension, ".ssd")) {
-            _storage_medium = TStorageMedium::SSD;
-        } else if (boost::iequals(extension, ".hdd")) {
-            _storage_medium = TStorageMedium::HDD;
-        } else {
-            LOG(WARNING) << "store path has wrong extension. path=" << _path;
-            return Status::InternalError("invalid sotre path: invalid extension");
-        }
-    } else {
-        _storage_medium = TStorageMedium::HDD;
-    }
-
     int64_t disk_capacity = boost::filesystem::space(boost_path).capacity;
     if (_capacity_bytes == -1) {
         _capacity_bytes = disk_capacity;
