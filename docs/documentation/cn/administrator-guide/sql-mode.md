@@ -60,7 +60,9 @@ show session variables
 
 ## 已支持mode
 
-（后续补充）
+1. `PIPES_AS_CONCAT`
+
+	在此模式下，'||'符号是一种字符串连接符号（同CONCAT()函数），而不是'OR'符号的同义词。(e.g., `'a'||'b' = 'ab'`, `1||0 = '10'`)
 
 ## 复合mode
 
