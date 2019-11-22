@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -148,6 +149,10 @@ public abstract class RoutineLoadTaskInfo {
                     routineLoadJob.getDbId(), DebugUtil.printId(id), null, "FE: " + FrontendOptions.getLocalHostAddress(),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                     timeoutMs / 1000);
+        } catch (DuplicatedRequestException e) {
+            // should not happen, because we didn't pass request id in when begin transaction
+            LOG.warn("failed to begin txn for routine load task: {}, {}", DebugUtil.printId(id), e.getMessage());
+            return false;
         } catch (LabelAlreadyUsedException e) {
             // this should not happen for a routine load task, throw it out
             throw e;

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -60,7 +61,6 @@ public class MiniLoadJob extends LoadJob {
         if (request.isSetMax_filter_ratio()) {
             this.maxFilterRatio = request.getMax_filter_ratio();
         }
-        this.isCancellable = false;
         this.createTimestamp = request.getCreate_timestamp();
         this.loadStartTimestamp = createTimestamp;
         this.authorizationInfo = gatherAuthInfo();
@@ -86,9 +86,10 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, label, requestId, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
                                   timeoutSecond);
     }
