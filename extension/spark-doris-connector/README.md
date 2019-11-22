@@ -66,6 +66,7 @@ val dorisSparkDF = spark.read.format("doris")
 	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
+  .load()
 
 dorisSparkDF.show(5)
 ```
