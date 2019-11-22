@@ -1338,13 +1338,12 @@ public class Catalog {
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
+            // global transaction must be replayed before load jobs v2
             checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
-
-
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1720,7 +1719,8 @@ public class Catalog {
 
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
-            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
+            loadManager.readFields(in);
+            loadManager.transferLoadingStateToCommitted(globalTransactionMgr);
         }
         return checksum;
     }

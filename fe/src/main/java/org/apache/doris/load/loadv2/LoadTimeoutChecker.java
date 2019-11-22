@@ -24,9 +24,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * LoadTimeoutChecker is performed to cancel the timeout job.
- * The job which is not finished, not cancelled, not isCommitting will be checked.
- * The standard of timeout is CurrentTS > (CreateTs + timeoutSeconds * 1000).
+ * LoadTimeoutChecker will try to cancel the timeout load jobs.
+ * And it will not handle the job which the corresponding transaction is started.
+ * For those jobs, global transaction manager cancel the corresponding job while aborting the timeout transaction.
  */
 public class LoadTimeoutChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadTimeoutChecker.class);
