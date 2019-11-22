@@ -23,8 +23,8 @@ under the License.
 
 ```
 INSERT INTO table_name
+[ PARTITION (p1, ...)]
 [ WITH LABEL label]
-[ PARTICIPATION [...]
 [ (column [, ...]) ]
 [ [ hint [, ...] ] ]
 { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
@@ -34,9 +34,9 @@ INSERT INTO table_name
 
 > tablet_name: Target table for loading data. It can be in the form of `db_name.table_name`.
 >
-> label: Specifies a label for Insert job.
+> partitions: Specifies the partitions to be loaded, with multiple partition names separated by commas. The partitions must exist in `table_name`, 
 >
-> partition_names: Specifies the partitions to be loaded, with multiple partition names separated by commas. The partitions must exist in `table_name`, 
+> label: Specifies a label for Insert job.
 >
 > column_name: The specified destination columns must be columns that exists in `table_name`.
 >
@@ -89,10 +89,10 @@ INSERT INTO test SELECT * FROM test2
 INSERT INTO test (c1, c2) SELECT * from test2
 ```
 
-4. Insert into table `test` with specified label
+4. Insert into table `test` with specified partition and label
 
 ```
-INSERT INTO test WITH LABEL `label1` SELECT * FROM test2;
+INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ```
 

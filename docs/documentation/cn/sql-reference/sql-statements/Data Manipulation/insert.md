@@ -23,8 +23,8 @@ under the License.
 
 ```
 INSERT INTO table_name
+    [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
-    [ PARTITION (, ...) ]
     [ (column [, ...]) ]
     [ [ hint [, ...] ] ]
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
@@ -34,9 +34,9 @@ INSERT INTO table_name
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
-> label: 为 Insert 任务指定一个 label
+> partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
 >
-> partition_names: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
+> label: 为 Insert 任务指定一个 label
 >
 > column_name: 指定的目的列，必须是 `table_name` 中存在的列
 >
@@ -88,10 +88,10 @@ INSERT INTO test SELECT * FROM test2;
 INSERT INTO test (c1, c2) SELECT * from test2;
 ```
 
-4. 向 `test` 表中导入一个查询语句结果，并指定 label
+4. 向 `test` 表中导入一个查询语句结果，并指定 partition 和 label
 
 ```
-INSERT INTO test WITH LABEL `label1` SELECT * FROM test2;
+INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ```
 
