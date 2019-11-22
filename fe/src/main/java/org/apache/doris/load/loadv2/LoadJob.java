@@ -398,6 +398,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 return;
             }
 
+            if (!isTimeout()) {
+                return;
+            }
+
             unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), false);
             logFinalOperation();
         } finally {
