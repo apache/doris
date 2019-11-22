@@ -527,7 +527,7 @@ public class GlobalTransactionMgr implements Writable {
             if (existingTxns == null || existingTxns.isEmpty()) {
                 throw new UserException("transaction not found, label=" + label);
             }
-            // find PREPARE txn
+            // find PREPARE txn. For one load label, there should be only one PREPARE txn.
             TransactionState prepareTxn = null;
             for (Long txnId : existingTxns) {
                 TransactionState txn = idToTransactionState.get(txnId);

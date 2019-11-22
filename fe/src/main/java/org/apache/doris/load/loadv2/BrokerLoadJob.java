@@ -237,6 +237,8 @@ public class BrokerLoadJob extends LoadJob {
             }
             if (loadTask.getRetryTime() <= 0) {
                 unprotectedExecuteCancel(failMsg, true);
+                logFinalOperation();
+                return;
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
@@ -252,8 +254,6 @@ public class BrokerLoadJob extends LoadJob {
         } finally {
             writeUnlock();
         }
-
-        logFinalOperation();
     }
 
     /**

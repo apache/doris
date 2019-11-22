@@ -127,7 +127,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected LoadStatistic loadStatistic = new LoadStatistic();
 
-    // only for persistence param
+    // only for persistence param. see readFields() for usage
     private boolean isJobTypeRead = false;
 
     public static class LoadStatistic {
@@ -397,10 +397,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
 
             unprotectedExecuteCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
+            logFinalOperation();
         } finally {
             writeUnlock();
         }
-        logFinalOperation();
     }
 
     protected void unprotectedExecuteJob() {
@@ -452,11 +452,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             unprotectedExecuteCancel(failMsg, abortTxn);
+            if (needLog) {
+                logFinalOperation();
+            }
         } finally {
             writeUnlock();
-        }
-        if (needLog) {
-            logFinalOperation();
         }
     }
 
@@ -483,10 +483,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             checkAuth("CANCEL LOAD");
             unprotectedExecuteCancel(failMsg, true);
+            logFinalOperation();
         } finally {
             writeUnlock();
         }
-        logFinalOperation();
     }
 
     private void checkAuth(String command) throws DdlException {
@@ -570,7 +570,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         this.failMsg = failMsg;
         finishTimestamp = System.currentTimeMillis();
 
-        // remove callback
+        // remove callback before abortTransaction(), so that the afterAborted() callback will not be called again
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         if (abortTxn) {
             // abort txn

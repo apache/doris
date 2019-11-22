@@ -17,6 +17,12 @@
 
 package org.apache.doris.common;
 
+/*
+ * This exception throws when the request from Backend is duplicated.
+ * It is currently used for mini load and stream load's begin txn requests.
+ * Because the request may be a retry request, so that we should throw this exception
+ * and return the 'already-begun' txn id.
+ */
 public class DuplicatedRequestException extends DdlException {
 
     private String duplicatedRequestId;
