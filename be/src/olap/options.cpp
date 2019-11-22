@@ -29,7 +29,7 @@ namespace doris {
 
 // compatible with old multi path configuration:
 // /path1,2014;/path2,2048
-OLAPStatus parse_root_path(const std::string &root_path, StorePath *path) {
+OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
     try {
         std::vector<std::string> tmp_vec;
         boost::split(tmp_vec, root_path, boost::is_any_of(","),
@@ -109,13 +109,13 @@ OLAPStatus parse_root_path(const std::string &root_path, StorePath *path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus parse_conf_store_paths(const std::string &config_path,
-                                  std::vector<StorePath> *paths) {
+OLAPStatus parse_conf_store_paths(const std::string& config_path,
+                                  std::vector<StorePath>* paths) {
     try {
         std::vector<std::string> item_vec;
         boost::split(item_vec, config_path, boost::is_any_of(";"),
                      boost::token_compress_on);
-        for (auto &item : item_vec) {
+        for (auto& item : item_vec) {
             StorePath path;
             auto res = parse_root_path(item, &path);
             if (res != OLAP_SUCCESS) {
