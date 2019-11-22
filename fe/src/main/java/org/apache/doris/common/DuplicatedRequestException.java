@@ -29,11 +29,6 @@ public class DuplicatedRequestException extends DdlException {
     // save exist txn id
     private long txnId;
 
-    public DuplicatedRequestException(String duplicatedRequestId, String msg) {
-        super(msg);
-        this.duplicatedRequestId = duplicatedRequestId;
-    }
-
     public DuplicatedRequestException(String duplicatedRequestId, long txnId, String msg) {
         super(msg);
         this.duplicatedRequestId = duplicatedRequestId;

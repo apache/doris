@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+// JobState will be persisted in meta data by name, so the order of these state is not important
 public enum JobState {
     PENDING, // init state
     LOADING, // job is running
