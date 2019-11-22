@@ -29,7 +29,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -68,7 +68,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class LoadChecker extends Daemon {
+public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
 
     // checkers for running job state
@@ -115,7 +115,7 @@ public class LoadChecker extends Daemon {
     }
     
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         LOG.debug("start check load jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:

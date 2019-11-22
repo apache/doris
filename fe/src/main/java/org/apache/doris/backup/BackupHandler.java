@@ -42,7 +42,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -70,7 +70,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class BackupHandler extends Daemon implements Writable {
+public class BackupHandler extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupHandler.class);
     
     public static final int SIGNATURE_VERSION = 1;
@@ -155,7 +155,7 @@ public class BackupHandler extends Daemon implements Writable {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (!isInit) {
             if (!init()) {
                 return;

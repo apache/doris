@@ -37,7 +37,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -83,7 +83,7 @@ import java.util.stream.Collectors;
  * Case 2:
  *  A new Backend is added to the cluster. Replicas should be transfer to that host to balance the cluster load.
  */
-public class TabletScheduler extends Daemon {
+public class TabletScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
     // handle at most BATCH_NUM tablets in one loop
@@ -265,7 +265,7 @@ public class TabletScheduler extends Daemon {
      *
      */
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (!updateWorkingSlots()) {
             return;
         }
