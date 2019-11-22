@@ -92,7 +92,6 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
    * @return true if hax next value
    */
   def hasNext: Boolean = {
-    logger.trace(s"Reader's has next has been called.")
     if ((rowBatch == null || !rowBatch.hasNext) && !eos) {
       if (rowBatch != null) {
         offset += rowBatch.getReadRowCount
@@ -101,12 +100,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
       val nextBatchParams = new TScanNextBatchParams
       nextBatchParams.setContext_id(contextId)
       nextBatchParams.setOffset(offset)
-      logger.trace(s"Send Request to Doris BE for getting next batch.")
       val nextResult = client.getNext(nextBatchParams)
       eos = nextResult.isEos
-      logger.trace(s"Doris BE response 'eos' is $eos")
       if (!eos) {
-        logger.trace(s"read next RowBatch in hasNext.")
         rowBatch = new RowBatch(nextResult, schema)
       }
     }
@@ -118,7 +114,6 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
    * @return next value
    */
   def next: AnyRef = {
-    logger.trace(s"get next value when eos is $eos.")
     if (!hasNext) {
       logger.error(SHOULD_NOT_HAPPEN_MESSAGE)
       throw new ShouldNeverHappenException
@@ -127,7 +122,6 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
   }
 
   def close(): Unit = {
-    logger.trace("Close Doris BE reader.")
     val closeParams = new TScanCloseParams
     closeParams.context_id = contextId
     client.closeScanner(closeParams)

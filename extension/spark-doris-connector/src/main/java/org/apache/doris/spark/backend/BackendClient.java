@@ -69,7 +69,7 @@ public class BackendClient {
     }
 
     private void open() throws ConnectedFailedException {
-        logger.trace("Open client to Doris BE '{}'.", routing);
+        logger.debug("Open client to Doris BE '{}'.", routing);
         TException ex = null;
         for (int attempt = 0; !isConnected && attempt < retries; ++attempt) {
             logger.debug("Attempt {} to connect {}.", attempt, routing);

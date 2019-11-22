@@ -311,7 +311,6 @@ public class RestService implements Serializable {
      */
     @VisibleForTesting
     static QueryPlan getQueryPlan(String response, Logger logger) throws DorisException {
-        logger.trace("Parsing fe response to query plan.");
         ObjectMapper mapper = new ObjectMapper();
         QueryPlan queryPlan;
         try {
@@ -353,7 +352,6 @@ public class RestService implements Serializable {
      */
     @VisibleForTesting
     static  Map<String, List<Long>> selectBeForTablet(QueryPlan queryPlan, Logger logger) throws DorisException {
-        logger.trace("Choice tablet targeting Doris BE.");
         Map<String, List<Long>> be2Tablets = new HashMap<>();
         for (Map.Entry<String, Tablet> part : queryPlan.getPartitions().entrySet()) {
             logger.debug("Parse tablet info: '{}'.", part);
@@ -436,7 +434,6 @@ public class RestService implements Serializable {
     static List<PartitionDefinition> tabletsMapToPartition(Settings cfg, Map<String, List<Long>> be2Tablets,
             String opaquedQueryPlan, String database, String table, Logger logger)
             throws IllegalArgumentException {
-        logger.trace("Generate PartitionDefinition");
         int tabletsSize = tabletCountLimitForOnePartition(cfg, logger);
         List<PartitionDefinition> partitions = new ArrayList<>();
         for (Map.Entry<String, List<Long>> beInfo : be2Tablets.entrySet()) {

@@ -80,7 +80,6 @@ public class RowBatch {
     private final Schema schema;
 
     public RowBatch(TScanBatchResult nextResult, Schema schema) throws DorisException {
-        logger.trace("Generate Row Batch");
         this.schema = schema;
         this.rootAllocator = new RootAllocator(Integer.MAX_VALUE);
         this.arrowStreamReader = new ArrowStreamReader(

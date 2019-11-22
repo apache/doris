@@ -36,7 +36,6 @@ class ScalaDorisRowValueReader(
   val rowOrder: Seq[String] = settings.getProperty(DORIS_READ_FIELD).split(",")
 
   override def next: AnyRef = {
-    logger.trace(s"get next value when eos is $eos.")
     if (!hasNext) {
       logError(SHOULD_NOT_HAPPEN_MESSAGE)
       throw new ShouldNeverHappenException
