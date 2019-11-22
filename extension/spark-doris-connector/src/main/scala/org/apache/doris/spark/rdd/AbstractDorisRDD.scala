@@ -26,7 +26,6 @@ import org.apache.doris.spark.rest.{PartitionDefinition, RestService}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{Partition, SparkContext}
 
-
 private[spark] abstract class AbstractDorisRDD[T: ClassTag](
     @transient private var sc: SparkContext,
     val params: Map[String, String] = Map.empty)
@@ -63,8 +62,7 @@ private[spark] abstract class AbstractDorisRDD[T: ClassTag](
 private[spark] class DorisPartition(rddId: Int, idx: Int, val dorisPartition: PartitionDefinition)
     extends Partition {
 
-  override def hashCode(): Int = 41 * (41 * (41 + rddId) + idx) + dorisPartition.hashCode()
+  override def hashCode(): Int = 31 * (31 * (31 + rddId) + idx) + dorisPartition.hashCode()
 
   override val index: Int = idx
 }
-
