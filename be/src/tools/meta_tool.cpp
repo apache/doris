@@ -146,10 +146,9 @@ int main(int argc, char** argv) {
             return -1;
         }
         doris::StorePath path;
-        auto res = parse_root_path(root_path.string(), &path);
+        auto res = parse_root_path(root_path, &path);
         if (res != OLAP_SUCCESS) {
-            std::cout << "parse root path failed:" << root_path.string()
-                      << std::endl;
+            std::cout << "parse root path failed:" << root_path << std::endl;
             return -1;
         }
 
