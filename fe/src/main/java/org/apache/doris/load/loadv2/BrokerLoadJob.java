@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -186,7 +187,8 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
@@ -222,10 +224,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been completed
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
@@ -235,6 +237,8 @@ public class BrokerLoadJob extends LoadJob {
             }
             if (loadTask.getRetryTime() <= 0) {
                 unprotectedExecuteCancel(failMsg, true);
+                logFinalOperation();
+                return;
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
@@ -250,8 +254,6 @@ public class BrokerLoadJob extends LoadJob {
         } finally {
             writeUnlock();
         }
-
-        logFinalOperation();
     }
 
     /**
@@ -282,7 +284,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
                                      + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
     }
 
@@ -296,13 +298,14 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
+
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("task_id", attachment.getTaskId())
@@ -326,7 +329,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
 
@@ -385,10 +388,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
@@ -421,7 +424,8 @@ public class BrokerLoadJob extends LoadJob {
 
         // check data quality
         if (!checkDataQuality()) {
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),
+                    true, true);
             return;
         }
         Database db = null;
@@ -432,7 +436,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "db has been deleted when job is loading")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
         }
         db.writeLock();
         try {
@@ -449,7 +453,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         } finally {
             db.writeUnlock();

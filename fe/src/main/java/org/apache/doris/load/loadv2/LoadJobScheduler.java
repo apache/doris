@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -73,8 +74,16 @@ public class LoadJobScheduler extends MasterDaemon {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);
-                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()), false);
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
+                        false, true);
                 continue;
+            } catch (DuplicatedRequestException e) {
+                // should not happen in load job scheduler, there is no request id.
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                        .add("error_msg", "Failed to begin txn with duplicate request. Job will be rescheduled later")
+                        .build(), e);
+                needScheduleJobs.put(loadJob);
+                return;
             } catch (BeginTransactionException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "Failed to begin txn when job is scheduling. "

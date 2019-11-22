@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.metric.LongCounterMetric;
@@ -100,7 +101,7 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
