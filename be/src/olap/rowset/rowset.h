@@ -37,9 +37,6 @@ class RowsetFactory;
 class RowsetReader;
 class TabletSchema;
 
-// TODO(gaodayue) change to BETA_ROWSET when we're going to release segment v2
-const RowsetTypePB DEFAULT_ROWSET_TYPE = ALPHA_ROWSET;
-
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
     virtual ~Rowset() { }
