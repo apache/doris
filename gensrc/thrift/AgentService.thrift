@@ -71,6 +71,17 @@ struct TAlterTabletReq {
     3: required TCreateTabletReq new_tablet_req
 }
 
+enum TStorageFormat {
+    DEFAULT,
+    V1,
+    V2
+}
+
+enum TAlterType {
+    SCHEMA_CHANGE,
+    ROLLUP
+}
+
 // This v2 request will replace the old TAlterTabletReq.
 // TAlterTabletReq should be deprecated after new alter job process merged.
 struct TAlterTabletReqV2 {
@@ -81,6 +92,8 @@ struct TAlterTabletReqV2 {
     // version of data which this alter task should transform
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
+    7: optional TAlterType alter_type
+    8: optional TStorageFormat storage_format
 }
 
 struct TClusterInfo {

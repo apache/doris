@@ -20,6 +20,8 @@ package org.apache.doris.task;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TAlterType;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -37,6 +39,7 @@ public class AlterReplicaTask extends AgentTask {
     private long versionHash;
     private long jobId;
     private AlterJobV2.JobType jobType;
+    private TStorageFormat storageFormat = null;
 
     public AlterReplicaTask(long backendId, long dbId, long tableId,
             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
@@ -89,10 +92,22 @@ public class AlterReplicaTask extends AgentTask {
         return jobType;
     }
 
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
+    }
+
     public TAlterTabletReqV2 toThrift() {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
+        if (this.jobType == AlterJobV2.JobType.ROLLUP) {
+            req.setAlter_type(TAlterType.ROLLUP);
+        } else {
+            req.setAlter_type(TAlterType.SCHEMA_CHANGE);
+        }
+        if (this.storageFormat != null) {
+            req.setStorage_format(this.storageFormat);
+        }
         return req;
     }
 }

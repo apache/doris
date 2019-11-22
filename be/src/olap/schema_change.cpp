@@ -1369,6 +1369,13 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = delete_handler;
+        sc_params.alter_type = request.alter_type;
+        if (request.__isset.storage_format) {
+            sc_params.storage_format = request.storage_format;
+        } else {
+            sc_params.storage_format = TStorageFormat::DEFAULT;
+        }
+
 
         res = _convert_historical_rowsets(sc_params);
         if (res != OLAP_SUCCESS) {
@@ -1663,6 +1670,13 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
+    if (sc_params.alter_type == TAlterType::ROLLUP && sc_params.storage_format == TStorageFormat::V2) {
+        // in this case, rollup must have all the same columns as base
+        // just use directly type
+        LOG(INFO) << "use directly schema change for rollup with v2";
+        sc_directly = true;
+    }
+
     // b. 生成历史数据转换器
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
@@ -1702,6 +1716,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (sc_params.storage_format == TStorageFormat::V2) {
+            // To create a all column rollup index from base table use BETA_ROWSET type
+            // in this case, linked schema change will not be used.
+            writer_context.rowset_type = BETA_ROWSET;
+        }
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;

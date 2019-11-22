@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -49,11 +50,13 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -464,11 +467,21 @@ public class MaterializedViewHandler extends AlterHandler {
         // up to here, table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
+<<<<<<< HEAD:fe/src/main/java/org/apache/doris/alter/MaterializedViewHandler.java
         Long baseIndexId = olapTable.getIndexIdByName(baseIndexName);
         if (baseIndexId == null) {
             throw new DdlException("Base index[" + baseIndexName + "] does not exist");
         }
         // check state
+=======
+        if (properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("V2")) {
+            rollupJob.setStorageFormat(TStorageFormat.V2);
+        }
+        /*
+         * create all rollup indexes. and set state.
+         * After setting, Tables' state will be ROLLUP
+         */
+>>>>>>> realize add beta rollup by using modify property:fe/src/main/java/org/apache/doris/alter/RollupHandler.java
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             // up to here. index's state should only be NORMAL
@@ -523,6 +536,48 @@ public class MaterializedViewHandler extends AlterHandler {
         DropInfo dropInfo = new DropInfo(dbId, tableId, rollupIndexId);
         editLog.logDropRollup(dropInfo);
         LOG.info("finished drop rollup index[{}] in table[{}]", rollupIndexName, olapTable.getName());
+    }
+
+    // sql: alter table base_table_name set property ("storage_format" = "v2");
+    // this is a temparory function for upgrade purpose
+    // create a new rollup index in format v2 with a special name by add base table name with prefix "__v2"
+    //
+    // main steps:
+    // 1. validate the alterClause
+    // 2. construct a AddRollupClause based on base table
+    // 3. call processAddRollup
+    private void procesModifyTableStorageFormat(ModifyTablePropertiesClause modifyClause,
+                                              Database db, OlapTable olapTable) throws DdlException {
+        Map<String, String> properties = modifyClause.getProperties();
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT) ||
+                !properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
+            throw  new DdlException("invalid storage format");
+        }
+        // check the special rollup index exists
+        // it is for temparory upgrade purpose, so use a format as following
+        String baseIndexName = olapTable.getName();
+        String newStorageFormatIndexName = "__v2_" + baseIndexName;
+        if (olapTable.hasMaterializedIndex(newStorageFormatIndexName)) {
+            throw new DdlException("Rollup index[" + newStorageFormatIndexName + "] already exists");
+        }
+        Long baseIndexId = olapTable.getIndexIdByName(baseIndexName);
+        if (baseIndexId == null) {
+            throw new DdlException("Base index[" + baseIndexName + "] does not exist");
+        }
+        List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
+        List<String> columnNames = new ArrayList<String>(columns.size());
+        for (Column column : columns) {
+            columnNames.add(column.getName());
+        }
+        long timeoutSecond = 0;
+        try {
+            timeoutSecond = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second);
+        } catch (Exception e) {
+            throw new DdlException("analyze timeout failed");
+        }
+        AddRollupClause addRollupClause = new AddRollupClause(newStorageFormatIndexName, columnNames, null, baseIndexName, properties);
+        addRollupClause.setTimeoutSecond(timeoutSecond);
+        processAddRollup(addRollupClause, db, olapTable);
     }
 
     public void replayDropRollup(DropInfo dropInfo, Catalog catalog) {
@@ -762,6 +817,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 processAddRollup((AddRollupClause) alterClause, db, olapTable);
             } else if (alterClause instanceof DropRollupClause) {
                 processDropRollup((DropRollupClause) alterClause, db, olapTable);
+            } else if (alterClause instanceof ModifyTablePropertiesClause) {
+                procesModifyTableStorageFormat((ModifyTablePropertiesClause)alterClause, db, olapTable);
             } else {
                 Preconditions.checkState(false);
             }

@@ -51,11 +51,13 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -139,6 +141,9 @@ public class Alter {
         boolean hasRename = false;
         // modify properties ops, if has, should appear one and only one entry
         boolean hasModifyProp = false;
+        // modify storage_type property
+        // specially process this property as rollup
+        boolean hasModifyStorageType = false;
 
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
@@ -167,30 +172,34 @@ public class Alter {
                     || alterClause instanceof ReorderColumnsClause)
                     && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
-            } else if ((alterClause instanceof AddRollupClause)
-                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
-                hasAddMaterializedView = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
+                hasAddRollup = true;
+            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
                 hasDropRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
                 hasPartition = true;
-            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                    && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
                 hasPartition = true;
-            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddRollup
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
                 hasPartition = true;
             } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
                     || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename
-                    && !hasModifyProp) {
+                    && !hasSchemaChange && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename
+                    && !hasModifyProp && !hasModifyStorageType) {
                 hasRename = true;
-            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
-                hasModifyProp = true;
+            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddRollup
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp && !hasModifyStorageType) {
+                Map<String, String> properties = alterClause.getProperties();
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+                    hasModifyStorageType = true;
+                } else {
+                    hasModifyProp = true;
+                }
             } else {
                 throw new DdlException("Conflicting alter clauses. see help for more information");
             }
@@ -234,8 +243,15 @@ public class Alter {
 
             if (hasSchemaChange || hasModifyProp) {
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
+<<<<<<< HEAD
             } else if (hasAddMaterializedView || hasDropRollup) {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
+=======
+            } else if (hasAddRollup || hasDropRollup || hasModifyStorageType) {
+                // if modify storage type to v2, create a rollup index to reserve the original data
+                // and the v2 format rollup simultaneously
+                rollupHandler.process(alterClauses, clusterName, db, olapTable);
+>>>>>>> realize add beta rollup by using modify property
             } else if (hasPartition) {
                 Preconditions.checkState(alterClauses.size() == 1);
                 AlterClause alterClause = alterClauses.get(0);

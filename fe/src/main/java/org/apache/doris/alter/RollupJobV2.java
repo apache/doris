@@ -45,6 +45,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -93,6 +94,8 @@ public class RollupJobV2 extends AlterJobV2 {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
+    private TStorageFormat storageFormat = null;
+
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
             List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash,
@@ -126,6 +129,10 @@ public class RollupJobV2 extends AlterJobV2 {
 
     public void addMVIndex(long partitionId, MaterializedIndex mvIndex) {
         this.partitionIdToRollupIndex.put(partitionId, mvIndex);
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
     }
 
     /*
@@ -317,6 +324,9 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
                                 visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP);
+                        if (this.storageFormat != null) {
+                            rollupTask.setStorageFormat(this.storageFormat);
+                        }
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

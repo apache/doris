@@ -236,6 +236,8 @@ private:
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         DeleteHandler delete_handler;
+        TAlterType::type alter_type;
+        TStorageFormat::type storage_format;
     };
 
     // add alter task to base_tablet and new_tablet.
