@@ -20,9 +20,9 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.BeginTransactionException;
 
@@ -39,7 +39,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  * The function of execute will be called in LoadScheduler.
  * The status of LoadJob will be changed to loading after LoadScheduler.
  */
-public class LoadJobScheduler extends Daemon {
+public class LoadJobScheduler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(LoadJobScheduler.class);
 
@@ -50,7 +50,7 @@ public class LoadJobScheduler extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         try {
             process();
         } catch (Throwable e) {
