@@ -41,8 +41,6 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     }
 
     if (batch->column(_column_id)->no_nulls() && !_is_null) {
-        batch->set_size(n);
-        batch->set_selected_in_use(false);
         return;
     }
 
