@@ -23,10 +23,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
@@ -53,7 +53,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  * The scheduler will be blocked in step3 till the queue receive a new task
  */
-public class RoutineLoadTaskScheduler extends Daemon {
+public class RoutineLoadTaskScheduler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
@@ -77,7 +77,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         try {
             process();
         } catch (Throwable e) {

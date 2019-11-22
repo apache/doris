@@ -22,7 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
@@ -61,7 +61,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Heartbeat manager run as a daemon at a fix interval.
  * For now, it will send heartbeat to all Frontends, Backends and Brokers
  */
-public class HeartbeatMgr extends Daemon {
+public class HeartbeatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(HeartbeatMgr.class);
 
     private final ExecutorService executor;
@@ -89,7 +89,7 @@ public class HeartbeatMgr extends Daemon {
      * 2. collect the heartbeat response from all nodes, and handle them
      */
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
         
         // send backend heartbeat

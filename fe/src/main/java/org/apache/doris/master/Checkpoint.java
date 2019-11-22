@@ -20,7 +20,7 @@ package org.apache.doris.master;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -43,7 +43,7 @@ import java.util.List;
 /**
  * Checkpoint daemon is running on master node. handle the checkpoint work for palo. 
  */
-public class Checkpoint extends Daemon {
+public class Checkpoint extends MasterDaemon {
     public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
     private static final int PUT_TIMEOUT_SECOND = 3600;
     private static final int CONNECT_TIMEOUT_SECOND = 1;
@@ -68,14 +68,7 @@ public class Checkpoint extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
-        if (!Catalog.getInstance().isReady()) {
-            // here we use getInstance(), not getCurrentCatalog() because we truly want the Catalog instance,
-            // not the Checkpoint catalog instance.
-            // and if catalog is not ready, do not doing checkpoint.
-            return;
-        }
-
+    protected void runAfterCatalogReady() {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;

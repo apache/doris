@@ -19,7 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.ExportJob.JobState;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.task.ExportPendingTask;
@@ -34,7 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
-public final class ExportChecker extends Daemon {
+public final class ExportChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ExportChecker.class);
 
     // checkers for running job state
@@ -67,7 +67,7 @@ public final class ExportChecker extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         LOG.debug("start check export jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:
