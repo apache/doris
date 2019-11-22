@@ -34,9 +34,10 @@ class RowsetFactory;
 
 class BetaRowset : public Rowset {
 public:
-    virtual ~BetaRowset() {}
+    virtual ~BetaRowset();
 
-    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
+    static std::string segment_file_path(
+            const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
