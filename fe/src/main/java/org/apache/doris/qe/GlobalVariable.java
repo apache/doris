@@ -39,7 +39,7 @@ public final class GlobalVariable {
     public static int lowerCaseTableNames = 0;
 
     @VariableMgr.VarAttr(name = "license", flag = VariableMgr.READ_ONLY)
-    public static String license = "Baidu";
+    public static String license = "Apache License, Version 2.0";
 
     @VariableMgr.VarAttr(name = "language", flag = VariableMgr.READ_ONLY)
     public static String language = "/palo/share/english/";
