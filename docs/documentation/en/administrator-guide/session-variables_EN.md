@@ -1,14 +1,14 @@
-# Session Variable
+# Variable
 
-This document focuses on currently supported session variables.
+This document focuses on currently supported variables.
 
-Session variables in Doris refer to session variable settings in MySQL. However, some of the variables are only used to be compatible with some MySQL client protocols, and do not produce their actual meaning in the MySQL database.
+Variables in Doris refer to variable settings in MySQL. However, some of the variables are only used to be compatible with some MySQL client protocols, and do not produce their actual meaning in the MySQL database.
 
 ## Variable setting and viewing
 
 ### View
 
-All or specified session variables can be viewed via `SHOW VARIABLES [LIKE 'xxx'];`. Such as:
+All or specified variables can be viewed via `SHOW VARIABLES [LIKE 'xxx'];`. Such as:
 
 ```
 SHOW VARIABLES;
@@ -17,7 +17,7 @@ SHOW VARIABLES LIKE '%time_zone%';
 
 ### Settings
 
-Some session variables can be set at global-level or session-only. For global-level, the set value will be used in subsequent new session connections. For session-only, the variable only works for the current session.
+Some variables can be set at global-level or session-only. For global-level, the set value will be used in subsequent new session connections. For session-only, the variable only works for the current session.
 
 For session-only, set by the `SET var_name=xxx;` statement. Such as:
 
@@ -40,7 +40,7 @@ SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
 
-> Note 1: Only ADMIN users can set session variable at global-level.
+> Note 1: Only ADMIN users can set variable at global-level.
 
 Variables that support global-level setting include:
 
