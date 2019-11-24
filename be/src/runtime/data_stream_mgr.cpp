@@ -131,7 +131,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google
 
 Status DataStreamMgr::deregister_recvr(
         const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
-    std::vector<boost::shared_ptr<DataStreamRecvr>> recvrs;
+    boost::shared_ptr<DataStreamRecvr> targert_recvr;
     VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << fragment_instance_id
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
@@ -143,11 +143,11 @@ Status DataStreamMgr::deregister_recvr(
             const shared_ptr<DataStreamRecvr>& recvr = range.first->second;
             if (recvr->fragment_instance_id() == fragment_instance_id
                 && recvr->dest_node_id() == node_id) {
-                recvrs.push_back(recvr);
+                targert_recvr = recvr;
                 _fragment_stream_set.erase(std::make_pair(
                     recvr->fragment_instance_id(), recvr->dest_node_id()));
                 _receiver_map.erase(range.first);
-                return Status::OK();
+                break;
             }
             ++range.first;
         }
@@ -155,15 +155,16 @@ Status DataStreamMgr::deregister_recvr(
 
     // Notify concurrent add_data() requests that the stream has been terminated.
     // cancel_stream maybe take a long time, so we handle it out of lock.
-    for(auto& it: recvrs) {
-        it->cancel_stream();
+    if (targert_recvr) {
+        targert_recvr->cancel_stream();
+        return Status::OK();
+    } else {
+        std::stringstream err;
+        err << "unknown row receiver id: fragment_instance_id=" << fragment_instance_id
+            << " node_id=" << node_id;
+        LOG(ERROR) << err.str();
+        return Status::InternalError(err.str());
     }
-
-    std::stringstream err;
-    err << "unknown row receiver id: fragment_instance_id=" << fragment_instance_id
-        << " node_id=" << node_id;
-    LOG(ERROR) << err.str();
-    return Status::InternalError(err.str());
 }
 
 void DataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {
