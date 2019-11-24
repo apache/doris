@@ -90,7 +90,7 @@ public class VariableMgrTest {
         // Set global variable
         SetVar setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
         VariableMgr.setVar(var, setVar);
-        Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
+        Assert.assertEquals(1234L, var.getMaxExecMemByte());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
