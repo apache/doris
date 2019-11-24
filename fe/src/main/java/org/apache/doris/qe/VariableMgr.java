@@ -239,10 +239,10 @@ public class VariableMgr {
                 wlock.unlock();
             }
             writeGlobalVariableUpdate(globalSessionVariable, "update global variables");
-        } else {
-            // Only session
-            setValue(sessionVariable, ctx.getField(), value);
         }
+
+        // whether it is session or global, set variables in current session, to make it effective.
+        setValue(sessionVariable, ctx.getField(), value);
     }
 
     // global variable persisitence

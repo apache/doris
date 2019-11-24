@@ -13,5 +13,6 @@
     extending-doris/index
     internal/index
     sql-reference/index
+    developer-guide/index    
     community/index
 
