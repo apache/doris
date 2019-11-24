@@ -139,9 +139,6 @@ private:
     AgentUtils* _agent_utils;
     MasterServerClient* _master_client;
     ExecEnv* _env;
-#ifdef BE_TEST
-    AgentServerClient* _agent_client;
-#endif
 
     std::deque<TAgentTaskRequest> _tasks;
     Mutex _worker_thread_lock;
