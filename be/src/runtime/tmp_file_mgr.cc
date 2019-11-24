@@ -59,7 +59,6 @@ TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
         // _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
 
 Status TmpFileMgr::init(MetricRegistry* metrics) {
-    std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
     for (auto& path : _exec_env->store_paths()) {
         all_tmp_dirs.emplace_back(path.path);
