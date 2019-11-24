@@ -265,7 +265,7 @@ Variables that support global-level setting include:
     
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here] (./sql_mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here] (./sql-mode.md).
     
 * `sql_safe_updates`
 

@@ -264,7 +264,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `sql_mode`
 
-    用于指定 SQL 模式，以适应某些 SQL 方言。关于 SQL 模式，可参阅 [这里](./sql_mode.md)。
+    用于指定 SQL 模式，以适应某些 SQL 方言。关于 SQL 模式，可参阅 [这里](./sql-mode.md)。
     
 * `sql_safe_updates`
 
