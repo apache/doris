@@ -164,7 +164,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     private int exchangeInstanceParallel = -1;
 
-    // The current time zone
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     private int sqlSafeUpdates = 0;
 
@@ -340,10 +339,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setInteractiveTimeout(int interactiveTimeout) {
         this.interactiveTimeout = interactiveTimeout;
-    }
-
-    public int getWaitTimeout() {
-        return waitTimeout;
     }
 
     public void setWaitTimeout(int waitTimeout) {
