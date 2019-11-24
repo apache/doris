@@ -123,7 +123,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 
 // TODO support beta rowset
 OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
-    const int32_t& schema_hash, TabletSharedPtr tablet) {
+    const int32_t& schema_hash) {
     OLAPStatus res = OLAP_SUCCESS;   
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {

@@ -59,60 +59,6 @@ using apache::thrift::transport::TTransportException;
 
 namespace doris {
 
-
-AgentServerClient::AgentServerClient(const TBackend backend) :
-        _socket(new TSocket(backend.host, backend.be_port)),
-        _transport(new TBufferedTransport(_socket)),
-        _protocol(new TBinaryProtocol(_transport)),
-        _agent_service_client(_protocol) {
-}
-
-AgentServerClient::~AgentServerClient() {
-    if (_transport != NULL) {
-        _transport->close();
-    }
-}
-
-AgentStatus AgentServerClient::make_snapshot(
-        const TSnapshotRequest& snapshot_request,
-        TAgentResult* result) {
-    AgentStatus status = DORIS_SUCCESS;
-
-    TAgentResult thrift_result;
-    try {
-        _transport->open();
-        _agent_service_client.make_snapshot(thrift_result, snapshot_request);
-        *result = thrift_result;
-        _transport->close();
-    } catch (TException& e) {
-        OLAP_LOG_WARNING("agent clinet make snapshot, "
-                         "get exception, error: %s", e.what());
-        _transport->close();
-        status = DORIS_ERROR;
-    }
-
-    return status;
-}
-
-AgentStatus AgentServerClient::release_snapshot(
-        const string& snapshot_path,
-        TAgentResult* result) {
-    AgentStatus status = DORIS_SUCCESS;
-
-    try {
-        _transport->open();
-        _agent_service_client.release_snapshot(*result, snapshot_path);
-        _transport->close();
-    } catch (TException& e) {
-        OLAP_LOG_WARNING("agent clinet make snapshot, "
-                         "get exception, error: %s", e.what());
-        _transport->close();
-        status = DORIS_ERROR;
-    }
-    
-    return status;
-}
-
 MasterServerClient::MasterServerClient(
         const TMasterInfo& master_info,
         FrontendServiceClientCache* client_cache) :

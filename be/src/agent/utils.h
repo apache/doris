@@ -34,46 +34,6 @@
 
 namespace doris {
 
-// client cache
-// All service client should be defined in client_cache.h
-//class MasterServiceClient;
-//typedef ClientCache<MasterServiceClient> MasterServiceClientCache;
-//typedef ClientConnection<MasterServiceClient> MasterServiceConnection;
-
-class AgentServerClient {
-public:
-    explicit AgentServerClient(const TBackend backend);
-    virtual ~AgentServerClient();
-    
-    // Make a snapshot of tablet
-    //
-    // Input parameters:
-    // * tablet_id: The id of tablet to make snapshot
-    // * schema_hash: The schema hash of tablet to make snapshot
-    //
-    // Output parameters:
-    // * result: The result of make snapshot
-    virtual AgentStatus make_snapshot(
-            const TSnapshotRequest& snapshot_request,
-            TAgentResult* result);
-
-    // Release the snapshot
-    //
-    // Input parameters:
-    // * snapshot_path: The path of snapshot
-    //
-    // Output parameters:
-    // * result: The result of release snapshot
-    virtual AgentStatus release_snapshot(const std::string& snapshot_path, TAgentResult* result);
-
-private:
-    boost::shared_ptr<apache::thrift::transport::TTransport> _socket;
-    boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
-    BackendServiceClient _agent_service_client;
-    DISALLOW_COPY_AND_ASSIGN(AgentServerClient);
-};  // class AgentServerClient
-
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
