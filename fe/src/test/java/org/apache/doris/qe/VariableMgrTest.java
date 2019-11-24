@@ -96,13 +96,13 @@ public class VariableMgrTest {
 
         SetVar setVar2 = new SetVar(SetType.GLOBAL, "parallel_fragment_exec_instance_num", new IntLiteral(5L));
         VariableMgr.setVar(var, setVar2);
-        Assert.assertEquals(1L, var.getParallelExecInstanceNum());
+        Assert.assertEquals(5L, var.getParallelExecInstanceNum());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(5L, var.getParallelExecInstanceNum());
 
         SetVar setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Asia/Shanghai"));
         VariableMgr.setVar(var, setVar3);
-        Assert.assertEquals("CST", var.getTimeZone());
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
 
