@@ -85,6 +85,11 @@ public:
         char* dst_cell = cell_ptr(index);
         column_schema(index)->shallow_copy_content(dst_cell, buf);
     }
+    // convert and deep copy field content
+    OLAPStatus convert_from(size_t index, const char* src, Field* src_field, MemPool* mem_pool){
+        char* dest = cell_ptr(index);
+        return column_schema(index)->convert_from(desc, src, src_field, mem_pool);
+    }
 
     // 从传入的字符串数组反序列化内部各field的值
     // 每个字符串必须是一个\0结尾的字符串

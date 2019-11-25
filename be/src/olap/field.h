@@ -187,6 +187,15 @@ public:
         _type_info->shallow_copy(dst, src);
     }
 
+    // copy filed content from src to dest without nullbyte
+    inline void deep_copy_content(char* dest, const char* src, Arena* arena) const {
+        _type_info->deep_copy_with_arena(dest, src, arena);
+    }
+    //convert and copy field from src to desc
+    inline OLAPStatus convert_from(char* dest, const char* src, Field* src_field, MemPool* mem_pool) const{
+        return _type_info->convert_from(desc, src, src_field->type_info(), mem_pool);
+    }
+
     // Copy srouce content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;
