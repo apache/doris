@@ -75,6 +75,16 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
+    /*
+     * configure the mem limit of load process on BE. 
+     * Previously users used exec_mem_limit to set memory limits.
+     * To maintain compatibility, the default value of load_mem_limit is 0,
+     * which means that the load memory limit is still using exec_mem_limit.
+     * Users can set a value greater than zero to explicitly specify the load memory limit.
+     * This variable is mainly for INSERT operation, because INSERT operation has both query and load part.
+     * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
+     */
+    public static final String LOAD_MEM_LIMIT = "load_mem_limit";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -197,8 +207,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     private boolean forwardToMaster = false;
 
+    @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
+    private long loadMemLimit = 0L;
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
+    }
+
+    public long getLoadMemLimit() {
+        return loadMemLimit;
     }
 
     public int getQueryTimeoutS() {
@@ -225,140 +242,72 @@ public class SessionVariable implements Serializable, Writable {
         return autoCommit;
     }
 
-    public void setAutoCommit(boolean autoCommit) {
-        this.autoCommit = autoCommit;
-    }
-
     public String getTxIsolation() {
         return txIsolation;
-    }
-
-    public void setTxIsolation(String txIsolation) {
-        this.txIsolation = txIsolation;
     }
 
     public String getCharsetClient() {
         return charsetClient;
     }
 
-    public void setCharsetClient(String charsetClient) {
-        this.charsetClient = charsetClient;
-    }
-
     public String getCharsetConnection() {
         return charsetConnection;
-    }
-
-    public void setCharsetConnection(String charsetConnection) {
-        this.charsetConnection = charsetConnection;
     }
 
     public String getCharsetResults() {
         return charsetResults;
     }
 
-    public void setCharsetResults(String charsetResults) {
-        this.charsetResults = charsetResults;
-    }
-
     public String getCharsetServer() {
         return charsetServer;
-    }
-
-    public void setCharsetServer(String charsetServer) {
-        this.charsetServer = charsetServer;
     }
 
     public String getCollationConnection() {
         return collationConnection;
     }
 
-    public void setCollationConnection(String collationConnection) {
-        this.collationConnection = collationConnection;
-    }
-
     public String getCollationDatabase() {
         return collationDatabase;
-    }
-
-    public void setCollationDatabase(String collationDatabase) {
-        this.collationDatabase = collationDatabase;
     }
 
     public String getCollationServer() {
         return collationServer;
     }
 
-    public void setCollationServer(String collationServer) {
-        this.collationServer = collationServer;
-    }
-
     public boolean isSqlAutoIsNull() {
         return sqlAutoIsNull;
-    }
-
-    public void setSqlAutoIsNull(boolean sqlAutoIsNull) {
-        this.sqlAutoIsNull = sqlAutoIsNull;
     }
 
     public long getSqlSelectLimit() {
         return sqlSelectLimit;
     }
 
-    public void setSqlSelectLimit(long sqlSelectLimit) {
-        this.sqlSelectLimit = sqlSelectLimit;
-    }
-
     public int getMaxAllowedPacket() {
         return maxAllowedPacket;
-    }
-
-    public void setMaxAllowedPacket(int maxAllowedPacket) {
-        this.maxAllowedPacket = maxAllowedPacket;
     }
 
     public int getAutoIncrementIncrement() {
         return autoIncrementIncrement;
     }
 
-    public void setAutoIncrementIncrement(int autoIncrementIncrement) {
-        this.autoIncrementIncrement = autoIncrementIncrement;
-    }
-
     public int getQueryCacheType() {
         return queryCacheType;
-    }
-
-    public void setQueryCacheType(int queryCacheType) {
-        this.queryCacheType = queryCacheType;
     }
 
     public int getInteractiveTimeout() {
         return interactiveTimeout;
     }
 
-    public void setInteractiveTimeout(int interactiveTimeout) {
-        this.interactiveTimeout = interactiveTimeout;
-    }
-
-    public void setWaitTimeout(int waitTimeout) {
-        this.waitTimeout = waitTimeout;
+    public int getWaitTimeout() {
+        return waitTimeout;
     }
 
     public int getNetWriteTimeout() {
         return netWriteTimeout;
     }
 
-    public void setNetWriteTimeout(int netWriteTimeout) {
-        this.netWriteTimeout = netWriteTimeout;
-    }
-
     public int getNetReadTimeout() {
         return netReadTimeout;
-    }
-
-    public void setNetReadTimeout(int netReadTimeout) {
-        this.netReadTimeout = netReadTimeout;
     }
 
     public String getTimeZone() {
@@ -373,24 +322,12 @@ public class SessionVariable implements Serializable, Writable {
         return sqlSafeUpdates;
     }
 
-    public void setSqlSafeUpdates(int sqlSafeUpdates) {
-        this.sqlSafeUpdates = sqlSafeUpdates;
-    }
-
     public int getNetBufferLength() {
         return netBufferLength;
     }
 
-    public void setNetBufferLength(int netBufferLength) {
-        this.netBufferLength = netBufferLength;
-    }
-
     public int getCodegenLevel() {
         return codegenLevel;
-    }
-
-    public void setCodegenLevel(int codegenLevel) {
-        this.codegenLevel = codegenLevel;
     }
 
     public void setMaxExecMemByte(long maxExecMemByte) {
@@ -401,12 +338,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public void setQueryTimeoutS(int queryTimeoutS) {
-        this.queryTimeoutS = queryTimeoutS;
+    public void setLoadMemLimit(long loadMemLimit) {
+        this.loadMemLimit = loadMemLimit;
     }
 
-    public void setReportSucc(boolean isReportSucc) {
-        this.isReportSucc = isReportSucc;
+    public void setQueryTimeoutS(int queryTimeoutS) {
+        this.queryTimeoutS = queryTimeoutS;
     }
 
     public String getResourceGroup() {
@@ -421,10 +358,6 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocateJoin;
     }
 
-    public void setDisableColocateJoin(boolean disableColocateJoin) {
-        this.disableColocateJoin = disableColocateJoin;
-    }
-
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
     }
@@ -433,27 +366,10 @@ public class SessionVariable implements Serializable, Writable {
         return exchangeInstanceParallel;
     }
 
-    public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
-        if (parallelExecInstanceNum < MIN_EXEC_INSTANCE_NUM) {
-            this.parallelExecInstanceNum = MIN_EXEC_INSTANCE_NUM;
-        } else if (parallelExecInstanceNum > MAX_EXEC_INSTANCE_NUM) {
-            this.parallelExecInstanceNum = MAX_EXEC_INSTANCE_NUM;
-        } else {
-            this.parallelExecInstanceNum = parallelExecInstanceNum;
-        }
-    }
-
     public boolean getEnableInsertStrict() { return enableInsertStrict; }
-    public void setEnableInsertStrict(boolean enableInsertStrict) { this.enableInsertStrict = enableInsertStrict; }
 
-
-   // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
-    }
-
-    public void setForwardToMaster(boolean forwardToMaster) {
-        this.forwardToMaster = forwardToMaster;
     }
 
     // Serialize to thrift object
@@ -474,6 +390,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
+        tResult.setLoad_mem_limit(loadMemLimit);
         return tResult;
     }
 
@@ -510,6 +427,14 @@ public class SessionVariable implements Serializable, Writable {
         out.writeBoolean(disableStreamPreaggregations);
         out.writeInt(parallelExecInstanceNum);
         out.writeInt(exchangeInstanceParallel);
+
+        out.writeLong(loadMemLimit);
+        // false means there are no more variables. It you need to add more variables to persist,
+        // change this to true, and add:
+        //      out.writeXXX(new_var_name);
+        //      out.writeBoolean(false);
+        // By doing this, we no longer need to change the FE meta version when adding new variables to persist.
+        out.writeBoolean(false);   
     }
 
     @Override
@@ -556,6 +481,13 @@ public class SessionVariable implements Serializable, Writable {
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
             exchangeInstanceParallel = in.readInt();
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
+            loadMemLimit = in.readLong();
+            if (in.readBoolean()) {
+                // add new variables here
+            }
         }
     }
 }

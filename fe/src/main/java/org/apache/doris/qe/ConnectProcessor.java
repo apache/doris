@@ -345,6 +345,9 @@ public class ConnectProcessor {
         if (request.isSetSqlMode()) {
             ctx.getSessionVariable().setSqlMode(request.sqlMode);
         }
+        if (request.isSetLoadMemLimit()) {
+            ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
+        }
 
         ctx.setThreadLocalInfo();
 

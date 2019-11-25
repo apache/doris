@@ -75,6 +75,7 @@ import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -190,8 +191,6 @@ public class Coordinator {
     // parallel execute
     private final TUniqueId nextInstanceId;
 
-    private boolean isQueryCoordinator;
-
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.isBlockQuery = planner.isBlockQuery();
@@ -299,6 +298,28 @@ public class Coordinator {
 
     public List<TTabletCommitInfo> getCommitInfos() {
         return commitInfos;
+    }
+
+    /*
+     * calculate the set mem limit for load channel on BE.
+     * 1. For INSERT operation:
+     *      The memory consumption includes the query part and the load part.
+     *      But the user only needs to set a parameter exec_mem_limit to limit the overall memory limit.
+     *      We use a ratio of 8:2 to allocate memory to the query and load part.
+     *      And memory limit of load part should larger than 2GB
+     * 2. For BROKER/MINI/STREAMING load
+     *      The memory consumption is mainly concentrated in the load section.
+     *      So we allocate all the memory to the load part
+     */
+    public void calcLoadMemLimit(LoadJobSourceType loadType) {
+        switch (loadType) {
+            case INSERT_STREAMING:
+                break;
+            default:
+                this.queryOptions.setLoad_mem_limit(queryOptions.getMem_limit());
+                break;
+        }
+
     }
 
     // Initialize
