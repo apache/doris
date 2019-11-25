@@ -137,7 +137,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-    
+
     // for restoring
     public BinaryPredicate() {
         super();
@@ -243,7 +243,6 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-        Type cmpType = getCmpType();
         Function match = null;
 
         //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
@@ -305,7 +304,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
-        
+
         return Type.DOUBLE;
     }
 
@@ -314,13 +313,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         super.analyzeImpl(analyzer);
 
         for (Expr expr : children) {
-            if (expr instanceof Subquery && !expr.getType().isScalarType()) {
-                throw new AnalysisException("BinaryPredicate can't contain subquery or non scalar type");
-            }   
+            if (expr instanceof Subquery && !((Subquery) expr).returnsScalarColumn()) {
+                String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
+                throw new AnalysisException(msg);
+            }
+        }
+
+        // if children has subquery, it will be written and reanalyzed in the future.
+        if (children.get(0) instanceof Subquery || children.get(1) instanceof Subquery) {
+            return;
         }
 
         Type cmpType = getCmpType();
-
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
 

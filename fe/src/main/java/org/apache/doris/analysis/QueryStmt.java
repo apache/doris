@@ -54,7 +54,10 @@ public abstract class QueryStmt extends StatementBase {
     protected WithClause withClause_;
 
     protected ArrayList<OrderByElement> orderByElements;
+    // Limit element could not be null, the default limit element is NO_LIMIT
     protected LimitElement limitElement;
+
+    protected AssertNumRowsElement assertNumRowsElement;
 
     /**
      * For a select statment:
@@ -183,10 +186,6 @@ public abstract class QueryStmt extends StatementBase {
 
     public boolean isEvaluateOrderBy() {
         return evaluateOrderBy;
-    }
-
-    public void setEvaluateOrderBy(boolean evaluateOrderBy) {
-        this.evaluateOrderBy = evaluateOrderBy;
     }
 
     public ArrayList<Expr> getBaseTblResultExprs() {
@@ -417,6 +416,14 @@ public abstract class QueryStmt extends StatementBase {
 
     public long getOffset() {
         return limitElement.getOffset();
+    }
+
+    public void setAssertNumRowsElement(int desiredNumOfRows) {
+        this.assertNumRowsElement = new AssertNumRowsElement(desiredNumOfRows, toSql());
+    }
+
+    public AssertNumRowsElement getAssertNumRowsElement() {
+        return assertNumRowsElement;
     }
 
     public void setIsExplain(boolean isExplain) {

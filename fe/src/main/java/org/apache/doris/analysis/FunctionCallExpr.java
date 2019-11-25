@@ -545,6 +545,9 @@ public class FunctionCallExpr extends Expr {
         analyzeBuiltinAggFunction(analyzer);
 
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
+            if (this.children.isEmpty()) {
+                throw new AnalysisException("The " + fnName + " function must has one input param");
+            }
             Type type = getChild(0).type.getMaxResolutionType();
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

@@ -50,6 +50,7 @@
 #include "exec/analytic_eval_node.h"
 #include "exec/select_node.h"
 #include "exec/union_node.h"
+#include "exec/assert_num_rows_node.h"
 #include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
 #include "runtime/initial_reservations.h"
@@ -451,6 +452,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
+        *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+        return Status::OK();
+        
     default:
         map<int, const char*>::const_iterator i =
             _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);

@@ -223,6 +223,8 @@ public class DistributedPlanner {
             result = createAnalyticFragment(root, childFragments.get(0), fragments);
         } else if (root instanceof EmptySetNode) {
             result = new PlanFragment(ctx_.getNextFragmentId(), root, DataPartition.UNPARTITIONED);
+        } else if (root instanceof AssertNumRowsNode) {
+            result = createAssertFragment(root, childFragments.get(0));
         } else {
             throw new UserException(
                     "Cannot create plan fragment for this node type: " + root.getExplainString());
@@ -1047,6 +1049,26 @@ public class DistributedPlanner {
         childSortNode.setOffset(0);
         childSortNode.computeStats(ctx_.getRootAnalyzer());
         exchNode.computeStats(ctx_.getRootAnalyzer());
+
+        return mergeFragment;
+    }
+
+    private PlanFragment createAssertFragment(PlanNode assertRowCountNode, PlanFragment inputFragment)
+            throws UserException {
+        Preconditions.checkState(assertRowCountNode instanceof AssertNumRowsNode);
+        if (!inputFragment.isPartitioned()) {
+            inputFragment.addPlanRoot(assertRowCountNode);
+            return inputFragment;
+        }
+
+        // Create a new fragment for assert row count node
+        PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED);
+        ExchangeNode exchNode = (ExchangeNode) mergeFragment.getPlanRoot();
+        mergeFragment.addPlanRoot(assertRowCountNode);
+
+        // reset the stat of assert row count node
+        exchNode.computeStats(ctx_.getRootAnalyzer());
+        assertRowCountNode.computeStats(ctx_.getRootAnalyzer());
 
         return mergeFragment;
     }
