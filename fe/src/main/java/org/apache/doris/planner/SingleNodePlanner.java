@@ -72,6 +72,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.apache.doris.analysis.Predicate.canPushDownPredicate;
+
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
  * The single-node plan does not contain data exchanges or data-reduction optimizations
@@ -1347,6 +1349,45 @@ public class SingleNodePlanner {
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
             Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
             List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
+
+            // push down join predicate
+            List<Expr> pushDownConjuncts = Lists.newArrayList();
+            TupleId tupleId = tblRef.getId();
+            List<Expr> eqJoinPredicates = analyzer.getEqJoinConjuncts(tupleId);
+            if (eqJoinPredicates != null) {
+                // only inner and left outer join
+                if ((tblRef.getJoinOp().isInnerJoin() || tblRef.getJoinOp().isLeftOuterJoin())) {
+                    List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());
+                    allConjuncts.removeAll(conjuncts);
+                    for (Expr conjunct: allConjuncts) {
+                        if (canPushDownPredicate(conjunct)) {
+                            for (Expr eqJoinPredicate : eqJoinPredicates) {
+                                // we can ensure slot is left node, because NormalizeBinaryPredicatesRule
+                                SlotRef otherSlot = conjunct.getChild(0).unwrapSlotRef();
+
+                                // ensure the children for eqJoinPredicate both be SlotRef
+                                if (eqJoinPredicate.getChild(0).unwrapSlotRef() == null || eqJoinPredicate.getChild(1).unwrapSlotRef() == null) {
+                                    continue;
+                                }
+
+                                SlotRef leftSlot = eqJoinPredicate.getChild(0).unwrapSlotRef();
+                                SlotRef rightSlot = eqJoinPredicate.getChild(1).unwrapSlotRef();
+
+                                // example: t1.id = t2.id and t1.id = 1  => t2.id =1
+                                if (otherSlot.isBound(leftSlot.getSlotId()) && rightSlot.isBound(tupleId)) {
+                                    pushDownConjuncts.add(rewritePredicate(analyzer, conjunct, rightSlot));
+                                } else if (otherSlot.isBound(rightSlot.getSlotId()) && leftSlot.isBound(tupleId)) {
+                                    pushDownConjuncts.add(rewritePredicate(analyzer, conjunct, leftSlot));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LOG.info("pushDownConjuncts: " + pushDownConjuncts);
+                conjuncts.addAll(pushDownConjuncts);
+            }
+
             for (Column column : tblRef.getTable().getBaseSchema()) {
                 SlotDescriptor slotDesc = tblRef.getDesc().getColumnSlot(column.getName());
                 if (null == slotDesc) {
@@ -1359,6 +1400,7 @@ public class SingleNodePlanner {
             }
             scanNode.setColumnFilters(columnFilters);
             scanNode.setSortColumn(tblRef.getSortColumn());
+            scanNode.addConjuncts(pushDownConjuncts);
         }
         // assignConjuncts(scanNode, analyzer);
         scanNode.init(analyzer);
@@ -1370,6 +1412,24 @@ public class SingleNodePlanner {
         List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getId(), k -> Lists.newArrayList());
         scanNodeList.add(scanNode);
         return scanNode;
+    }
+
+    private Expr rewritePredicate(Analyzer analyzer, Expr oldPredicate, Expr leftChild) {
+        if (oldPredicate instanceof BinaryPredicate) {
+            BinaryPredicate oldBP = (BinaryPredicate) oldPredicate;
+            BinaryPredicate bp = new BinaryPredicate(oldBP.getOp(), leftChild, oldBP.getChild(1));
+            bp.analyzeNoThrow(analyzer);
+            return bp;
+        }
+
+        if (oldPredicate instanceof InPredicate) {
+            InPredicate oldIP = (InPredicate) oldPredicate;
+            InPredicate ip =  new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
+            ip.analyzeNoThrow(analyzer);
+            return ip;
+        }
+
+        return oldPredicate;
     }
 
     /**
