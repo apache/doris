@@ -95,6 +95,20 @@ public final class RollupSelector {
                 }
             }
         }
+        String tableName = table.getName();
+        String v2RollupIndexName = "__v2_" + tableName;
+        Long v2RollupIndex = table.getIndexIdByName(v2RollupIndexName);
+        long baseIndexId = table.getBaseIndexId();
+        if (baseIndexId == selectedIndexId && v2RollupIndex != null) {
+            // if the selectedIndexId is baseIndexId
+            // check whether there is a V2 rollup index
+            // if exist, use v2 rollup index
+            selectedIndexId = v2RollupIndex;
+            LOG.info("use v2 rollup index to replace base index");
+        }
+        if (v2RollupIndex != null && selectedIndexId == v2RollupIndex) {
+            LOG.info("table:{} has v2 rollup index, use v2 rollup index:{}", tableName, v2RollupIndex);
+        }
         return selectedIndexId;
     }
 
