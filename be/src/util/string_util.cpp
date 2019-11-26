@@ -17,17 +17,14 @@
 
 #include "util/string_util.h"
 
+#include "gutil/strings/split.h"
+
 namespace doris {
 
 std::size_t hash_of_path(const std::string& identifier, const std::string& path) {
     std::size_t hash = std::hash<std::string>()(identifier);
-    std::vector<std::string> path_parts;
-    boost::split(path_parts, path, boost::is_any_of("/"));
+    std::vector<std::string> path_parts = strings::Split(path, "/", strings::SkipWhitespace());
     for (auto& part : path_parts) {
-        if (part.empty()) {
-            continue;
-        }
-
         boost::hash_combine<std::string>(hash, part);
     }
     return hash;
