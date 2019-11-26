@@ -68,10 +68,6 @@ public:
 
     static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
 
-    static void set_instance(StorageEngine* engine) {
-        _s_instance = engine;
-    }
-
     static StorageEngine* instance() {
         return _s_instance;
     }
@@ -90,7 +86,7 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // Instance should be inited from create_instance
+    // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
     OLAPStatus open();
 
@@ -131,12 +127,11 @@ public:
     // 重新加载数据。
     void start_disk_stat_monitor();
 
-    // get root path for creating tablet. The returned vector of root path should be random, 
+    // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(
         TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
-    DataDir* get_store(int64_t path_hash);
 
     uint32_t available_storage_medium_type_count() {
         return _available_storage_medium_type_count;
@@ -144,10 +139,6 @@ public:
 
     int32_t effective_cluster_id() const {
         return _effective_cluster_id;
-    }
-
-    uint32_t get_file_system_count() {
-        return _store_map.size();
     }
 
     void start_delete_unused_rowset();
@@ -184,7 +175,7 @@ public:
         std::unique_lock<std::mutex> lk(_report_mtx);
         auto cv_status = _report_cv.wait_for(lk, std::chrono::seconds(timeout_sec));
         if (cv_status == std::cv_status::no_timeout) {
-            is_tablet_report ? _is_report_tablet_already = true : 
+            is_tablet_report ? _is_report_tablet_already = true :
                     _is_report_disk_state_already = true;
         }
     }
@@ -230,7 +221,7 @@ private:
     void _clean_unused_txns();
 
     void _clean_unused_rowset_metas();
-    
+
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const int32_t expire);
 
