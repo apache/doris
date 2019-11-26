@@ -190,6 +190,9 @@ public class MaterializedViewHandler extends AlterHandler {
                                             baseIndexId, mvIndexId, baseIndexName, mvName,
                                             mvColumns, baseSchemaHash, mvSchemaHash,
                                             mvKeysType, mvShortKeyColumnCount);
+        if (properties != null && properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("V2")) {
+            mvJob.setStorageFormat(TStorageFormat.V2);
+        }
 
         /*
          * create all rollup indexes. and set state.
@@ -467,21 +470,14 @@ public class MaterializedViewHandler extends AlterHandler {
         // up to here, table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
-<<<<<<< HEAD:fe/src/main/java/org/apache/doris/alter/MaterializedViewHandler.java
         Long baseIndexId = olapTable.getIndexIdByName(baseIndexName);
         if (baseIndexId == null) {
             throw new DdlException("Base index[" + baseIndexName + "] does not exist");
-        }
-        // check state
-=======
-        if (properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("V2")) {
-            rollupJob.setStorageFormat(TStorageFormat.V2);
         }
         /*
          * create all rollup indexes. and set state.
          * After setting, Tables' state will be ROLLUP
          */
->>>>>>> realize add beta rollup by using modify property:fe/src/main/java/org/apache/doris/alter/RollupHandler.java
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             // up to here. index's state should only be NORMAL
