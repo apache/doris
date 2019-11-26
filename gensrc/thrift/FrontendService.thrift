@@ -414,6 +414,7 @@ struct TMasterOpRequest {
     9: optional string time_zone
     10: optional i64 stmt_id
     11: optional i64 sqlMode
+    12: optional i64 loadMemLimit
 }
 
 struct TColumnDefinition {

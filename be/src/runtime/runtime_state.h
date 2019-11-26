@@ -503,13 +503,7 @@ public:
 
     // get mem limit for load channel
     // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit() {
-        if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
-            return  _query_options.load_mem_limit;
-        } else {
-            return _query_mem_tracker->limit();
-        }
-    }
+    int64_t get_load_mem_limit();
 
 private:
     // Allow TestEnv to set block_mgr manually for testing.

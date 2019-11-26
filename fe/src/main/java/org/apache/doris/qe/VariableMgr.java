@@ -204,7 +204,6 @@ public class VariableMgr {
         }
     }
 
-
     // Get from show name to field
     public static void setVar(SessionVariable sessionVariable, SetVar setVar) throws DdlException {
         VarContext ctx = ctxByVarName.get(setVar.getVariable());
@@ -239,13 +238,14 @@ public class VariableMgr {
                 wlock.unlock();
             }
             writeGlobalVariableUpdate(globalSessionVariable, "update global variables");
+        } else {
+            // set global variable should not affect variables of current session.
+            // global variable will only make effect when connecting in.
+            setValue(sessionVariable, ctx.getField(), value);
         }
-
-        // whether it is session or global, set variables in current session, to make it effective.
-        setValue(sessionVariable, ctx.getField(), value);
     }
 
-    // global variable persisitence
+    // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
         globalSessionVariable.write(out);
     }
@@ -276,7 +276,7 @@ public class VariableMgr {
                 field.setAccessible(true);
 
                 VarContext ctx = ctxByVarName.get(attr.name());
-                if (ctx.getFlag() == SESSION) {
+                if (ctx.getFlag() == GLOBAL) {
                     String value = getValue(variable, ctx.getField());
                     setValue(ctx.getObj(), ctx.getField(), value);
                 }
