@@ -107,6 +107,13 @@ public class EsRestClient {
             if (!Strings.isEmpty(basicAuth)) {
                 builder.addHeader("Authorization", basicAuth);
             }
+
+            // maybe should add HTTP schema to the address
+            // actually, at this time we can only process http protocol
+            if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
+                currentNode = "http://" + currentNode;
+            }
+
             Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
