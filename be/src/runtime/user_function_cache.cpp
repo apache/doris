@@ -20,9 +20,10 @@
 #include <vector>
 #include <regex>
 
-#include <boost/algorithm/string/split.hpp> // boost::split
 #include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
+
+#include "gutil/strings/split.h"
 
 #include "env/env.h"
 #include "http/http_client.h"
@@ -35,7 +36,7 @@ namespace doris {
 
 static const int kLibShardNum = 128;
 
-// function cache entry, store information for 
+// function cache entry, store information for
 struct UserFunctionCacheEntry {
     UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_,
                            const std::string& lib_file_)
@@ -118,7 +119,7 @@ Status UserFunctionCache::init(const std::string& lib_dir) {
     _lib_dir = lib_dir;
     // 1. dynamic open current process
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));
-    // 2. load all cached 
+    // 2. load all cached
     RETURN_IF_ERROR(_load_cached_lib());
     return Status::OK();
 }
@@ -128,8 +129,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         return Status::InternalError("unknown library file format");
     }
 
-    std::vector<std::string> split_parts;
-    boost::split(split_parts, file, boost::is_any_of("."));
+    std::vector<std::string> split_parts = strings::Split(file, ".");
     if (split_parts.size() != 3) {
         return Status::InternalError("user function's name should be function_id.checksum.so");
     }
@@ -283,7 +283,7 @@ void UserFunctionCache::_destroy_cache_entry(UserFunctionCacheEntry* entry) {
         entry->unref();
     }
     entry->should_delete_library.store(true);
-    // now we need to drop 
+    // now we need to drop
     if (entry->unref()) {
         delete entry;
     }
@@ -353,7 +353,7 @@ Status UserFunctionCache::_download_lib(
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
         return Status::InternalError("fail to rename file");
     }
-    
+
     // check download
     entry->is_downloaded = true;
     return Status::OK();
