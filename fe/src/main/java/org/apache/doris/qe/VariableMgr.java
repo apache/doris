@@ -276,7 +276,7 @@ public class VariableMgr {
                 field.setAccessible(true);
 
                 VarContext ctx = ctxByVarName.get(attr.name());
-                if (ctx.getFlag() == GLOBAL) {
+                if (ctx.getFlag() == SESSION) {
                     String value = getValue(variable, ctx.getField());
                     setValue(ctx.getObj(), ctx.getField(), value);
                 }
