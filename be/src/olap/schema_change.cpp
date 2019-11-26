@@ -1673,7 +1673,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     if (sc_params.alter_type == TAlterType::ROLLUP && sc_params.storage_format == TStorageFormat::V2) {
         // in this case, rollup must have all the same columns as base
         // just use directly type
-        LOG(INFO) << "use directly schema change for rollup with v2";
         sc_directly = true;
     }
 
