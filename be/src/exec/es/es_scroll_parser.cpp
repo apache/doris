@@ -68,8 +68,7 @@ std::string json_value_to_string(const rapidjson::Value& value) {
     rapidjson::StringBuffer scratch_buffer;
     rapidjson::Writer<rapidjson::StringBuffer> temp_writer(scratch_buffer);
     value.Accept(temp_writer);
-    std::string scratch_json_str = std::string(scratch_buffer.GetString());
-    return scratch_json_str;
+    return scratch_buffer.GetString();
 }
 
 static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
@@ -273,21 +272,13 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
                 // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation 
                 // this may be a tricky, but we can workaround this issue
+                std::string val;
                 if (!col.IsString()) {
-                    std::string string_representation = json_value_to_string(col);
-                    char* str_buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(string_representation.length()));
-                    if (UNLIKELY(str_buffer == NULL)) {
-                        string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
-                                    string_representation.length(), "string slot");
-                        return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, string_representation.length());
-                    }
-                    memcpy(str_buffer, string_representation.data(), string_representation.length());
-                    reinterpret_cast<StringValue*>(slot)->ptr = str_buffer;
-                    reinterpret_cast<StringValue*>(slot)->len = string_representation.length();
-                    break;
+                    val = json_value_to_string(col);
+                } else {
+                    val = col.GetString();
                 }
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
+                size_t val_size = val.length();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
                 if (UNLIKELY(buffer == NULL)) {
                     string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
