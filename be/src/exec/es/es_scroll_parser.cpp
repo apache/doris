@@ -25,7 +25,13 @@
 #include "common/status.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "rapidjson/rapidjson.h"
+#include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "util/string_parser.hpp"
+
+
 
 namespace doris {
 
@@ -34,6 +40,36 @@ static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
 static const char* FIELD_TOTAL = "total";
+
+
+// get the original json data type
+std::string json_type_to_string(rapidjson::Type type) {
+    switch (type) {
+        case rapidjson::kNumberType:
+            return "Number";
+        case rapidjson::kStringType:
+            return "Varchar/Char";
+        case rapidjson::kArrayType:
+            return "Array";
+        case rapidjson::kObjectType:
+            return "Object";
+        case rapidjson::kNullType:
+            return "Null Type";
+        case rapidjson::kFalseType:
+        case rapidjson::kTrueType:
+            return "True/False";
+        default:
+            return "Unknown Type";
+    }
+}
+
+// transfer rapidjson::Value to string representation
+std::string json_value_to_string(const rapidjson::Value& value) {
+    rapidjson::StringBuffer scratch_buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> temp_writer(scratch_buffer);
+    value.Accept(temp_writer);
+    return scratch_buffer.GetString();
+}
 
 static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
     "Expected value of type $0 based on column metadata. This likely indicates a "
@@ -46,7 +82,12 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
     do { \
         if (col.IsArray()) { \
-            return Status::InternalError(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
 
@@ -54,7 +95,12 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type) \
     do { \
         if (!col.IsString()) { \
-            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
 
@@ -62,7 +108,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_PARSING_FAILED(result, type) \
     do { \
         if (result != StringParser::PARSE_SUCCESS) { \
-            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            return Status::RuntimeError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
         } \
     } while (false)
 
@@ -159,7 +205,7 @@ Status ScrollParser::parse(const std::string& scroll_result) {
         return Status::OK();
     }
 
-    VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
+    VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
         LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
@@ -184,6 +230,7 @@ const std::string& ScrollParser::get_scroll_id() {
 int ScrollParser::get_total() {
     return _total;
 }
+
 
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
             Tuple* tuple, MemPool* tuple_pool, bool* line_eof) {
@@ -222,10 +269,16 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_CHAR:
             case TYPE_VARCHAR: {
                 RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
+                // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
+                // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation 
+                // this may be a tricky, but we can workaround this issue
+                std::string val;
+                if (!col.IsString()) {
+                    val = json_value_to_string(col);
+                } else {
+                    val = col.GetString();
+                }
+                size_t val_size = val.length();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
                 if (UNLIKELY(buffer == NULL)) {
                     string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
