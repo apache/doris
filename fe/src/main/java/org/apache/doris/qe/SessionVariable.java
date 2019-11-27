@@ -368,6 +368,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableInsertStrict() { return enableInsertStrict; }
 
+    public void setEnableInsertStrict(boolean enableInsertStrict) {
+        this.enableInsertStrict = enableInsertStrict;
+    }
+
     public boolean getForwardToMaster() {
         return forwardToMaster;
     }
