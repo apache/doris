@@ -299,11 +299,6 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                         val = col.GetString();
                     }
                 }
-                if (!col.IsString()) {
-                    val = json_value_to_string(col);
-                } else {
-                    val = col.GetString();
-                }
                 size_t val_size = val.length();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
                 if (UNLIKELY(buffer == NULL)) {

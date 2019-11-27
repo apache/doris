@@ -88,9 +88,6 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
             pure_docvalue = true;
         }
     }
-    for(auto iter = docvalue_context.begin(); iter != docvalue_context.end(); iter++) {
-        LOG(INFO) << iter->first << " : " << iter->second << endl;
-    }
     rapidjson::Value source_node(rapidjson::kArrayType);    
     if (fields.size() > 0) {
         for (auto iter = fields.begin(); iter != fields.end(); iter++) {
