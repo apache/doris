@@ -21,6 +21,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
@@ -116,6 +117,18 @@ struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
     }
 };
 
+template<FieldType type>
+struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new BinaryPrefixPageBuilder(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new BinaryPrefixPageDecoder(data, opts);
+        return Status::OK();
+    }
+};
+
 template<FieldType field_type, EncodingTypePB encoding_type>
 struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type, typename CppTypeTraits<field_type>::CppType> {
     static const FieldType type = field_type;
@@ -184,8 +197,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();

@@ -131,6 +131,23 @@ public:
         return _buffer.size();
     }
 
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
 private:
     OwnedSlice _finish(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
@@ -186,6 +203,8 @@ private:
     bool _finished;
     faststring _data;
     faststring _buffer;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>

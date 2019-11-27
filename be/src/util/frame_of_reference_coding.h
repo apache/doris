@@ -98,7 +98,8 @@ class ForDecoder {
 public:
     explicit ForDecoder(const uint8_t* in_buffer, size_t buffer_len)
         :_buffer (in_buffer),
-         _buffer_len (buffer_len){}
+         _buffer_len (buffer_len),
+         _parsed(false){}
 
     // read footer metadata
     bool init();
@@ -114,6 +115,12 @@ public:
     // The skip_num is negative means move backwards
     bool skip(int32_t skip_num);
 
+    bool seek_at_or_after_value(const void* value, bool* exact_match);
+
+    uint32_t current_index() const {
+        return _current_index;
+    }
+
     uint32_t count() const {
         return _values_num;
     }
@@ -122,26 +129,41 @@ private:
 
     void bit_unpack(const uint8_t *input, uint8_t in_num, int bit_width, T *output);
 
+    inline uint32_t frame_size(uint32_t frame_index) {
+        return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
+    }
+
     void decode_current_frame(T* output);
+
+    T decode_frame_min_value(uint32_t frame_index);
+
+    // Return index of the last frame which contains value < target.
+    // Return `_frame_count - 1` when all frames are < target.
+    // Return `_frame_count` when not found (all frames are >= target).
+    uint32_t seek_last_frame_before_value(T target);
+
+    // Seek to the first value in frame that >= target.
+    // Return true when found and update exact_match.
+    // Return false otherwise.
+    bool seek_lower_bound_inside_frame(uint32_t frame_index, T target, bool* exact_match);
 
     T* copy_value(T* val, size_t count);
 
-    bool need_decode_frame() {
-        return !(_frame_value_num * _current_decoded_frame < _current_index
-                 && _current_index < _frame_value_num * (_current_decoded_frame + 1));
-    }
+    const uint8_t* _buffer;
+    size_t _buffer_len = 0;
+    bool _parsed;
 
-    uint8_t _frame_value_num = 0;
+    uint8_t _max_frame_size;
+    uint8_t _last_frame_size;
     uint32_t _values_num = 0;
     uint32_t _frame_count = 0;
-    uint32_t _current_index = 0;
-    uint32_t _current_decoded_frame = -1;
-    std::vector<T> _out_buffer;
     std::vector<uint32_t> _frame_offsets;
     std::vector<uint8_t> _bit_widths;
     std::vector<uint8_t> _order_flags;
-    const uint8_t* _buffer;
-    size_t _buffer_len = 0;
+
+    uint32_t _current_index = 0;
+    uint32_t _current_decoded_frame = -1;
+    std::vector<T> _out_buffer; // store values of decoded frame
 };
 }
 
