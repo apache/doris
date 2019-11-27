@@ -60,7 +60,7 @@ public:
     }
 
     //convert and deep copy value from other type's source
-    OLAPStatus convert_from(void* dest, const void* src, TypeInfo* src_type, MemPoll* mem_pool){
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const{
         return _convert_from(dest, src, src_type, mem_pool);
     }
 
@@ -84,7 +84,7 @@ private:
     void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
-    OLAPStatus (*_convert_from)(void* dest, const void* src, TypeInfo* src_type, MemPool* mem_pool);
+    OLAPStatus (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -200,7 +200,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static OLAPStatus convert_from(void* dest, const void* src, TypeInfo* src_type, MemPool* mem_pool) {
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
         return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
 
@@ -384,11 +384,16 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
         snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
         return std::string(buf);
     }
-    static OLAPStatus convert_from(void* dest, const void* src, TypeInfo* src_type, MemPool* mem_pool) {
-        //only support convert from float now
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        //only support float now
         if(src_type->type() == OLAP_FIELD_TYPE_FLOAT){
-            using SrcType = typename FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
-            *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const SrcType*>(src); 
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
+            char buf[64];
+            memset(buf,0,sizeof(buf));            
+            sprintf(buf,"%f",*reinterpret_cast<const SrcType*>(src));
+            char* tg;
+            *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
+            //*reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const SrcType*>(src); 
             return OLAPStatus::OLAP_SUCCESS;    
         }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
@@ -446,19 +451,17 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
         return std::string(buf);
     }
-    static OLAPStatus convert_from(void* dest, const void* src, TypeInfo* src_type, MemPool* mem_pool) {
-        //only support convert from datetime now
-        //TODO: convert from int32 20191125/char(8)/varchar(8) "20191125"
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        //only support datetime now
         if(src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME){
-            using SrcType = typename FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::CppType;
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
-            //need part one : 20191125161900 -> 20191125
             SrcType part1 = (src_value / 1000000L);
             tm time_tm;
             time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
             time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
             time_tm.tm_mday = static_cast<int>(part1 % 100);
-            //convert to date format
+            
             int value = (time_tm.tm_year + 1900) * 16 * 32
                 + (time_tm.tm_mon + 1) * 32
                 + time_tm.tm_mday;

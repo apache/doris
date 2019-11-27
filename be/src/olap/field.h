@@ -192,8 +192,8 @@ public:
         _type_info->deep_copy_with_arena(dest, src, arena);
     }
     //convert and copy field from src to desc
-    inline OLAPStatus convert_from(char* dest, const char* src, Field* src_field, MemPool* mem_pool) const{
-        return _type_info->convert_from(desc, src, src_field->type_info(), mem_pool);
+    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type, MemPool* mem_pool) const{        
+        return _type_info->convert_from(dest, src, src_type, mem_pool);
     }
 
     // Copy srouce content to destination in index format.
