@@ -276,6 +276,10 @@ public class Coordinator {
         this.queryOptions.setMem_limit(execMemoryLimit);
     }
 
+    public void setLoadMemLimit(long loadMemLimit) {
+        this.queryOptions.setLoad_mem_limit(loadMemLimit);
+    }
+
     public void setTimeout(int timeout) {
         this.queryOptions.setQuery_timeout(timeout);
     }
