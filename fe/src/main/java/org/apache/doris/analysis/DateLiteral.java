@@ -433,6 +433,14 @@ public class DateLiteral extends LiteralExpr {
     //Return the date stored in the dateliteral as pattern format.
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
+        //Replace java date style : {"yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"}
+        pattern = pattern.replaceAll("yyyy", "%Y").
+                replaceAll("MM", "%m").
+                replaceAll("dd", "%d").
+                replaceAll("HH", "%H").
+                replaceAll("mm", "%i").
+                replaceAll("ss", "%s");
+
         if (type == Type.DATE) {
             return DATE_FORMATTER.parseLocalDateTime(getStringValue())
                     .toString(formatBuilder(pattern).toFormatter());
