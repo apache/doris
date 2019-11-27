@@ -150,7 +150,7 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
 * strict\_mode
 
-    Routine load load can turn on strict mode mode. The way to open it is to add ```"strict_mode" = "true"``` to job\_properties. The default strict mode is on.
+    Routine load load can turn on strict mode mode. The way to open it is to add ```"strict_mode" = "true"``` to job\_properties. The default strict mode is off.
 
     The strict mode mode means strict filtering of column type conversions during the load process. The strict filtering strategy is as follows:
 
