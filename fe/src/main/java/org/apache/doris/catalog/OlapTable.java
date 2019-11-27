@@ -120,6 +120,8 @@ public class OlapTable extends Table {
     // The init value is -1, which means there is not partition and index at all.
     private long baseIndexId = -1;
 
+    private TableProperty tableProperty;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -139,6 +141,8 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+
+        this.tableProperty = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
@@ -167,6 +171,8 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+
+        this.tableProperty = null;
     }
 
     public void setBaseIndexId(long baseIndexId) {
@@ -204,6 +210,14 @@ public class OlapTable extends Table {
                 break;
             }
         }
+    }
+
+    public void setTableProperty(TableProperty tableProperty) {
+        this.tableProperty = tableProperty;
+    }
+
+    public TableProperty getTableProperty() {
+        return this.tableProperty;
     }
 
     public boolean hasMaterializedIndex(String indexName) {
@@ -819,6 +833,14 @@ public class OlapTable extends Table {
         }
 
         out.writeLong(baseIndexId);
+
+        //dynamicProperties
+        if (tableProperty == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            tableProperty.write(out);
+        }
     }
 
     @Override
@@ -912,6 +934,12 @@ public class OlapTable extends Table {
         } else {
             // the old table use table id as base index id
             baseIndexId = id;
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
+            if (in.readBoolean()) {
+                tableProperty = TableProperty.read(in);
+            }
         }
     }
 

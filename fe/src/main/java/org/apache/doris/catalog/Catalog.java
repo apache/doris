@@ -177,6 +177,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.DynamicPartitionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageMedium;
@@ -1153,6 +1154,10 @@ public class Catalog {
         // start routine load scheduler
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
+        // start dynamic partition task
+        DynamicPartitionTask.getInstance().setName("dynamicPartitionTask");
+        DynamicPartitionTask.getInstance().setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
+        DynamicPartitionTask.getInstance().start();
     }
 
     // start threads that should running on all FE
@@ -3519,6 +3524,37 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
+        // check all dynamic properties exist
+        if (properties != null) {
+            String timeUnit = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+            String prefix = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX);
+            String end = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END);
+            String buckets = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+            String enable = properties.get(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE);
+            if (!((Strings.isNullOrEmpty(timeUnit) &&
+                    Strings.isNullOrEmpty(prefix) &&
+                    Strings.isNullOrEmpty(end) &&
+                    Strings.isNullOrEmpty(buckets)))) {
+                if (Strings.isNullOrEmpty(timeUnit)) {
+                    throw new DdlException("Must assign dynamic_partition.time_unit properties");
+                }
+                if (Strings.isNullOrEmpty(prefix)) {
+                    throw new DdlException("Must assign dynamic_partition.prefix properties");
+                }
+                if (Strings.isNullOrEmpty(end)) {
+                    throw new DdlException("Must assign dynamic_partition.end properties");
+                }
+                if (Strings.isNullOrEmpty(buckets)) {
+                    throw new DdlException("Must assign dynamic_partition.buckets properties");
+                }
+                // dynamic partition enable default to true
+                if (Strings.isNullOrEmpty(enable)) {
+                    enable = PropertyAnalyzer.TRUE;
+                    properties.put(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE, enable);
+                }
+            }
+        }
+
         // set index schema
         int schemaVersion = 0;
         try {
@@ -3572,6 +3608,10 @@ public class Catalog {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
+                    Map<String, String> dynamicPartition = PropertyAnalyzer.analyzeDynamicPartition(db,
+                                                                                                    olapTable,
+                                                                                                    properties);
+                    olapTable.setTableProperty(new TableProperty(db.getId(), olapTable.getId(), dynamicPartition));
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -3910,7 +3950,24 @@ public class Catalog {
                 sb.append(colocateTable).append("\"");
             }
 
+
+            // 6. dynamic partition
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (!(tableProperty.getDynamicProperties().isEmpty())) {
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE).append("\" = \"");
+                sb.append(tableProperty.getDynamicPartitionEnable()).append("\"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT).append("\" = \"");
+                sb.append(tableProperty.getDynamicPartitionTimeUnit()).append("\"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END).append("\" = \"");
+                sb.append(tableProperty.getDynamicPartitionEnd()).append("\"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX).append("\" = \"");
+                sb.append(tableProperty.getDynamicPartitionPrefix()).append("\"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS).append("\" = \"");
+                sb.append(tableProperty.getDynamicPartitionBuckets()).append("\"");
+            }
+
             sb.append("\n)");
+
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
             if (!Strings.isNullOrEmpty(table.getComment())) {
@@ -4951,6 +5008,28 @@ public class Catalog {
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay modify table colocate", e);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void modifyTableDynamicPartition(Database db, OlapTable table,
+                                            Map<String, String> properties) throws DdlException {
+        Map<String, String> analyzedProperties = PropertyAnalyzer.analyzeDynamicPartition(db, table, properties);
+        table.getTableProperty().getDynamicProperties().putAll(analyzedProperties);
+        editLog.logDynamicPartition(table.getTableProperty());
+    }
+
+    public void replayModifyTableDynamicPartition(TableProperty tableProperty) {
+        long dbId = tableProperty.getDbId();
+        long tableId = tableProperty.getTableId();
+        Map<String, String> dynamicProperties = tableProperty.getDynamicProperties();
+
+        Database db = getDb(dbId);
+        db.writeLock();
+        try {
+            OlapTable table = (OlapTable) db.getTable(tableId);
+            table.setTableProperty(new TableProperty(dbId, tableId, dynamicProperties));
         } finally {
             db.writeUnlock();
         }

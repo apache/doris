@@ -21,11 +21,16 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionUtils;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -38,6 +43,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +78,17 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
+
+    public static final String DAY = "day";
+    public static final String WEEK = "week";
+    public static final String MONTH = "month";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT = "dynamic_partition.time_unit";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_PREFIX = "dynamic_partition.prefix";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_END = "dynamic_partition.end";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_BUCKETS = "dynamic_partition.buckets";
+    public static final String PROPERTIES_DYANMIC_PARTITION_ENABLE = "dynamic_partition.enable";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -372,5 +389,60 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    public static Map<String, String> analyzeDynamicPartition(Database db, OlapTable olapTable,
+                                                              Map<String, String> properties) throws DdlException {
+        if (properties == null || properties.isEmpty()) {
+            throw new DdlException("Table " + olapTable.getName() + " is not a dynamic partition olap table");
+        }
+        Map<String, String> analyzedProperties = new HashMap<>();
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT)) {
+            String timeUnit = properties.get(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+            DynamicPartitionUtils.checkTimeUnit(olapTable, timeUnit);
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT, timeUnit);
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_PREFIX)) {
+            String prefix = properties.get(PROPERTIES_DYNAMIC_PARTITION_PREFIX);
+            DynamicPartitionUtils.checkPrefix(olapTable, prefix);
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_PREFIX);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX, prefix);
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_END)) {
+            String end = properties.get(PROPERTIES_DYNAMIC_PARTITION_END);
+            DynamicPartitionUtils.checkEnd(olapTable, end);
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_END);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END, end);
+        }
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_BUCKETS)) {
+            String buckets = properties.get(PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+            DynamicPartitionUtils.checkBuckets(olapTable, buckets);
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS, buckets);
+        }
+        if (properties.containsKey(PROPERTIES_DYANMIC_PARTITION_ENABLE)) {
+            String enable = properties.get(PROPERTIES_DYANMIC_PARTITION_ENABLE);
+            DynamicPartitionUtils.checkEnable(db, olapTable, enable);
+            properties.remove(PROPERTIES_DYANMIC_PARTITION_ENABLE);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE, enable);
+        }
+        if (properties.containsKey(TableProperty.MSG)) {
+            String msg = properties.get(TableProperty.MSG);
+            analyzedProperties.put(TableProperty.MSG, msg);
+        }
+        if (properties.containsKey(TableProperty.STATE)) {
+            String state = properties.get(TableProperty.STATE);
+            analyzedProperties.put(TableProperty.STATE, state);
+        } else {
+            analyzedProperties.put(TableProperty.STATE, TableProperty.State.NORMAL.toString());
+        }
+        if (properties.containsKey(TableProperty.LAST_UPDATE_TIME)) {
+            String lastUpdateTime = properties.get(TableProperty.LAST_UPDATE_TIME);
+            analyzedProperties.put(TableProperty.LAST_UPDATE_TIME, lastUpdateTime);
+        } else {
+            analyzedProperties.put(TableProperty.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+        }
+        return analyzedProperties;
     }
 }

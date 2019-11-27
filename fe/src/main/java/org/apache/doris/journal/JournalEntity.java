@@ -27,6 +27,7 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -419,6 +420,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                 data = TableInfo.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DYNAMIC_PARTITION: {
+                data = TableProperty.read(in);
                 needRead = false;
                 break;
             }

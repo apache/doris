@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -692,6 +693,11 @@ public class EditLog {
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
+                case OperationType.OP_DYNAMIC_PARTITION: {
+                    TableProperty tableProperty = (TableProperty)journal.getData();
+                    catalog.replayModifyTableDynamicPartition(tableProperty);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1189,5 +1195,9 @@ public class EditLog {
 
     public void logModifyDitrubutionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+    }
+
+    public void logDynamicPartition(TableProperty info) {
+        logEdit(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 }

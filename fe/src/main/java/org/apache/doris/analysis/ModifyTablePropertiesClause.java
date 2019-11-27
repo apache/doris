@@ -63,6 +63,12 @@ public class ModifyTablePropertiesClause extends AlterClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             // do nothing, these 2 properties will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END)) {
+            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
