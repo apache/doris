@@ -198,6 +198,7 @@ struct TBrokerScanNode {
 struct TEsScanNode {
     1: required Types.TTupleId tuple_id
     2: optional map<string,string> properties
+    3: optional map<string, string> docvalue_context
 }
 
 struct TMiniLoadEtlFunction {

@@ -94,6 +94,25 @@ public class EsRestClient {
     }
 
     /**
+     *
+     * Get the Elasticsearch cluster version
+     *
+     * @return
+     */
+    public EsMajorVersion version() {
+        Map<String, String> versionMap = get("/", "version");
+
+        EsMajorVersion majorVersion;
+        try {
+            majorVersion = EsMajorVersion.parse(versionMap.get("version"));
+        } catch (Exception e) {
+            LOG.warn("detect es version failure on node [{}]", currentNode);
+            return EsMajorVersion.V_5_X;
+        }
+        return majorVersion;
+    }
+
+    /**
      * execute request for specific path
      *
      * @param path the path must not leading with '/'

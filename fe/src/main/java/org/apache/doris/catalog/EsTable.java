@@ -17,15 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Strings;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.external.EsMajorVersion;
 import org.apache.doris.external.EsTableState;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
-
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,12 +33,18 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.Adler32;
 
 public class EsTable extends Table {
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
+
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
 
     public static final String HOSTS = "hosts";
     public static final String USER = "user";
@@ -46,9 +52,11 @@ public class EsTable extends Table {
     public static final String INDEX = "index";
     public static final String TYPE = "type";
     public static final String TRANSPORT = "transport";
+    public static final String VERSION = "version";
 
     public static final String TRANSPORT_HTTP = "http";
     public static final String TRANSPORT_THRIFT = "thrift";
+    public static final String DOC_VALUE_SCAN = "docvalue_scan_optimization";
 
     private String hosts;
     private String[] seeds;
@@ -61,17 +69,38 @@ public class EsTable extends Table {
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
     private EsTableState esTableState;
+    private boolean isDocValueScan = false;
+
+    public EsMajorVersion majorVersion = null;
+
+    private Map<String, String> tableContext = new HashMap<>();
+
+    private Map<String, String> docValueContext = new HashMap<>();
 
     public EsTable() {
         super(TableType.ELASTICSEARCH);
     }
 
     public EsTable(long id, String name, List<Column> schema,
-            Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
+                   Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
         this.partitionInfo = partitionInfo;
         validate(properties);
     }
+
+
+    public void addDocValueField(String name, String fieldsName) {
+        docValueContext.put(name, fieldsName);
+    }
+
+    public Map<String, String> docValueContext() {
+        return docValueContext;
+    }
+
+    public boolean isDocValueScan() {
+        return isDocValueScan;
+    }
+
 
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
@@ -104,6 +133,26 @@ public class EsTable extends Table {
         }
         indexName = properties.get(INDEX).trim();
 
+        // Explicit setting for cluster version to avoid detecting version failure
+        if (properties.containsKey(VERSION)) {
+            try {
+                majorVersion = EsMajorVersion.parse(properties.get(VERSION).trim());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+
+        // Explicit setting for cluster version to avoid detecting version failure
+        if (properties.containsKey(DOC_VALUE_SCAN)) {
+            try {
+                isDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
+        } else {
+            isDocValueScan = false;
+        }
+
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
                 && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
@@ -116,6 +165,16 @@ public class EsTable extends Table {
                         + " but value is " + transport);
             }
         }
+        tableContext.put("hosts", hosts);
+        tableContext.put("userName", userName);
+        tableContext.put("passwd", passwd);
+        tableContext.put("indexName", indexName);
+        tableContext.put("mappingType", mappingType);
+        tableContext.put("transport", transport);
+        if (majorVersion != null) {
+            tableContext.put("majorVersion", majorVersion.toString());
+        }
+        tableContext.put("isDocValueScan", String.valueOf(isDocValueScan));
     }
 
     public TTableDescriptor toThrift() {
@@ -137,18 +196,24 @@ public class EsTable extends Table {
             adler32.update(name.getBytes(charsetName));
             // type
             adler32.update(type.name().getBytes(charsetName));
-            // host
-            adler32.update(hosts.getBytes(charsetName));
-            // username
-            adler32.update(userName.getBytes(charsetName));
-            // passwd
-            adler32.update(passwd.getBytes(charsetName));
-            // mysql db
-            adler32.update(indexName.getBytes(charsetName));
-            // mysql table
-            adler32.update(mappingType.getBytes(charsetName));
-            // transport
-            adler32.update(transport.getBytes(charsetName));
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+                for (Map.Entry<String, String> entry : tableContext.entrySet()) {
+                    adler32.update(entry.getValue().getBytes(charsetName));
+                }
+            } else {
+                // host
+                adler32.update(hosts.getBytes(charsetName));
+                // username
+                adler32.update(userName.getBytes(charsetName));
+                // passwd
+                adler32.update(passwd.getBytes(charsetName));
+                // index name
+                adler32.update(indexName.getBytes(charsetName));
+                // mappingType
+                adler32.update(mappingType.getBytes(charsetName));
+                // transport
+                adler32.update(transport.getBytes(charsetName));
+            }
         } catch (UnsupportedEncodingException e) {
             LOG.error("encoding error", e);
             return -1;
@@ -160,34 +225,60 @@ public class EsTable extends Table {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        Text.writeString(out, hosts);
-        Text.writeString(out, userName);
-        Text.writeString(out, passwd);
-        Text.writeString(out, indexName);
-        Text.writeString(out, mappingType);
+        out.writeInt(tableContext.size());
+        for (Map.Entry<String, String> entry : tableContext.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
         Text.writeString(out, partitionInfo.getType().name());
         partitionInfo.write(out);
-        Text.writeString(out, transport);
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        hosts = Text.readString(in);
-        seeds = hosts.split(",");
-        userName = Text.readString(in);
-        passwd = Text.readString(in);
-        indexName = Text.readString(in);
-        mappingType = Text.readString(in);
-        PartitionType partType = PartitionType.valueOf(Text.readString(in));
-        if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = SinglePartitionInfo.read(in);
-        } else if (partType == PartitionType.RANGE) {
-            partitionInfo = RangePartitionInfo.read(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            int size = in.readInt();
+            for (int i = 0; i < size; ++i) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                tableContext.put(key, value);
+            }
+            hosts = tableContext.get("hosts");
+            seeds = hosts.split(",");
+            userName = tableContext.get("userName");
+            passwd = tableContext.get("passwd");
+            indexName = tableContext.get("indexName");
+            mappingType = tableContext.get("mappingType");
+            transport = tableContext.get("transport");
+
+            isDocValueScan = Boolean.parseBoolean(tableContext.get("isDocValueScan"));
+
+            PartitionType partType = PartitionType.valueOf(Text.readString(in));
+            if (partType == PartitionType.UNPARTITIONED) {
+                partitionInfo = SinglePartitionInfo.read(in);
+            } else if (partType == PartitionType.RANGE) {
+                partitionInfo = RangePartitionInfo.read(in);
+            } else {
+                throw new IOException("invalid partition type: " + partType);
+            }
         } else {
-            throw new IOException("invalid partition type: " + partType);
+            hosts = Text.readString(in);
+            seeds = hosts.split(",");
+            userName = Text.readString(in);
+            passwd = Text.readString(in);
+            indexName = Text.readString(in);
+            mappingType = Text.readString(in);
+            PartitionType partType = PartitionType.valueOf(Text.readString(in));
+            if (partType == PartitionType.UNPARTITIONED) {
+                partitionInfo = SinglePartitionInfo.read(in);
+            } else if (partType == PartitionType.RANGE) {
+                partitionInfo = RangePartitionInfo.read(in);
+            } else {
+                throw new IOException("invalid partition type: " + partType);
+            }
+            transport = Text.readString(in);
         }
-        transport = Text.readString(in);
     }
 
     public String getHosts() {
