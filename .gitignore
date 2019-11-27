@@ -21,3 +21,4 @@ thirdparty/installed
 be/cmake-build
 be/cmake-build-debug
 be/cmake-build-release
+be/src/gen_cpp
