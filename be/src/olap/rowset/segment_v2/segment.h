@@ -43,6 +43,8 @@ class StorageReadOptions;
 
 namespace segment_v2 {
 
+
+class BitmapIndexIterator;
 class ColumnReader;
 class ColumnIterator;
 class Segment;
@@ -76,6 +78,9 @@ public:
     uint32_t num_rows() const { return _footer.num_rows(); }
 
     Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
+
+    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+
     size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
     uint32_t num_rows_per_block() const {

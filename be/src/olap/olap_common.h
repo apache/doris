@@ -238,6 +238,7 @@ struct OlapReaderStatistics {
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
     int64_t block_fetch_ns = 0;
+    int64_t block_seek_num = 0;
     int64_t block_seek_ns = 0;
     int64_t block_convert_ns = 0;
 
@@ -253,6 +254,10 @@ struct OlapReaderStatistics {
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
+
+    int64_t bitmap_index_filter_count = 0;
+    int64_t bitmap_index_filter_timer = 0;
+    int64_t predicate_count = 0;
 };
 
 typedef uint32_t ColumnId;

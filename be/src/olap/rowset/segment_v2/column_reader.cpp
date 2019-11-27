@@ -40,40 +40,6 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-// This contains information when one page is loaded, and ready for read
-// This struct can be reused, client should call reset first before reusing
-// this object
-struct ParsedPage {
-    ParsedPage() { }
-    ~ParsedPage() {
-        delete data_decoder;
-    }
-
-    PagePointer page_pointer;
-    PageHandle page_handle;
-
-    Slice null_bitmap;
-    RleDecoder<bool> null_decoder;
-    PageDecoder* data_decoder = nullptr;
-
-    // first rowid for this page
-    rowid_t first_rowid = 0;
-
-    // number of rows including nulls and not-nulls
-    uint32_t num_rows = 0;
-
-    // current offset when read this page
-    // this means next row we will read
-    uint32_t offset_in_page = 0;
-
-    uint32_t page_index = 0;
-    
-    bool contains(rowid_t rid) { return rid >= first_rowid && rid < (first_rowid + num_rows); }
-    rowid_t last_rowid() { return first_rowid + num_rows - 1; }
-    bool has_remaining() const { return offset_in_page < num_rows; }
-    size_t remaining() const { return num_rows - offset_in_page; }
-};
-
 Status ColumnReader::create(const ColumnReaderOptions& opts,
                             const ColumnMetaPB& meta,
                             uint64_t num_rows,
@@ -107,6 +73,12 @@ Status ColumnReader::init() {
 
 Status ColumnReader::new_iterator(ColumnIterator** iterator) {
     *iterator = new FileColumnIterator(this);
+    return Status::OK();
+}
+
+Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
+    RETURN_IF_ERROR(_ensure_index_loaded());
+    RETURN_IF_ERROR(_bitmap_index_reader->new_iterator(iterator));
     return Status::OK();
 }
 
@@ -278,6 +250,18 @@ Status ColumnReader::_load_zone_map_index() {
     return Status::OK();
 }
 
+Status ColumnReader::_load_bitmap_index() {
+    if (_meta.has_bitmap_index()) {
+        const BitmapIndexColumnPB bitmap_index_meta = _meta.bitmap_index();
+        _bitmap_index_reader.reset(new BitmapIndexReader(_file, _type_info,
+                                                         bitmap_index_meta));
+        RETURN_IF_ERROR(_bitmap_index_reader->load());
+    } else {
+        _bitmap_index_reader.reset(nullptr);
+    }
+    return Status::OK();
+}
+
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
     RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->begin();
@@ -353,8 +337,7 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, uint32_t offset_
     page->offset_in_page = offset_in_page;
 }
 
-Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
-    ColumnBlockView column_view(dst);
+Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     size_t remaining = *n;
     while (remaining > 0) {
         if (!_page->has_remaining()) {
@@ -369,9 +352,9 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 _delete_partial_statisfied_pages.end(), _page->page_index);
         bool is_partial = iter != _delete_partial_statisfied_pages.end();
         if (is_partial) {
-            dst->set_delete_state(DEL_PARTIAL_SATISFIED);
+            dst->column_block()->set_delete_state(DEL_PARTIAL_SATISFIED);
         } else {
-            dst->set_delete_state(DEL_NOT_SATISFIED);
+            dst->column_block()->set_delete_state(DEL_NOT_SATISFIED);
         }
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());
@@ -389,28 +372,28 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(_page->data_decoder->next_batch(&num_rows, &column_view));
+                    RETURN_IF_ERROR(_page->data_decoder->next_batch(&num_rows, dst));
                     DCHECK_EQ(this_run, num_rows);
                 }
 
                 // set null bits
-                column_view.set_null_bits(this_run, is_null);
+                dst->set_null_bits(this_run, is_null);
 
                 nrows_to_read -= this_run;
                 _page->offset_in_page += this_run;
-                column_view.advance(this_run);
+                dst->advance(this_run);
                 _current_rowid += this_run;
             }
         } else {
-            RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, &column_view));
+            RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, dst));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
-            if (column_view.is_nullable()) {
-                column_view.set_null_bits(nrows_to_read, false);
+            if (dst->is_nullable()) {
+                dst->set_null_bits(nrows_to_read, false);
             }
 
             _page->offset_in_page += nrows_to_read;
-            column_view.advance(nrows_to_read);
+            dst->advance(nrows_to_read);
             _current_rowid += nrows_to_read;
         }
         remaining -= nrows_in_page;
@@ -418,7 +401,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
     *n -= remaining;
     // TODO(hkp): for string type, the bytes_read should be passed to page decoder
     // bytes_read = data size + null bitmap size
-    _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(dst->nrows());
+    _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(*n);
     return Status::OK();
 }
 
@@ -536,17 +519,17 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
+Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
+    if (dst->is_nullable()) {
+        dst->set_null_bits(*n, _is_default_value_null);
+    }
+
     if (_is_default_value_null) {
-        for (int i = 0; i < *n; ++i) {
-            dst->set_is_null(i, true);
-        }
+        dst->advance(*n);
     } else {
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->mutable_cell_ptr(i), _mem_value.data(), _value_size);
-            if (dst->is_nullable()) {
-                dst->set_is_null(i, false);
-            }
+            memcpy(dst->data(), _mem_value.data(), _value_size);
+            dst->advance(1);
         }
     }
     return Status::OK();

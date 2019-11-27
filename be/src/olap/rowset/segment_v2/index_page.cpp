@@ -20,6 +20,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "olap/key_coder.h"
 #include "util/coding.h"
 
 namespace doris {
@@ -67,57 +68,63 @@ Status IndexPageBuilder::get_first_key(Slice* key) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-IndexPageReader::IndexPageReader() : _parsed(false) {
-}
-
 Status IndexPageReader::parse(const Slice& data) {
-    return Status(); // FIXME
-}
+    size_t buffer_len = data.size;
+    const uint8_t* buffer = (uint8_t*)data.data;
+    size_t footer_size = decode_fixed32_le(buffer + buffer_len - 4);
+    std::string footer_buf(data.data + buffer_len - 4 - footer_size, footer_size);
+    _footer.ParseFromString(footer_buf);
+    size_t num_entries = _footer.num_entries();
+    size_t entry_offset_start = buffer_len - 4 - footer_size - num_entries * 4;
+    for(size_t i = 0; i < num_entries; i++) {
+        size_t entry_offset = decode_fixed32_le(buffer + entry_offset_start);
+        _entry_offsets.push_back(entry_offset);
+        entry_offset_start += 4;
+    }
 
-size_t IndexPageReader::count() const {
-    CHECK(_parsed) << "not parsed";
-    return _footer.num_entries();
-}
+    Slice input(data);
+    for (int i = 0; i < num_entries; ++i) {
+        Slice key;
+        PagePointer value;
+        if (!get_length_prefixed_slice(&input, &key)) {
+            return Status::InternalError("Data corruption");
+        }
+        if (!value.decode_from(&input)) {
+            return Status::InternalError("Data corruption");
+        }
+        _keys.push_back(key);
+        _values.push_back(value);
+    }
 
-bool IndexPageReader::is_leaf() const {
-    CHECK(_parsed) << "not parsed";
-    return _footer.type() == IndexPageFooterPB::LEAF;
+    _parsed = true;
+    return Status::OK();
 }
-
-void IndexPageReader::reset() {
-    _parsed = false;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 
-
-IndexPageIterator::IndexPageIterator(const IndexPageReader* reader)
-    : _reader(reader),
-      _seeked(false),
-      _cur_idx(-1) {
-}
-
-void IndexPageIterator::reset() {
-    _seeked = false;
-    _cur_idx = -1;
-}
-
 Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
-    return Status(); // FIXME
-}
-
-Status IndexPageIterator::seek_ordinal(size_t idx) {
-    return Status(); // FIXME
-}
-
-const Slice& IndexPageIterator::current_key() const {
-    CHECK(_seeked) << "not seeked";
-    return _cur_key;
-}
-
-const PagePointer& IndexPageIterator::current_page_pointer() const {
-    CHECK(_seeked) << "not seeked";
-    return _cur_ptr;
+    int32_t left = 0;
+    int32_t right = _reader->count() - 1;
+    while (left <= right) {
+        int32_t mid = left + (right - left) / 2;
+        int cmp = search_key.compare(_reader->get_key(mid));
+        if (cmp < 0) {
+            right = mid - 1;
+        } else if (cmp > 0) {
+            left = mid + 1;
+        } else {
+            _pos = mid;
+            return Status::OK();
+        }
+    }
+    // no exact match, the insertion point is `left`
+    if (left == 0) {
+        // search key is smaller than all keys
+        return Status::NotFound("no page contains the given key");
+    }
+    // index entry records the first key of the indexed page,
+    // therefore the first page with keys >= searched key is the one before the insertion point
+    _pos = left - 1;
+    return Status::OK();
 }
 
 } // namespace segment_v2

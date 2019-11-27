@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
 #define DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
 
+#include <roaring/roaring.hh>
+
 #include <stdint.h>
 #include <set>
 #include "olap/column_predicate.h"
@@ -34,6 +36,7 @@ public: \
     virtual ~CLASS() {} \
     virtual void evaluate(VectorizedRowBatch* batch) const override; \
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override; \
+    virtual Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const override; \
 private: \
     std::set<type> _values; \
 }; \

@@ -123,6 +123,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
         ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
     _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
+    _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
 
     _rows_vec_cond_counter =
         ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -142,6 +143,10 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
+
+    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
+    _predicate_count = ADD_COUNTER(_runtime_profile, "PredicateCount", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {

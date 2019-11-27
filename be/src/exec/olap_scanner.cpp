@@ -482,6 +482,11 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
 
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().bitmap_index_filter_count);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
+    COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
+    COUNTER_UPDATE(_parent->_predicate_count, _reader->stats().predicate_count);
+
     DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
     DorisMetrics::query_scan_rows.increment(_raw_rows_read);
 

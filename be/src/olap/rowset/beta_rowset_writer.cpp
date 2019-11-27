@@ -38,7 +38,8 @@ BetaRowsetWriter::BetaRowsetWriter()
       _num_segment(0),
       _segment_writer(nullptr),
       _num_rows_written(0),
-      _total_data_size(0) {
+      _total_data_size(0),
+      _total_index_size(0) {
     auto size = static_cast<double>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
@@ -107,6 +108,7 @@ OLAPStatus BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     RETURN_NOT_OK(rowset->link_files_to(_context.rowset_path_prefix, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
+    _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -132,7 +134,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     _rowset_meta->set_num_rows(_num_rows_written);
     _rowset_meta->set_total_disk_size(_total_data_size);
     _rowset_meta->set_data_disk_size(_total_data_size);
-    _rowset_meta->set_index_disk_size(0); // TODO collect index size
+    _rowset_meta->set_index_disk_size(_total_index_size);
     // TODO write zonemap to meta
     _rowset_meta->set_empty(_num_rows_written == 0);
     _rowset_meta->set_creation_time(time(nullptr));
@@ -173,13 +175,14 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
 
 OLAPStatus BetaRowsetWriter::_flush_segment_writer() {
     uint64_t segment_size;
-    auto s = _segment_writer->finalize(&segment_size);
+    uint64_t index_size;
+    auto s = _segment_writer->finalize(&segment_size, &index_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
-    // TODO calc index size also
     _total_data_size += segment_size;
+    _total_index_size += index_size;
     _segment_writer.reset(nullptr);
     return OLAP_SUCCESS;
 }

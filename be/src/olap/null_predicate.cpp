@@ -78,4 +78,18 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
     *size = new_size;
 }
 
+Status NullPredicate::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
+    uint32_t num_rows, Roaring* roaring) const {
+    if (iterators[_column_id] != nullptr) {
+        Roaring null_bitmap;
+        RETURN_IF_ERROR(iterators[_column_id]->read_null_bitmap(&null_bitmap));
+        if (_is_null) {
+            *roaring &= null_bitmap;
+        } else {
+            *roaring -= null_bitmap;
+        }
+    }
+    return Status::OK();
+}
+
 } //namespace doris

@@ -17,11 +17,102 @@
 
 #pragma once
 
+#include <roaring/roaring.hh>
+
+#include "common/status.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "olap/column_block.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
+
 namespace doris {
+
+class TypeInfo;
+class RandomAccessFile;
+
 namespace segment_v2 {
 
-class BitmapIndexReader {
+class BitmapIndexIterator;
+class IndexedColumnReader;
+class IndexedColumnIterator;
 
+class BitmapIndexReader {
+public:
+    explicit BitmapIndexReader(RandomAccessFile* file,
+                               const TypeInfo* typeinfo,
+                               const BitmapIndexColumnPB& bitmap_index_meta)
+        : _file(file),
+          _typeinfo(typeinfo),
+          _bitmap_index_meta(bitmap_index_meta){}
+
+    Status load();
+
+    // create a new column iterator. Client should delete returned iterator
+    Status new_iterator(BitmapIndexIterator** iterator);
+
+    int64_t bitmap_nums() {
+        return _bitmap_column_reader->num_values();
+    }
+
+private:
+    friend class BitmapIndexIterator;
+
+    RandomAccessFile* _file;
+    const TypeInfo* _typeinfo;
+    const BitmapIndexColumnPB& _bitmap_index_meta;
+    bool _has_null = false;
+    std::unique_ptr<IndexedColumnReader> _dict_column_reader;
+    std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;
+};
+
+class BitmapIndexIterator {
+public:
+    explicit BitmapIndexIterator(BitmapIndexReader* reader)
+        : _reader(reader),
+          _dict_column_iter(reader->_dict_column_reader.get()),
+          _bitmap_column_iter(reader->_bitmap_column_reader.get()),
+          _current_rowid(0) {
+    }
+
+    bool has_null_bitmap() const { return _reader->_has_null; }
+
+    // Seek the dictionary to the first value that is >= the given value.
+    //
+    // Returns OK when such value exists. The seeked position can be retrieved
+    // by `current_ordinal()`, *exact_match is set to indicate whether the
+    // seeked value exactly matches `value` or not
+    //
+    // Returns NotFound when no such value exists (all values in dictionary < `value`).
+    // Returns other error status otherwise.
+    Status seek_dictionary(const void* value, bool* exact_match);
+
+    // Read bitmap at the given ordinal into `result`.
+    Status read_bitmap(rowid_t ordinal, Roaring* result);
+
+    Status read_null_bitmap(Roaring* result) {
+        if (has_null_bitmap()) {
+            // null bitmap is always stored at last
+            return read_bitmap(bitmap_nums() - 1, result);
+        }
+        return Status::OK(); // keep result empty
+    }
+
+    // Read and union all bitmaps in range [from, to) into `result`
+    Status read_union_bitmap(rowid_t from, rowid_t to, Roaring* result);
+
+    inline rowid_t bitmap_nums() const {
+        return _reader->bitmap_nums();
+    }
+
+    inline rowid_t current_ordinal() const {
+        return _current_rowid;
+    }
+
+private:
+    BitmapIndexReader* _reader;
+    IndexedColumnIterator _dict_column_iter;
+    IndexedColumnIterator _bitmap_column_iter;
+    rowid_t _current_rowid;
 };
 
 } // namespace segment_v2

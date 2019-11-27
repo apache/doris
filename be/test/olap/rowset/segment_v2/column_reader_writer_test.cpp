@@ -134,11 +134,10 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             int idx = 0;
             while (true) {
                 size_t rows_read = 1024;
-                st = iter->next_batch(&rows_read, &col);
+                ColumnBlockView dst(&col);
+                st = iter->next_batch(&rows_read, &dst);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    // LOG(INFO) << "is_null=" << is_null[j] << ", src_is_null[]=" << src_is_null[idx]
-                        // << ", src[idx]=" << src[idx] << ", vals[j]=" << vals[j];
                     ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
                     if (!BitmapTest(is_null, j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
@@ -156,7 +155,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                 }
             }
         }
-        // random read
+
         {
             MemTracker tracker;
             MemPool pool(&tracker);
@@ -167,14 +166,13 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
                 ASSERT_TRUE(st.ok());
-                
+
                 int idx = rowid;
                 size_t rows_read = 1024;
-                auto st = iter->next_batch(&rows_read, &col);
+                ColumnBlockView dst(&col);
+                auto st = iter->next_batch(&rows_read, &dst);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    // LOG(INFO) << "is_null=" << is_null[j] << ", src_is_null[]=" << src_is_null[idx]
-                        // << ", src[idx]=" << src[idx] << ", vals[j]=" << vals[j];
                     ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
                     if (!BitmapTest(is_null, j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {

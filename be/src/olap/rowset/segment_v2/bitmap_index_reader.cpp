@@ -17,10 +17,65 @@
 
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 
+#include "olap/types.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
+
 namespace doris {
 namespace segment_v2 {
 
+Status BitmapIndexReader::load() {
+    const IndexedColumnMetaPB dict_meta = _bitmap_index_meta.dict_column();
+    const IndexedColumnMetaPB bitmap_meta = _bitmap_index_meta.bitmap_column();
+    _has_null = _bitmap_index_meta.has_null();
 
+    _dict_column_reader.reset(new IndexedColumnReader(_file, dict_meta));
+    _bitmap_column_reader.reset(new IndexedColumnReader(_file, bitmap_meta));
+    RETURN_IF_ERROR(_dict_column_reader->load());
+    RETURN_IF_ERROR(_bitmap_column_reader->load());
+    return Status::OK();
+}
+
+Status BitmapIndexReader::new_iterator(BitmapIndexIterator** iterator) {
+    *iterator = new BitmapIndexIterator(this);
+    return Status::OK();
+}
+
+Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match) {
+    RETURN_IF_ERROR(_dict_column_iter.seek_at_or_after(value, exact_match));
+    _current_rowid = _dict_column_iter.get_current_ordinal();
+    return Status::OK();
+}
+
+Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
+    DCHECK(0 <= ordinal && ordinal < _reader->bitmap_nums());
+
+    Slice value;
+    uint8_t nullmap;
+    MemTracker mem_tracker;
+    MemPool mem_pool(&mem_tracker);
+    size_t num_to_read = 1;
+    ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*) &value, &nullmap, num_to_read, &mem_pool);
+    ColumnBlockView column_block_view(&block);
+
+    RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
+    size_t num_read = num_to_read;
+    RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, &column_block_view));
+    DCHECK(num_to_read == num_read);
+    *result = Roaring::read(value.data, false);
+    return Status::OK();
+}
+
+Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, Roaring* result) {
+    DCHECK(0 <= from && from <= to && to <= _reader->bitmap_nums());
+
+    for (rowid_t pos = from; pos < to; pos++) {
+        Roaring bitmap;
+        RETURN_IF_ERROR(read_bitmap(pos, &bitmap));
+        *result |= bitmap;
+    }
+    return Status::OK();
+}
 
 } // namespace segment_v2
 } // namespace doris

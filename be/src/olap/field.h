@@ -226,6 +226,10 @@ public:
     void encode_ascending(const void* value, std::string* buf) const {
         _key_coder->encode_ascending(value, _index_size, buf);
     }
+
+    void full_encode_ascending(const void* value, std::string* buf) const {
+        _key_coder->full_encode_ascending(value, buf);
+    }
     
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
