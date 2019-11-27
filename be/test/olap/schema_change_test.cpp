@@ -296,13 +296,15 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     read_row.convert_from(1, data, read_row.column_schema(0)->type_info(), _mem_pool.get());    
-    float val1 = *reinterpret_cast<float*>( read_row.cell_ptr(0));
+    //float val1 = *reinterpret_cast<float*>( read_row.cell_ptr(0));
     double val2 = *reinterpret_cast<double*>( read_row.cell_ptr(1));
-
+    
     char buf[64];
     memset(buf,0,sizeof(buf));
     sprintf(buf,"%f",val2);
-    ASSERT_TRUE( strcmp(buf,"1.234") == 0 );
+    char* tg;
+    double v2 = strtod(buf,&tg);    
+    ASSERT_TRUE( v2 == 1.234 );
     
     //test not support type
     TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
