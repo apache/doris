@@ -21,15 +21,18 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
+import java.lang.reflect.Field;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -400,98 +403,134 @@ public class SessionVariable implements Serializable, Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(codegenLevel);
-        out.writeInt(netBufferLength);
-        out.writeInt(sqlSafeUpdates);
-        Text.writeString(out, timeZone);
-        out.writeInt(netReadTimeout);
-        out.writeInt(netWriteTimeout);
-        out.writeInt(waitTimeout);
-        out.writeInt(interactiveTimeout);
-        out.writeInt(queryCacheType);
-        out.writeInt(autoIncrementIncrement);
-        out.writeInt(maxAllowedPacket);
-        out.writeLong(sqlSelectLimit);
-        out.writeBoolean(sqlAutoIsNull);
-        Text.writeString(out, collationDatabase);
-        Text.writeString(out, collationConnection);
-        Text.writeString(out, charsetServer);
-        Text.writeString(out, charsetResults);
-        Text.writeString(out, charsetConnection);
-        Text.writeString(out, charsetClient);
-        Text.writeString(out, txIsolation);
-        out.writeBoolean(autoCommit);
-        Text.writeString(out, resourceGroup);
-        out.writeLong(sqlMode);
-        out.writeBoolean(isReportSucc);
-        out.writeInt(queryTimeoutS);
-        out.writeLong(maxExecMemByte);
-        Text.writeString(out, collationServer);
-        out.writeInt(batchSize);
-        out.writeBoolean(disableStreamPreaggregations);
-        out.writeInt(parallelExecInstanceNum);
-        out.writeInt(exchangeInstanceParallel);
-
-        out.writeLong(loadMemLimit);
-        // false means there are no more variables. It you need to add more variables to persist,
-        // change this to true, and add:
-        //      out.writeXXX(new_var_name);
-        //      out.writeBoolean(false);
-        // By doing this, we no longer need to change the FE meta version when adding new variables to persist.
-        out.writeBoolean(false);   
+        JSONObject root = new JSONObject();
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        root.put(attr.name(), (Boolean) field.get(this));
+                        break;
+                    case "int":
+                        root.put(attr.name(), (Integer) field.get(this));
+                        break;
+                    case "long":
+                        root.put(attr.name(), (Long) field.get(this));
+                        break;
+                    case "float":
+                        root.put(attr.name(), (Float) field.get(this));
+                        break;
+                    case "double":
+                        root.put(attr.name(), (Double) field.get(this));
+                        break;
+                    case "String":
+                        root.put(attr.name(), (String) field.get(this));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to write session variable: " + e.getMessage());
+        }
+        Text.writeString(out, root.toString());
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        codegenLevel =  in.readInt();
-        netBufferLength = in.readInt();
-        sqlSafeUpdates = in.readInt();
-        timeZone = Text.readString(in);
-        netReadTimeout = in.readInt();
-        netWriteTimeout = in.readInt();
-        waitTimeout = in.readInt();
-        interactiveTimeout = in.readInt();
-        queryCacheType = in.readInt();
-        autoIncrementIncrement = in.readInt();
-        maxAllowedPacket = in.readInt();
-        sqlSelectLimit = in.readLong();
-        sqlAutoIsNull = in.readBoolean();
-        collationDatabase = Text.readString(in);
-        collationConnection = Text.readString(in);
-        charsetServer = Text.readString(in);
-        charsetResults = Text.readString(in);
-        charsetConnection = Text.readString(in);
-        charsetClient = Text.readString(in);
-        txIsolation = Text.readString(in);
-        autoCommit = in.readBoolean();
-        resourceGroup = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
-            sqlMode = in.readLong();
-        } else {
-            // read old version SQL mode
-            Text.readString(in);
-            sqlMode = 0L;
-        }
-        isReportSucc = in.readBoolean();
-        queryTimeoutS = in.readInt();
-        maxExecMemByte = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-            collationServer = Text.readString(in);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
-            batchSize = in.readInt();
-            disableStreamPreaggregations = in.readBoolean();
-            parallelExecInstanceNum = in.readInt();
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-            exchangeInstanceParallel = in.readInt();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
-            loadMemLimit = in.readLong();
-            if (in.readBoolean()) {
-                // add new variables here
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
+            codegenLevel = in.readInt();
+            netBufferLength = in.readInt();
+            sqlSafeUpdates = in.readInt();
+            timeZone = Text.readString(in);
+            netReadTimeout = in.readInt();
+            netWriteTimeout = in.readInt();
+            waitTimeout = in.readInt();
+            interactiveTimeout = in.readInt();
+            queryCacheType = in.readInt();
+            autoIncrementIncrement = in.readInt();
+            maxAllowedPacket = in.readInt();
+            sqlSelectLimit = in.readLong();
+            sqlAutoIsNull = in.readBoolean();
+            collationDatabase = Text.readString(in);
+            collationConnection = Text.readString(in);
+            charsetServer = Text.readString(in);
+            charsetResults = Text.readString(in);
+            charsetConnection = Text.readString(in);
+            charsetClient = Text.readString(in);
+            txIsolation = Text.readString(in);
+            autoCommit = in.readBoolean();
+            resourceGroup = Text.readString(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
+                sqlMode = in.readLong();
+            } else {
+                // read old version SQL mode
+                Text.readString(in);
+                sqlMode = 0L;
             }
+            isReportSucc = in.readBoolean();
+            queryTimeoutS = in.readInt();
+            maxExecMemByte = in.readLong();
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
+                collationServer = Text.readString(in);
+            }
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
+                batchSize = in.readInt();
+                disableStreamPreaggregations = in.readBoolean();
+                parallelExecInstanceNum = in.readInt();
+            }
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
+                exchangeInstanceParallel = in.readInt();
+            }
+        } else {
+            readFromJson(in);
+        }
+    }
+
+    private void readFromJson(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        JSONObject root = new JSONObject(json);
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+
+                if (!root.has(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        field.set(this, root.getBoolean(attr.name()));
+                        break;
+                    case "int":
+                        field.set(this, root.getInt(attr.name()));
+                        break;
+                    case "long":
+                        field.set(this, root.getLong(attr.name()));
+                        break;
+                    case "float":
+                        field.set(this, root.getFloat(attr.name()));
+                        break;
+                    case "double":
+                        field.set(this, root.getDouble(attr.name()));
+                        break;
+                    case "String":
+                        field.set(this, root.getString(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to read session variable: " + e.getMessage());
         }
     }
 }
