@@ -507,65 +507,19 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 LOG(INFO) << "finished convert new snapshot to old snapshot, res=" << res;
             } else if (snapshot_version == ALPHA_ROWSET_VERSION) {
                 // convert beta rowset to alpha rowset
-                LOG(INFO) << "start to convert beta rowset to alpha rowset for snapshot";
-                RowsetConverter rowset_converter(new_tablet_meta);
+                LOG(INFO) << "start to convert beta rowset to alpha rowset for snapshot, tablet:"
+                        << new_tablet_meta->tablet_id();
                 std::vector<RowsetMetaSharedPtr> new_rowsets;
                 bool modified = false;
                 if (request.__isset.missing_version) {
-                    for (auto& inc_meta : new_tablet_meta->all_inc_rs_metas()) {
-                        if (inc_meta->rowset_type() == BETA_ROWSET) {
-                            modified = true;
-                            RowsetMetaPB rowset_meta_pb;
-                            LOG(INFO) << "convert inc beta rowset:"
-                                    << inc_meta->rowset_id() << ", tablet_id:"
-                                    << new_tablet_meta->tablet_id() << " to alpha";
-                            auto st = rowset_converter.convert_beta_to_alpha(inc_meta,
-                                    schema_full_path, &rowset_meta_pb);
-                            if (st != OLAP_SUCCESS) {
-                                res = st;
-                                LOG(WARNING) << "convert beta to alpha failed. error: " << st;
-                                break;
-                            }
-                            RowsetMetaSharedPtr new_rowset(new AlphaRowsetMeta());
-                            bool ret = new_rowset->init_from_pb(rowset_meta_pb);
-                            if (!ret) {
-                                res = OLAP_ERR_INIT_FAILED;
-                                break;
-                            }
-                            new_rowsets.push_back(new_rowset);
-                        } else {
-                            new_rowsets.push_back(inc_meta);
-                        }
-                    }
+                    res = _convert_beta_rowsets_to_alpha(new_tablet_meta,
+                            new_tablet_meta->all_inc_rs_metas(), schema_full_path, &new_rowsets, &modified);
                     if (res == OLAP_SUCCESS && modified) {
                         res = new_tablet_meta->revise_inc_rs_metas(new_rowsets);
                     }
                 } else {
-                    for (auto& rowset_meta : new_tablet_meta->all_rs_metas()) {
-                        if (rowset_meta->rowset_type() == BETA_ROWSET) {
-                            modified = true;
-                            RowsetMetaPB rowset_meta_pb;
-                            LOG(INFO) << "convert beta rowset:"
-                                    << rowset_meta->rowset_id() << ", tablet_id:"
-                                    << new_tablet_meta->tablet_id() << " to alpha";
-                            auto st = rowset_converter.convert_beta_to_alpha(
-                                rowset_meta, schema_full_path, &rowset_meta_pb);
-                            if (st != OLAP_SUCCESS) {
-                                res = st;
-                                LOG(WARNING) << "convert beta to alpha failed. error: " << st;
-                                break;
-                            }
-                            RowsetMetaSharedPtr new_rowset(new AlphaRowsetMeta());
-                            bool ret = new_rowset->init_from_pb(rowset_meta_pb);
-                            if (!ret) {
-                                res = OLAP_ERR_INIT_FAILED;
-                                break;
-                            }
-                            new_rowsets.push_back(new_rowset);
-                        } else {
-                            new_rowsets.push_back(rowset_meta);
-                        }
-                    }
+                    res = _convert_beta_rowsets_to_alpha(new_tablet_meta, new_tablet_meta->all_rs_metas(),
+                            schema_full_path, &new_rowsets, &modified);
                     if (res == OLAP_SUCCESS && modified) {
                         res = new_tablet_meta->revise_rs_metas(new_rowsets);
                     }
@@ -619,6 +573,36 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         *snapshot_path = snapshot_id;
     }
 
+    return res;
+}
+
+OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
+                const vector<RowsetMetaSharedPtr>& beta_rowsets, const std::string& dst_path,
+                std::vector<RowsetMetaSharedPtr>* new_rowsets, bool* modified) {
+    OLAPStatus res = OLAP_SUCCESS;
+    RowsetConverter rowset_converter(new_tablet_meta);
+    for (auto& rowset_meta : beta_rowsets) {
+        if (rowset_meta->rowset_type() == BETA_ROWSET) {
+            *modified = true;
+            RowsetMetaPB rowset_meta_pb;
+            LOG(INFO) << "convert beta rowset:" << rowset_meta->rowset_id() << " to alpha";
+            auto st = rowset_converter.convert_beta_to_alpha(rowset_meta, dst_path, &rowset_meta_pb);
+            if (st != OLAP_SUCCESS) {
+                res = st;
+                LOG(WARNING) << "convert beta to alpha failed. error: " << st;
+                break;
+            }
+            RowsetMetaSharedPtr new_rowset(new AlphaRowsetMeta());
+            bool ret = new_rowset->init_from_pb(rowset_meta_pb);
+            if (!ret) {
+                res = OLAP_ERR_INIT_FAILED;
+                break;
+            }
+            new_rowsets->push_back(new_rowset);
+        } else {
+            new_rowsets->push_back(rowset_meta);
+        }
+    }
     return res;
 }
 

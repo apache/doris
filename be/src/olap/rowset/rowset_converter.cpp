@@ -22,19 +22,19 @@
 
 namespace doris {
 
-OLAPStatus RowsetConverter::convert_beta_to_alpha(RowsetMetaSharedPtr src_rowset_meta,
+OLAPStatus RowsetConverter::convert_beta_to_alpha(const RowsetMetaSharedPtr& src_rowset_meta,
                                                   const std::string& rowset_path,
                                                   RowsetMetaPB* dst_rs_meta_pb) {
     return _convert_rowset(src_rowset_meta, rowset_path, ALPHA_ROWSET, dst_rs_meta_pb);
 }
 
-OLAPStatus RowsetConverter::convert_alpha_to_beta(RowsetMetaSharedPtr src_rowset_meta,
+OLAPStatus RowsetConverter::convert_alpha_to_beta(const RowsetMetaSharedPtr& src_rowset_meta,
                                                   const std::string& rowset_path,
                                                   RowsetMetaPB* dst_rs_meta_pb) {
     return _convert_rowset(src_rowset_meta, rowset_path, BETA_ROWSET, dst_rs_meta_pb);
 }
 
-OLAPStatus RowsetConverter::_convert_rowset(RowsetMetaSharedPtr src_rowset_meta,
+OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowset_meta,
                                             const std::string& rowset_path,
                                             RowsetTypePB dst_type,
                                             RowsetMetaPB* dst_rs_meta_pb) {
@@ -79,13 +79,11 @@ OLAPStatus RowsetConverter::_convert_rowset(RowsetMetaSharedPtr src_rowset_meta,
         RowBlock* row_block = nullptr;
         RowCursor row_cursor;
         row_cursor.init(tablet_schema);
-        LOG(INFO) << "start to convert row by row";
         while (true) {
             if (row_block == nullptr || !row_block->has_remaining()) {
                 auto st = rowset_reader->next_block(&row_block);
                 if (st != OLAP_SUCCESS) {
                     if (st == OLAP_ERR_DATA_EOF) {
-                        LOG(INFO) << "read src rowset eof";
                         break;
                     } else {
                         return st;
