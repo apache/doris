@@ -93,6 +93,12 @@ public:
             memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
             _rle_encoder->Put(value);
         }
+
+        if (_count == 0) {
+            memcpy(&_first_value, new_vals, SIZE_OF_TYPE);
+        }
+        memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
+
         _count += *count;
         return Status::OK();
     }
@@ -121,6 +127,24 @@ public:
         return _rle_encoder->len();
     }
 
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
     enum {
@@ -133,6 +157,8 @@ private:
     int _bit_width;
     RleEncoder<CppType>* _rle_encoder;
     faststring _buf;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>

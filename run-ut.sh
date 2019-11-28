@@ -270,6 +270,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_reader_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/rle_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_dict_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_prefix_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/segment_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/page_compression_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_zone_map_test
