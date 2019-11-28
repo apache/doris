@@ -237,6 +237,10 @@ public class SessionVariable implements Serializable, Writable {
         return sqlMode;
     }
 
+    public void setSqlMode(long sqlMode) {
+        this.sqlMode = sqlMode;
+    }
+
     public boolean isAutoCommit() {
         return autoCommit;
     }
