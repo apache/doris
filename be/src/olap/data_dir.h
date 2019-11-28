@@ -45,7 +45,7 @@ public:
     Status init();
 
     const std::string& path() const { return _path; }
-    const size_t path_hash() const { return _path_hash; }
+    size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
@@ -151,7 +151,7 @@ private:
 
 private:
     std::string _path;
-    int64_t _path_hash;
+    size_t _path_hash;
     // user specified capacity
     int64_t _capacity_bytes;
     // the actual avaiable capacity of the disk of this data dir

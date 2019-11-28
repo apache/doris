@@ -918,17 +918,17 @@ void DataDir::perform_path_scan() {
 
         Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
         if (!ret.ok()) {
-            LOG(WARNING) << "fail to walk dir. path=[" + data_path 
+            LOG(WARNING) << "fail to walk dir. path=[" + data_path
                           << "] error[" << ret.to_string() << "]";
             return ;
         }
-        
+
         for (const auto& shard : shards) {
             std::string shard_path = data_path + "/" + shard;
             std::set<std::string> tablet_ids;
             ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
             if (!ret.ok()) {
-                LOG(WARNING) << "fail to walk dir. [path=" << shard_path 
+                LOG(WARNING) << "fail to walk dir. [path=" << shard_path
                              << "] error[" << ret.to_string() << "]";
                 continue;
             }
@@ -947,11 +947,11 @@ void DataDir::perform_path_scan() {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
                     _all_check_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
-                    
+
                     ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
-                                                     Env::Default()); 
+                                                     Env::Default());
                     if (!ret.ok()) {
-                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path 
+                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
                                      << "] error[" << ret.to_string() << "]";
                         continue;
                     }
