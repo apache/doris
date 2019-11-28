@@ -107,6 +107,10 @@ public:
     }
 
     OwnedSlice finish() override {
+        if (_count > 0) {
+            _first_value = cell(0);
+            _last_value = cell(_count - 1);
+        }
         return _finish(SIZE_OF_TYPE);
     }
 

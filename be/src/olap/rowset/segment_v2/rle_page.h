@@ -93,6 +93,12 @@ public:
             memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
             _rle_encoder->Put(value);
         }
+
+        if (_count == 0) {
+            memcpy(&_first_value, new_vals, SIZE_OF_TYPE);
+        }
+        memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
+
         _count += *count;
         return Status::OK();
     }

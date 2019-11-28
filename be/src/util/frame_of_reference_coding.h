@@ -149,12 +149,12 @@ private:
 
     T* copy_value(T* val, size_t count);
 
-    const uint8_t* _buffer;
+    const uint8_t* _buffer = nullptr;
     size_t _buffer_len = 0;
-    bool _parsed;
+    bool _parsed = false;
 
-    uint8_t _max_frame_size;
-    uint8_t _last_frame_size;
+    uint8_t _max_frame_size = 0;
+    uint8_t _last_frame_size = 0;
     uint32_t _values_num = 0;
     uint32_t _frame_count = 0;
     std::vector<uint32_t> _frame_offsets;

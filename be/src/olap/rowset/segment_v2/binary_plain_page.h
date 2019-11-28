@@ -88,6 +88,10 @@ public:
             put_fixed32_le(&_buffer, _offset);
         }
         put_fixed32_le(&_buffer, _offsets.size());
+        if (_offsets.size() > 0) {
+            _copy_value_at(_first_value,  0);
+            _copy_value_at(_last_value,  _offsets.size() - 1);
+        }
         return _buffer.build();
     }
 
@@ -111,11 +115,19 @@ public:
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
-        return _get_value_at(value, 0);
+        if (_offsets.size() == 0) {
+            return Status::NotFound("page is empty");
+        }
+        *reinterpret_cast<Slice*>(value) = Slice(_first_value);
+        return Status::OK();
     }
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
-        return _get_value_at(value, _offsets.size() - 1);
+        if (_offsets.size() == 0) {
+            return Status::NotFound("page is empty");
+        }
+        *reinterpret_cast<Slice*>(value) = Slice(_last_value);
+        return Status::OK();
     }
 
     void update_prepared_size(size_t added_size) {
@@ -124,15 +136,10 @@ public:
     }
 
 private:
-    Status _get_value_at(void* value, size_t idx) const {
-        if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
-        }
+    void _copy_value_at(faststring& value, size_t idx) const {
         size_t value_size = (idx < _offsets.size() - 1) ?
                             _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        auto res = reinterpret_cast<Slice*>(value);
-        *res = Slice(&_buffer[_offsets[idx]], value_size);
-        return Status::OK();
+        value.assign_copy(&_buffer[_offsets[idx]], value_size);
     }
 
     faststring _buffer;
@@ -143,7 +150,9 @@ private:
     bool _finished;
     PageBuilderOptions _options;
     // size of last added value
-    uint32_t _last_value_size;
+    uint32_t _last_value_size = 0;
+    faststring _first_value;
+    faststring _last_value;
 };
 
 

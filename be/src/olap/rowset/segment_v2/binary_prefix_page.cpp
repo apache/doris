@@ -52,12 +52,12 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
         if (is_page_full()) {
             break;
         }
-        char* entry = src->data;
+        const char* entry = src->data;
         size_t entry_len = src->size;
         int old_size = _buffer.size();
 
         int share_len;
-        if (0 == _count % RESTART_POINT_INTERVAL) {
+        if (_count % RESTART_POINT_INTERVAL == 0) {
             share_len = 0;
             _restart_points_offset.push_back(old_size);
         } else {
@@ -88,13 +88,10 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
 OwnedSlice BinaryPrefixPageBuilder::finish() {
     DCHECK(!_finished);
     _finished = true;
-    int old_size = _buffer.size();
     put_fixed32_le(&_buffer, (uint32_t)_count);
-    old_size += sizeof(uint32_t);
-    int restart_point_size = _restart_points_offset.size();
-    for(unsigned int i = 0; i < restart_point_size; ++i) {
+    auto restart_point_size = _restart_points_offset.size();
+    for(uint32_t i = 0; i < restart_point_size; ++i) {
         put_fixed32_le(&_buffer, _restart_points_offset[i]);
-        old_size += sizeof(uint32_t);
     }
     put_fixed32_le(&_buffer, restart_point_size);
     return _buffer.build();
@@ -206,6 +203,28 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
     }
 }
 
+Status BinaryPrefixPageDecoder::_read_next_value_to_output(Slice prev, MemPool* mem_pool, Slice* output) {
+    if (_cur_pos >= _num_values) {
+        return Status::NotFound("no more value to read");
+    }
+    uint32_t shared_len;
+    uint32_t non_shared_len;
+    auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
+    if (data_ptr == nullptr) {
+        return Status::Corruption(Substitute("Failed to decode value at position $0", _cur_pos));
+    }
+
+    output->size = shared_len + non_shared_len;
+    if (output->size > 0) {
+        output->data = (char*) mem_pool->allocate(output->size);
+        memcpy(output->data, prev.data, shared_len);
+        memcpy(output->data + shared_len, data_ptr, non_shared_len);
+    }
+
+    _next_ptr = data_ptr + non_shared_len;
+    return Status::OK();
+}
+
 Status BinaryPrefixPageDecoder::_copy_current_to_output(MemPool* mem_pool, Slice* output) {
     output->size = _current_value.size();
     if (output->size > 0) {
@@ -228,6 +247,7 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     size_t i = 0;
     size_t max_fetch = std::min(*n, static_cast<size_t>(_num_values - _cur_pos));
     auto out = reinterpret_cast<Slice*>(dst->data());
+    auto prev = out;
 
     // first copy the current value to output
     RETURN_IF_ERROR(_copy_current_to_output(dst->pool(), out));
@@ -237,10 +257,13 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     // read and copy remaining values
     for (; i < max_fetch; ++i) {
         _cur_pos++;
-        RETURN_IF_ERROR(_read_next_value());
-        RETURN_IF_ERROR(_copy_current_to_output(dst->pool(), out));
+        RETURN_IF_ERROR(_read_next_value_to_output(prev[i - 1], dst->pool(), out));
         out++;
     }
+
+    //must update _current_value
+    _current_value.clear();
+    _current_value.assign_copy((uint8_t*)prev[i-1].data, prev[i-1].size);
 
     *n = max_fetch;
     return Status::OK();

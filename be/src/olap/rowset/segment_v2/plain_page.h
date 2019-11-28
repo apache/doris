@@ -59,6 +59,10 @@ public:
 
     OwnedSlice finish() override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
+        if (_count > 0) {
+            _first_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
+            _last_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE + (_count - 1) * SIZE_OF_TYPE], SIZE_OF_TYPE);
+        }
         return _buffer.build();
     }
 
@@ -81,7 +85,7 @@ public:
         if (_count == 0) {
             return Status::NotFound("page is empty");
         }
-        memcpy(value, &_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
+        memcpy(value, _first_value.data(), SIZE_OF_TYPE);
         return Status::OK();
     }
 
@@ -89,7 +93,7 @@ public:
         if (_count == 0) {
             return Status::NotFound("page is empty");
         }
-        memcpy(value, &_buffer[PLAIN_PAGE_HEADER_SIZE + (_count - 1) * SIZE_OF_TYPE], SIZE_OF_TYPE);
+        memcpy(value, _last_value.data(), SIZE_OF_TYPE);
         return Status::OK();
     }
 
@@ -101,6 +105,8 @@ private:
     enum {
         SIZE_OF_TYPE = TypeTraits<Type>::size
     };
+    faststring _first_value;
+    faststring _last_value;
 };
 
 

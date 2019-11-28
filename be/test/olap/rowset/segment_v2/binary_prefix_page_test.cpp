@@ -55,9 +55,14 @@ class BinaryPrefixPageTest : public testing::Test {
         OwnedSlice dict_slice = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
         ASSERT_FALSE(page_builder.is_page_full());
+
+        //check first value and last value
         Slice first_value;
         page_builder.get_first_value(&first_value);
-        ASSERT_EQ(std::string(first_value.data, first_value.size), std::to_string(1000));
+        ASSERT_EQ(slices[0], first_value);
+        Slice last_value;
+        page_builder.get_last_value(&last_value);
+        ASSERT_EQ(slices[count - 1], last_value);
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(

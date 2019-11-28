@@ -43,7 +43,7 @@ namespace segment_v2 {
 // Entry := SharedPrefixLength(vint), UnsharedLength(vint), Byte^UnsharedLength
 // Trailer := NumEntry, RestartPointStartOffset(uint32_t)^NumRestartPoints, NumRestartPoints(uint32_t)
 class BinaryPrefixPageBuilder : public PageBuilder {
-   public:
+public:
     BinaryPrefixPageBuilder(const PageBuilderOptions& options) :
         _options(options) {
         reset();
@@ -95,18 +95,18 @@ class BinaryPrefixPageBuilder : public PageBuilder {
         return Status::OK();
     }
 
-   private:
+private:
     PageBuilderOptions _options;
     std::vector<uint32_t> _restart_points_offset;
     faststring _first_entry;
     faststring _last_entry;
-    size_t _count;
-    bool _finished;
+    size_t _count = 0;
+    bool _finished = false;
     faststring _buffer;
 };
 
 class BinaryPrefixPageDecoder : public PageDecoder {
-   public:
+public:
     BinaryPrefixPageDecoder(Slice data, const PageDecoderOptions& options) :
         _data(data), _parsed(false) {
     }
@@ -128,7 +128,8 @@ class BinaryPrefixPageDecoder : public PageDecoder {
         DCHECK(_parsed);
         return _cur_pos;
     }
-   private:
+
+private:
     // decode shared and non-shared entry length from `ptr`.
     // return ptr past the parsed value when success.
     // return nullptr on failure
@@ -150,25 +151,24 @@ class BinaryPrefixPageDecoder : public PageDecoder {
     // seek to the first value at the given restart point
     Status _seek_to_restart_point(size_t restart_point_index);
 
+    // like _read_next_value, but derictly copy next value to output, not _current_value
+    Status _read_next_value_to_output(Slice prev, MemPool* mem_pool, Slice* output);
+
     // copy `_current_value` into `output`.
     Status _copy_current_to_output(MemPool* mem_pool, Slice* output);
 
     Slice _data;
-    // byte offset in `_data` of the next value to read
-    // uint32_t _cur_offset;
-    bool _parsed;
-
-    // initialized in init()
-    size_t _num_values;
-    uint32_t _num_restarts;
+    bool _parsed = false;
+    size_t _num_values = 0;
+    uint32_t _num_restarts = 0;
     // pointer to restart offsets array
-    const uint8_t* _restarts_ptr;
+    const uint8_t* _restarts_ptr = nullptr;
     // ordinal of the first value to return in next_batch()
-    uint32_t _cur_pos;
+    uint32_t _cur_pos = 0;
     // first value to return in next_batch()
     faststring _current_value;
     // pointer to the start of next value to read, advanced by `_read_next_value`
-    const uint8_t* _next_ptr;
+    const uint8_t* _next_ptr = nullptr;
 };
 
 } // namespace segment_v2
