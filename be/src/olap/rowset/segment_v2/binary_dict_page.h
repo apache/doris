@@ -68,6 +68,10 @@ public:
 
     Status get_dictionary_page(OwnedSlice* dictionary_page) override;
 
+    Status get_first_value(void* value) const override;
+
+    Status get_last_value(void* value) const override;
+
 private:
     PageBuilderOptions _options;
     bool _finished;
@@ -90,6 +94,7 @@ private:
     MemTracker _tracker;
     MemPool _pool;
     faststring _buffer;
+    faststring _first_value;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {
