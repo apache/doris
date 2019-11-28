@@ -30,8 +30,6 @@ import org.apache.doris.task.DynamicPartitionScheduler;
 import java.util.Map;
 
 public class DynamicPartitionUtils {
-    public static final String TRUE = "true";
-    public static final String FALSE = "false";
 
     public static void checkTimeUnit(OlapTable tbl, String timeUnit) throws DdlException {
         if (!(timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())
@@ -70,7 +68,7 @@ public class DynamicPartitionUtils {
     }
 
     public static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
-        if (TRUE.equalsIgnoreCase(enable) || FALSE.equalsIgnoreCase(enable)) {
+        if (Boolean.TRUE.toString().equalsIgnoreCase(enable) || Boolean.FALSE.toString().equalsIgnoreCase(enable)) {
             if (Boolean.parseBoolean(enable)) {
                 DynamicPartitionScheduler.registerDynamicPartitionTable(db.getId(), tbl.getId());
             } else {
