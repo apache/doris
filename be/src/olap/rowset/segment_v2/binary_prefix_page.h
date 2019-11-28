@@ -35,8 +35,6 @@
 namespace doris {
 namespace segment_v2 {
 
-#define RESTART_POINT_INTERVAL 16
-
 // prefix encoding for string dictionary
 //
 // BinaryPrefixPage := Entry^EntryNum, Trailer
@@ -103,6 +101,8 @@ private:
     size_t _count = 0;
     bool _finished = false;
     faststring _buffer;
+    // This is a empirical value, Kudu and LevelDB use this default value
+    static const uint8_t RESTART_POINT_INTERVAL = 16;
 };
 
 class BinaryPrefixPageDecoder : public PageDecoder {
@@ -160,6 +160,7 @@ private:
     Slice _data;
     bool _parsed = false;
     size_t _num_values = 0;
+    uint8_t _restart_point_internal = 0;
     uint32_t _num_restarts = 0;
     // pointer to restart offsets array
     const uint8_t* _restarts_ptr = nullptr;

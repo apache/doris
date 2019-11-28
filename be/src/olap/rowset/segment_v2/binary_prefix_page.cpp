@@ -89,6 +89,8 @@ OwnedSlice BinaryPrefixPageBuilder::finish() {
     DCHECK(!_finished);
     _finished = true;
     put_fixed32_le(&_buffer, (uint32_t)_count);
+    uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
+    _buffer.append(&restart_point_internal, 1);
     auto restart_point_size = _restart_points_offset.size();
     for(uint32_t i = 0; i < restart_point_size; ++i) {
         put_fixed32_le(&_buffer, _restart_points_offset[i]);
@@ -130,7 +132,7 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
 }
 
 Status BinaryPrefixPageDecoder::_seek_to_restart_point(size_t restart_point_index) {
-    _cur_pos = restart_point_index * RESTART_POINT_INTERVAL;
+    _cur_pos = restart_point_index * _restart_point_internal;
     _next_ptr = _get_restart_point(restart_point_index);
     return _read_next_value();
 }
@@ -140,9 +142,10 @@ Status BinaryPrefixPageDecoder::init() {
     _next_ptr = reinterpret_cast<const uint8_t*>(_data.get_data());
 
     const uint8_t* end = _next_ptr + _data.get_size();
-    _num_restarts = decode_fixed32_le(end - sizeof(uint32_t));
-    _restarts_ptr = end - (_num_restarts + 1) * sizeof(uint32_t);
-    _num_values = decode_fixed32_le(end - (_num_restarts + 2) * sizeof(uint32_t));
+    _num_restarts = decode_fixed32_le(end - 4);
+    _restarts_ptr = end - (_num_restarts + 1) * 4;
+    _restart_point_internal = decode_fixed8(end - (_num_restarts + 1) * 4 - 1);
+    _num_values = decode_fixed32_le(end - (_num_restarts + 2) * 4 -1);
     _parsed = true;
     return _read_next_value();
 }
@@ -157,7 +160,7 @@ Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
         return Status::OK();
     }
 
-    size_t restart_point_index = pos / RESTART_POINT_INTERVAL;
+    size_t restart_point_index = pos / _restart_point_internal;
     RETURN_IF_ERROR(_seek_to_restart_point(restart_point_index));
     while (_cur_pos < pos) {
         _cur_pos++;
