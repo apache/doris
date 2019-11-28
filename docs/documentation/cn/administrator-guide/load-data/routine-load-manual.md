@@ -150,7 +150,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 * strict\_mode
 
-    Routine load 导入可以开启 strict mode 模式。开启方式为在 job\_properties 中增加 ```"strict_mode" = "true"``` 。默认的 strict mode 为开启。
+    Routine load 导入可以开启 strict mode 模式。开启方式为在 job\_properties 中增加 ```"strict_mode" = "true"``` 。默认的 strict mode 为关闭。
 
     strict mode 模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
 
