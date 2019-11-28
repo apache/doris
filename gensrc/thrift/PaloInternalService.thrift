@@ -126,6 +126,9 @@ struct TQueryOptions {
 
   // multithreaded degree of intra-node parallelism
   27: optional i32 mt_dop = 0;
+  // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
+  // of load channel.
+  28: optional i64 load_mem_limit = 0;
 }
 
 // A scan range plus the parameters needed to execute that scan.

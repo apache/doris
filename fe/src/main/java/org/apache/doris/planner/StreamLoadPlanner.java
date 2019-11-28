@@ -145,6 +145,8 @@ public class StreamLoadPlanner {
         queryOptions.setQuery_type(TQueryType.LOAD);
         queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
         queryOptions.setMem_limit(streamLoadTask.getMemLimit());
+        // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
+        queryOptions.setLoad_mem_limit(streamLoadTask.getMemLimit());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
