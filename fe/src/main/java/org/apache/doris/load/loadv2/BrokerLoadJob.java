@@ -43,6 +43,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -52,6 +54,7 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -87,6 +90,10 @@ public class BrokerLoadJob extends LoadJob {
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
     private List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
+    // sessionVariable's name -> sessionVariable's value
+    // we persist these sessionVariables due to the session is not available when replaying the job.
+    private Map<String, String> sessionVariables = Maps.newHashMap();
+
     // only for log replay
     public BrokerLoadJob() {
         super();
@@ -101,6 +108,13 @@ public class BrokerLoadJob extends LoadJob {
         this.originStmt = Strings.nullToEmpty(originStmt);
         this.jobType = EtlJobType.BROKER;
         this.authorizationInfo = gatherAuthInfo();
+
+        if (ConnectContext.get() != null) {
+            SessionVariable var = ConnectContext.get().getSessionVariable();
+            sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+        } else {
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(0));
+        }
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, String originStmt) throws DdlException {
@@ -504,6 +518,12 @@ public class BrokerLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         Text.writeString(out, originStmt);
+
+        out.writeInt(sessionVariables.size());
+        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     @Override
@@ -522,6 +542,18 @@ public class BrokerLoadJob extends LoadJob {
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                sessionVariables.put(key, value);
+            }
+        } else {
+            // old version of load does not have sqlmode, set it to default
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(0));
+        }
     }
 
 }
