@@ -161,10 +161,8 @@ public class TableProperty implements Writable {
     }
 
     public static boolean checkDynamicPartitionTable(Table table) {
-        if (!(table instanceof OlapTable)) {
-            return false;
-        }
-        if (!(((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.RANGE))) {
+        if (!(table instanceof OlapTable) ||
+                !(((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.RANGE))) {
             return false;
         }
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) ((OlapTable) table).getPartitionInfo();
