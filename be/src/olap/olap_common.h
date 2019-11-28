@@ -62,7 +62,7 @@ struct DataDirInfo {
             is_used(false) { }
 
     std::string path;
-    int64_t path_hash;
+    size_t path_hash;
     int64_t capacity;                  // 总空间，单位字节
     int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
@@ -73,7 +73,7 @@ struct DataDirInfo {
 struct TabletInfo {
     TabletInfo(
             TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash, 
+            TSchemaHash in_schema_hash,
             UniqueId in_uid) :
             tablet_id(in_tablet_id),
             schema_hash(in_schema_hash),
@@ -185,7 +185,7 @@ enum ReaderType {
 //using Version = std::pair<TupleVersion, TupleVersion>;
 
 struct Version {
-    int64_t first;  
+    int64_t first;
     int64_t second;
 
     Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
@@ -261,7 +261,7 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
-// 8 bit rowset id version 
+// 8 bit rowset id version
 // 56 bit, inc number from 0
 // 128 bit backend uid, it is a uuid bit, id version
 struct RowsetId {

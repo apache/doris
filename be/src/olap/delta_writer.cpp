@@ -33,17 +33,11 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWr
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(
-        WriteRequest* req,
-        MemTracker* mem_tracker,
-        StorageEngine* storage_engine)
-    : _req(*req), _tablet(nullptr),
-      _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
-      _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
-      _delta_written_success(false),
-      _storage_engine(storage_engine) {
-
-    _mem_tracker.reset(new MemTracker(-1, "delta writer", mem_tracker));
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine) :
+        _req(*req), _tablet(nullptr), _cur_rowset(nullptr), _new_rowset(nullptr),
+        _new_tablet(nullptr), _rowset_writer(nullptr), _schema(nullptr), _tablet_schema(nullptr),
+        _delta_written_success(false), _storage_engine(storage_engine) {
+    _mem_tracker.reset(new MemTracker(-1, "delta writer", parent));
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -75,7 +69,7 @@ void DeltaWriter::_garbage_collection() {
         rollback_status = _storage_engine->txn_manager()->rollback_txn(_req.partition_id, _tablet, _req.txn_id);
     }
     // has to check rollback status, because the rowset maybe committed in this thread and
-    // published in another thread, then rollback will failed
+    // published in another thread, then rollback will failed.
     // when rollback failed should not delete rowset
     if (rollback_status == OLAP_SUCCESS) {
         _storage_engine->add_unused_rowset(_cur_rowset);
@@ -183,7 +177,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
                 << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
         _flush_memtable_async();
         _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get())); 
+                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
     } else {
         DCHECK(mem_consumption() > _mem_table->memory_usage());
         // this means there should be at least one memtable in flush queue.
@@ -218,7 +212,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    OLAPStatus res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id, 
+    OLAPStatus res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
         _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
         LOG(WARNING) << "commit txn: " << _req.txn_id

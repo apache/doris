@@ -95,7 +95,7 @@ public:
 
 TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
     std::vector<DataDir*> data_dir = k_engine->get_stores();
-    int64_t path_hash = data_dir[0]->path_hash();
+    size_t path_hash = data_dir[0]->path_hash();
 
     std::shared_ptr<FlushHandler> flush_handler;
     k_flush_executor->create_flush_handler(path_hash, &flush_handler);
