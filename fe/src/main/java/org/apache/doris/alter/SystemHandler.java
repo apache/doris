@@ -33,6 +33,7 @@ import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -50,10 +51,7 @@ import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /*
  * SystemHandler is for
@@ -82,60 +80,37 @@ public class SystemHandler extends AlterHandler {
 
     @Deprecated
     private void runOldAlterJob() {
-        List<AlterJob> cancelledJobs = Lists.newArrayList();
-        List<AlterJob> finishedJobs = Lists.newArrayList();
-
-        for (AlterJob alterJob : alterJobs.values()) {
-            AlterJob decommissionBackendJob = (DecommissionBackendJob) alterJob;
-            JobState state = decommissionBackendJob.getState();
-            switch (state) {
-                case PENDING: {
-                    // send tasks
-                    decommissionBackendJob.sendTasks();
-                    break;
-                }
-                case RUNNING: {
-                    // no timeout
-                    // try finish job
-                    decommissionBackendJob.tryFinishJob();
-                    break;
-                }
-                case FINISHED: {
-                    // remove from alterJobs
-                    finishedJobs.add(decommissionBackendJob);
-                    break;
-                }
-                case CANCELLED: {
-                    Preconditions.checkState(false);
-                    break;
-                }
-                default:
-                    Preconditions.checkState(false);
-                    break;
-            }
-        } // end for jobs
-
-        // handle cancelled jobs
-        for (AlterJob dropBackendJob : cancelledJobs) {
-            dropBackendJob.cancel(null, "cancelled");
-            jobDone(dropBackendJob);
-        }
-
-        // handle finished jobs
-        for (AlterJob dropBackendJob : finishedJobs) {
-            jobDone(dropBackendJob);
-        }
+        // just remove all old decommission jobs. the decommission state is already marked in Backend,
+        // and we no long need decommission job.
+        alterJobs.clear();
+        finishedOrCancelledAlterJobs.clear();
     }
 
+    // check all decommissioned backends, if there is no tablet on that backend, drop it.
     private void runAlterJobV2() {
-        Iterator<Map.Entry<Long, AlterJobV2>> iter = alterJobsV2.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<Long, AlterJobV2> entry = iter.next();
-            AlterJobV2 alterJob = entry.getValue();
-            if (alterJob.isDone()) {
+        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        // check if decommission is finished
+        for (Long beId : systemInfoService.getBackendIds(false)) {
+            Backend backend = systemInfoService.getBackend(beId);
+            if (backend == null || !backend.isDecommissioned()) {
                 continue;
             }
-            alterJob.run();
+
+            List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
+            if (backendTabletIds.isEmpty()) {
+                try {
+                    systemInfoService.dropBackend(beId);
+                    LOG.info("no tablet on decommission backend {}, drop it", beId);
+                } catch (DdlException e) {
+                    // does not matter, may be backend not exist
+                    LOG.info("backend {} is dropped failed after decommission {}", beId, e.getMessage());
+                }
+                continue;
+            }
+
+            LOG.info("backend {} lefts {} replicas to decommission: {}", beId, backendTabletIds.size(),
+                    backendTabletIds.size() <= 20 ? backendTabletIds : "too many");
         }
     }
 
@@ -179,20 +154,14 @@ public class SystemHandler extends AlterHandler {
             List<Backend> decommissionBackends = checkDecommission(decommissionBackendClause);
 
             // set backend's state as 'decommissioned'
+            // for decommission operation, here is no decommission job. the system handler will check
+            // all backend in decommission state
             for (Backend backend : decommissionBackends) {
                 backend.setDecommissioned(true);
                 Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
+                LOG.info("set backend {} to decommission", backend.getId());
             }
 
-            // add job
-            long jobId = Catalog.getInstance().getNextId();
-            List<Long> backendIds = decommissionBackends.stream().map(b -> b.getId()).collect(Collectors.toList());
-            DecommissionBackendJobV2 decommissionBackendJob = new DecommissionBackendJobV2(jobId, backendIds);
-            addAlterJobV2(decommissionBackendJob);
-
-            // log
-            Catalog.getInstance().getEditLog().logAlterJob(decommissionBackendJob);
-            LOG.info("decommission backend job[{}] created. {}", jobId, decommissionBackendClause.toSql());
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Catalog.getInstance().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());

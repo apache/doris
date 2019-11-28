@@ -1037,6 +1037,13 @@ public class SystemInfoService {
     public void updateBackendState(Backend be) {
         long id = be.getId();
         Backend memoryBe = getBackend(id);
+        if (memoryBe == null) {
+            // backend may already be dropped. this may happen when
+            // 1. SystemHandler drop the decommission backend
+            // 2. at same time, user try to cancel the decommission of that backend.
+            // These two operations do not guarantee the order.
+            return;
+        }
         memoryBe.setBePort(be.getBePort());
         memoryBe.setAlive(be.isAlive());
         memoryBe.setDecommissioned(be.isDecommissioned());
