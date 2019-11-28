@@ -30,9 +30,9 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     MemTableFlushContext ctx;
     ctx.memtable = memtable;
     ctx.flush_handler = this->shared_from_this();
-    _counter_cond.inc(); 
+    _counter_cond.inc();
     _flush_executor->_push_memtable(_flush_queue_idx, ctx);
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus FlushHandler::wait() {
@@ -55,8 +55,8 @@ void FlushHandler::on_flush_finished(const FlushResult& res) {
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(
-        int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
-    int32_t flush_queue_idx = _get_queue_idx(path_hash); 
+        size_t path_hash, std::shared_ptr<FlushHandler>* flush_handler) {
+    size_t flush_queue_idx = _get_queue_idx(path_hash);
     flush_handler->reset(new FlushHandler(flush_queue_idx, this));
     return OLAP_SUCCESS;
 }
@@ -99,7 +99,7 @@ MemTableFlushExecutor::~MemTableFlushExecutor() {
     _flush_pool->shutdown();
     _flush_pool->join();
 
-    // delete queue    
+    // delete queue
     for (auto queue : _flush_queues) {
         delete queue;
     }
@@ -108,11 +108,11 @@ MemTableFlushExecutor::~MemTableFlushExecutor() {
     delete _flush_pool;
 }
 
-int32_t MemTableFlushExecutor::_get_queue_idx(size_t path_hash) {
+size_t MemTableFlushExecutor::_get_queue_idx(size_t path_hash) {
     std::lock_guard<SpinLock> l(_lock);
-    int32_t cur_idx = _path_map[path_hash];
-    int32_t group = cur_idx / _thread_num_per_store;
-    int32_t next_idx = group * _thread_num_per_store + ((cur_idx + 1) % _thread_num_per_store);
+    size_t cur_idx = _path_map[path_hash];
+    size_t group = cur_idx / _thread_num_per_store;
+    size_t next_idx = group * _thread_num_per_store + ((cur_idx + 1) % _thread_num_per_store);
     DCHECK(next_idx < _num_threads);
     _path_map[path_hash] = next_idx;
     return cur_idx;
@@ -123,7 +123,7 @@ void MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushConte
 }
 
 void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
-    while(true) {
+    while (true) {
         MemTableFlushContext ctx;
         if (!_flush_queues[queue_idx]->blocking_get(&ctx)) {
             // queue is empty and shutdown, end of thread
