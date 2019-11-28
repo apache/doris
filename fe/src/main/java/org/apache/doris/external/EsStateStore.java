@@ -182,7 +182,7 @@ public class EsStateStore extends Daemon {
 
         // we build the doc value context for fields maybe used for scanning
         JSONObject indexMetaMap = indicesMetaMap.optJSONObject(esTable.getIndexName());
-        if (esTable.isDocValueScan() && indexMetaMap != null) {
+        if (esTable.isDocValueScanEnable() && indexMetaMap != null) {
             JSONObject mappings = indexMetaMap.optJSONObject("mappings");
             JSONObject rootSchema = mappings.optJSONObject(esTable.getMappingType());
             JSONObject schema = rootSchema.optJSONObject("properties");

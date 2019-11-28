@@ -305,7 +305,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 // this may be a tricky, but we can workaround this issue
                 std::string val;
                 if (pure_doc_value) {
-                    val = col[0].GetString();
+                    if (!col[0].IsString()) {
+                        val = json_value_to_string(col[0]);
+                    } else {
+                        val = col[0].GetString();
+                    }
                 } else {
                     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
                     if (!col.IsString()) {
@@ -415,7 +419,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
-                        return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                     }
 
                     if (type == TYPE_DATE) {
@@ -427,7 +431,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 }
                 if (pure_doc_value && col.IsArray()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col[0].GetInt64(), "+08:00")) {
-                        return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                     }
 
                     if (type == TYPE_DATE) {
@@ -445,11 +449,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
                 if (ts_slot->year() < 1900) {
-                    return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
                 if (type == TYPE_DATE) {

@@ -119,7 +119,7 @@ public class EsScanNode extends ScanNode {
         properties.put(EsTable.PASSWORD, table.getPasswd());
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
         esScanNode.setProperties(properties);
-        if (table.isDocValueScan()) {
+        if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalue_context(table.docValueContext());
         }
         msg.es_scan_node = esScanNode;

@@ -97,7 +97,7 @@ public class EsTable extends Table {
         return docValueContext;
     }
 
-    public boolean isDocValueScan() {
+    public boolean isDocValueScanEnable() {
         return enableDocValueScan;
     }
 
