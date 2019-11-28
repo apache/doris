@@ -1028,7 +1028,6 @@ public class EditLog {
         logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
     }
 
-
     public void logCreateCluster(Cluster cluster) {
         logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
     }

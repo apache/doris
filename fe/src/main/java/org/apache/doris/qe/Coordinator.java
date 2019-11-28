@@ -190,8 +190,6 @@ public class Coordinator {
     // parallel execute
     private final TUniqueId nextInstanceId;
 
-    private boolean isQueryCoordinator;
-
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.isBlockQuery = planner.isBlockQuery();
@@ -276,6 +274,10 @@ public class Coordinator {
 
     public void setExecMemoryLimit(long execMemoryLimit) {
         this.queryOptions.setMem_limit(execMemoryLimit);
+    }
+
+    public void setLoadMemLimit(long loadMemLimit) {
+        this.queryOptions.setLoad_mem_limit(loadMemLimit);
     }
 
     public void setTimeout(int timeout) {
