@@ -149,7 +149,7 @@ private:
     size_t _get_queue_idx(size_t path_hash);
 
     // push the memtable to specified flush queue
-    void _push_memtable(int32_t queue_idx, MemTableFlushContext& ctx);
+    OLAPStatus _push_memtable(int32_t queue_idx, MemTableFlushContext& ctx);
 
     void _flush_memtable(int32_t queue_idx);
 
