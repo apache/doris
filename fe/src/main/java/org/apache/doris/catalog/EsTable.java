@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -28,7 +27,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
+import com.google.common.base.Strings;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -237,7 +236,7 @@ public class EsTable extends Table {
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
             int size = in.readInt();
             for (int i = 0; i < size; ++i) {
                 String key = Text.readString(in);
@@ -251,6 +250,13 @@ public class EsTable extends Table {
             indexName = tableContext.get("indexName");
             mappingType = tableContext.get("mappingType");
             transport = tableContext.get("transport");
+            if (tableContext.containsKey("majorVersion")) {
+                try {
+                    majorVersion = EsMajorVersion.parse(tableContext.get("majorVersion"));
+                } catch (Exception e) {
+                    majorVersion = EsMajorVersion.V_5_X;
+                }
+            }
 
             enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
 
@@ -278,6 +284,14 @@ public class EsTable extends Table {
                 throw new IOException("invalid partition type: " + partType);
             }
             transport = Text.readString(in);
+            // for upgrading write
+            tableContext.put("hosts", hosts);
+            tableContext.put("userName", userName);
+            tableContext.put("passwd", passwd);
+            tableContext.put("indexName", indexName);
+            tableContext.put("mappingType", mappingType);
+            tableContext.put("transport", transport);
+            tableContext.put("enableDocValueScan", "false");
         }
     }
 
