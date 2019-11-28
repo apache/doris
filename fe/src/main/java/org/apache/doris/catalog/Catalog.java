@@ -177,7 +177,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.task.DynamicPartitionTask;
+import org.apache.doris.task.DynamicPartitionScheduler;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageMedium;
@@ -367,6 +367,8 @@ public class Catalog {
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
 
+    private DynamicPartitionScheduler dynamicPartitionScheduler;
+
     private SmallFileMgr smallFileMgr;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
@@ -488,6 +490,8 @@ public class Catalog {
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+
+        this.dynamicPartitionScheduler = new DynamicPartitionScheduler();
 
         this.smallFileMgr = new SmallFileMgr();
     }
@@ -1155,9 +1159,9 @@ public class Catalog {
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
         // start dynamic partition task
-        DynamicPartitionTask.getInstance().setName("dynamicPartitionTask");
-        DynamicPartitionTask.getInstance().setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
-        DynamicPartitionTask.getInstance().start();
+        dynamicPartitionScheduler.setName("DynamicPartitionScheduler");
+        dynamicPartitionScheduler.setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
+        dynamicPartitionScheduler.start();
     }
 
     // start threads that should running on all FE

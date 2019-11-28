@@ -38,7 +38,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,28 +52,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class DynamicPartitionTask extends Daemon {
-    private static final Logger LOG = LogManager.getLogger(DynamicPartitionTask.class);
-
-    private static DynamicPartitionTask INSTANCE = null;
+public class DynamicPartitionScheduler extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(DynamicPartitionScheduler.class);
 
     private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
     private static final String DATE_FORMAT = "yyyy-MM-dd";
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
-    private Set<Pair<Long, Long>> dynamicPartitionTableInfo;
+    private static Set<Pair<Long, Long>> dynamicPartitionTableInfo = new HashSet<>();
     private boolean initialize;
 
-    private DynamicPartitionTask() {
-        this.dynamicPartitionTableInfo = new HashSet<>();
+    public DynamicPartitionScheduler() {
         this.initialize = false;
-    }
-
-    public static DynamicPartitionTask getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = new DynamicPartitionTask();
-        }
-        return INSTANCE;
     }
 
     private void initDynamicPartitionTable() {
@@ -85,7 +75,7 @@ public class DynamicPartitionTask extends Daemon {
                 }
             }
         }
-        this.initialize = true;
+        initialize = true;
     }
 
     private boolean checkDynamicPartitionTable(Table table) {
@@ -101,11 +91,11 @@ public class DynamicPartitionTask extends Daemon {
                 !Strings.isNullOrEmpty(enable) && enable.equalsIgnoreCase(PropertyAnalyzer.TRUE);
     }
 
-    public void registerDynamicPartitionTable(Long dbId, Long tableId) {
+    public static void registerDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
     }
 
-    public void removeDynamicPartitionTable(Long dbId, Long tableId) {
+    public static void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
@@ -213,7 +203,7 @@ public class DynamicPartitionTask extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (!initialize) {
             initDynamicPartitionTable();
         }

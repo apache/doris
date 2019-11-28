@@ -23,7 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.task.DynamicPartitionTask;
+import org.apache.doris.task.DynamicPartitionScheduler;
 
 public class DynamicPartitionUtils {
     private static final String DAY = "day";
@@ -70,9 +70,9 @@ public class DynamicPartitionUtils {
     public static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
         if (TRUE.equalsIgnoreCase(enable) || FALSE.equalsIgnoreCase(enable)) {
             if (Boolean.parseBoolean(enable)) {
-                DynamicPartitionTask.getInstance().registerDynamicPartitionTable(db.getId(), tbl.getId());
+                DynamicPartitionScheduler.registerDynamicPartitionTable(db.getId(), tbl.getId());
             } else {
-                DynamicPartitionTask.getInstance().removeDynamicPartitionTable(db.getId(), tbl.getId());
+                DynamicPartitionScheduler.removeDynamicPartitionTable(db.getId(), tbl.getId());
             }
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
