@@ -144,8 +144,8 @@ Status BinaryPrefixPageDecoder::init() {
     _num_restarts = decode_fixed32_le(end - 4);
     _restarts_ptr = end - (_num_restarts + 1) * 4;
     _footer_start = _restarts_ptr - 4 - 1;
-    _restart_point_internal = decode_fixed8(_footer_start);
-    _num_values = decode_fixed32_le(_footer_start + 1);
+    _num_values = decode_fixed32_le(_footer_start);
+    _restart_point_internal = decode_fixed8(_footer_start + 4);
     _parsed = true;
     return _read_next_value();
 }
