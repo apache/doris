@@ -513,8 +513,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _close_timer = ADD_TIMER(_profile, "CloseTime");
     _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlightPacketTime");
     _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
-    // use query mem limit as load mem limit for remote load channels
-    _load_mem_limit = state->query_mem_tracker()->limit();
+    _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
     auto& partitions = _partition->get_partitions();

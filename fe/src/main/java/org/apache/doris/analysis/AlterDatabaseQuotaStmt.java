@@ -19,37 +19,19 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
     private String dbName;
     private String quotaQuantity;
     private long quota;
-    private static ImmutableMap<String, Long> validUnitMultiplier = 
-        ImmutableMap.<String, Long>builder().put("B", 1L)
-        .put("K", 1024L)
-        .put("KB", 1024L)
-        .put("M", 1024L * 1024)
-        .put("MB", 1024L * 1024)
-        .put("G", 1024L * 1024 * 1024)
-        .put("GB", 1024L * 1024 * 1024)
-        .put("T", 1024L * 1024 * 1024 * 1024)
-        .put("TB", 1024L * 1024 * 1024 * 1024)
-        .put("P", 1024L * 1024 * 1024 * 1024 * 1024)
-        .put("PB", 1024L * 1024 * 1024 * 1024 * 1024).build();
-
-    private String quotaPattern = "(\\d+)(\\D*)";
 
     public AlterDatabaseQuotaStmt(String dbName, String quotaQuantity) {
         this.dbName = dbName;
@@ -64,34 +46,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         return quota;
     }
 
-    private void analyzeQuotaQuantity() throws UserException {
-        Pattern r = Pattern.compile(quotaPattern);
-        Matcher m = r.matcher(quotaQuantity);
-        if (m.matches()) {
-            try {
-                quota = Long.parseLong(m.group(1));
-            } catch(NumberFormatException nfe) {
-                throw new AnalysisException("invalid quota:" + m.group(1));
-            }
-            if (quota < 0L) {
-                throw new AnalysisException("Quota must larger than 0");
-            }
-
-            String unit = "B";
-            String tmpUnit = m.group(2);
-            if (!Strings.isNullOrEmpty(tmpUnit)) {
-                unit = tmpUnit.toUpperCase();
-            }
-            if (validUnitMultiplier.containsKey(unit)) {
-                quota = quota * validUnitMultiplier.get(unit);
-            } else {
-                throw new AnalysisException("invalid unit:" + tmpUnit);
-            }
-        } else {
-            throw new AnalysisException("invalid quota expression:" + quotaQuantity);
-        }
-    }
-
+   
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -104,7 +59,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        analyzeQuotaQuantity();
+        quota = ParseUtil.analyzeDataVolumn(quotaQuantity);
     }
 
     @Override

@@ -95,7 +95,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long timeoutSecond = Config.broker_load_default_timeout_second;
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
-    protected boolean strictMode = true;
+    protected boolean strictMode = false; // default is false
     protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     @Deprecated
     protected boolean deleteFlag = false;

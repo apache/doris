@@ -142,4 +142,6 @@ public final class FeMetaVersion {
     public static final int VERSION_65 = 65;
     // routine load/stream load persist session variables
     public static final int VERSION_66 = 66;
+    // load_mem_limit session variable
+    public static final int VERSION_67 = 67;
 }

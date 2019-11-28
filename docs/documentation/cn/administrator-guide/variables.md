@@ -52,14 +52,8 @@ SET time_zone = "Asia/Shanghai";
 SET GLOBAL exec_mem_limit = 137438953472
 ```
 
-同时，变量设置也支持常量表达式。如：
-
-```
-SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
-SET forward_to_master = concat('tr', 'u', 'e');
-```
-
 > 注1：只有 ADMIN 用户可以设置变量的全局生效。
+> 注2：全局生效的变量不影响当前会话的变量值，仅影响新的会话中的变量。
 
 支持全局生效的变量包括：
 
@@ -71,7 +65,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
-* `parallel_fragment_exec_instance_num`
+* `parallel_exchange_instance_num`
+
+同时，变量设置也支持常量表达式。如：
+
+```
+SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
+SET forward_to_master = concat('tr', 'u', 'e');
+```
 
 ## 支持的变量
 
@@ -209,6 +210,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `license`
     
     显示 Doris 的 License。无其他作用。
+
+* `load_mem_limit`
+
+    用于指定导入操作的内存限制。默认为 0，即表示不使用该变量，而采用 `exec_mem_limit` 作为导入操作的内存限制。
+    
+    这个变量仅用于 INSERT 操作。因为 INSERT 操作设计查询和导入两个部分，如果用户不设置此变量，则查询和导入操作各自的内存限制均为 `exec_mem_limit`。否则，INSERT 的查询部分内存限制为 `exec_mem_limit`，而导入部分限制为 `load_mem_limit`。
+    
+    其他导入方式，如 BROKER LOAD，STREAM LOAD 的内存限制依然使用 `exec_mem_limit`。
     
 * `lower_case_table_names`
 
@@ -236,7 +245,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
     在一个分布式的查询执行计划中，上层节点通常有一个或多个 exchange node 用于接收来自下层节点在不同 BE 上的执行实例的数据。通常 exchange node 数量等于下层节点执行实例数量。
     
-    如果用户需要减少上层节点的 exchange node 数量，可以设置该值。
+    在一些聚合查询场景下，如果底层需要扫描的数据量较大，但聚合之后的数据量很小，则可以尝试修改此变量为一个较小的值，可以降低此类查询的资源开销。如在 DUPLICATE KEY 明细模型上进行聚合查询的场景。
     
 * `parallel_fragment_exec_instance_num`
 

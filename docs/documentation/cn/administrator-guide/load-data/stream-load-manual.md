@@ -139,7 +139,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 + strict\_mode
 
-    Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为开启。
+    Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为关闭。
 
     strict mode 模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
 

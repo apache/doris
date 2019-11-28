@@ -211,7 +211,7 @@ The following is a detailed explanation of some parameters of the import operati
 
 + strict\_mode
 
-	Broker load 导入可以开启 strict mode 模式。开启方式为 ```properties ("strict_mode" = "true")``` 。默认的 strict mode 为开启。
+	Broker load 导入可以开启 strict mode 模式。开启方式为 ```properties ("strict_mode" = "true")``` 。默认的 strict mode 为关闭。
 
 	The strict mode means that the column type conversion in the import process is strictly filtered. The strategy of strict filtering is as follows:
 
