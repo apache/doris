@@ -58,7 +58,7 @@ class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
 
-    DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine);
+    DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine);
 
     OLAPStatus init();
 

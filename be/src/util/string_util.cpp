@@ -21,8 +21,8 @@
 
 namespace doris {
 
-std::size_t hash_of_path(const std::string& identifier, const std::string& path) {
-    std::size_t hash = std::hash<std::string>()(identifier);
+size_t hash_of_path(const std::string& identifier, const std::string& path) {
+    size_t hash = std::hash<std::string>()(identifier);
     std::vector<std::string> path_parts = strings::Split(path, "/", strings::SkipWhitespace());
     for (auto& part : path_parts) {
         boost::hash_combine<std::string>(hash, part);
