@@ -105,11 +105,26 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
     } while (false)
 
 
-#define RETURN_ERROR_IF_PARSING_FAILED(result, type) \
+#define RETURN_ERROR_IF_PARSING_FAILED(result, col, type) \
     do { \
         if (result != StringParser::PARSE_SUCCESS) { \
-            return Status::RuntimeError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
+    } while (false)
+
+#define RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type) \
+    do { \
+        std::stringstream ss;    \
+        ss << "Expected value of type: " \
+            << type_to_string(type)  \
+            << "; but found type: " << json_type_to_string(col.GetType()) \
+            << "; Docuemnt slice is : " << json_value_to_string(col); \
+        return Status::RuntimeError(ss.str()); \
     } while (false)
 
 template <typename T>
@@ -132,10 +147,10 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
 
 
     StringParser::ParseResult result;
-    const std::string& val = pure_doc_value ? col[0].GetString() : col.GetString();
-    size_t len = pure_doc_value ? col[0].GetStringLength() : col.GetStringLength();
+    const std::string& val = col.GetString();
+    size_t len = col.GetStringLength();
     T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
 
     if (sizeof(T) < 16) {
         *reinterpret_cast<T*>(slot) = v;
@@ -155,7 +170,7 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
         return Status::OK();
     }
 
-    if (col.IsArray()) {
+    if (pure_doc_value && col.IsArray()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         return Status::OK();
     }
@@ -167,7 +182,7 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     const std::string& val = col.GetString();
     size_t len = col.GetStringLength();
     T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
     *reinterpret_cast<T*>(slot) = v;
 
     return Status::OK();
@@ -378,7 +393,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     *reinterpret_cast<int8_t*>(slot) = col.GetInt();
                     break;
                 }
-                if (col.IsArray()) {
+                if (pure_doc_value && col.IsArray()) {
                     *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
                     break;
                 }
@@ -391,7 +406,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 StringParser::ParseResult result;
                 bool b = 
                     StringParser::string_to_bool(val.c_str(), val_size, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
+                RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
                 *reinterpret_cast<int8_t*>(slot) = b;
                 break;
             }
@@ -400,7 +415,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
-                        return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                        return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                     }
 
                     if (type == TYPE_DATE) {
@@ -412,7 +427,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 }
                 if (pure_doc_value && col.IsArray()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col[0].GetInt64(), "+08:00")) {
-                        return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                        return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                     }
 
                     if (type == TYPE_DATE) {
@@ -430,11 +445,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                    return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
                 if (ts_slot->year() < 1900) {
-                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                    return RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
                 if (type == TYPE_DATE) {

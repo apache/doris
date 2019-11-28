@@ -56,7 +56,7 @@ public class EsTable extends Table {
 
     public static final String TRANSPORT_HTTP = "http";
     public static final String TRANSPORT_THRIFT = "thrift";
-    public static final String DOC_VALUE_SCAN = "docvalue_scan_optimization";
+    public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
 
     private String hosts;
     private String[] seeds;
@@ -69,7 +69,7 @@ public class EsTable extends Table {
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
     private EsTableState esTableState;
-    private boolean isDocValueScan = false;
+    private boolean enableDocValueScan = false;
 
     public EsMajorVersion majorVersion = null;
 
@@ -98,7 +98,7 @@ public class EsTable extends Table {
     }
 
     public boolean isDocValueScan() {
-        return isDocValueScan;
+        return enableDocValueScan;
     }
 
 
@@ -145,12 +145,12 @@ public class EsTable extends Table {
         // Explicit setting for cluster version to avoid detecting version failure
         if (properties.containsKey(DOC_VALUE_SCAN)) {
             try {
-                isDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
+                enableDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
         } else {
-            isDocValueScan = false;
+            enableDocValueScan = false;
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
@@ -174,7 +174,7 @@ public class EsTable extends Table {
         if (majorVersion != null) {
             tableContext.put("majorVersion", majorVersion.toString());
         }
-        tableContext.put("isDocValueScan", String.valueOf(isDocValueScan));
+        tableContext.put("enableDocValueScan", String.valueOf(enableDocValueScan));
     }
 
     public TTableDescriptor toThrift() {
@@ -252,7 +252,7 @@ public class EsTable extends Table {
             mappingType = tableContext.get("mappingType");
             transport = tableContext.get("transport");
 
-            isDocValueScan = Boolean.parseBoolean(tableContext.get("isDocValueScan"));
+            enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
 
             PartitionType partType = PartitionType.valueOf(Text.readString(in));
             if (partType == PartitionType.UNPARTITIONED) {
