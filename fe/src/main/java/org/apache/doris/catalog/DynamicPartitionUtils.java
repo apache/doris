@@ -23,7 +23,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.task.DynamicPartitionScheduler;
+
+import java.util.Map;
 
 public class DynamicPartitionUtils {
     private static final String DAY = "day";
@@ -77,5 +80,13 @@ public class DynamicPartitionUtils {
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
         }
+    }
+
+    public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
+        return properties.containsKey(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE) ||
+                properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT) ||
+                properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX) ||
+                properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END) ||
+                properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
     }
 }

@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DynamicPartitionUtils;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -1317,11 +1318,7 @@ public class SchemaChangeHandler extends AlterHandler {
                      */
                     sendClearAlterTask(db, olapTable);
                     return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE) ||
-                           properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT) ||
-                           properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX) ||
-                           properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END) ||
-                           properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS)) {
+                } else if (DynamicPartitionUtils.checkDynamicPartitionPropertiesExist(properties)) {
                     if (olapTable.getTableProperty().getDynamicProperties().isEmpty()) {
                         throw new DdlException("Table " + olapTable.getName() + " is not a dynamic partition table");
                     }
