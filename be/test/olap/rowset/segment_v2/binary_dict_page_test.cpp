@@ -50,6 +50,14 @@ public:
         ASSERT_EQ(slices.size(), page_builder.count());
         ASSERT_FALSE(page_builder.is_page_full());
 
+        //check first value and last value
+        Slice first_value;
+        page_builder.get_first_value(&first_value);
+        ASSERT_EQ(slices[0], first_value);
+        Slice last_value;
+        page_builder.get_last_value(&last_value);
+        ASSERT_EQ(slices[count - 1], last_value);
+
         // construct dict page
         OwnedSlice dict_slice;
         Status status = page_builder.get_dictionary_page(&dict_slice);

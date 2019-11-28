@@ -107,6 +107,10 @@ public:
     }
 
     OwnedSlice finish() override {
+        if (_count > 0) {
+            _first_value = cell(0);
+            _last_value = cell(_count - 1);
+        }
         return _finish(SIZE_OF_TYPE);
     }
 
@@ -129,6 +133,23 @@ public:
 
     uint64_t size() const override {
         return _buffer.size();
+    }
+
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
     }
 
 private:
@@ -186,6 +207,8 @@ private:
     bool _finished;
     faststring _data;
     faststring _buffer;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>
