@@ -19,12 +19,8 @@
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
 #include "olap/tablet.h"
-#include "olap/schema_change.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
-#include "util/blocking_queue.hpp"
 
 namespace doris {
 
@@ -32,8 +28,10 @@ class FlushHandler;
 class MemTable;
 class MemTracker;
 class Schema;
-class SegmentGroup;
 class StorageEngine;
+class Tuple;
+class TupleDescriptor;
+class SlotDescriptor;
 
 enum WriteType {
     LOAD = 1,
@@ -86,6 +84,8 @@ private:
     OLAPStatus _flush_memtable_async();
 
     void _garbage_collection();
+
+    void _reset_mem_table();
 
 private:
     bool _is_init = false;
