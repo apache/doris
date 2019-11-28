@@ -133,6 +133,11 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
+        if (attr.name().equals(SessionVariable.SQL_MODE)) {
+            // just ignore sql_mode, this variable does not supported yet on branch 0.11
+            // it will be fixed on next release.
+            return true;
+        }
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
