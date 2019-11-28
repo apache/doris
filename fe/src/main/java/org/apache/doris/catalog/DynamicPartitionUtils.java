@@ -18,6 +18,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -29,15 +30,13 @@ import org.apache.doris.task.DynamicPartitionScheduler;
 import java.util.Map;
 
 public class DynamicPartitionUtils {
-    private static final String DAY = "day";
-    private static final String WEEK = "week";
-    private static final String MONTH = "month";
-
     public static final String TRUE = "true";
     public static final String FALSE = "false";
 
     public static void checkTimeUnit(OlapTable tbl, String timeUnit) throws DdlException {
-        if (!(timeUnit.equalsIgnoreCase(DAY) || timeUnit.equalsIgnoreCase(WEEK) || timeUnit.equalsIgnoreCase(MONTH))) {
+        if (!(timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())
+                || timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())
+                || timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString()))) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_TIME_UNIT, timeUnit);
         }
     }
