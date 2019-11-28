@@ -39,7 +39,8 @@ namespace segment_v2 {
 //
 // BinaryPrefixPage := Entry^EntryNum, Trailer
 // Entry := SharedPrefixLength(vint), UnsharedLength(vint), Byte^UnsharedLength
-// Trailer := NumEntry, RestartPointStartOffset(uint32_t)^NumRestartPoints, NumRestartPoints(uint32_t)
+// Trailer := NumEntry(uint32_t), RESTART_POINT_INTERVAL(uint8_t)
+//            RestartPointStartOffset(uint32_t)^NumRestartPoints,NumRestartPoints(uint32_t)
 class BinaryPrefixPageBuilder : public PageBuilder {
 public:
     BinaryPrefixPageBuilder(const PageBuilderOptions& options) :
@@ -162,6 +163,8 @@ private:
     size_t _num_values = 0;
     uint8_t _restart_point_internal = 0;
     uint32_t _num_restarts = 0;
+    // pointer to _footer start
+    const uint8_t* _footer_start = nullptr;
     // pointer to restart offsets array
     const uint8_t* _restarts_ptr = nullptr;
     // ordinal of the first value to return in next_batch()

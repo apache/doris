@@ -92,7 +92,7 @@ OwnedSlice BinaryPrefixPageBuilder::finish() {
     uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
     _buffer.append(&restart_point_internal, 1);
     auto restart_point_size = _restart_points_offset.size();
-    for(uint32_t i = 0; i < restart_point_size; ++i) {
+    for (uint32_t i = 0; i < restart_point_size; ++i) {
         put_fixed32_le(&_buffer, _restart_points_offset[i]);
     }
     put_fixed32_le(&_buffer, restart_point_size);
@@ -102,14 +102,13 @@ OwnedSlice BinaryPrefixPageBuilder::finish() {
 const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr,
                                                               uint32_t* shared,
                                                               uint32_t* non_shared) {
-    const uint8_t* limit = _restarts_ptr - sizeof(uint32_t);
-    if ((ptr = decode_varint32_ptr(ptr, limit, shared)) == nullptr) {
+    if ((ptr = decode_varint32_ptr(ptr, _footer_start, shared)) == nullptr) {
         return nullptr;
     }
-    if ((ptr = decode_varint32_ptr(ptr, limit, non_shared)) == nullptr) {
+    if ((ptr = decode_varint32_ptr(ptr, _footer_start, non_shared)) == nullptr) {
         return nullptr;
     }
-    if (limit - ptr < *non_shared) {
+    if (_footer_start - ptr < *non_shared) {
         return nullptr;
     }
     return ptr;
@@ -144,8 +143,9 @@ Status BinaryPrefixPageDecoder::init() {
     const uint8_t* end = _next_ptr + _data.get_size();
     _num_restarts = decode_fixed32_le(end - 4);
     _restarts_ptr = end - (_num_restarts + 1) * 4;
-    _restart_point_internal = decode_fixed8(end - (_num_restarts + 1) * 4 - 1);
-    _num_values = decode_fixed32_le(end - (_num_restarts + 2) * 4 -1);
+    _footer_start = _restarts_ptr - 4 - 1;
+    _restart_point_internal = decode_fixed8(_footer_start);
+    _num_values = decode_fixed32_le(_footer_start + 1);
     _parsed = true;
     return _read_next_value();
 }

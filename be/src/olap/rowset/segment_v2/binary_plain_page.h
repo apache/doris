@@ -89,8 +89,8 @@ public:
         }
         put_fixed32_le(&_buffer, _offsets.size());
         if (_offsets.size() > 0) {
-            _copy_value_at(_first_value,  0);
-            _copy_value_at(_last_value,  _offsets.size() - 1);
+            _copy_value_at(0, &_first_value);
+            _copy_value_at(_offsets.size() - 1, &_last_value);
         }
         return _buffer.build();
     }
@@ -136,10 +136,10 @@ public:
     }
 
 private:
-    void _copy_value_at(faststring& value, size_t idx) const {
+    void _copy_value_at(size_t idx, faststring* value) const {
         size_t value_size = (idx < _offsets.size() - 1) ?
                             _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        value.assign_copy(&_buffer[_offsets[idx]], value_size);
+        value->assign_copy(&_buffer[_offsets[idx]], value_size);
     }
 
     faststring _buffer;
