@@ -491,7 +491,7 @@ public class UserProperty implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_21) {
             whiteList.readFields(in);
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_68) {
                 whiteList.convertOldDomainPrivMap(qualifiedUser);
             }
         }

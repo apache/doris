@@ -245,7 +245,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet = PrivBitSet.read(in);
 
         isSetByDomainResolver = in.readBoolean();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
             isDomain = in.readBoolean();
         }
 
