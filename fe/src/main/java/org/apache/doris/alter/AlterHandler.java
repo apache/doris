@@ -319,7 +319,6 @@ public abstract class AlterHandler extends MasterDaemon {
 
     @Override
     public void start() {
-        // register observer
         super.start();
     }
 

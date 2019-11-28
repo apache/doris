@@ -51,7 +51,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public enum JobType {
-        ROLLUP, SCHEMA_CHANGE
+        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
     }
 
     protected JobType type;
@@ -175,6 +175,8 @@ public abstract class AlterJobV2 implements Writable {
                 return RollupJobV2.read(in);
             case SCHEMA_CHANGE:
                 return SchemaChangeJobV2.read(in);
+            case DECOMMISSION_BACKEND:
+                return DecommissionBackendJobV2.read(in);
             default:
                 Preconditions.checkState(false);
                 return null;

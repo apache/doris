@@ -175,15 +175,6 @@ public class SystemInfoService {
         MetricRepo.generateTabletNumMetrics();
     }
 
-    public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            // check if exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) == null) {
-                throw new DdlException("Backend does not exist[" + pair.first + ":" + pair.second + "]");
-            }
-        }
-    }
-
     public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
