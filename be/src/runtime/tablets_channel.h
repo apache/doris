@@ -48,13 +48,6 @@ struct TabletsChannelKey {
     std::string to_string() const;
 };
 
-struct TabletsChannelKeyHasher {
-    std::size_t operator()(const TabletsChannelKey& key) const {
-        size_t seed = key.id.hash();
-        return doris::HashUtil::hash(&key.index_id, sizeof(key.index_id), seed);
-    }
-};
-
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
@@ -83,7 +76,7 @@ public:
     Status reduce_mem_usage();
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
-    
+
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& params);
