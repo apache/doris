@@ -438,6 +438,7 @@ public class Config extends ConfigBase {
      * Currently, it only limits the load task of broker load, pending and loading phases.
      * It should be less than 'max_running_txn_num_per_db'
      */
+    @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
 
     /*
