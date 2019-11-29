@@ -28,11 +28,9 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowDynamicPartitionStmt extends ShowStmt {
     private String db;
-    private String pattern;
 
-    ShowDynamicPartitionStmt(String db, String pattern) {
+    ShowDynamicPartitionStmt(String db) {
         this.db = db;
-        this.pattern = pattern;
     }
 
     public String getDb() {
@@ -64,9 +62,6 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
         sb.append("SHOW DYNAMIC PARTITION TABLES");
         if (!Strings.isNullOrEmpty(db)) {
             sb.append(" FROM ").append(db);
-        }
-        if (pattern != null) {
-            sb.append(" LIKE '").append(pattern).append("'");
         }
         return sb.toString();
     }

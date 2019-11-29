@@ -1869,7 +1869,7 @@ show_param ::=
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
     {:
-        RESULT = new ShowDynamicPartitionStmt(db, parser.wild);
+        RESULT = new ShowDynamicPartitionStmt(db);
     :}
     /* Columns */
     | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
