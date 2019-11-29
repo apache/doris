@@ -175,15 +175,6 @@ public class SystemInfoService {
         MetricRepo.generateTabletNumMetrics();
     }
 
-    public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            // check if exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) == null) {
-                throw new DdlException("Backend does not exist[" + pair.first + ":" + pair.second + "]");
-            }
-        }
-    }
-
     public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
@@ -1046,6 +1037,13 @@ public class SystemInfoService {
     public void updateBackendState(Backend be) {
         long id = be.getId();
         Backend memoryBe = getBackend(id);
+        if (memoryBe == null) {
+            // backend may already be dropped. this may happen when
+            // 1. SystemHandler drop the decommission backend
+            // 2. at same time, user try to cancel the decommission of that backend.
+            // These two operations do not guarantee the order.
+            return;
+        }
         memoryBe.setBePort(be.getBePort());
         memoryBe.setAlive(be.isAlive());
         memoryBe.setDecommissioned(be.isDecommissioned());
