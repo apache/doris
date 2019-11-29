@@ -936,7 +936,7 @@ public class OlapTable extends Table {
             baseIndexId = id;
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_67) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
             }

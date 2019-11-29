@@ -142,6 +142,8 @@ public final class FeMetaVersion {
     public static final int VERSION_65 = 65;
     // routine load/stream load persist session variables
     public static final int VERSION_66 = 66;
-    // for dynamic partition
+    // load_mem_limit session variable
     public static final int VERSION_67 = 67;
+    // for dynamic partition
+    public static final int VERSION_68 = 68;
 }
