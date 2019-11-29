@@ -269,7 +269,7 @@ bool RowBlockChanger::change_row_block(
         if (_schema_mapping[i].ref_column >= 0) {
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
-            if ( newtype == reftype ) {
+            if (newtype == reftype) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
@@ -306,7 +306,7 @@ bool RowBlockChanger::change_row_block(
                 }
 
                 // 从ref_column 写入 i列。
-            } else if ( newtype == OLAP_FIELD_TYPE_VARCHAR && reftype == OLAP_FIELD_TYPE_CHAR) {
+            } else if (newtype == OLAP_FIELD_TYPE_VARCHAR && reftype == OLAP_FIELD_TYPE_CHAR) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
@@ -336,26 +336,24 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_field_content(i, buf, mem_pool);
                     }
                 }
-            } else if ( (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
-                || (newtype == OLAP_FIELD_TYPE_DOUBLE && reftype == OLAP_FIELD_TYPE_FLOAT) ) {
-                // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
+            } else if ((newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
+                || (newtype == OLAP_FIELD_TYPE_DOUBLE && reftype == OLAP_FIELD_TYPE_FLOAT)) {
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // 不需要的row，每次处理到这个row时就跳过
+                    // Skip filtered rows
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
                     }
-                    // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
-                    if ( read_helper.is_null(ref_column) ) {
+                    if (read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
-                    }else{
+                    } else {
                         write_helper.set_not_null(i);
                         const Field* ref_field= read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
                         OLAPStatus st = write_helper.convert_from(i, ref_value, ref_field->type_info(), mem_pool);
-                        if( st != OLAPStatus::OLAP_SUCCESS){
+                        if (st != OLAPStatus::OLAP_SUCCESS){
                             LOG(WARNING) << "the column type which was altered from was unsupported."
                                  << "status:" << st << ", from_type=" << reftype << ", to_type=" << newtype;
                         }
@@ -365,7 +363,7 @@ bool RowBlockChanger::change_row_block(
             } else {
                 // copy and alter the field
                 // 此处可以暂时不动，新类型暂时不涉及类型转换
-                switch ( reftype ) {
+                switch (reftype) {
                 case OLAP_FIELD_TYPE_TINYINT:
                     CONVERT_FROM_TYPE(int8_t);
                 case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
@@ -388,7 +386,7 @@ bool RowBlockChanger::change_row_block(
                     return false;
                 }
 
-                if ( newtype < reftype ) {
+                if (newtype < reftype) {
                     VLOG(3) << "type degraded while altering column. "
                             << "column=" << mutable_block->tablet_schema().column(i).name()
                             << ", origin_type=" << ref_block->tablet_schema().column(ref_column).type()

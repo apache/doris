@@ -386,14 +386,22 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
         //only support float now
-        if(src_type->type() == OLAP_FIELD_TYPE_FLOAT){
+        if (src_type->type() == OLAP_FIELD_TYPE_FLOAT) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
-            char buf[64];
-            memset(buf,0,sizeof(buf));            
-            sprintf(buf,"%f",*reinterpret_cast<const SrcType*>(src));
+            //http://www.softelectro.ru/ieee754_en.html
+            //According to the definition of IEEE754, the effect of converting a float binary to a double binary 
+            //is the same as that of static_cast . Data precision cannot be guaranteed, but the progress of 
+            //decimal system can be guaranteed by converting a float to a char buffer and then to a double.
+            //float v2 = static_cast<double>(v1),
+            //float 0.3000000 is: 0 | 01111101 | 00110011001100110011010
+            //double 0.300000011920929 is: 0 | 01111111101 | 0000000000000000000001000000000000000000000000000000
+            //==float to char buffer to strtod==
+            //float 0.3000000 is: 0 | 01111101 | 00110011001100110011010
+            //double 0.300000000000000 is: 0 | 01111111101 | 0011001100110011001100110011001100110011001100110011
+            char buf[64] = {0};
+            snprintf(buf, 64, "%f", *reinterpret_cast<const SrcType*>(src));
             char* tg;
             *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
-            //*reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const SrcType*>(src); 
             return OLAPStatus::OLAP_SUCCESS;    
         }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
@@ -453,18 +461,15 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
         //only support datetime now
-        if(src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME){
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
+            //only need part one
             SrcType part1 = (src_value / 1000000L);
-            tm time_tm;
-            time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
-            time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
-            time_tm.tm_mday = static_cast<int>(part1 % 100);
-            
-            int value = (time_tm.tm_year + 1900) * 16 * 32
-                + (time_tm.tm_mon + 1) * 32
-                + time_tm.tm_mday;
+            CppType year = static_cast<CppType>((part1 / 10000L) % 10000) - 1900;
+            CppType mon = static_cast<CppType>((part1 / 100) % 100) - 1;
+            CppType mday = static_cast<CppType>(part1 % 100);
+            CppType value = (year + 1900) * 16 * 32 + (mon + 1) * 32 + mday;
             *reinterpret_cast<CppType*>(dest) = value;
             return OLAPStatus::OLAP_SUCCESS;    
         }                          
