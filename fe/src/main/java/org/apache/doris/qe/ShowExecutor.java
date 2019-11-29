@@ -508,22 +508,14 @@ public class ShowExecutor {
     }
 
     // Show dynamic partition tables
-    private void handleShowDynamicPartition() throws AnalysisException {
+    private void handleShowDynamicPartition() {
         ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showDynamicPartitionStmt.getDb());
         if (db != null) {
             db.readLock();
             try {
-                PatternMatcher matcher = null;
-                if (showDynamicPartitionStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showDynamicPartitionStmt.getPattern(),
-                            CaseSensibility.TABLE.getCaseSensibility());
-                }
                 for (Table tbl : db.getTables()) {
-                    if (matcher != null && !matcher.match(tbl.getName())) {
-                        continue;
-                    }
                     if (!(tbl instanceof OlapTable)) {
                         continue;
                     }
@@ -542,6 +534,7 @@ public class ShowExecutor {
                                                 tableProperty.getDynamicPartitionEnd(),
                                                 tableProperty.getDynamicPartitionPrefix(),
                                                 tableProperty.getDynamicPartitionBuckets(),
+                                                tableProperty.getLastSchedulerTime(),
                                                 tableProperty.getLastUpdateTime(),
                                                 tableProperty.getState(), tableProperty.getMsg()));
                 }

@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
@@ -31,7 +32,7 @@ public class DynamicPartitionInfo implements Writable {
 
     private long dbId;
     private long tableId;
-    private Map<String, String> properties;
+    private Map<String, String> properties = new HashMap<>();
 
     public DynamicPartitionInfo() {
 
@@ -53,6 +54,12 @@ public class DynamicPartitionInfo implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public static DynamicPartitionInfo read(DataInput in) throws IOException {
+        DynamicPartitionInfo info = new DynamicPartitionInfo();
+        info.readFields(in);
+        return info;
     }
 
     @Override

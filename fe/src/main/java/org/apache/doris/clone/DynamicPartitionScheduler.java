@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
+package org.apache.doris.clone;
 
 import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,18 +117,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
                 // add partition according to partition desc and distribution desc
                 AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
-                HashMap<String, String> properties = Maps.newHashMapWithExpectedSize(2);
                 try {
                     Catalog.getInstance().addPartition(db, table.getName(), addPartitionClause);
-                    properties.put(TableProperty.STATE, TableProperty.State.NORMAL.toString());
-                    properties.put(TableProperty.MSG, " ");
+                    table.getTableProperty().setState(TableProperty.State.NORMAL.toString());
+                    table.getTableProperty().setMsg("");
                 } catch (DdlException e) {
-                    properties.put(TableProperty.STATE, TableProperty.State.ERROR.toString());
-                    properties.put(TableProperty.MSG, e.getMessage());
+                    table.getTableProperty().setState(TableProperty.State.ERROR.toString());
+                    table.getTableProperty().setMsg(e.getMessage());
                 } finally {
-                    // update dynamic partition status
-                    Catalog.getInstance().modifyTableDynamicPartition(db, table, properties);
+                    table.getTableProperty().setLastSchedulerTime(TimeUtils.getCurrentFormatTime());
                 }
+                Catalog.getInstance().updateTableDynamicPartition(db, table);
             }
         }
     }

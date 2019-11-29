@@ -76,6 +76,7 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
                 addColumn(new Column("End", ScalarType.createVarchar(20))).
                 addColumn(new Column("Prefix", ScalarType.createVarchar(20))).
                 addColumn(new Column("Buckets", ScalarType.createVarchar(20))).
+                addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20))).
                 addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20))).
                 addColumn(new Column("State", ScalarType.createVarchar(20))).
                 addColumn(new Column("Msg", ScalarType.createVarchar(20)));

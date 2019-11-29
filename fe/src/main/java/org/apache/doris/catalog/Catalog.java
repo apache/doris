@@ -82,6 +82,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.DynamicPartitionUtils.DynamicPartitionProperties;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
@@ -108,6 +109,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.deploy.DeployManager;
@@ -178,7 +180,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.task.DynamicPartitionScheduler;
+import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageMedium;
@@ -3115,6 +3117,7 @@ public class Catalog {
     }
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
+        DynamicPartitionUtils.checkAlterAllowed(olapTable);
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
 
         String partitionName = clause.getPartitionName();
@@ -3586,10 +3589,13 @@ public class Catalog {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-                    Map<String, String> dynamicPartition = PropertyAnalyzer.analyzeDynamicPartition(db,
-                                                                                                    olapTable,
-                                                                                                    properties);
-                    olapTable.setTableProperty(new TableProperty(dynamicPartition));
+
+                    Map<String, String> dynamicPartition = DynamicPartitionUtils.analyzeDynamicPartition(db, olapTable, properties);
+                    TableProperty tableProperty = new TableProperty(dynamicPartition);
+                    tableProperty.setState(TableProperty.State.NORMAL.toString());
+                    tableProperty.setLastUpdateTime(TimeUtils.getCurrentFormatTime());
+                    olapTable.setTableProperty(tableProperty);
+                    updateTableDynamicPartition(db, olapTable);
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -3928,19 +3934,18 @@ public class Catalog {
                 sb.append(colocateTable).append("\"");
             }
 
-
             // 6. dynamic partition
             TableProperty tableProperty = olapTable.getTableProperty();
             if (!(tableProperty.getDynamicProperties().isEmpty())) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE).append("\" = \"");
+                sb.append(",\n \"").append(DynamicPartitionProperties.ENABLE.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionEnable()).append("\"");
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT).append("\" = \"");
+                sb.append(",\n \"").append(DynamicPartitionProperties.TIME_UNIT.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionTimeUnit()).append("\"");
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END).append("\" = \"");
+                sb.append(",\n \"").append(DynamicPartitionProperties.END.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionEnd()).append("\"");
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX).append("\" = \"");
+                sb.append(",\n \"").append(DynamicPartitionProperties.PREFIX.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionPrefix()).append("\"");
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS).append("\" = \"");
+                sb.append(",\n \"").append(DynamicPartitionProperties.BUCKETS.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionBuckets()).append("\"");
             }
 
@@ -4991,10 +4996,16 @@ public class Catalog {
         }
     }
 
+    public void updateTableDynamicPartition(Database db, OlapTable table) {
+        DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getDynamicProperties());
+        editLog.logDynamicPartition(info);
+    }
+
     public void modifyTableDynamicPartition(Database db, OlapTable table,
                                             Map<String, String> properties) throws DdlException {
-        Map<String, String> analyzedProperties = PropertyAnalyzer.analyzeDynamicPartition(db, table, properties);
+        Map<String, String> analyzedProperties = DynamicPartitionUtils.analyzeDynamicPartition(db, table, properties);
         table.getTableProperty().getDynamicProperties().putAll(analyzedProperties);
+        table.getTableProperty().setLastUpdateTime(TimeUtils.getCurrentFormatTime());
         DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getDynamicProperties());
         editLog.logDynamicPartition(info);
     }

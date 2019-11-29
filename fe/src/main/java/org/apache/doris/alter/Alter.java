@@ -38,6 +38,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionUtils;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -198,8 +199,10 @@ public class Alter {
                 Preconditions.checkState(alterClauses.size() == 1);
                 AlterClause alterClause = alterClauses.get(0);
                 if (alterClause instanceof DropPartitionClause) {
+                    DynamicPartitionUtils.checkAlterAllowed(olapTable);
                     Catalog.getInstance().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
                 } else if (alterClause instanceof ModifyPartitionClause) {
+                    DynamicPartitionUtils.checkAlterAllowed(olapTable);
                     Catalog.getInstance().modifyPartition(db, olapTable, ((ModifyPartitionClause) alterClause));
                 } else {
                     hasAddPartition = true;
@@ -216,6 +219,7 @@ public class Alter {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
+                DynamicPartitionUtils.checkAlterAllowed((OlapTable) db.getTable(tableName));
                 Catalog.getInstance().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else {
                 Preconditions.checkState(false);

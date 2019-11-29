@@ -18,13 +18,10 @@
 package org.apache.doris.catalog;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.catalog.DynamicPartitionUtils.DynamicPartitionProperties;
 import org.json.JSONObject;
 
 import java.io.DataInput;
@@ -37,23 +34,35 @@ import java.util.Iterator;
 import java.util.Map;
 
 public class TableProperty implements Writable {
-    private static final Logger LOG = LogManager.getLogger(TableProperty.class);
 
-    public static final String LAST_UPDATE_TIME = "LastUpdateTime";
-    public static final String MSG = "Msg";
-    public static final String STATE = "State";
+    public enum Status {
+        LAST_SCHEDULER_TIME("LastSchedulerTime"),
+        LAST_UPDATE_TIME("LastUpdateTime"),
+        MSG("Msg"),
+        STATE("State");
 
-    private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
-    private static final String DATE_FORMAT = "yyyy-MM-dd";
-    private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+        private String desc;
 
-    private Map<String, String> dynamicProperties = new HashMap<>();
+        Status(String desc) {
+            this.desc = desc;
+        }
+
+        public String getDesc() {
+            return desc;
+        }
+    }
 
     public enum State {
         NORMAL,
         CANCELLED,
         ERROR
     }
+
+    private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
+    private static final String DATE_FORMAT = "yyyy-MM-dd";
+    private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+
+    private Map<String, String> dynamicProperties = new HashMap<>();
 
     public TableProperty() {}
 
@@ -66,45 +75,55 @@ public class TableProperty implements Writable {
     }
 
     public String getDynamicPartitionTimeUnit() {
-        return this.dynamicProperties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+        return dynamicProperties.get(DynamicPartitionProperties.TIME_UNIT.getDesc());
     }
 
     public String getDynamicPartitionPrefix() {
-        return this.dynamicProperties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX);
+        return dynamicProperties.get(DynamicPartitionProperties.PREFIX.getDesc());
     }
 
     public String getDynamicPartitionEnd() {
-        return this.dynamicProperties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END);
+        return dynamicProperties.get(DynamicPartitionProperties.END.getDesc());
     }
 
     public String getDynamicPartitionBuckets() {
-        return this.dynamicProperties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+        return dynamicProperties.get(DynamicPartitionProperties.BUCKETS.getDesc());
     }
 
-
     public String getDynamicPartitionEnable() {
-        return this.dynamicProperties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE);
+        return dynamicProperties.get(DynamicPartitionProperties.ENABLE.getDesc());
+    }
+
+    public void setLastSchedulerTime(String time) {
+        dynamicProperties.put(Status.LAST_SCHEDULER_TIME.getDesc(), time);
+    }
+
+    public String getLastSchedulerTime() {
+        return dynamicProperties.get(Status.LAST_SCHEDULER_TIME.getDesc());
+    }
+
+    public void setLastUpdateTime(String time) {
+        dynamicProperties.put(Status.LAST_UPDATE_TIME.getDesc(), time);
     }
 
     public String getLastUpdateTime() {
-        return this.dynamicProperties.get(LAST_UPDATE_TIME);
+        return dynamicProperties.get(Status.LAST_UPDATE_TIME.getDesc());
     }
 
-    public void setState(State state) {
-        this.dynamicProperties.put(STATE, state.toString());
+    public void setState(String state) {
+        dynamicProperties.put(Status.STATE.getDesc(), state);
     }
 
     public String getState() {
-        return this.dynamicProperties.get(STATE);
+        return dynamicProperties.get(Status.STATE.getDesc());
     }
 
     public void setMsg(String msg) {
-        this.dynamicProperties.put(MSG, msg);
+        dynamicProperties.put(Status.MSG.getDesc(), msg);
     }
 
     public String getMsg() {
-        String msg = this.dynamicProperties.get(MSG);
-        return Strings.isNullOrEmpty(msg) ? "N/A" : msg;
+        return dynamicProperties.get(Status.MSG.getDesc());
     }
 
     @Override
