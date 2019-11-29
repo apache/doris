@@ -55,8 +55,6 @@ private:
 
 private:
     TabletMetaSharedPtr _tablet_meta;
-    RowsetMetaSharedPtr src_rowset_meta;
-    RowsetMetaSharedPtr dst_rowset_meta;
 };
 
 } // namespace doris

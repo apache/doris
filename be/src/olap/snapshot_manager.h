@@ -98,8 +98,7 @@ private:
             TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
 
     OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
-            const vector<RowsetMetaSharedPtr>& beta_rowsets, const std::string& dst_path,
-            std::vector<RowsetMetaSharedPtr>* new_rowsets, bool* modified);
+            const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path);
 
 private:
     static SnapshotManager* _s_instance;

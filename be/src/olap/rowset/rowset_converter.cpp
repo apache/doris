@@ -101,7 +101,6 @@ OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowse
     RETURN_NOT_OK(rowset_writer->flush());
     RowsetSharedPtr dst_rowset = rowset_writer->build();
     if (dst_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed";
         return OLAP_ERR_MALLOC_ERROR;
     }
     if (src_rowset_meta->has_delete_predicate()) {
