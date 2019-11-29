@@ -353,7 +353,7 @@ bool RowBlockChanger::change_row_block(
                         const Field* ref_field= read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
                         OLAPStatus st = write_helper.convert_from(i, ref_value, ref_field->type_info(), mem_pool);
-                        if (st != OLAPStatus::OLAP_SUCCESS){
+                        if (st != OLAPStatus::OLAP_SUCCESS) {
                             LOG(WARNING) << "the column type which was altered from was unsupported."
                                  << "status:" << st << ", from_type=" << reftype << ", to_type=" << newtype;
                         }
