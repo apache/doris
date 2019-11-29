@@ -17,8 +17,19 @@
 
 package org.apache.doris.task;
 
+import com.google.common.collect.Maps;
+import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.DdlException;
@@ -27,7 +38,12 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class DynamicPartitionScheduler extends MasterDaemon {
@@ -48,8 +64,72 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
-    public static Set<Pair<Long, Long>> getDynamicPartitionTableInfo() {
-        return dynamicPartitionTableInfo;
+    private void dynamicAddPartition() throws DdlException {
+        for (Pair<Long, Long> tableInfo : dynamicPartitionTableInfo) {
+            Long dbId = tableInfo.first;
+            Long tableId = tableInfo.second;
+            Database db = Catalog.getInstance().getDb(dbId);
+            if (db == null || db.getTable((tableId)) == null) {
+                DynamicPartitionScheduler.removeDynamicPartitionTable(dbId, tableId);
+                continue;
+            }
+
+            // Determine the partition column type
+            // if column type is Date, format partition name as yyyyMMdd
+            // if column type is DateTime, format partition name as yyyyMMddHHssmm
+            OlapTable table = (OlapTable) db.getTable(tableId);
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
+            Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
+            String partitionFormat = TableProperty.getPartitionFormat(partitionColumn);
+
+            Calendar calendar = Calendar.getInstance();
+            TableProperty tableProperty = table.getTableProperty();
+            int end = Integer.parseInt(tableProperty.getDynamicPartitionEnd());
+            for (int i = 0; i <= end; i++) {
+                String dynamicPartitionPrefix = tableProperty.getDynamicPartitionPrefix();
+                String partitionRange = TableProperty.getPartitionRange(tableProperty.getDynamicPartitionTimeUnit(),
+                        i, (Calendar) calendar.clone(), partitionFormat);
+                String partitionName = dynamicPartitionPrefix + TableProperty.getFormattedPartitionName(partitionRange);
+                // continue if partition already exists
+                if (table.getPartition(partitionName) != null) {
+                    continue;
+                }
+
+                // construct partition desc
+                String nextBorder = TableProperty.getPartitionRange(tableProperty.getDynamicPartitionTimeUnit(),
+                        i + 1, (Calendar) calendar.clone(), partitionFormat);
+                PartitionValue partitionValue = new PartitionValue(nextBorder);
+                PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(partitionValue));
+                HashMap<String, String> partitionProperties = new HashMap<>(1);
+                partitionProperties.put("replication_num", String.valueOf(TableProperty.estimateReplicateNum(table)));
+                SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(false, partitionName,
+                        partitionKeyDesc, partitionProperties);
+
+                // construct distribution desc
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) table.getDefaultDistributionInfo();
+                List<String> distColumnNames = new ArrayList<>();
+                for (Column distributionColumn : hashDistributionInfo.getDistributionColumns()) {
+                    distColumnNames.add(distributionColumn.getName());
+                }
+                DistributionDesc distributionDesc = new HashDistributionDesc(
+                        Integer.parseInt(tableProperty.getDynamicPartitionBuckets()), distColumnNames);
+
+                // add partition according to partition desc and distribution desc
+                AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
+                HashMap<String, String> properties = Maps.newHashMapWithExpectedSize(2);
+                try {
+                    Catalog.getInstance().addPartition(db, table.getName(), addPartitionClause);
+                    properties.put(TableProperty.STATE, TableProperty.State.NORMAL.toString());
+                    properties.put(TableProperty.MSG, " ");
+                } catch (DdlException e) {
+                    properties.put(TableProperty.STATE, TableProperty.State.ERROR.toString());
+                    properties.put(TableProperty.MSG, e.getMessage());
+                } finally {
+                    // update dynamic partition status
+                    Catalog.getInstance().modifyTableDynamicPartition(db, table, properties);
+                }
+            }
+        }
     }
 
     private void initDynamicPartitionTable() {
@@ -71,7 +151,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             initDynamicPartitionTable();
         }
         try {
-            TableProperty.dynamicAddPartition();
+            dynamicAddPartition();
         } catch (DdlException e) {
             LOG.warn("dynamic add partition failed: " + e.getMessage());
         }

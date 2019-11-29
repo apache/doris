@@ -79,16 +79,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
 
-    public static final String DAY = "day";
-    public static final String WEEK = "week";
-    public static final String MONTH = "month";
-    public static final String TRUE = "true";
-    public static final String FALSE = "false";
     public static final String PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT = "dynamic_partition.time_unit";
     public static final String PROPERTIES_DYNAMIC_PARTITION_PREFIX = "dynamic_partition.prefix";
     public static final String PROPERTIES_DYNAMIC_PARTITION_END = "dynamic_partition.end";
     public static final String PROPERTIES_DYNAMIC_PARTITION_BUCKETS = "dynamic_partition.buckets";
-    public static final String PROPERTIES_DYANMIC_PARTITION_ENABLE = "dynamic_partition.enable";
+    public static final String PROPERTIES_DYNAMIC_PARTITION_ENABLE = "dynamic_partition.enable";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -421,11 +416,11 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
             analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS, buckets);
         }
-        if (properties.containsKey(PROPERTIES_DYANMIC_PARTITION_ENABLE)) {
-            String enable = properties.get(PROPERTIES_DYANMIC_PARTITION_ENABLE);
+        if (properties.containsKey(PROPERTIES_DYNAMIC_PARTITION_ENABLE)) {
+            String enable = properties.get(PROPERTIES_DYNAMIC_PARTITION_ENABLE);
             DynamicPartitionUtils.checkEnable(db, olapTable, enable);
-            properties.remove(PROPERTIES_DYANMIC_PARTITION_ENABLE);
-            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE, enable);
+            properties.remove(PROPERTIES_DYNAMIC_PARTITION_ENABLE);
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE, enable);
         }
         if (properties.containsKey(TableProperty.MSG)) {
             String msg = properties.get(TableProperty.MSG);

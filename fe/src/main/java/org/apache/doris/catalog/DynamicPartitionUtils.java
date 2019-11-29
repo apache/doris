@@ -18,6 +18,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -80,10 +81,43 @@ public class DynamicPartitionUtils {
     }
 
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
-        return properties.containsKey(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE) ||
+        return properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE) ||
                 properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT) ||
                 properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX) ||
                 properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END) ||
                 properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+    }
+
+    public static void checkAllDynamicPartitionProperties(Map<String, String> properties) throws DdlException{
+        if (properties == null) {
+            return;
+        }
+        String timeUnit = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
+        String prefix = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX);
+        String end = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END);
+        String buckets = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
+        String enable = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE);
+        if (!((Strings.isNullOrEmpty(timeUnit) &&
+                Strings.isNullOrEmpty(prefix) &&
+                Strings.isNullOrEmpty(end) &&
+                Strings.isNullOrEmpty(buckets)))) {
+            if (Strings.isNullOrEmpty(timeUnit)) {
+                throw new DdlException("Must assign dynamic_partition.time_unit properties");
+            }
+            if (Strings.isNullOrEmpty(prefix)) {
+                throw new DdlException("Must assign dynamic_partition.prefix properties");
+            }
+            if (Strings.isNullOrEmpty(end)) {
+                throw new DdlException("Must assign dynamic_partition.end properties");
+            }
+            if (Strings.isNullOrEmpty(buckets)) {
+                throw new DdlException("Must assign dynamic_partition.buckets properties");
+            }
+            // dynamic partition enable default to true
+            if (Strings.isNullOrEmpty(enable)) {
+                enable = Boolean.TRUE.toString();
+                properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE, enable);
+            }
+        }
     }
 }

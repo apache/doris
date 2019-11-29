@@ -3528,35 +3528,7 @@ public class Catalog {
         }
 
         // check all dynamic properties exist
-        if (properties != null) {
-            String timeUnit = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT);
-            String prefix = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_PREFIX);
-            String end = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_END);
-            String buckets = properties.get(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_BUCKETS);
-            String enable = properties.get(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE);
-            if (!((Strings.isNullOrEmpty(timeUnit) &&
-                    Strings.isNullOrEmpty(prefix) &&
-                    Strings.isNullOrEmpty(end) &&
-                    Strings.isNullOrEmpty(buckets)))) {
-                if (Strings.isNullOrEmpty(timeUnit)) {
-                    throw new DdlException("Must assign dynamic_partition.time_unit properties");
-                }
-                if (Strings.isNullOrEmpty(prefix)) {
-                    throw new DdlException("Must assign dynamic_partition.prefix properties");
-                }
-                if (Strings.isNullOrEmpty(end)) {
-                    throw new DdlException("Must assign dynamic_partition.end properties");
-                }
-                if (Strings.isNullOrEmpty(buckets)) {
-                    throw new DdlException("Must assign dynamic_partition.buckets properties");
-                }
-                // dynamic partition enable default to true
-                if (Strings.isNullOrEmpty(enable)) {
-                    enable = PropertyAnalyzer.TRUE;
-                    properties.put(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE, enable);
-                }
-            }
-        }
+        DynamicPartitionUtils.checkAllDynamicPartitionProperties(properties);
 
         // set index schema
         int schemaVersion = 0;
@@ -3957,7 +3929,7 @@ public class Catalog {
             // 6. dynamic partition
             TableProperty tableProperty = olapTable.getTableProperty();
             if (!(tableProperty.getDynamicProperties().isEmpty())) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYANMIC_PARTITION_ENABLE).append("\" = \"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_ENABLE).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionEnable()).append("\"");
                 sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_PARTITION_TIME_UNIT).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionTimeUnit()).append("\"");
