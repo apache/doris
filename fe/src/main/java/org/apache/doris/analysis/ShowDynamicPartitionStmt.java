@@ -37,10 +37,6 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
         return db;
     }
 
-    public String getPattern() {
-        return pattern;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(db)) {

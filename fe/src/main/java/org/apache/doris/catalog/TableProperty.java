@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 public class TableProperty implements Writable {
@@ -45,8 +47,6 @@ public class TableProperty implements Writable {
     private static final String DATE_FORMAT = "yyyy-MM-dd";
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
-    private long dbId;
-    private long tableId;
     private Map<String, String> dynamicProperties = new HashMap<>();
 
     public enum State {
@@ -57,18 +57,8 @@ public class TableProperty implements Writable {
 
     public TableProperty() {}
 
-    public TableProperty(long dbId, long tableId, Map<String, String> dynamicProperties) {
-        this.dbId = dbId;
-        this.tableId = tableId;
+    public TableProperty(Map<String, String> dynamicProperties) {
         this.dynamicProperties = dynamicProperties;
-    }
-
-    public long getTableId() {
-        return tableId;
-    }
-
-    public long getDbId() {
-        return dbId;
     }
 
     public Map<String, String> getDynamicProperties() {
@@ -119,27 +109,21 @@ public class TableProperty implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        int counter = dynamicProperties.size();
-        out.writeInt(counter);
+        JSONObject jsonObject = new JSONObject();
         for (Map.Entry<String, String> entry : dynamicProperties.entrySet()) {
-            String dynamicPropertyName = entry.getKey();
-            String dynamicPropertyValue = entry.getValue();
-            Text.writeString(out, dynamicPropertyName);
-            Text.writeString(out, dynamicPropertyValue);
+            jsonObject.put(entry.getKey(), entry.getValue());
         }
+        Text.writeString(out, jsonObject.toString());
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            String dynamicPropertyName = Text.readString(in);
-            String dynamicPropertyValue = Text.readString(in);
-            dynamicProperties.put(dynamicPropertyName, dynamicPropertyValue);
+        String jsonProperties = Text.readString(in);
+        JSONObject jsonObject = new JSONObject(jsonProperties);
+        Iterator<String> iterator = jsonObject.keys();
+        while (iterator.hasNext()) {
+            String key = iterator.next();
+            dynamicProperties.put(key, jsonObject.getString(key));
         }
     }
 

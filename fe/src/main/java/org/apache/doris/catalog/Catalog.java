@@ -153,6 +153,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.DynamicPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -3588,7 +3589,7 @@ public class Catalog {
                     Map<String, String> dynamicPartition = PropertyAnalyzer.analyzeDynamicPartition(db,
                                                                                                     olapTable,
                                                                                                     properties);
-                    olapTable.setTableProperty(new TableProperty(db.getId(), olapTable.getId(), dynamicPartition));
+                    olapTable.setTableProperty(new TableProperty(dynamicPartition));
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -4994,19 +4995,20 @@ public class Catalog {
                                             Map<String, String> properties) throws DdlException {
         Map<String, String> analyzedProperties = PropertyAnalyzer.analyzeDynamicPartition(db, table, properties);
         table.getTableProperty().getDynamicProperties().putAll(analyzedProperties);
-        editLog.logDynamicPartition(table.getTableProperty());
+        DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getDynamicProperties());
+        editLog.logDynamicPartition(info);
     }
 
-    public void replayModifyTableDynamicPartition(TableProperty tableProperty) {
-        long dbId = tableProperty.getDbId();
-        long tableId = tableProperty.getTableId();
-        Map<String, String> dynamicProperties = tableProperty.getDynamicProperties();
+    public void replayModifyTableDynamicPartition(DynamicPartitionInfo dynamicPartitionInfo) {
+        long dbId = dynamicPartitionInfo.getDbId();
+        long tableId = dynamicPartitionInfo.getTableId();
+        Map<String, String> dynamicProperties = dynamicPartitionInfo.getProperties();
 
         Database db = getDb(dbId);
         db.writeLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
-            table.setTableProperty(new TableProperty(dbId, tableId, dynamicProperties));
+            table.setTableProperty(new TableProperty(dynamicProperties));
         } finally {
             db.writeUnlock();
         }
