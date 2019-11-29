@@ -491,7 +491,8 @@ public class Catalog {
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
-        this.dynamicPartitionScheduler = new DynamicPartitionScheduler();
+        this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
+                Config.dynamic_partition_check_interval_seconds * 1000L);
 
         this.smallFileMgr = new SmallFileMgr();
     }
@@ -1159,8 +1160,6 @@ public class Catalog {
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
         // start dynamic partition task
-        dynamicPartitionScheduler.setName("DynamicPartitionScheduler");
-        dynamicPartitionScheduler.setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         dynamicPartitionScheduler.start();
     }
 

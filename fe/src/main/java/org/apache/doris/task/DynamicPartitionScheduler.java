@@ -36,14 +36,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private static Set<Pair<Long, Long>> dynamicPartitionTableInfo = new HashSet<>();
     private boolean initialize;
 
-    public DynamicPartitionScheduler() {
+    public DynamicPartitionScheduler(String name, long intervalMs) {
+        super(name, intervalMs);
         this.initialize = false;
     }
-    public static void registerDynamicPartitionTable(Long dbId, Long tableId) {
+    public synchronized static void registerDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
     }
 
-    public static void removeDynamicPartitionTable(Long dbId, Long tableId) {
+    public synchronized static void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
