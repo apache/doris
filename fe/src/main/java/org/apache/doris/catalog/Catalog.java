@@ -1160,7 +1160,9 @@ public class Catalog {
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
         // start dynamic partition task
-        dynamicPartitionScheduler.start();
+        if (Config.dynamic_partition_enable) {
+            dynamicPartitionScheduler.start();
+        }
     }
 
     // start threads that should running on all FE
