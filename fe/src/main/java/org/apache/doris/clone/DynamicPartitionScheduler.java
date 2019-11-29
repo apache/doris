@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;

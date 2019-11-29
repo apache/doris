@@ -25,9 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.clone.DynamicPartitionScheduler;
-import org.apache.doris.catalog.TableProperty.Status;
 
 import java.util.HashMap;
 import java.util.Map;
