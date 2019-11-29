@@ -430,7 +430,7 @@ public class MasterImpl {
         long finishVersionHash = finishTabletInfos.get(0).getVersion_hash();
         long taskVersion = pushTask.getVersion();
         long taskVersionHash = pushTask.getVersionHash();
-        if (finishVersion != taskVersion || finishVersionHash != taskVersionHash) {
+        if (finishVersion != taskVersion) {
             LOG.debug("finish tablet version is not consistent with task. "
                     + "finish version: {}, finish version hash: {}, task: {}", 
                     finishVersion, finishVersionHash, pushTask);
@@ -517,8 +517,7 @@ public class MasterImpl {
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
                 // report delete task must match version and version hash
-                if (pushTask.getVersion() != request.getRequest_version()
-                        || pushTask.getVersionHash() != request.getRequest_version_hash()) {
+                if (pushTask.getVersion() != request.getRequest_version()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequest_version() + "]");
                 }
@@ -709,8 +708,7 @@ public class MasterImpl {
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {
         CheckConsistencyTask checkConsistencyTask = (CheckConsistencyTask) task;
 
-        if (checkConsistencyTask.getVersion() != request.getRequest_version()
-                || checkConsistencyTask.getVersionHash() != request.getRequest_version_hash()) {
+        if (checkConsistencyTask.getVersion() != request.getRequest_version()) {
             LOG.warn("check consisteny task is not match. [{}-{}]",
                      checkConsistencyTask.getVersion(), request.getRequest_version());
             return;
