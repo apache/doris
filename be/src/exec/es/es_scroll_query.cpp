@@ -17,9 +17,6 @@
 
 #include "exec/es/es_scroll_query.h"
 
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/join.hpp>
-#include <boost/algorithm/string/split.hpp>
 #include <sstream>
 
 #include "common/logging.h"
