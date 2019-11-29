@@ -229,6 +229,7 @@ MySQL> DESC table2;
 > 3. Data import can import the specified Partition. See `HELP LOAD'.
 > 4. Schema of table can be dynamically modified.
 > 5. Rollup can be added to Table to improve query performance. This section can be referred to the description of Rollup in Advanced Usage Guide.
+> 6. The default value of Null property for column is true, which may result in poor scan performance.
 
 ### 2.4 Import data
 

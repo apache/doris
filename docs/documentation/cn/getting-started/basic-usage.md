@@ -228,6 +228,7 @@ MySQL> DESC table2;
 > 3. 数据导入可以导入指定的 Partition。详见 `HELP LOAD`。
 > 4. 可以动态修改表的 Schema。
 > 5. 可以对 Table 增加上卷表（Rollup）以提高查询性能，这部分可以参见高级使用指南关于 Rollup 的描述。
+> 6. 表的列的Null属性默认为true，会对查询性能有一定的影响。
 
 ### 2.4 导入数据
 
