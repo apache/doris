@@ -21,9 +21,8 @@
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/rowset_id_generator.h"
 #include "olap/schema.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -160,8 +159,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
-        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
+        _reset_mem_table();
     }
     return OLAP_SUCCESS;
 }
@@ -175,9 +173,8 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG(3) << "flush memtable to reduce mem consumption. memtable size: " << _mem_table->memory_usage()
                 << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
-        _flush_memtable_async();
-        _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
-                    _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get()));
+        RETURN_NOT_OK(_flush_memtable_async());
+        _reset_mem_table();
     } else {
         DCHECK(mem_consumption() > _mem_table->memory_usage());
         // this means there should be at least one memtable in flush queue.
@@ -185,6 +182,12 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
     // wait all memtables in flush queue to be flushed.
     RETURN_NOT_OK(_flush_handler->wait());
     return OLAP_SUCCESS;
+}
+
+void DeltaWriter::_reset_mem_table() {
+    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema, _tablet_schema, _req.slots,
+                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
+                                  _mem_tracker.get()));
 }
 
 OLAPStatus DeltaWriter::close() {
@@ -212,12 +215,11 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    OLAPStatus res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
-        _req.load_id, _cur_rowset, false);
+    OLAPStatus res = _storage_engine->txn_manager()->commit_txn(
+            _req.partition_id, _tablet, _req.txn_id, _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-        LOG(WARNING) << "commit txn: " << _req.txn_id
-                     << " for rowset: " << _cur_rowset->rowset_id()
-                     << " failed.";
+        LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
+                     << " for rowset: " << _cur_rowset->rowset_id();
         return res;
     }
 
@@ -236,8 +238,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
             _req.load_id, _new_rowset, false);
 
         if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            LOG(WARNING) << "save pending rowset failed. rowset_id:"
-                         << _new_rowset->rowset_id();
+            LOG(WARNING) << "Failed to save pending rowset. rowset_id:" << _new_rowset->rowset_id();
             return res;
         }
     }
@@ -256,8 +257,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_handler->get_stats();
-    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
-        << ", stats: " << stat;
+    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 
