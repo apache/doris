@@ -1319,10 +1319,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     sendClearAlterTask(db, olapTable);
                     return;
                 } else if (DynamicPartitionUtils.checkDynamicPartitionPropertiesExist(properties)) {
-                    if (olapTable.getTableProperty().getDynamicProperties().isEmpty()) {
-                        throw new DdlException("Table " + olapTable.getName() + " is not a dynamic partition table");
-                    }
-                    Catalog.getInstance().modifyTableDynamicPartition(db, olapTable, properties);
+                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                     return;
                 }
             }
