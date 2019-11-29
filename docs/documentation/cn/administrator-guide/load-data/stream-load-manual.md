@@ -66,8 +66,7 @@ Stream load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令
 ```
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-Header 中支持如下属性：
-label， column_separator， columns， where， max_filter_ratio， partitions
+Header 中支持属性见下面的 ‘导入任务参数’ 说明 
 格式为: -H "key1:value1"
 ```
 

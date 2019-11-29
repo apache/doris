@@ -66,8 +66,7 @@ Users can also operate through other HTTP clients.
 ```
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-The following attributes are supported in Header:
-label， column_separator， columns， where， max_filter_ratio， partitions
+The properties supproted in the header are described in "Import task parameters" below
 The format is: - H "key1: value1"
 ```
 
