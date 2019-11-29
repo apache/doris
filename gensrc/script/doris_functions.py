@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -189,9 +192,9 @@ functions = [
   ['Timestamp_months_sub', 'DATETIME', ['DATETIME', 'INT'], \
         'TimestampFunctions::months_sub', ['months_sub']],
   ['Timestamp_weeks_add', 'DATETIME', ['DATETIME', 'INT'], \
-        'TimestampFunctions::weeks_add', ['weeks_add']], 
+        'TimestampFunctions::weeks_add', ['weeks_add']],
   ['Timestamp_weeks_sub', 'DATETIME', ['DATETIME', 'INT'], \
-        'TimestampFunctions::weeks_sub', ['weeks_sub']], 
+        'TimestampFunctions::weeks_sub', ['weeks_sub']],
   ['Timestamp_days_add', 'DATETIME', ['DATETIME', 'INT'], \
         'TimestampFunctions::days_add', ['days_add', 'date_add', 'adddate']],
   ['Timestamp_days_sub', 'DATETIME', ['DATETIME', 'INT'], \
@@ -309,10 +312,10 @@ udf_functions = [
    ''],
   ['Udf_Math_Abs', 'DECIMALV2', ['DECIMALV2'], 'UdfBuiltins::decimal_abs', ['udf_abs'],
    ''],
-  ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 
-  ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 
+  ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
+  ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
       'UdfBuiltins::sub_string', ['udf_substring'], ''],
-  ['Udf_Add_Two_Number', 'BIGINT', ['BIGINT', 'BIGINT'], 
+  ['Udf_Add_Two_Number', 'BIGINT', ['BIGINT', 'BIGINT'],
       'UdfBuiltins::add_two_number', ['udf_add_two_number'], ''],
   ['Udf_Math_Pi', 'DOUBLE', [], 'UdfBuiltins::pi', ['udf_pi'],
    '_ZN6impala11UdfBuiltins2PiEPN10impala_udf15FunctionContextE'],

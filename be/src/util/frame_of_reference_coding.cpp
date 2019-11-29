@@ -192,9 +192,10 @@ bool ForDecoder<T>::init() {
         return false;
     }
 
-    _frame_value_num = decode_fixed32_le(_buffer + _buffer_len - 5);
+    _max_frame_size = decode_fixed8(_buffer + _buffer_len - 5);
     _values_num = decode_fixed32_le(_buffer + _buffer_len - 4);
-    _frame_count = _values_num / _frame_value_num + (_values_num % _frame_value_num != 0);
+    _frame_count = _values_num / _max_frame_size + (_values_num % _max_frame_size != 0);
+    _last_frame_size = _max_frame_size - (_max_frame_size * _frame_count - _values_num);
 
     size_t bit_width_offset = _buffer_len - 5 - _frame_count;
     if (bit_width_offset < 0) {
@@ -216,13 +217,14 @@ bool ForDecoder<T>::init() {
 
         _frame_offsets.push_back(frame_start_offset);
         if (sizeof(T) == 8) {
-            frame_start_offset +=  bit_width * _frame_value_num / 8 + 8;
+            frame_start_offset +=  bit_width * _max_frame_size / 8 + 8;
         } else {
-            frame_start_offset +=  bit_width * _frame_value_num / 8 + 4;
+            frame_start_offset +=  bit_width * _max_frame_size / 8 + 4;
         }
     }
 
-    _out_buffer.reserve(_frame_value_num);
+    _out_buffer.reserve(_max_frame_size);
+    _parsed = true;
 
     return true;
 }
@@ -254,12 +256,12 @@ void ForDecoder<T>::bit_unpack(const uint8_t *input, uint8_t in_num, int bit_wid
 
 template<typename T>
 void ForDecoder<T>::decode_current_frame(T* output) {
-    _current_decoded_frame = _current_index / _frame_value_num;
-    uint8_t frame_value_num = _frame_value_num;
-    // compute last frame value num
-    if (_current_decoded_frame == _frame_count - 1 && _values_num % _frame_value_num != 0) {
-        frame_value_num = _values_num % _frame_value_num;;
+    uint32_t frame_index = _current_index / _max_frame_size;
+    if (frame_index == _current_decoded_frame) {
+        return; // current frame already decoded
     }
+    _current_decoded_frame = frame_index;
+    uint8_t current_frame_size = frame_size(frame_index);
 
     uint32_t base_offset = _frame_offsets[_current_decoded_frame];
     T min = 0;
@@ -275,25 +277,37 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     uint8_t bit_width = _bit_widths[_current_decoded_frame];
     bool is_ascending = _order_flags[_current_decoded_frame];
 
-    std::vector<T> delta_values(_frame_value_num);
-    bit_unpack(_buffer + delta_offset, frame_value_num, bit_width, delta_values.data());
+    std::vector<T> delta_values(current_frame_size);
+    bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, delta_values.data());
     if (is_ascending) {
         T pre_value = min;
-        for (uint8_t i = 0; i < frame_value_num; i ++) {
+        for (uint8_t i = 0; i < current_frame_size; i ++) {
             T value = delta_values[i] + pre_value;
             output[i] = value;
             pre_value = value;
         }
     } else {
-        for (uint8_t i = 0; i < frame_value_num; i ++) {
+        for (uint8_t i = 0; i < current_frame_size; i ++) {
             output[i] = delta_values[i] + min;
         }
     }
 }
 
 template<typename T>
+T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
+    uint32_t min_offset = _frame_offsets[frame_index];
+    T min = 0;
+    if (sizeof(T) == 8) {
+        min = decode_fixed64_le(_buffer + min_offset);
+    } else {
+        min = decode_fixed32_le(_buffer + min_offset);
+    }
+    return min;
+}
+
+template<typename T>
 T* ForDecoder<T>::copy_value(T* val, size_t count) {
-    memcpy(val, &_out_buffer[_current_index % _frame_value_num], sizeof(T) * count);
+    memcpy(val, &_out_buffer[_current_index % _max_frame_size], sizeof(T) * count);
     _current_index += count;
     val += count;
     return val;
@@ -305,30 +319,28 @@ bool ForDecoder<T>::get_batch(T* val, size_t count) {
         return false;
     }
 
-    if (need_decode_frame()) {
-        decode_current_frame(_out_buffer.data());
-    }
+    decode_current_frame(_out_buffer.data());
 
-    if (_current_index + count < _frame_value_num * (_current_decoded_frame + 1)) {
+    if (_current_index + count < _max_frame_size * (_current_decoded_frame + 1)) {
         copy_value(val, count);
         return true;
     }
 
     // 1. padding one frame
-    size_t padding_num = _frame_value_num * (_current_decoded_frame + 1) - _current_index;
+    size_t padding_num = _max_frame_size * (_current_decoded_frame + 1) - _current_index;
     val = copy_value(val, padding_num);
 
     // 2. process frame by frame
-    size_t frame_size = (count - padding_num) / _frame_value_num;
-    for (size_t i = 0; i < frame_size; i++) {
+    size_t frame_count = (count - padding_num) / _max_frame_size;
+    for (size_t i = 0; i < frame_count; i++) {
         // directly decode value to the output, don't  buffer the value
         decode_current_frame(val);
-        _current_index += _frame_value_num;
-        val += _frame_value_num;
+        _current_index += _max_frame_size;
+        val += _max_frame_size;
     }
 
     // 3. process remaining value
-    size_t remaining_num = (count - padding_num) % _frame_value_num;
+    size_t remaining_num = (count - padding_num) % _max_frame_size;
     if (remaining_num > 0) {
         decode_current_frame(_out_buffer.data());
         val = copy_value(val, remaining_num);
@@ -344,6 +356,69 @@ bool ForDecoder<T>::skip(int32_t skip_num) {
     }
     _current_index = _current_index + skip_num;
     return true;
+}
+
+template<typename T>
+uint32_t ForDecoder<T>::seek_last_frame_before_value(T target) {
+    // first of all, find the first frame >= target
+    uint32_t left = 0;
+    uint32_t right = _frame_count;
+    while (left < right) {
+        uint32_t mid = left + (right - left) / 2;
+        T midValue = decode_frame_min_value(mid);
+        if (midValue < target) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    // after loop, left is the first frame >= target
+    if (left == 0) {
+        // all frames are >= target, not found
+        return _frame_count;
+    }
+    // otherwise previous frame is the last frame < target
+    return left - 1;
+}
+
+template<typename T>
+bool ForDecoder<T>::seek_lower_bound_inside_frame(uint32_t frame_index, T target, bool* exact_match) {
+    _current_index = frame_index * _max_frame_size;
+    decode_current_frame(_out_buffer.data());
+    auto end = _out_buffer.begin() + frame_size(frame_index);
+    auto pos = std::lower_bound(_out_buffer.begin(), end, target);
+    if (pos != end) { // found in this frame
+        uint32_t pos_in_frame = std::distance(_out_buffer.begin(), pos);
+        *exact_match = _out_buffer[pos_in_frame] == target;
+        _current_index += pos_in_frame;
+        return true;
+    }
+    return false;
+}
+
+
+template<typename T>
+bool ForDecoder<T>::seek_at_or_after_value(const void* value, bool* exact_match) {
+    T target = *reinterpret_cast<const T*>(value);
+    uint32_t frame_to_search = seek_last_frame_before_value(target);
+    if (frame_to_search == _frame_count) {
+        // all frames are >= target, the searched value must the be first value
+        _current_index = 0;
+        decode_current_frame(_out_buffer.data());
+        *exact_match = _out_buffer[0] == target;
+        return true;
+    }
+    // binary search inside the last frame < target
+    bool found = seek_lower_bound_inside_frame(frame_to_search, target, exact_match);
+    // if not found, all values in the last frame are less than target.
+    // then the searched value must be the first value of the next frame.
+    if (!found && frame_to_search < _frame_count - 1) {
+        _current_index = (frame_to_search + 1) * _max_frame_size;
+        decode_current_frame(_out_buffer.data());
+        *exact_match = _out_buffer[0]  == target;
+        return true;
+    }
+    return found;
 }
 
 template class ForEncoder<int8_t>;

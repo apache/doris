@@ -66,8 +66,7 @@ Users can also operate through other HTTP clients.
 ```
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-The following attributes are supported in Header:
-label， column_separator， columns， where， max_filter_ratio， partitions
+The properties supported in the header are described in "Load Parameters" below
 The format is: - H "key1: value1"
 ```
 
@@ -84,7 +83,7 @@ The detailed syntax for creating imports helps to execute ``HELP STREAM LOAD`` v
 
 	Stream load uses the HTTP protocol to create the imported protocol and signs it through the Basic Access authentication. The Doris system verifies user identity and import permissions based on signatures.
 
-#### Import Task Parameters
+#### Load Parameters
 
 Stream load uses HTTP protocol, so all parameters related to import tasks are set in the header. The significance of some parameters of the import task parameters of Stream load is mainly introduced below.
 

@@ -52,14 +52,8 @@ For global-level, set by `SET GLOBALE var_name=xxx;`. Such as:
 SET GLOBAL exec_mem_limit = 137438953472
 ```
 
-At the same time, variable settings also support constant expressions. Such as:
-
-```
-SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
-SET forward_to_master = concat('tr', 'u', 'e');
-```
-
 > Note 1: Only ADMIN users can set variable at global-level.
+> Note 2: Global-level variables do not affect variable values in the current session, only variables in new sessions.
 
 Variables that support global-level setting include:
 
@@ -71,7 +65,14 @@ Variables that support global-level setting include:
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
-* `parallel_fragment_exec_instance_num`
+* `parallel_exchange_instance_num`
+
+At the same time, variable settings also support constant expressions. Such as:
+
+```
+SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
+SET forward_to_master = concat('tr', 'u', 'e');
+```
 
 ## Supported variables
 
@@ -210,6 +211,14 @@ Variables that support global-level setting include:
 * `license`
     
     Show Doris's license. No other effect.
+
+* `load_mem_limit`
+
+    Used to specify the memory limit of the load operation. The default is 0, which means that this variable is not used, and `exec_mem_limit` is used as the memory limit for the load operation.
+
+    This variable is usually used for INSERT operations. Because the INSERT operation has both query and load part. If the user does not set this variable, the respective memory limits of the query and load part are `exec_mem_limit`. Otherwise, the memory of query part of INSERT is limited to `exec_mem_limit`, and the load part is limited to` load_mem_limit`.
+
+    For other load methods, such as BROKER LOAD, STREAM LOAD, the memory limit still uses `exec_mem_limit`.
     
 * `lower_case_table_names`
 
@@ -237,7 +246,7 @@ Variables that support global-level setting include:
     
     In a distributed query execution plan, the upper node usually has one or more exchange nodes for receiving data from the execution instances of the lower nodes on different BEs. Usually the number of exchange nodes is equal to the number of execution instances of the lower nodes.
     
-    This value can be set if the user needs to reduce the number of exchange nodes of the upper node.
+    In some aggregate query scenarios, if the amount of data to be scanned at the bottom is large, but the amount of data after aggregation is small, you can try to modify this variable to a smaller value, which can reduce the resource overhead of such queries. Such as the scenario of aggregation query on the DUPLICATE KEY data model.
 
 * `parallel_fragment_exec_instance_num`
 
