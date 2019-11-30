@@ -31,7 +31,7 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     ctx.memtable = memtable;
     ctx.flush_handler = this->shared_from_this();
     _counter_cond.inc();
-    _flush_executor->_push_memtable(_flush_queue_idx, ctx);
+    RETURN_NOT_OK(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
     return OLAP_SUCCESS;
 }
 
@@ -118,8 +118,12 @@ size_t MemTableFlushExecutor::_get_queue_idx(size_t path_hash) {
     return cur_idx;
 }
 
-void MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushContext& ctx) {
-    _flush_queues[queue_idx]->blocking_put(ctx);
+OLAPStatus MemTableFlushExecutor::_push_memtable(int32_t queue_idx, MemTableFlushContext& ctx) {
+    if (!_flush_queues[queue_idx]->blocking_put(ctx)) {
+        return OLAP_ERR_OTHER_ERROR;
+    }
+
+    return OLAP_SUCCESS;
 }
 
 void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
