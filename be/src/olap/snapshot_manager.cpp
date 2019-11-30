@@ -467,29 +467,31 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
-        if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
+        if (snapshot_version < BETA_ROWSET_VERSION) {
             if (snapshot_version == ALPHA_ROWSET_VERSION) {
                 // convert beta rowset to alpha rowset
-                LOG(INFO) << "start to convert beta rowset to alpha rowset for snapshot, tablet:"
-                        << new_tablet_meta->tablet_id() << ", schema hash:" << new_tablet_meta->schema_hash();
                 if (request.__isset.missing_version) {
                     res = _convert_beta_rowsets_to_alpha(new_tablet_meta,
-                            new_tablet_meta->all_inc_rs_metas(), schema_full_path);
+                            new_tablet_meta->all_inc_rs_metas(), schema_full_path, true);
                 } else {
                     res = _convert_beta_rowsets_to_alpha(new_tablet_meta,
-                            new_tablet_meta->all_rs_metas(), schema_full_path);
+                            new_tablet_meta->all_rs_metas(), schema_full_path, false);
                 }
                 if (res != OLAP_SUCCESS) {
                     break;
                 }
                 res = new_tablet_meta->save(header_path);
-                LOG(INFO) << "finish convert beta to alpha, res:" << res;
+                LOG(INFO) << "finish convert beta to alpha, res:" << res << ", tablet:"
+                        << new_tablet_meta->tablet_id() << ", schema hash:" << new_tablet_meta->schema_hash();
             }
         } else {
             res = new_tablet_meta->save(header_path);
         }
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "convert rowset failed, res:" << res;
+            LOG(WARNING) << "convert rowset failed, res:" << res << ", tablet:"
+                    << new_tablet_meta->tablet_id() << ", schema hash:" << new_tablet_meta->schema_hash()
+                    << ", snapshot_version:" << snapshot_version
+                    << ", is incremental:" << request.__isset.missing_version;
             break;
         }
         
@@ -533,10 +535,10 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 }
 
 OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
-                const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path) {
+                const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path, bool is_incremental) {
     OLAPStatus res = OLAP_SUCCESS;
     RowsetConverter rowset_converter(new_tablet_meta);
-    std::vector<RowsetMetaSharedPtr> new_rowsets;
+    std::vector<RowsetMetaSharedPtr> new_rowset_metas;
     bool modified = false;
     for (auto& rowset_meta : rowset_metas) {
         if (rowset_meta->rowset_type() == BETA_ROWSET) {
@@ -552,21 +554,25 @@ OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaShare
                         << ", error:" << st;
                 break;
             }
-            RowsetMetaSharedPtr new_rowset(new AlphaRowsetMeta());
-            bool ret = new_rowset->init_from_pb(rowset_meta_pb);
+            RowsetMetaSharedPtr new_rowset_meta(new AlphaRowsetMeta());
+            bool ret = new_rowset_meta->init_from_pb(rowset_meta_pb);
             if (!ret) {
                 res = OLAP_ERR_INIT_FAILED;
                 break;
             }
             LOG(INFO) << "convert beta rowset:" << rowset_meta->rowset_id()
-                    << " to alpha rowset:" << new_rowset->rowset_id();
-            new_rowsets.push_back(new_rowset);
+                    << " to alpha rowset:" << new_rowset_meta->rowset_id();
+            new_rowset_metas.push_back(new_rowset_meta);
         } else {
-            new_rowsets.push_back(rowset_meta);
+            new_rowset_metas.push_back(rowset_meta);
         }
     }
     if (res == OLAP_SUCCESS && modified) {
-        res = new_tablet_meta->revise_inc_rs_metas(new_rowsets);
+        if (is_incremental) {
+            res = new_tablet_meta->revise_inc_rs_metas(new_rowset_metas);
+        } else {
+            res = new_tablet_meta->revise_rs_metas(new_rowset_metas);
+        }
     }
     return res;
 }

@@ -260,6 +260,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/alpha_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/beta_rowset_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_converter_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
