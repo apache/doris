@@ -467,24 +467,28 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
-        if (snapshot_version < BETA_ROWSET_VERSION) {
-            if (snapshot_version == ALPHA_ROWSET_VERSION) {
-                // convert beta rowset to alpha rowset
-                if (request.__isset.missing_version) {
-                    res = _convert_beta_rowsets_to_alpha(new_tablet_meta,
-                            new_tablet_meta->all_inc_rs_metas(), schema_full_path, true);
-                } else {
-                    res = _convert_beta_rowsets_to_alpha(new_tablet_meta,
-                            new_tablet_meta->all_rs_metas(), schema_full_path, false);
-                }
-                if (res != OLAP_SUCCESS) {
-                    break;
-                }
-                res = new_tablet_meta->save(header_path);
-                LOG(INFO) << "finish convert beta to alpha, res:" << res << ", tablet:"
-                        << new_tablet_meta->tablet_id() << ", schema hash:" << new_tablet_meta->schema_hash();
+        if (snapshot_version < ALPHA_ROWSET_VERSION) {
+            res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;
+        } else if (snapshot_version == ALPHA_ROWSET_VERSION) {
+            // convert beta rowset to alpha rowset
+            if (request.__isset.missing_version) {
+                res = _convert_beta_rowsets_to_alpha(
+                    new_tablet_meta, new_tablet_meta->all_inc_rs_metas(),
+                    schema_full_path, true);
+            } else {
+                res = _convert_beta_rowsets_to_alpha(
+                    new_tablet_meta, new_tablet_meta->all_rs_metas(),
+                    schema_full_path, false);
             }
+            if (res != OLAP_SUCCESS) {
+                break;
+            }
+            res = new_tablet_meta->save(header_path);
+            LOG(INFO) << "finish convert beta to alpha, res:" << res
+                      << ", tablet:" << new_tablet_meta->tablet_id()
+                      << ", schema hash:" << new_tablet_meta->schema_hash();
         } else {
+            // for BETA_ROWSET_VERSION
             res = new_tablet_meta->save(header_path);
         }
         if (res != OLAP_SUCCESS) {
@@ -560,8 +564,6 @@ OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaShare
                 res = OLAP_ERR_INIT_FAILED;
                 break;
             }
-            LOG(INFO) << "convert beta rowset:" << rowset_meta->rowset_id()
-                    << " to alpha rowset:" << new_rowset_meta->rowset_id();
             new_rowset_metas.push_back(new_rowset_meta);
         } else {
             new_rowset_metas.push_back(rowset_meta);
