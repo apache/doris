@@ -62,6 +62,7 @@ ESScanReader::~ESScanReader() {
 Status ESScanReader::open() {
     _is_first = true;
     RETURN_IF_ERROR(_network_client.init(_init_scroll_url));
+    LOG(INFO) << "First scroll request URL: " << _init_scroll_url;
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
     // phase open, we cached the first response for `get_next` phase

@@ -46,6 +46,9 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -94,7 +97,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
-    public static final boolean DEFAULT_STRICT_MODE = true;
+    public static final boolean DEFAULT_STRICT_MODE = false; // default is false
 
     protected static final String STAR_STRING = "*";
      /*
@@ -152,6 +155,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
+
+    // sessionVariable's name -> sessionVariable's value
+    // we persist these sessionVariables due to the session is not available when replaying the job.
+    protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     /*
      * The following 3 variables control the max execute time of a single task.
@@ -227,6 +234,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.dbId = dbId;
         this.tableId = tableId;
         this.authCode = 0;
+
+        if (ConnectContext.get() != null) {
+            SessionVariable var = ConnectContext.get().getSessionVariable();
+            sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+        } else {
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
     }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
@@ -1155,6 +1169,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             Text.writeString(out, entry.getKey());
             Text.writeString(out, entry.getValue());
         }
+
+        out.writeInt(sessionVariables.size());
+        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     @Override
@@ -1214,8 +1234,21 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(LoadStmt.STRICT_MODE, Boolean.toString(false));
         }
 
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                sessionVariables.put(key, value);
+            }
+        } else {
+            // old version of load does not have sqlmode, set it to default
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
+
         // parse the origin stmt to get routine load desc
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt)));
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt),
+                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         CreateRoutineLoadStmt stmt = null;
         try {
             stmt = (CreateRoutineLoadStmt) parser.parse().value;

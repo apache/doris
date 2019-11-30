@@ -159,6 +159,25 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     ASSERT_EQ(26, s.slice().size);
 }
 
+TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
+    size_t size = 128;
+    std::unique_ptr<int32_t[]> ints(new int32_t[size]);
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = i;
+    }
+    PageBuilderOptions builder_options;
+    builder_options.data_page_size = 256 * 1024;
+    segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
+    page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
+    OwnedSlice s = page_builder.finish();
+    int32_t first_value = -1;
+    page_builder.get_first_value(&first_value);
+    ASSERT_EQ(0, first_value);
+    int32_t last_value = 0;
+    page_builder.get_last_value(&last_value);
+    ASSERT_EQ(127, last_value);
+}
+
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     size_t size = 128;
     std::unique_ptr<int32_t[]> ints(new int32_t[size]);

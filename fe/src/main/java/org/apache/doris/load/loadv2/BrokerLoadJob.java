@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
@@ -31,6 +32,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,6 +44,9 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -86,6 +91,10 @@ public class BrokerLoadJob extends LoadJob {
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
     private List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
+    // sessionVariable's name -> sessionVariable's value
+    // we persist these sessionVariables due to the session is not available when replaying the job.
+    private Map<String, String> sessionVariables = Maps.newHashMap();
+
     // only for log replay
     public BrokerLoadJob() {
         super();
@@ -100,6 +109,13 @@ public class BrokerLoadJob extends LoadJob {
         this.originStmt = Strings.nullToEmpty(originStmt);
         this.jobType = EtlJobType.BROKER;
         this.authorizationInfo = gatherAuthInfo();
+
+        if (ConnectContext.get() != null) {
+            SessionVariable var = ConnectContext.get().getSessionVariable();
+            sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+        } else {
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, String originStmt) throws DdlException {
@@ -186,7 +202,8 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
@@ -222,10 +239,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been completed
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
@@ -235,6 +252,8 @@ public class BrokerLoadJob extends LoadJob {
             }
             if (loadTask.getRetryTime() <= 0) {
                 unprotectedExecuteCancel(failMsg, true);
+                logFinalOperation();
+                return;
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
@@ -250,8 +269,6 @@ public class BrokerLoadJob extends LoadJob {
         } finally {
             writeUnlock();
         }
-
-        logFinalOperation();
     }
 
     /**
@@ -264,7 +281,8 @@ public class BrokerLoadJob extends LoadJob {
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         dataSourceInfo = new PullLoadSourceInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt)));
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt),
+                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt = null;
         try {
             stmt = (LoadStmt) parser.parse().value;
@@ -282,7 +300,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
                                      + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
     }
 
@@ -296,13 +314,14 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
+
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("task_id", attachment.getTaskId())
@@ -326,7 +345,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
 
@@ -385,10 +404,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isCompleted()) {
+            if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .add("error_msg", "this task will be ignored when job is: " + state)
                                  .build());
                 return;
             }
@@ -421,7 +440,8 @@ public class BrokerLoadJob extends LoadJob {
 
         // check data quality
         if (!checkDataQuality()) {
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),
+                    true, true);
             return;
         }
         Database db = null;
@@ -432,7 +452,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "db has been deleted when job is loading")
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
         }
         db.writeLock();
         try {
@@ -449,7 +469,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                              .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         } finally {
             db.writeUnlock();
@@ -500,6 +520,12 @@ public class BrokerLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         Text.writeString(out, originStmt);
+
+        out.writeInt(sessionVariables.size());
+        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     @Override
@@ -518,6 +544,18 @@ public class BrokerLoadJob extends LoadJob {
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                sessionVariables.put(key, value);
+            }
+        } else {
+            // old version of load does not have sqlmode, set it to default
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
     }
 
 }

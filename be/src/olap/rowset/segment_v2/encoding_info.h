@@ -40,8 +40,10 @@ public:
     static Status get(const TypeInfo* type_info,
                       EncodingTypePB encoding_type,
                       const EncodingInfo** encoding);
-    // Get default type info
-    static EncodingTypePB get_default_encoding_type(const TypeInfo* type_info);
+
+    // optimize_value_search: whether the encoding scheme should optimize for ordered data
+    // and support fast value seek operation
+    static EncodingTypePB get_default_encoding(const TypeInfo* type_info, bool optimize_value_seek);
 
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
@@ -55,7 +57,7 @@ private:
     friend class EncodingInfoResolver;
 
     template<typename TypeEncodingTraits>
-    EncodingInfo(TypeEncodingTraits traits);
+    explicit EncodingInfo(TypeEncodingTraits traits);
 
     using CreateBuilderFunc = std::function<Status(const PageBuilderOptions&, PageBuilder**)>;
     CreateBuilderFunc _create_builder_func;

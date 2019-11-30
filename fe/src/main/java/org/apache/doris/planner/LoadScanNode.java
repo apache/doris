@@ -20,10 +20,14 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
@@ -70,6 +74,26 @@ public abstract class LoadScanNode extends ScanNode {
             throw new UserException("where statement is not a valid statement return bool");
         }
         addConjuncts(whereExpr.getConjuncts());
+    }
+
+    protected void checkBitmapCompatibility(SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+        boolean isCompatible = true;
+        if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
+            if (!(expr instanceof FunctionCallExpr)) {
+                isCompatible = false;
+            } else {
+                FunctionCallExpr fn = (FunctionCallExpr) expr;
+                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)
+                        && !fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_EMPTY)) {
+                    isCompatible = false;
+                }
+            }
+        }
+        if (!isCompatible) {
+            throw new AnalysisException("bitmap column must use to_bitmap or empty_bitmap function, like "
+                    + slotDesc.getColumn().getName() + "=to_bitmap(xxx)"
+                    + slotDesc.getColumn().getName() + "=bitmap_empty()");
+        }
     }
 
 }

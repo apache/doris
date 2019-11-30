@@ -53,14 +53,17 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     _exec_env(exec_env),
     _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
-        _allow_paths.emplace_back(canonical(dir).string());
+        std::string p;
+        WARN_IF_ERROR(FileUtils::canonicalize(dir, &p), "canonicalize path " + dir + " failed");
+        _allow_paths.emplace_back(std::move(p));
     }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
     _exec_env(exec_env),
     _download_type(ERROR_LOG) {
-    _error_log_root_dir = canonical(error_log_root_dir).string();
+    WARN_IF_ERROR(FileUtils::canonicalize(error_log_root_dir, &_error_log_root_dir),
+                  "canonicalize path " + error_log_root_dir + " failed");
 }
 
 void DownloadAction::handle_normal(
@@ -247,13 +250,12 @@ Status DownloadAction::check_token(HttpRequest *req) {
 
 Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, NORMAL);
-    boost::system::error_code errcode;
-    boost::filesystem::path path = canonical(file_path, errcode);
-    if (errcode.value() != boost::system::errc::success) {
-        return Status::InternalError("file path is invalid: " + file_path);
-    }
-
-    std::string canonical_file_path = path.string();
+    
+    std::string canonical_file_path;
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
+                              Status::InternalError("file path is invalid: " + file_path),
+                              "file path is invalid: " + file_path);
+    
     for (auto& allow_path : _allow_paths) {
         if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
             return Status::OK();
@@ -265,13 +267,12 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
 
 Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, ERROR_LOG);
-    boost::system::error_code errcode;
-    boost::filesystem::path path = canonical(file_path, errcode);
-    if (errcode.value() != boost::system::errc::success) {
-        return Status::InternalError("file path is invalid: " + file_path);
-    }
 
-    std::string canonical_file_path = path.string();
+    std::string canonical_file_path;
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
+                              Status::InternalError("file path is invalid: " + file_path),
+                              "file path is invalid: " + file_path);
+    
     if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
         return Status::OK();
     }

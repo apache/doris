@@ -567,7 +567,7 @@ Status SnapshotLoader::move(
 
     // rename the rowset ids and tabletid info in rowset meta
     OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(
-        snapshot_path, tablet_id, schema_hash, tablet);
+        snapshot_path, tablet_id, schema_hash);
     if (convert_status != OLAP_SUCCESS) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

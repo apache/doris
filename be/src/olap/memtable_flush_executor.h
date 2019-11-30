@@ -25,12 +25,11 @@
 #include <unordered_map>
 #include <utility>
 
-#include "olap/olap_define.h"
-#include "runtime/mem_tracker.h"
 #include "util/blocking_queue.hpp"
 #include "util/counter_cond_variable.hpp"
 #include "util/spinlock.h"
 #include "util/thread_pool.hpp"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -64,13 +63,14 @@ struct FlushStatistic {
     std::atomic<std::int64_t> flush_time_ns = {0};
     std::atomic<std::int64_t> flush_count= {0};
 };
+
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
+
+class MemTableFlushExecutor;
 
 // flush handler is for flushing memtables in a delta writer
 // This class must be wrapped by std::shared_ptr, or you will get bad_weak_ptr exception
 // when calling submit();
-class MemTableFlushExecutor;
-class MemTracker;
 class FlushHandler : public std::enable_shared_from_this<FlushHandler> {
 public:
     FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor):
@@ -81,9 +81,9 @@ public:
         _is_cancelled(false) {
     }
 
-    // submit a memtable to flush. return error if some previous submitted MemTable has failed  
+    // submit a memtable to flush. return error if some previous submitted MemTable has failed
     OLAPStatus submit(std::shared_ptr<MemTable> memtable);
-    // wait for all submitted memtable finished.
+    // wait for all memtables submitted by itself to be finished.
     OLAPStatus wait();
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
@@ -98,6 +98,7 @@ public:
     bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load(); }
 
     void cancel() { _is_cancelled.store(true); }
+
 private:
     // flush queue idx in memtable flush executor
     int32_t _flush_queue_idx;
@@ -114,53 +115,53 @@ private:
     std::atomic<bool> _is_cancelled;
 };
 
-// MemTableFlushExecutor is for flushing memtables to disk.
-// Each data directory has a specified number of worker threads and a corresponding number of flush queues.
-// Each worker thread only takes memtable from the corresponding flush queue and writes it to disk.
-// User SHOULD NOT call method of this class directly, use pattern should be:
+// MemTableFlushExecutor is responsible for flushing memtables to disk.
+// Each data directory has a specified number of worker threads and each thread will correspond
+// to a queue. The only job of each worker thread is to take memtable from its corresponding
+// flush queue and writes the data to disk.
 //
+// NOTE: User SHOULD NOT call method of this class directly, use pattern should be:
 //      ...
 //      std::shared_ptr<FlushHandler> flush_handler;
-//      memTableFlushExecutor.create_flush_handler(path_hash, mem_tracker, &flush_handler);
-//      ...      
+//      memTableFlushExecutor.create_flush_handler(path_hash, &flush_handler);
+//      ...
 //      flush_handler->submit(memtable)
 //      ...
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
+    ~MemTableFlushExecutor();
+
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    ~MemTableFlushExecutor();
-
     // create a flush handler to access the flush executor
-    OLAPStatus create_flush_handler(int64_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
-
-private:
-    // given the path hash, return the next idx of flush queue.
-    // eg.
-    // path A is mapped to idx 0 and 1, so each time get_queue_idx(A) is called,
-    // 0 and 1 will returned alternately.
-    int32_t _get_queue_idx(size_t path_hash);
-
-    // push the memtable to specified flush queue
-    void _push_memtable(int32_t queue_idx, MemTableFlushContext& ctx);
-
-    void _flush_memtable(int32_t queue_idx);
+    OLAPStatus create_flush_handler(size_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
 
 private:
     friend class FlushHandler;
 
+    // given the path hash, return the next idx of flush queue.
+    // eg.
+    // path A is mapped to idx 0 and 1, so each time get_queue_idx(A) is called,
+    // 0 and 1 will returned alternately.
+    size_t _get_queue_idx(size_t path_hash);
+
+    // push the memtable to specified flush queue
+    OLAPStatus _push_memtable(int32_t queue_idx, MemTableFlushContext& ctx);
+
+    void _flush_memtable(int32_t queue_idx);
+
     int32_t _thread_num_per_store;
     int32_t _num_threads;
     ThreadPool* _flush_pool;
-    // the size of this vector should equals to _num_threads
+    // the size of this vector should equal to _num_threads
     std::vector<BlockingQueue<MemTableFlushContext>*> _flush_queues;
-    // lock to protect path_map
+    // lock to protect _path_map
     SpinLock _lock;
     // path hash -> queue idx of _flush_queues;
-    std::unordered_map<size_t, int32_t> _path_map;
+    std::unordered_map<size_t, size_t> _path_map;
 };
 
 } // end namespace

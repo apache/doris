@@ -46,7 +46,7 @@ public:
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     int64_t filtered_rows() override {
-        return _context->stats->rows_del_filtered;
+        return _stats->rows_del_filtered;
     }
 
 private:
@@ -54,6 +54,7 @@ private:
 
     RowsetReaderContext* _context;
     OlapReaderStatistics _owned_stats;
+    OlapReaderStatistics* _stats;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 

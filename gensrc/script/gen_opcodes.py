@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -203,7 +206,7 @@ def add_function(fn_meta_data, udf_interface, is_vector_function=False):
     ret_type = fn_meta_data[1]
     args = fn_meta_data[2]
     be_fn = fn_meta_data[3]
-    
+
     entry = {}
     entry["fn_name"] = fn_name
     entry["ret_type"] = fn_meta_data[1]
@@ -216,7 +219,7 @@ def add_function(fn_meta_data, udf_interface, is_vector_function=False):
     else:
         entry["symbol"] = "<no symbol specified>"
     entry["udf_interface"] = udf_interface
-    
+
     if fn_name in meta_data_entries:
         meta_data_entries[fn_name].append(entry)
     else:
@@ -260,7 +263,7 @@ def generate_be_registry_init(filename):
     """
     cc_registry_file = open(filename, "w")
     cc_registry_file.write(cc_registry_preamble)
-    
+
     for fn in meta_data_entries:
         entries = meta_data_entries[fn]
         for entry in entries:
@@ -275,7 +278,7 @@ def generate_be_registry_init(filename):
                 cc_output = 'TExprOpcode::%s, (void*)(Expr::ComputeFn)%s, "%s"' \
                         % (opcode, be_fn, symbol)
             cc_registry_file.write("  this->add(%s);\n" % (cc_output))
-    
+
     cc_registry_file.write(cc_registry_epilogue)
     cc_registry_file.close()
 
@@ -288,7 +291,7 @@ def generate_fe_registry_init(filename):
     """
     java_registry_file = open(filename, "w")
     java_registry_file.write(java_registry_preamble)
-    
+
     for fn in meta_data_entries:
         entries = meta_data_entries[fn]
         for entry in entries:
@@ -314,9 +317,9 @@ def generate_fe_registry_init(filename):
                 java_output += ", PrimitiveType." + arg
             java_registry_file.write("    result &= registry.add(%s);\n" % java_output)
     java_registry_file.write("\n")
-    
+
     mappings = {}
-    
+
     for fn in meta_data_entries:
         entries = meta_data_entries[fn]
         for entry in entries:
@@ -334,7 +337,7 @@ def generate_fe_registry_init(filename):
                 java_registry_file.write("    result &= registry.addFunctionMapping(%s);\n" \
                         % java_output)
     java_registry_file.write("\n")
-    
+
     java_registry_file.write(java_registry_epilogue)
     java_registry_file.close()
 

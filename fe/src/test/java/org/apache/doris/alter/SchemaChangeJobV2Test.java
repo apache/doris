@@ -156,22 +156,22 @@ public class SchemaChangeJobV2Test {
         assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
 
         // runPendingJob
-        schemaChangeHandler.runOneCycle();
+        schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
         Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
         
         // runWaitingTxnJob
-        schemaChangeHandler.runOneCycle();
+        schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
 
         // runWaitingTxnJob, task not finished
-        schemaChangeHandler.runOneCycle();
+        schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
 
         // runRunningJob
-        schemaChangeHandler.runOneCycle();
+        schemaChangeHandler.runAfterCatalogReady();
         // task not finished, still running
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
 
@@ -188,7 +188,7 @@ public class SchemaChangeJobV2Test {
             }
         }
         
-        schemaChangeHandler.runOneCycle();
+        schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, schemaChangeJob.getJobState());
     }
 

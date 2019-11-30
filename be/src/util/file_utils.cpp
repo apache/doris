@@ -28,11 +28,11 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/algorithm/string/split.hpp>
-#include <boost/algorithm/string/trim.hpp>
 
 #include <openssl/md5.h>
 
+#include "gutil/strings/split.h"
+#include "gutil/strings/strip.h"
 #include "gutil/strings/substitute.h"
 
 #include "env/env.h"
@@ -56,7 +56,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
         bool is_dir = false;
 
         Status s = env->is_directory(partial_path, &is_dir);
-        
+
         if (s.ok()) {
             if (is_dir) {
                 // It's a normal directory.
@@ -66,7 +66,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
             // Maybe a file or a symlink. Let's try to follow the symlink.
             string real_partial_path;
             RETURN_IF_ERROR(env->canonicalize(partial_path, &real_partial_path));
-            
+
             RETURN_IF_ERROR(env->is_directory(real_partial_path, &is_dir));
             if (is_dir) {
                 // It's a symlink to a directory.
@@ -75,7 +75,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
                 return Status::IOError(partial_path + " exists but is not a directory");
             }
         }
-        
+
         RETURN_IF_ERROR(env->create_dir_if_missing(partial_path));
     }
 
@@ -108,7 +108,7 @@ Status FileUtils::remove_all(const std::string& file_path) {
 Status FileUtils::remove(const std::string& path, doris::Env* env) {
     bool is_dir;
     RETURN_IF_ERROR(env->is_directory(path, &is_dir));
- 
+
     if (is_dir) {
         return env->delete_dir(path);
     } else {
@@ -144,10 +144,10 @@ Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string>
         if (is_dot_or_dotdot(name)) {
             return true;
         }
-        
+
         string temp_path =  path + "/" + name;
         bool is_dir;
-        
+
         auto st = env->is_directory(temp_path, &is_dir);
         if (st.ok()) {
             if (is_dir) {
@@ -160,10 +160,10 @@ Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string>
         } else {
             LOG(WARNING) << "check path " << path << "is directory error: " << st.to_string();
         }
-        
+
         return true;
     };
-    
+
     return env->iterate_dir(path, cb);
 }
 
@@ -180,9 +180,9 @@ Status FileUtils::get_children_count(Env* env, const std::string& dir, int64_t* 
 bool FileUtils::is_dir(const std::string& file_path, Env* env) {
     bool ret;
     if (env->is_directory(file_path, &ret).ok()) {
-        return ret;   
+        return ret;
     }
-    
+
     return false;
 }
 
@@ -204,18 +204,10 @@ std::string FileUtils::path_of_fd(int fd) {
 
 Status FileUtils::split_pathes(const char* path, std::vector<std::string>* path_vec) {
     path_vec->clear();
-    try {
-        boost::split(*path_vec, path,
-                     boost::is_any_of(";"),
-                     boost::token_compress_on);
-    } catch (...) {
-        std::stringstream ss;
-        ss << "Boost split path failed.[path=" << path << "]";
-        return Status::InternalError(ss.str());
-    }
+    *path_vec = strings::Split(path, ";", strings::SkipWhitespace());
 
     for (std::vector<std::string>::iterator it = path_vec->begin(); it != path_vec->end();) {
-        boost::trim(*it);
+        StripWhiteSpace(&(*it));
 
         it->erase(it->find_last_not_of("/") + 1);
         if (it->size() == 0) {
@@ -243,7 +235,7 @@ Status FileUtils::split_pathes(const char* path, std::vector<std::string>* path_
 }
 
 Status FileUtils::copy_file(const std::string& src_path, const std::string& dest_path) {
-   // open src file 
+   // open src file
     FileHandler src_file;
     if (src_file.open(src_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
         char errmsg[64];
@@ -258,7 +250,7 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
         LOG(ERROR) << "open file failed: " << dest_path << strerror_r(errno, errmsg, 64);
         return Status::InternalError("Internal Error");
     }
-    
+
     const int64_t BUF_SIZE = 8192;
     char *buf = new char[BUF_SIZE];
     DeferOp free_buf(std::bind<void>(std::default_delete<char[]>(), buf));
@@ -284,7 +276,7 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     if (fd < 0) {
         return Status::InternalError("failed to open file");
     }
-    
+
     struct stat statbuf;
     if (fstat(fd, &statbuf) < 0) {
         close(fd);
@@ -295,14 +287,14 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
 
     unsigned char result[MD5_DIGEST_LENGTH];
     MD5((unsigned char*) buf, file_len, result);
-    munmap(buf, file_len); 
+    munmap(buf, file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
         ss << std::setfill('0') << std::setw(2) << std::hex << (int) result[i];
     }
     ss >> *md5sum;
-    
+
     close(fd);
     return Status::OK();
 }
@@ -313,6 +305,10 @@ bool FileUtils::check_exist(const std::string& path) {
 
 bool FileUtils::check_exist(const std::string& path, Env* env) {
     return env->path_exists(path).ok();
+}
+
+Status FileUtils::canonicalize(const std::string& path, std::string* real_path) {
+    return Env::Default()->canonicalize(path, real_path);
 }
 
 }

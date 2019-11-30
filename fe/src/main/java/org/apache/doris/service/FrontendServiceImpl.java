@@ -31,6 +31,7 @@ import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
@@ -609,6 +610,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
         try {
             result.setTxnId(loadTxnBeginImpl(request, clientAddr));
+        } catch (DuplicatedRequestException e) {
+            // this is a duplicate request, just return previous txn id
+            LOG.info("deplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());

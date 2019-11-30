@@ -564,7 +564,6 @@ public class EditLog {
                     final TransactionState state = (TransactionState) journal.getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
-
                     break;
                 }
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
@@ -1028,7 +1027,6 @@ public class EditLog {
     public void logGlobalVariable(SessionVariable variable) {
         logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
     }
-
 
     public void logCreateCluster(Cluster cluster) {
         logEdit(OperationType.OP_CREATE_CLUSTER, cluster);

@@ -58,7 +58,9 @@ import com.google.common.collect.Lists;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
@@ -75,6 +77,9 @@ import java.util.List;
 public class ShowExecutorTest {
     private ConnectContext ctx;
     private Catalog catalog;
+
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
     public void setUp() throws Exception {
@@ -392,21 +397,23 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowColumnEmpty() throws AnalysisException {
+    public void testShowColumnFromUnknownTable() throws AnalysisException {
         ShowColumnStmt stmt = new ShowColumnStmt(new TableName("testCluster:emptyDb", "testTable"), null, null, false);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
 
-        Assert.assertFalse(resultSet.next());
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Unknown table 'testCluster:emptyDb.testTable'");
+        executor.execute();
 
         // empty table
         stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "emptyTable"), null, null, true);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
 
-        Assert.assertFalse(resultSet.next());
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Unknown table 'testCluster:testDb.emptyTable'");
+        executor.execute();
     }
 
     @Test

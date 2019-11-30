@@ -18,16 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
-#include "common/object_pool.h"
-#include "olap/schema.h"
 #include "olap/skiplist.h"
-#include "runtime/tuple.h"
-#include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
-class RowCursor;
 class RowsetWriter;
+class ObjectPool;
+class Schema;
+class Tuple;
 
 class MemTable {
 public:
@@ -42,7 +40,7 @@ public:
     OLAPStatus close();
 
 private:
-    int64_t _tablet_id; 
+    int64_t _tablet_id;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;

@@ -129,18 +129,18 @@ public class RollupJobV2Test {
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
 
         // runPendingJob
-        rollupHandler.runOneCycle();
+        rollupHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
         Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
 
         // runWaitingTxnJob
-        rollupHandler.runOneCycle();
+        rollupHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
 
         // runWaitingTxnJob, task not finished
-        rollupHandler.runOneCycle();
+        rollupHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
 
         // finish all tasks
@@ -158,7 +158,7 @@ public class RollupJobV2Test {
             }
         }
 
-        rollupHandler.runOneCycle();
+        rollupHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, rollupJob.getJobState());
 
         /*

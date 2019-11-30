@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class PublishVersionDaemon extends Daemon {
+public class PublishVersionDaemon extends MasterDaemon {
     
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
     
@@ -49,7 +49,8 @@ public class PublishVersionDaemon extends Daemon {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
     }
     
-    protected void runOneCycle() {
+    @Override
+    protected void runAfterCatalogReady() {
         try {
             publishVersion();
         } catch (Throwable t) {

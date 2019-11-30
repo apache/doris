@@ -69,6 +69,14 @@ public:
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
         OwnedSlice s = page_builder.finish();
 
+        //check first value and last value
+        CppType first_value;
+        page_builder.get_first_value(&first_value);
+        ASSERT_EQ(src[0], first_value);
+        CppType last_value;
+        page_builder.get_last_value(&last_value);
+        ASSERT_EQ(src[size - 1], last_value);
+
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(s.slice(), decoder_options);
         Status status = page_decoder.init();

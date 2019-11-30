@@ -45,28 +45,45 @@ public:
 
 private:
     
-    virtual OLAPStatus _finish_clone(TabletSharedPtr tablet, const std::string& clone_dir,
+    virtual OLAPStatus _finish_clone(Tablet* tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
     
-    OLAPStatus _clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
+    OLAPStatus _clone_incremental_data(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
                                      int64_t committed_version);
 
-    OLAPStatus _clone_full_data(TabletSharedPtr tablet, TabletMeta* cloned_tablet_meta);
+    OLAPStatus _clone_full_data(Tablet* tablet, TabletMeta* cloned_tablet_meta);
 
     AgentStatus _clone_copy(DataDir& data_dir,
-        const TCloneReq& clone_req,
-        int64_t signature,
         const string& local_data_path,
         TBackend* src_host,
         string* src_file_path,
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
-        bool* allow_incremental_clone, 
-        TabletSharedPtr tablet);
+        bool* allow_incremental_clone);
         
     OLAPStatus _convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id);
 
     void _set_tablet_info(AgentStatus status, bool is_new_tablet);
+
+    // Download tablet files from 
+    Status _download_files(
+        DataDir* data_dir,
+        const std::string& remote_url_prefix,
+        const std::string& local_path);
+
+    Status _make_snapshot(
+        const std::string& ip, int port,
+        TTableId tablet_id,
+        TSchemaHash schema_hash,
+        int timeout_s,
+        const std::vector<Version>* missed_versions,
+        std::string* snapshot_path,
+        bool* allow_incremental_clone,
+        int32_t* snapshot_version);
+
+    Status _release_snapshot(
+        const std::string& ip, int port,
+        const std::string& snapshot_path);
 
 private:
     const TCloneReq& _clone_req;

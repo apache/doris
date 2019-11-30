@@ -82,14 +82,19 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
+    rowset/segment_v2/bitmap_index_writer.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp
     rowset/segment_v2/column_writer.cpp
     rowset/segment_v2/encoding_info.cpp
+    rowset/segment_v2/index_page.cpp
+    rowset/segment_v2/indexed_column_reader.cpp
+    rowset/segment_v2/indexed_column_writer.cpp
     rowset/segment_v2/ordinal_page_index.cpp
     rowset/segment_v2/page_compression.cpp
     rowset/segment_v2/binary_dict_page.cpp
+    rowset/segment_v2/binary_prefix_page.cpp
     rowset/segment_v2/segment.cpp
     rowset/segment_v2/segment_iterator.cpp
     rowset/segment_v2/empty_segment_iterator.cpp

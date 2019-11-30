@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -601,6 +604,8 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['bitmap_count'], 'BIGINT', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions12bitmap_countEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_empty'], 'VARCHAR', [],
+        '_ZN5doris15BitmapFunctions12bitmap_emptyEPN9doris_udf15FunctionContextE'],
 
 
     # aes and base64 function

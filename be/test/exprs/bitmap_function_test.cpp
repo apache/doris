@@ -52,6 +52,15 @@ private:
     FunctionContext* ctx;
 };
 
+TEST_F(BitmapFunctionsTest, bitmap_empty) {
+    StringVal result = BitmapFunctions::bitmap_empty(ctx);
+
+    RoaringBitmap bitmap;
+    StringVal expected = convert_bitmap_to_string(ctx, bitmap);
+
+    ASSERT_EQ(expected, result);
+}
+
 TEST_F(BitmapFunctionsTest, to_bitmap) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("1024"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
@@ -81,7 +90,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
     ASSERT_EQ(expected, result);
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: xxxxxx type isn't integer family");
+    std::string error_msg("The to_bitmap function argument: xxxxxx type isn't integer family or exceed unsigned integer max value 4294967295");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
@@ -94,7 +103,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
 
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: 4294967296 exceed unsigned integer max value 4294967295");
+    std::string error_msg("The to_bitmap function argument: 4294967296 type isn't integer family or exceed unsigned integer max value 4294967295");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 

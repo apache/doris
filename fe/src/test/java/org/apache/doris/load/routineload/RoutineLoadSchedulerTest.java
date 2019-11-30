@@ -107,7 +107,7 @@ public class RoutineLoadSchedulerTest {
 
         RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
         Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
-        routineLoadScheduler.runOneCycle();
+        routineLoadScheduler.runAfterCatalogReady();
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
                 Deencapsulation.getField(kafkaRoutineLoadJob, "routineLoadTaskInfoList");

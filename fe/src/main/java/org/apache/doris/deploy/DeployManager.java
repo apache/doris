@@ -22,7 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -100,7 +100,7 @@ import java.util.Map;
  *      set FE_INIT_NUMBER as empty
  * 
  */
-public class DeployManager extends Daemon {
+public class DeployManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DeployManager.class);
     
     // We misspelled the environment value ENV_FE_EXIST_ENT(D)POINT. But for forward compatibility,
@@ -316,7 +316,7 @@ public class DeployManager extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (Config.enable_deploy_manager.equals("disable")) {
             LOG.warn("Config enable_deploy_manager is disable. Exit deploy manager");
             exit();

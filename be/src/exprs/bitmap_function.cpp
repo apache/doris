@@ -19,6 +19,7 @@
 
 #include "exprs/anyval_util.h"
 #include "util/bitmap.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 void BitmapFunctions::init() {
@@ -28,6 +29,14 @@ void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(RoaringBitmap);
     dst->ptr = (uint8_t*)new RoaringBitmap();
+}
+
+StringVal BitmapFunctions::bitmap_empty(FunctionContext* ctx) {
+    RoaringBitmap bitmap;
+    std::string buf;
+    buf.resize(bitmap.size());
+    bitmap.serialize((char*)buf.c_str());
+    return AnyValUtil::from_string_temp(ctx, buf);
 }
 
 template <typename T>
@@ -71,27 +80,16 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
     std::unique_ptr<RoaringBitmap> bitmap {new RoaringBitmap()};
     if (!src.is_null) {
-        std::string tmp_str = std::string(reinterpret_cast<char*>(src.ptr), src.len) ;
-        unsigned long uint32_value = 0;
-        try {
-            uint32_value = std::stoul(tmp_str);
-            // the std::stoul result type is unsigned long, not uint32_t. so we need check it
-            if(UNLIKELY(uint32_value > std::numeric_limits<unsigned int>::max())) {
-                throw std::out_of_range("");
-            }
-        } catch (std::invalid_argument& e) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
-            error_msg << "The to_bitmap function argument: " << tmp_str << " type isn't integer family";
-            ctx->set_error(error_msg.str().c_str());
-            return StringVal::null();
-        } catch (std::out_of_range& e) {
-            std::stringstream error_msg;
-            error_msg << "The to_bitmap function argument: " << tmp_str << " exceed unsigned integer max value "
-                      << std::numeric_limits<unsigned int>::max();
+            error_msg << "The to_bitmap function argument: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
+            << " type isn't integer family or exceed unsigned integer max value 4294967295";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
-        bitmap->update(uint32_value);
+        bitmap->update(int_value);
     }
     std::string buf;
     buf.resize(bitmap->size());

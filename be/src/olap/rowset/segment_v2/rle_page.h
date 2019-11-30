@@ -86,14 +86,19 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
-        DCHECK_EQ(reinterpret_cast<uintptr_t>(vals) & (alignof(CppType) - 1), 0)
-                << "Pointer passed to Add() must be naturally-aligned";
-
-        const CppType* new_vals = reinterpret_cast<const CppType*>(vals);
+        auto new_vals = reinterpret_cast<const CppType*>(vals);
         for (int i = 0; i < *count; ++i) {
-            _rle_encoder->Put(new_vals[i]);
+            // note: vals is not guaranteed to be aligned for now, thus memcpy here
+            CppType value;
+            memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
+            _rle_encoder->Put(value);
         }
-        
+
+        if (_count == 0) {
+            memcpy(&_first_value, new_vals, SIZE_OF_TYPE);
+        }
+        memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
+
         _count += *count;
         return Status::OK();
     }
@@ -122,6 +127,24 @@ public:
         return _rle_encoder->len();
     }
 
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
     enum {
@@ -134,6 +157,8 @@ private:
     int _bit_width;
     RleEncoder<CppType>* _rle_encoder;
     faststring _buf;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>

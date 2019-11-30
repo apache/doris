@@ -38,7 +38,6 @@
 
 #include "env/env.h"
 
-using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
 using boost::filesystem::copy_option;
 using boost::filesystem::path;
@@ -103,8 +102,10 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
     // 否则认为是非法请求，返回错误结果
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
-        path boost_root_path(store->path());
-        string abs_path = canonical(boost_root_path).string();
+        std::string abs_path;
+        RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(store->path(), &abs_path),
+                                  OLAP_ERR_DIR_NOT_EXIST,
+                                  "canonical path " + store->path() + "failed");
 
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0
                 && snapshot_path.compare(abs_path.size(),
@@ -122,7 +123,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 
 // TODO support beta rowset
 OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
-    const int32_t& schema_hash, TabletSharedPtr tablet) {
+    const int32_t& schema_hash) {
     OLAPStatus res = OLAP_SUCCESS;   
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
@@ -336,27 +337,12 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         FileUtils::remove_all(schema_full_path);
     }
 
-    Status st = FileUtils::create_dir(schema_full_path);
-    if (!st.ok()) {
-        LOG(WARNING) << "create path " + schema_full_path + "failed. error: " << st.to_string();
-        return OLAP_ERR_CANNOT_CREATE_DIR;
-    }
-    
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path), OLAP_ERR_CANNOT_CREATE_DIR,
+            "create path " + schema_full_path + "failed");
+
     string snapshot_id;
-    try {
-        path boost_path(snapshot_id_path);
-        boost::system::error_code error_code;
-        path real_path = canonical(boost_path, error_code);
-        if (error_code != boost::system::errc::success) {
-            LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << error_code;
-            return OLAP_ERR_CANNOT_CREATE_DIR;
-        } else {
-            snapshot_id = real_path.string();
-        }
-    } catch (std::exception e) {
-        LOG(WARNING) << "check create path " << snapshot_id_path << " failed. error: " << e.what();
-        return OLAP_ERR_CANNOT_CREATE_DIR;
-    }
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id), OLAP_ERR_CANNOT_CREATE_DIR,
+                              "canonicalize path " + snapshot_id_path + " failed");
     
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());

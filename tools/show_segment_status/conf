@@ -1,0 +1,14 @@
+[cluster]
+fe_host = 
+query_port = 
+user = root
+query_pwd = 
+
+# Following confs are optional
+# select one database 
+db_name = 
+# select one table
+table_name = 
+# select one be. when value is 0 means all bes
+be_id = 0
+

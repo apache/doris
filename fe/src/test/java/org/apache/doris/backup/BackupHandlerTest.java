@@ -161,7 +161,7 @@ public class BackupHandlerTest {
     @Test
     public void testInit() {
         handler = new BackupHandler(catalog);
-        handler.runOneCycle();
+        handler.runAfterCatalogReady();
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         Assert.assertTrue(backupDir.exists());

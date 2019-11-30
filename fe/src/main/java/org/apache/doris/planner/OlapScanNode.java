@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Preconditions;
@@ -24,6 +25,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -68,9 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Full scan of an Olap table.
- */
+// Full scan of an Olap table.
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
@@ -88,16 +88,16 @@ public class OlapScanNode extends ScanNode {
     private int selectedPartitionNum = 0;
     private long totalBytes = 0;
 
-    boolean isFinalized = false;
+    // List of tablets will be scanned by current olap_scan_node
+    private ArrayList<Long> scanTabletIds = Lists.newArrayList();
+    private boolean isFinalized = false;
 
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
 
-    /**
-     * Constructs node to scan given data files of table 'tbl'.
-     */
+    // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
         olapTable = (OlapTable) desc.getTable();
@@ -314,7 +314,7 @@ public class OlapScanNode extends ScanNode {
     private void getScanRangeLocations(Analyzer analyzer) throws UserException, AnalysisException {
         long start = System.currentTimeMillis();
         Collection<Long> partitionIds = partitionPrune(olapTable.getPartitionInfo());
-       
+
         if (partitionIds == null) {
             partitionIds = new ArrayList<Long>();
             for (Partition partition : olapTable.getPartitions()) {
@@ -361,8 +361,10 @@ public class OlapScanNode extends ScanNode {
                 for (Long id : tabletIds) {
                     tablets.add(selectedTable.getTablet(id));
                 }
+                scanTabletIds.addAll(tabletIds);
             } else {
                 tablets.addAll(selectedTable.getTablets());
+                scanTabletIds.addAll(allTabletIds);
             }
 
             for (int i = 0; i < allTabletIds.size(); i++) {
@@ -376,7 +378,6 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
-
     /**
      * We query Palo Meta to get request's data location
      * extra result info will pass to backend ScanNode
@@ -385,7 +386,6 @@ public class OlapScanNode extends ScanNode {
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return result;
     }
-
 
     @Override
     protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
@@ -414,11 +414,20 @@ public class OlapScanNode extends ScanNode {
         String indexName = olapTable.getIndexNameById(selectedIndexId);
         output.append("\n").append(prefix).append(String.format("rollup: %s", indexName));
 
-
         output.append("\n");
 
         output.append(prefix).append(String.format(
-                    "buckets=%s/%s", selectedTabletsNum, totalTabletsNum));
+                    "tabletRatio=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append("\n");
+
+        // We print up to 10 tablet, and we print "..." if the number is more than 10
+        if (scanTabletIds.size() > 10) {
+            List<Long> firstTenTabletIds = scanTabletIds.subList(0, 10);
+            output.append(prefix).append(String.format("tabletList=%s ...", Joiner.on(",").join(firstTenTabletIds)));
+        } else {
+            output.append(prefix).append(String.format("tabletList=%s", Joiner.on(",").join(scanTabletIds)));
+        }
+
         output.append("\n");
 
         output.append(prefix).append(String.format(

@@ -37,6 +37,7 @@ class DataDir {
 public:
     DataDir(const std::string& path,
             int64_t capacity_bytes = -1,
+            TStorageMedium::type storage_medium = TStorageMedium::HDD,
             TabletManager* tablet_manager = nullptr,
             TxnManager* txn_manager = nullptr);
     ~DataDir();
@@ -44,7 +45,7 @@ public:
     Status init();
 
     const std::string& path() const { return _path; }
-    const size_t path_hash() const { return _path_hash; }
+    size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
@@ -129,7 +130,7 @@ public:
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
-    Status _init_extension_and_capacity();
+    Status _init_capacity();
     Status _init_file_system();
     Status _init_meta();
 
@@ -150,7 +151,7 @@ private:
 
 private:
     std::string _path;
-    int64_t _path_hash;
+    size_t _path_hash;
     // user specified capacity
     int64_t _capacity_bytes;
     // the actual avaiable capacity of the disk of this data dir

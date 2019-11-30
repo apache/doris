@@ -60,7 +60,9 @@ show session variables
 
 ## supported mode
 
-(Work in progress)
+1. `PIPES_AS_CONCAT`
+	
+	Treat '||' as a string concatenation operator (same as CONCAT()) rather than as a synonym for OR. (e.g., `'a'||'b' = 'ab'`, `1||0 = '10'`)
 
 ## combine mode
 

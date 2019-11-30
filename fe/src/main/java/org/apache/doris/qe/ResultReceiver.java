@@ -116,7 +116,7 @@ public class ResultReceiver {
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception, finstId={}", finstId, e);
             status.setRpcStatus(e.getMessage());
-            SimpleScheduler.updateBlacklistBackends(backendId);
+            SimpleScheduler.addToBlacklist(backendId);
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception, finstId={}", finstId, e);
             if (e.getMessage().contains("time out")) {
@@ -124,7 +124,7 @@ public class ResultReceiver {
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
             } else {
                 status.setRpcStatus(e.getMessage());
-                SimpleScheduler.updateBlacklistBackends(backendId);
+                SimpleScheduler.addToBlacklist(backendId);
             }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", finstId, e);

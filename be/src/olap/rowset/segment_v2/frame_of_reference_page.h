@@ -43,9 +43,16 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
+        if (*count == 0) {
+            return Status::OK();
+        }
         auto new_vals = reinterpret_cast<const CppType*>(vals);
+        if (_count == 0) {
+            _first_val = *new_vals;
+        }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
+        _last_val = new_vals[*count - 1];
         return Status::OK();
     }
 
@@ -70,6 +77,22 @@ public:
         return _buf.size();
     }
 
+    Status get_first_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_val, sizeof(CppType));
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_val, sizeof(CppType));
+        return Status::OK();
+    }
+
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
     PageBuilderOptions _options;
@@ -77,6 +100,8 @@ private:
     bool _finished;
     std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
+    CppType _first_val;
+    CppType _last_val;
 };
 
 template<FieldType Type>
@@ -114,6 +139,16 @@ public:
         int32_t skip_num = pos - _cur_index;
         _decoder->skip(skip_num);
         _cur_index = pos;
+        return Status::OK();
+    }
+
+    Status seek_at_or_after_value(const void* value, bool* exact_match) override {
+        DCHECK(_parsed) << "Must call init() firstly";
+        bool found = _decoder->seek_at_or_after_value(value, exact_match);
+        if (!found) {
+            return Status::NotFound("not found");
+        }
+        _cur_index = _decoder->current_index();
         return Status::OK();
     }
 

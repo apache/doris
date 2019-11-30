@@ -112,7 +112,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_drop_tables(false),
         _index_stream_lru_cache(NULL),
         _is_report_disk_state_already(false),
-        _is_report_tablet_already(false), 
+        _is_report_tablet_already(false),
         _tablet_manager(new TabletManager()),
         _txn_manager(new TxnManager()),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -146,7 +146,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 OLAPStatus StorageEngine::open() {
     // init store_map
     for (auto& path : _options.store_paths) {
-        DataDir* store = new DataDir(path.path, path.capacity_bytes,
+        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                 _tablet_manager.get(), _txn_manager.get());
         auto st = store->init();
         if (!st.ok()) {
@@ -164,13 +164,7 @@ OLAPStatus StorageEngine::open() {
 
     _update_storage_medium_type_count();
 
-    res = _check_file_descriptor_number();
-    if (res != OLAP_SUCCESS) {
-        LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
-                   << ". Please use (ulimit -n) to set a value equal or greater than "
-                   << config::min_file_descriptor_number;
-        return OLAP_ERR_INIT_FAILED;
-    }
+    RETURN_NOT_OK(_check_file_descriptor_number());
 
     auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
     if (cache == nullptr) {
@@ -192,9 +186,9 @@ OLAPStatus StorageEngine::open() {
     // 初始化CE调度器
     int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads;
     int32_t base_compaction_num_threads = config::base_compaction_num_threads;
-    uint32_t file_system_num = get_file_system_count();
-    _max_cumulative_compaction_task_per_disk = (cumulative_compaction_num_threads + file_system_num - 1) / file_system_num;
-    _max_base_compaction_task_per_disk = (base_compaction_num_threads + file_system_num - 1) / file_system_num;
+    uint32_t dir_size = _store_map.size();
+    _max_cumulative_compaction_task_per_disk = (cumulative_compaction_num_threads + dir_size - 1) / dir_size;
+    _max_base_compaction_task_per_disk = (base_compaction_num_threads + dir_size - 1) / dir_size;
 
     auto dirs = get_stores();
     load_data_dirs(dirs);
@@ -228,6 +222,7 @@ OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster
         return res;
     } else if (cluster_id != -1 && _effective_cluster_id == -1) {
         _effective_cluster_id = cluster_id;
+        return res;
     } else if (cluster_id == -1 && _effective_cluster_id != -1) {
         // _effective_cluster_id is the right effective cluster id
         return res;
@@ -319,7 +314,7 @@ void StorageEngine::start_disk_stat_monitor() {
     }
     _update_storage_medium_type_count();
     _delete_tablets_on_unused_root_path();
-    
+
     // if drop tables
     // notify disk_state_worker_thread and tablet_worker_thread until they received
     if (_is_drop_tables) {
@@ -341,6 +336,7 @@ bool StorageEngine::_used_disk_not_enough(uint32_t unused_num, uint32_t total_nu
     return ((total_num == 0) || (unused_num * 100 / total_num > _min_percentage_of_error_disk));
 }
 
+// TODO(lingbin): Should be in EnvPosix?
 OLAPStatus StorageEngine::_check_file_descriptor_number() {
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE , &l);
@@ -350,6 +346,9 @@ OLAPStatus StorageEngine::_check_file_descriptor_number() {
         return OLAP_SUCCESS;
     }
     if (l.rlim_cur < config::min_file_descriptor_number) {
+        LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
+                   << ". Please use (ulimit -n) to set a value equal or greater than "
+                   << config::min_file_descriptor_number;
         return OLAP_ERR_TOO_FEW_FILE_DESCRITPROR;
     }
     return OLAP_SUCCESS;
@@ -374,11 +373,7 @@ OLAPStatus StorageEngine::_check_all_root_path_cluster_id() {
 
     // judge and get effective cluster id
     OLAPStatus res = OLAP_SUCCESS;
-    res = _judge_and_update_effective_cluster_id(cluster_id);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to judge and update effective cluster id. res=" << res;
-        return res;
-    }
+    RETURN_NOT_OK(_judge_and_update_effective_cluster_id(cluster_id));
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
@@ -412,6 +407,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             }
         }
     }
+    //  TODO(lingbin): should it be a global util func?
     std::random_device rd;
     srand(rd());
     std::random_shuffle(stores.begin(), stores.end());
@@ -456,7 +452,7 @@ void StorageEngine::_delete_tablets_on_unused_root_path() {
     if (!tablet_info_vec.empty()) {
         _is_drop_tables = true;
     }
-    
+
     _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
 }
 
@@ -495,10 +491,14 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         // each tablet
         for (auto& tablet_info : tablet_infos) {
             // should use tablet uid to ensure clean txn correctly
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id, 
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id,
                 tablet_info.first.schema_hash, tablet_info.first.tablet_uid);
+            // The tablet may be dropped or altered, leave a INFO log and go on process other tablet
             if (tablet == nullptr) {
-                return;
+                LOG(INFO) << "tablet is no longer exist. tablet_id=" << tablet_info.first.tablet_id
+                    << ", schema_hash=" << tablet_info.first.schema_hash
+                    << ", tablet_uid=" << tablet_info.first.tablet_uid;
+                continue;
             }
             StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet, transaction_id);
         }
@@ -533,7 +533,9 @@ void StorageEngine::start_clean_fd_cache() {
 
 void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) { return; }
+    if (best_tablet == nullptr) {
+        return;
+    }
 
     DorisMetrics::cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction(best_tablet);
@@ -554,7 +556,9 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
 
 void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) { return; }
+    if (best_tablet == nullptr) {
+        return;
+    }
 
     DorisMetrics::base_compaction_request_total.increment(1);
     BaseCompaction base_compaction(best_tablet);
@@ -639,7 +643,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
 
 void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
-    auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id, 
+    auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
         const std::string& meta_str) -> bool {
 
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -671,7 +675,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
     for (auto data_dir : data_dirs) {
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
-            RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()); 
+            RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id());
         }
         invalid_rowset_metas.clear();
     }
@@ -688,7 +692,7 @@ void StorageEngine::_clean_unused_txns() {
             // case 2: tablet not in meta store, remove rowset from meta
             // currently just remove them from memory
             // nullptr to indicate not remove them from meta store
-            _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id, tablet_info.schema_hash, 
+            _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id, tablet_info.schema_hash,
                 tablet_info.tablet_uid);
         }
     }
@@ -917,7 +921,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {
-                LOG(WARNING) << "could not get tablet before prepare tabletid: " 
+                LOG(WARNING) << "could not get tablet before prepare tabletid: "
                              << tablet_info.tablet_id;
             }
         }
@@ -936,7 +940,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     if (exec_status != OLAP_SUCCESS) {
         return exec_status;
     }
-    
+
     // 1. add wlock to related tablets
     // 2. do finish work
     // 3. release wlock
@@ -953,7 +957,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {
-                LOG(WARNING) << "could not get tablet before finish tabletid: " 
+                LOG(WARNING) << "could not get tablet before finish tabletid: "
                              << tablet_info.tablet_id;
             }
         }

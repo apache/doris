@@ -108,7 +108,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // specification of the number of parallel when fragment is executed
     // default value is 1
-    private int parallel_exec_num = 1;
+    private int parallelExecNum = 1;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -141,7 +141,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      */
     public void setParallelExecNumIfExists() {
         if (ConnectContext.get() != null) {
-            parallel_exec_num = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
     }
 
@@ -186,8 +186,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return dataPartition == DataPartition.UNPARTITIONED ? 1 : planRoot.getNumNodes();
     }
 
-    public int getParallel_exec_num() {
-        return parallel_exec_num;
+    public int getParallelExecNum() {
+        return parallelExecNum;
     }
 
     public TPlanFragment toThrift() {

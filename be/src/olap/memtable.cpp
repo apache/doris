@@ -17,9 +17,13 @@
 
 #include "olap/memtable.h"
 
+#include "common/object_pool.h"
 #include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/row_cursor.h"
 #include "olap/row.h"
+#include "olap/schema.h"
+#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
@@ -63,7 +67,7 @@ size_t MemTable::memory_usage() {
 
 void MemTable::insert(Tuple* tuple) {
     ContiguousRow row(_schema, _tuple_buf);
-    
+
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row.cell(i);
         const SlotDescriptor* slot = (*_slot_descs)[i];
@@ -93,7 +97,7 @@ OLAPStatus MemTable::flush() {
         }
         RETURN_NOT_OK(_rowset_writer->flush());
     }
-    DorisMetrics::memtable_flush_total.increment(1); 
+    DorisMetrics::memtable_flush_total.increment(1);
     DorisMetrics::memtable_flush_duration_us.increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }

@@ -501,6 +501,10 @@ public:
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
 
+    // get mem limit for load channel
+    // if load mem limit is not set, or is zero, using query mem limit instead.
+    int64_t get_load_mem_limit();
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
