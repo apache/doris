@@ -110,6 +110,11 @@ public class EsRestClient {
 
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
+            // NOTE. currentNode may have some spaces. 
+            // User may set a config like described below:
+            // hosts: "http://192.168.0.1:8200, http://192.168.0.2:8200"
+            // then currentNode will be "http://192.168.0.1:8200", " http://192.168.0.2:8200"
+            currentNode = currentNode.trim();
             if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
                 currentNode = "http://" + currentNode;
             }
