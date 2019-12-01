@@ -1117,8 +1117,11 @@ public class PaloAuth implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        sb.append("[global privs]").append("\n");
         sb.append(userPrivTable).append("\n");
+        sb.append("[db privs]").append("\n");
         sb.append(dbPrivTable).append("\n");
+        sb.append("[tbl privs]").append("\n");
         sb.append(tablePrivTable).append("\n");
         sb.append(roleManager).append("\n");
         sb.append(propertyMgr).append("\n");

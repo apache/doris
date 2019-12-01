@@ -57,14 +57,17 @@ public class GrantStmtTest {
 
         new NonStrictExpectations() {
             {
-                ConnectContext.get();
-                result = ctx;
-
                 ctx.getQualifiedUser();
                 result = "root";
 
                 ctx.getRemoteIP();
                 result = "192.168.0.1";
+
+                ctx.getCurrentUserIdentity();
+                result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
+
+                ConnectContext.get();
+                result = ctx;
 
                 Catalog.getCurrentCatalog();
                 result = catalog;
