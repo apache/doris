@@ -24,8 +24,14 @@ import java.util.Map;
 
 public abstract class Plugin implements Closeable {
 
+    /**
+     * invoke when the plugin install
+     */
     public void init() { }
 
+    /**
+     * invoke when the plugin uninstall
+     */
     @Override
     public void close() throws IOException { }
 
