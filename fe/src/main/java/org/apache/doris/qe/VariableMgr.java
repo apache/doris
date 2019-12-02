@@ -424,7 +424,7 @@ public class VariableMgr {
                 if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
                     try {
                         row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
-                    } catch (AnalysisException e) {
+                    } catch (DdlException e) {
                         row.set(1, "");
                         LOG.warn("Decode sql mode failed");
                     }
