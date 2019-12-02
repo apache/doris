@@ -21,7 +21,11 @@ package org.apache.doris.qe;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang.StringUtils;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -119,13 +123,13 @@ public class SqlModeHelper {
     }
 
     // convert long type SQL MODE to string type that user can read
-    public static String decode(Long sqlMode) throws AnalysisException {
+    public static String decode(Long sqlMode) throws DdlException {
         // 0 parse to empty string
         if (sqlMode == 0) {
             return "";
         }
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
-            throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + sqlMode);
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }
 
         List<String> names = new ArrayList<String>();
@@ -139,21 +143,24 @@ public class SqlModeHelper {
     }
 
     // convert string type SQL MODE to long type that session can store
-    public static Long encode(String sqlMode) throws AnalysisException {
+    public static Long encode(String sqlMode) throws DdlException {
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
 
         // empty string parse to 0
         long value = 0L;
         for (String key : names) {
+            if (StringUtils.isNumeric(key)) {
+                key = decode(Long.valueOf(key));
+            }
             // the SQL MODE must be supported, set sql mode repeatedly is not allowed
             if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
-                throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
             }
             if (isCombineMode(key)) {
                 // set multiple combine mode is not allowed
                 if ((value & MODE_COMBINE_MASK) != 0) {
-                    throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
                 }
                 value |= getCombineMode().get(key);
             }

@@ -116,18 +116,18 @@ public class SetVar {
 
         result = (LiteralExpr)literalExpr;
 
-        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            // For the case like "set sql_mode = PIPES_AS_CONCAT"
-            if (result instanceof StringLiteral) {
-                String sqlMode = result.getStringValue();
-                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-            }
-            // For the case like "set sql_mode = 3"
-            else if (result instanceof IntLiteral) {
-                String sqlMode = SqlModeHelper.decode(result.getLongValue());
-                result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
-            }
-        }
+//        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+//            // For the case like "set sql_mode = PIPES_AS_CONCAT"
+//            if (result instanceof StringLiteral) {
+//                String sqlMode = result.getStringValue();
+//                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
+//            }
+//            // For the case like "set sql_mode = 3"
+//            else if (result instanceof IntLiteral) {
+//                String sqlMode = SqlModeHelper.decode(result.getLongValue());
+//                result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
+//            }
+//        }
 
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
