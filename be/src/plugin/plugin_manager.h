@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "string"
-#include "unordered_map"
+#include <string>
+#include <unordered_map>
 
 #include "common/status.h"
-#include "plugin.h"
+#include "plugin/plugin.h"
 
 namespace doris {
 

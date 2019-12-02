@@ -17,19 +17,42 @@
 
 namespace doris {
 
+#define PLUGIN_NOT_DYNAMIC_INSTALL 1UL
+#define PLUGIN_NOT_DYNAMIC_UNINSTALL 2UL
+#define PLUGIN_INSTALL_EARLY 4UL
+
 #define DORIS_PLUGIN_VERSION 0x0001
 
+/**
+ * define a plugin:
+ * 
+ * declare_plugin(PLUGIN_NAME) {
+ *     xx_handler,
+ *     init_method,
+ *     close_method,
+ *     PLUGIN_NOT_DYNAMIC_INSTALL | PLUGIN_NOT_DYNAMIC_UNINSTALL,
+ *     NULL,
+ *     NULL
+ * } declare_plugin_end
+ * 
+ */
 typedef struct st_plugin {
+    // support by type-specific plugin
     void* handler;
 
+    // invoke when plugin install
     int (*init)(void *);
 
+    // invoke when plugin uninstall
     int (*close)(void *);
 
+    // flag for plugin 
     uint64_t flags;
 
+    // use to set/get variables
     void* variable;
 
+    // return the plugin's status
     void* status;
 } Plugin;
 
@@ -48,5 +71,5 @@ typedef struct st_plugin {
 #define declare_plugin_end           \
   , { 0, 0, 0, 0, 0, 0 }             \
   }
-
+  
 }
