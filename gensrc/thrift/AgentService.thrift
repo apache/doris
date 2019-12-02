@@ -41,6 +41,9 @@ struct TTabletSchema {
     6: optional double bloom_filter_fpp
 }
 
+// this enum stands for different storage format in src_backends
+// V1 for Segment-V1
+// V2 for Segment-V2
 enum TStorageFormat {
     DEFAULT,
     V1,
