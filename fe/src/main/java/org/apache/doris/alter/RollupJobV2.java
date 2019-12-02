@@ -326,9 +326,6 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
                                 visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP);
-                        if (this.storageFormat != null) {
-                            rollupTask.setStorageFormat(this.storageFormat);
-                        }
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

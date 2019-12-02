@@ -94,7 +94,6 @@ struct TAlterTabletReqV2 {
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
     7: optional TAlterType alter_type
-    8: optional TStorageFormat storage_format
 }
 
 struct TClusterInfo {
