@@ -53,7 +53,12 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 // the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
 
-static const int32_t PREFERRED_SNAPSHOT_VERSION = 3;
+// this is a flag for upgrade from old format to alpha rowset
+static const int32_t ALPHA_ROWSET_VERSION = 3;
+
+static const int32_t BETA_ROWSET_VERSION = 4;
+
+static const int32_t PREFERRED_SNAPSHOT_VERSION = BETA_ROWSET_VERSION;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -167,6 +172,7 @@ enum OLAPStatus {
     OLAP_ERR_LZO_DISABLED = -231,
     OLAP_ERR_DISK_REACH_CAPACITY_LIMIT = -232,
     OLAP_ERR_TOO_MANY_TRANSACTIONS = -233,
+    OLAP_ERR_INVALID_SNAPSHOT_VERSION = -234,
 
     // CommandExecutor
     // [-300, -400)
