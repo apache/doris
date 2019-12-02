@@ -74,18 +74,4 @@ public class SetVarTest {
         var.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
-
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlModeValue() throws UserException, AnalysisException {
-        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new IntLiteral(SqlModeHelper.MODE_LAST));
-        var.analyze(analyzer);
-        Assert.fail("No exception throws");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlMode() throws UserException, AnalysisException {
-        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral("WRONG_MODE"));
-        var.analyze(analyzer);
-        Assert.fail("No exception throws");
-    }
 }
