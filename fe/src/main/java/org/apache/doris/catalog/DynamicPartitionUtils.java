@@ -193,8 +193,9 @@ public class DynamicPartitionUtils {
     }
 
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
-        if ((!olapTable.getTableProperty().getDynamicProperties().isEmpty()) &&
-                Boolean.parseBoolean(olapTable.getTableProperty().getDynamicPartitionEnable())) {
+        TableProperty tableProperty = olapTable.getTableProperty();
+        if (tableProperty != null && (!tableProperty.getDynamicProperties().isEmpty()) &&
+                Boolean.parseBoolean(tableProperty.getDynamicPartitionEnable())) {
             throw new DdlException("Cannot modify partition on a Dynamic Partition Table, set `dynamic_partition.enable` to false.");
         }
     }

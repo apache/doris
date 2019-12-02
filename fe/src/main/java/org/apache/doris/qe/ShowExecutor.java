@@ -520,7 +520,7 @@ public class ShowExecutor {
                         continue;
                     }
                     TableProperty tableProperty = ((OlapTable) tbl).getTableProperty();
-                    if (tableProperty.getDynamicProperties().isEmpty()) {
+                    if (tableProperty == null || tableProperty.getDynamicProperties().isEmpty()) {
                         continue;
                     }
                     // check tbl privs

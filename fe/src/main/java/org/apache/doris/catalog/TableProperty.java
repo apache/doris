@@ -158,7 +158,11 @@ public class TableProperty implements Writable {
             return false;
         }
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) ((OlapTable) table).getPartitionInfo();
-        String enable = ((OlapTable) table).getTableProperty().getDynamicPartitionEnable();
+        TableProperty tableProperty = ((OlapTable) table).getTableProperty();
+        if (tableProperty == null) {
+            return false;
+        }
+        String enable = tableProperty.getDynamicPartitionEnable();
         return rangePartitionInfo.getPartitionColumns().size() == 1 &&
                 !Strings.isNullOrEmpty(enable) && enable.equalsIgnoreCase(Boolean.TRUE.toString());
     }

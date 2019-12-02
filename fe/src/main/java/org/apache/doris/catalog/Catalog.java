@@ -3936,7 +3936,7 @@ public class Catalog {
 
             // 6. dynamic partition
             TableProperty tableProperty = olapTable.getTableProperty();
-            if (!(tableProperty.getDynamicProperties().isEmpty())) {
+            if (tableProperty != null && !(tableProperty.getDynamicProperties().isEmpty())) {
                 sb.append(",\n \"").append(DynamicPartitionProperties.ENABLE.getDesc()).append("\" = \"");
                 sb.append(tableProperty.getDynamicPartitionEnable()).append("\"");
                 sb.append(",\n \"").append(DynamicPartitionProperties.TIME_UNIT.getDesc()).append("\" = \"");
@@ -4997,17 +4997,24 @@ public class Catalog {
     }
 
     public void updateTableDynamicPartition(Database db, OlapTable table) {
-        DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getDynamicProperties());
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null || tableProperty.getDynamicProperties().isEmpty()) {
+            return;
+        }
+        DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), tableProperty.getDynamicProperties());
         editLog.logDynamicPartition(info);
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table,
                                             Map<String, String> properties) throws DdlException {
         Map<String, String> analyzedProperties = DynamicPartitionUtils.analyzeDynamicPartition(db, table, properties);
-        table.getTableProperty().getDynamicProperties().putAll(analyzedProperties);
-        table.getTableProperty().setLastUpdateTime(TimeUtils.getCurrentFormatTime());
-        DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getDynamicProperties());
-        editLog.logDynamicPartition(info);
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty != null) {
+            tableProperty.getDynamicProperties().putAll(analyzedProperties);
+            tableProperty.setLastUpdateTime(TimeUtils.getCurrentFormatTime());
+            DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), tableProperty.getDynamicProperties());
+            editLog.logDynamicPartition(info);
+        }
     }
 
     public void replayModifyTableDynamicPartition(DynamicPartitionInfo dynamicPartitionInfo) {

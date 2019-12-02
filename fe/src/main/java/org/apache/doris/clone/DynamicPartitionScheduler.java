@@ -118,13 +118,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
                 try {
                     Catalog.getInstance().addPartition(db, table.getName(), addPartitionClause);
-                    table.getTableProperty().setState(TableProperty.State.NORMAL.toString());
-                    table.getTableProperty().setMsg("");
+                    tableProperty.setState(TableProperty.State.NORMAL.toString());
+                    tableProperty.setMsg("");
                 } catch (DdlException e) {
-                    table.getTableProperty().setState(TableProperty.State.ERROR.toString());
-                    table.getTableProperty().setMsg(e.getMessage());
+                    tableProperty.setState(TableProperty.State.ERROR.toString());
+                    tableProperty.setMsg(e.getMessage());
                 } finally {
-                    table.getTableProperty().setLastSchedulerTime(TimeUtils.getCurrentFormatTime());
+                    tableProperty.setLastSchedulerTime(TimeUtils.getCurrentFormatTime());
                 }
                 Catalog.getInstance().updateTableDynamicPartition(db, table);
             }
