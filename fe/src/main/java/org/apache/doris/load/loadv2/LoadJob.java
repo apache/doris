@@ -448,9 +448,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     private void executeUnknown() {
-        // set finished timestamp to load start timestamp, so that this unknown job
-        // can be remove due to label expiration.
-        finishTimestamp = loadStartTimestamp;
+        // set finished timestamp to create timestamp, so that this unknown job
+        // can be remove due to label expiration so soon as possible
+        finishTimestamp = createTimestamp;
         state = JobState.UNKNOWN;
     }
 

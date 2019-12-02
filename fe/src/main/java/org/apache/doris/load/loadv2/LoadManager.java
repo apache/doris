@@ -657,7 +657,8 @@ public class LoadManager implements Writable{
                 // status. But we have to set the job as FINISHED, to void user load same data twice.
                 job.updateState(JobState.UNKNOWN);
                 job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
-                LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown", job.getId(), prevState);
+                LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown. label: {}",
+                        job.getId(), prevState, job.getLabel());
             }
         }
     }
