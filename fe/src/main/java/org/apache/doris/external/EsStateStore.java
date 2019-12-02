@@ -86,7 +86,9 @@ public class EsStateStore extends Daemon {
             try {
                 EsRestClient client = new EsRestClient(esTable.getSeeds(),
                         esTable.getUserName(), esTable.getPasswd());
-                if (esTable.majorVersion != null) {
+                // if user not specify the es version, try to get the remote cluster versoin
+                // in the future, we maybe need this version
+                if (esTable.majorVersion == null) {
                     esTable.majorVersion = client.version();
                 }
                 String indexMetaData = client.getIndexMetaData(esTable.getIndexName());
@@ -178,10 +180,20 @@ public class EsStateStore extends Daemon {
         JSONObject jsonObject = new JSONObject(responseStr);
         String clusterName = jsonObject.getString("cluster_name");
         JSONObject nodesMap = jsonObject.getJSONObject("nodes");
-
-        JSONObject indicesMetaMap = jsonObject.getJSONObject("metadata").getJSONObject("indices");
-
         // we build the doc value context for fields maybe used for scanning
+        // "properties": {
+        //      "city": {
+        //        "type": "text", // text field does not have docvalue
+        //        "fields": {
+        //          "raw": {
+        //            "type":  "keyword"
+        //          }
+        //        }
+        //      }
+        //    }
+        // then the docvalue context provided the mapping between the select field and real request field :
+        // {"city": "city.raw"}
+        JSONObject indicesMetaMap = jsonObject.getJSONObject("metadata").getJSONObject("indices");
         JSONObject indexMetaMap = indicesMetaMap.optJSONObject(esTable.getIndexName());
         if (esTable.isDocValueScanEnable() && indexMetaMap != null) {
             JSONObject mappings = indexMetaMap.optJSONObject("mappings");

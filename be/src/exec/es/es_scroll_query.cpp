@@ -74,24 +74,31 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
     // note: add `query` for this value....
     es_query_dsl.AddMember("query", query_node, allocator);
-    bool pure_docvalue = false;
+    bool pure_docvalue = true;
     // check docvalue sacan optimization
-    if (docvalue_context.size() > 0 && docvalue_context.size() >= fields.size()) {
+    if (docvalue_context.size() == 0 || docvalue_context.size() < fields.size()) {
+        pure_docvalue = false;
+    } else {
         for (auto iter = fields.begin(); iter != fields.end(); iter++) {
             if (!(docvalue_context.find(*iter) != docvalue_context.end())) {
                 pure_docvalue = false;
                 break;
             }
-            pure_docvalue = true;
         }
     }
-    rapidjson::Value source_node(rapidjson::kArrayType);    
-    if (fields.size() > 0) {
+    rapidjson::Value source_node(rapidjson::kArrayType);
+    if (pure_docvalue) {
         for (auto iter = fields.begin(); iter != fields.end(); iter++) {
-            rapidjson::Value field(pure_docvalue ? docvalue_context.at(*iter).c_str() : iter->c_str(), allocator);
+            rapidjson::Value field(docvalue_context.at(*iter).c_str(), allocator);
+            source_node.PushBack(field, allocator);
+        }
+    } else {
+        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
+            rapidjson::Value field(iter->c_str(), allocator);
             source_node.PushBack(field, allocator);
         }
     }
+
     // just filter the selected fields for reducing the network cost
     if (pure_docvalue) {
         es_query_dsl.AddMember("stored_fields", "_none_", allocator);

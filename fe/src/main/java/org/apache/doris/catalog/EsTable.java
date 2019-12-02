@@ -74,6 +74,23 @@ public class EsTable extends Table {
 
     private Map<String, String> tableContext = new HashMap<>();
 
+    // used to indicate which fields can get from ES docavalue
+    // because elasticsearch can have "fields" feature, field can have
+    // two or more types, the first type maybe have not docvalue but other
+    // can have, such as (text field not have docvalue, but keyword can have):
+    // "properties": {
+    //      "city": {
+    //        "type": "text",
+    //        "fields": {
+    //          "raw": {
+    //            "type":  "keyword"
+    //          }
+    //        }
+    //      }
+    //    }
+    // then the docvalue context provided the mapping between the select field and real request field :
+    // {"city": "city.raw"}
+    // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     private Map<String, String> docValueContext = new HashMap<>();
 
     public EsTable() {
@@ -137,7 +154,8 @@ public class EsTable extends Table {
             try {
                 majorVersion = EsMajorVersion.parse(properties.get(VERSION).trim());
             } catch (Exception e) {
-                throw new DdlException(e.getMessage());
+                throw new DdlException("fail to parse ES major version, version= "
+                        + properties.get(VERSION).trim() + ", shoud be like '6.5.3' ");
             }
         }
 
@@ -146,7 +164,9 @@ public class EsTable extends Table {
             try {
                 enableDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
             } catch (Exception e) {
-                throw new DdlException(e.getMessage());
+                throw new DdlException("fail to parse enable_docvalue_scan, enable_docvalue_scan= "
+                        + properties.get(VERSION).trim() + " ,`enable_docvalue_scan`"
+                        + " shoud be like 'true' or 'false'， value should be double quotation marks");
             }
         } else {
             enableDocValueScan = false;
@@ -195,7 +215,7 @@ public class EsTable extends Table {
             adler32.update(name.getBytes(charsetName));
             // type
             adler32.update(type.name().getBytes(charsetName));
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
                 for (Map.Entry<String, String> entry : tableContext.entrySet()) {
                     adler32.update(entry.getValue().getBytes(charsetName));
                 }
