@@ -41,6 +41,12 @@ struct TTabletSchema {
     6: optional double bloom_filter_fpp
 }
 
+enum TStorageFormat {
+    DEFAULT,
+    V1,
+    V2
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -58,6 +64,7 @@ struct TCreateTabletReq {
     11: optional i64 allocation_term
     // indicate whether this tablet is a compute storage split mode, we call it "eco mode"
     12: optional bool is_eco_mode
+    13: optional TStorageFormat storage_format
 }
 
 struct TDropTabletReq {
@@ -69,12 +76,6 @@ struct TAlterTabletReq {
     1: required Types.TTabletId base_tablet_id
     2: required Types.TSchemaHash base_schema_hash
     3: required TCreateTabletReq new_tablet_req
-}
-
-enum TStorageFormat {
-    DEFAULT,
-    V1,
-    V2
 }
 
 enum TAlterType {
