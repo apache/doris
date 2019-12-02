@@ -35,6 +35,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
@@ -596,6 +597,8 @@ public class LoadManager implements Writable{
     // So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
     // state to COMMITTED.
     // this method should be removed at next upgrading.
+    // only mini load job will be in LOADING state when persist, because mini load job is executed before writing
+    // edit log.
     public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
             if (job.getState() == JobState.LOADING) {
@@ -606,7 +609,28 @@ public class LoadManager implements Writable{
                     job.updateState(JobState.COMMITTED);
                     LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
                             job.getId(), txn.getTransactionId());
+                    continue;
                 }
+            }
+
+            /*
+             * There is bug in Doris version 0.10.15.
+             * When a load job in PENDING or LOADING state was replayed from image (not through the edit log), 
+             * we forgot to add the corresponding callback id in the CallbackFactory. As a result, 
+             * the subsequent finish txn edit logs cannot properly end the job during the replay process.
+             * This results in that when the FE restarts, these load jobs that should have been completed 
+             * are re-entered into the pending state, resulting in repeated submission load tasks.
+             * 
+             * Those wrong images are unrecoverable, so that we have to cancel all load jobs in 
+             * PENDING or LOADING state when restarting FE, to avoid submit jobs repeatedly.
+             * 
+             * This code can be remove when upgrading from 0.11.x to future version.
+             */
+            if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
+                JobState prevState = job.getState();
+                job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "cancelled by system upgrading"),
+                        true /* abort transaction */, false /* no need to write log */);
+                LOG.info("load job {} is cancelled from {}, because of previous bugs", job.getId(), prevState);
             }
         }
     }

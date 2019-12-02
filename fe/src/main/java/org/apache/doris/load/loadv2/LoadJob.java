@@ -557,7 +557,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                          .add("transaction_id", transactionId)
-                         .add("error_msg", "Failed to execute load with error " + failMsg.getMsg())
+                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg())
                          .build());
 
         // clean the loadingStatus
