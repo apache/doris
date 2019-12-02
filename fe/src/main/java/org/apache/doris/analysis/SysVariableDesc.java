@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import com.google.common.base.Strings;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
@@ -69,7 +71,11 @@ public class SysVariableDesc extends Expr {
         VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
         if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
             setType(Type.VARCHAR);
-            setStringValue(SqlModeHelper.decode(intValue));
+            try {
+                setStringValue(SqlModeHelper.decode(intValue));
+            } catch (DdlException e) {
+                ErrorReport.reportAnalysisException(e.getMessage());
+            }
         }
     }
 
