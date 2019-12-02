@@ -942,8 +942,7 @@ public class GlobalTransactionMgr implements Writable {
     // for add/update/delete TransactionState
     private void unprotectUpsertTransactionState(TransactionState transactionState) {
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
-                || transactionState.getSourceType() == LoadJobSourceType.FRONTEND
-                || transactionState.getSourceType() == LoadJobSourceType.BATCH_LOAD_JOB) {
+                || transactionState.getSourceType() == LoadJobSourceType.FRONTEND) {
             // if this is a prepare txn, and load source type is not FRONTEND
             // no need to persist it. if prepare txn lost, the following commit will just be failed.
             // user only need to retry this txn.
