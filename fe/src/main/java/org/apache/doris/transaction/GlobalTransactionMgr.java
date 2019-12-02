@@ -942,7 +942,8 @@ public class GlobalTransactionMgr implements Writable {
     // for add/update/delete TransactionState
     private void unprotectUpsertTransactionState(TransactionState transactionState) {
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
-                || transactionState.getSourceType() == LoadJobSourceType.FRONTEND) {
+                || transactionState.getSourceType() == LoadJobSourceType.FRONTEND
+                || transactionState.getSourceType() == LoadJobSourceType.BATCH_LOAD_JOB) {
             // if this is a prepare txn, and load source type is not FRONTEND
             // no need to persist it. if prepare txn lost, the following commit will just be failed.
             // user only need to retry this txn.
@@ -1346,11 +1347,25 @@ public class GlobalTransactionMgr implements Writable {
         idGenerator.readFields(in);
     }
 
-    public TransactionState getCommittedTransactionStateByCallbackId(long callbackId) {
+    public TransactionState getTransactionStateByCallbackIdAndStatus(long callbackId, Set<TransactionStatus> status) {
         readLock();
         try {
             for (TransactionState txn : idToTransactionState.values()) {
-                if (txn.getCallbackId() == callbackId && txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
+                    return txn;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public TransactionState getTransactionStateByCallbackId(long callbackId) {
+        readLock();
+        try {
+            for (TransactionState txn : idToTransactionState.values()) {
+                if (txn.getCallbackId() == callbackId) {
                     return txn;
                 }
             }

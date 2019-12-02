@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -604,7 +605,8 @@ public class LoadManager implements Writable{
             if (job.getState() == JobState.LOADING) {
                 // unfortunately, transaction id in load job is also not persisted, so we have to traverse
                 // all transactions to find it.
-                TransactionState txn = txnMgr.getCommittedTransactionStateByCallbackId(job.getCallbackId());
+                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getCallbackId(),
+                        Sets.newHashSet(TransactionStatus.COMMITTED));
                 if (txn != null) {
                     job.updateState(JobState.COMMITTED);
                     LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
@@ -614,23 +616,48 @@ public class LoadManager implements Writable{
             }
 
             /*
-             * There is bug in Doris version 0.10.15.
-             * When a load job in PENDING or LOADING state was replayed from image (not through the edit log), 
-             * we forgot to add the corresponding callback id in the CallbackFactory. As a result, 
-             * the subsequent finish txn edit logs cannot properly end the job during the replay process.
-             * This results in that when the FE restarts, these load jobs that should have been completed 
-             * are re-entered into the pending state, resulting in repeated submission load tasks.
+             * There is bug in Doris version 0.10.15. When a load job in PENDING or LOADING
+             * state was replayed from image (not through the edit log), we forgot to add
+             * the corresponding callback id in the CallbackFactory. As a result, the
+             * subsequent finish txn edit logs cannot properly finish the job during the
+             * replay process. This results in that when the FE restarts, these load jobs
+             * that should have been completed are re-entered into the pending state,
+             * resulting in repeated submission load tasks.
              * 
-             * Those wrong images are unrecoverable, so that we have to cancel all load jobs in 
-             * PENDING or LOADING state when restarting FE, to avoid submit jobs repeatedly.
+             * Those wrong images are unrecoverable, so that we have to cancel all load jobs
+             * in PENDING or LOADING state when restarting FE, to avoid submit jobs
+             * repeatedly.
              * 
              * This code can be remove when upgrading from 0.11.x to future version.
              */
             if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
                 JobState prevState = job.getState();
-                job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "cancelled by system upgrading"),
-                        true /* abort transaction */, false /* no need to write log */);
-                LOG.info("load job {} is cancelled from {}, because of previous bugs", job.getId(), prevState);
+                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getCallbackId());
+                if (txn != null) {
+                    // the txn has already been committed or visible, change job's state to committed or finished
+                    if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                        job.updateState(JobState.COMMITTED);
+                        LOG.info("transfer load job {} state from {} to COMMITTED, because txn {} is COMMITTED",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else if (txn.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                        job.updateState(JobState.FINISHED);
+                        LOG.info("transfer load job {} state from {} to FINISHED, because txn {} is VISIBLE",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else if (txn.getTransactionStatus() == TransactionStatus.ABORTED) {
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL), false, false);
+                        LOG.info("transfer load job {} state from {} to CANCELLED, because txn {} is ABORTED",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else {
+                        // pending txn, do nothing
+                    }
+                    continue;
+                }
+                
+                // unfortunately, the txn may already been removed due to label expired, so we don't know the txn's
+                // status. But we have to set the job as FINISHED, to void user load same data twice.
+                job.updateState(JobState.UNKNOWN);
+                job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
+                LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown", job.getId(), prevState);
             }
         }
     }
