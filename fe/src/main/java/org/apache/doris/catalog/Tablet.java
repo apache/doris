@@ -418,8 +418,7 @@ public class Tablet extends MetaObject implements Writable {
             }
             alive++;
 
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 continue;
             }
@@ -530,8 +529,7 @@ public class Tablet extends MetaObject implements Writable {
 
         // 2. check version completeness
         for (Replica replica : replicas) {
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
             }

@@ -436,8 +436,7 @@ public class ReportHandler extends Daemon {
                         }
 
                         if (metaVersion < backendVersion
-                                || (metaVersion == backendVersion && metaVersionHash != backendVersionHash)
-                                || (metaVersion == backendVersion && metaVersionHash == backendVersionHash && replica.isBad())) {
+                                || (metaVersion == backendVersion && replica.isBad())) {
                             
                             // This is just a optimization for the old compatibility
                             // The init version in FE is (1-0), in BE is (2-0)
@@ -949,7 +948,7 @@ public class ReportHandler extends Daemon {
             long visibleVersionHash = partition.getVisibleVersionHash();
 
             // check replica version
-            if (version < visibleVersion || (version == visibleVersion && versionHash != visibleVersionHash)) {
+            if (version < visibleVersion) {
                 throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
                         + ", visible[" + visibleVersion + "-" + visibleVersionHash + "]");
             }
@@ -978,9 +977,7 @@ public class ReportHandler extends Daemon {
                     // this is a fatal error
                     throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
                             + ", partition's max version [" + (partition.getNextVersion() - 1) + "]");
-                } else if (version < partition.getCommittedVersion() 
-                        || version == partition.getCommittedVersion() 
-                            && versionHash != partition.getCommittedVersionHash()) {
+                } else if (version < partition.getCommittedVersion()) {
                     lastFailedVersion = partition.getCommittedVersion();
                     lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
