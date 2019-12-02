@@ -260,7 +260,6 @@ int ScrollParser::get_total() {
     return _total;
 }
 
-
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
             Tuple* tuple, MemPool* tuple_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context) {
     *line_eof = true;
@@ -284,6 +283,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         }
 
         // if pure_doc_value enabled, docvalue_context must contains the key
+        // todo: need move all `pure_docvalue` for every tuple outside fill_tuple
+        //  should check pure_docvalue for one table scan not every tuple
         const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str() : slot_desc->col_name().c_str();
 
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
