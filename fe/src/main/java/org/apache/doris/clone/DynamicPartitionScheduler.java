@@ -102,7 +102,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(partitionValue));
                 HashMap<String, String> partitionProperties = new HashMap<>(1);
                 partitionProperties.put("replication_num", String.valueOf(TableProperty.estimateReplicateNum(table)));
-                SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(false, partitionName,
+                SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(true, partitionName,
                         partitionKeyDesc, partitionProperties);
 
                 // construct distribution desc
