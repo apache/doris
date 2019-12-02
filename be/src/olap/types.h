@@ -466,11 +466,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
             //only need part one
             SrcType part1 = (src_value / 1000000L);
-            CppType year = static_cast<CppType>((part1 / 10000L) % 10000) - 1900;
-            CppType mon = static_cast<CppType>((part1 / 100) % 100) - 1;
+            CppType year = static_cast<CppType>((part1 / 10000L) % 10000);
+            CppType mon = static_cast<CppType>((part1 / 100) % 100);
             CppType mday = static_cast<CppType>(part1 % 100);
-            CppType value = (year + 1900) * 16 * 32 + (mon + 1) * 32 + mday;
-            *reinterpret_cast<CppType*>(dest) = value;
+            *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
             return OLAPStatus::OLAP_SUCCESS;    
         }                          
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;    
