@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,7 @@ public class SqlModeHelper {
         long value = 0L;
         for (String key : names) {
             if (StringUtils.isNumeric(key)) {
-                key = decode(Long.valueOf(key));
+                value |= expand(Long.valueOf(key));
             }
             // the SQL MODE must be supported, set sql mode repeatedly is not allowed
             if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
@@ -167,6 +168,24 @@ public class SqlModeHelper {
         }
 
         return value;
+    }
+
+    // expand the combine mode if exists, ensure not to set multi combine mode
+    public static long expand(long sqlMode) throws DdlException {
+        long value = sqlMode;
+        if ((value & ~MODE_ALLOWED_MASK) != 0) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
+        }
+        value &= MODE_COMBINE_MASK;
+        if ((value & (value - 1)) > 0) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
+        }
+        for (String key : getCombineMode().keySet()) {
+            if (value == getSupportedSqlMode().get(key)) {
+                sqlMode &= getCombineMode().get(key);
+            }
+        }
+        return sqlMode;
     }
 
     // check if this SQL MODE is supported
