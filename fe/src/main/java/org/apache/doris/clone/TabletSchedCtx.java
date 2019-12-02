@@ -815,9 +815,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // (which is 'visibleVersion[Hash]' saved)
             // We should discard the clone replica with stale version.
             TTabletInfo reportedTablet = request.getFinish_tablet_infos().get(0);
-            if (reportedTablet.getVersion() < visibleVersion
-                    || (reportedTablet.getVersion() == visibleVersion
-                    && reportedTablet.getVersion_hash() != visibleVersionHash)) {
+            if (reportedTablet.getVersion() < visibleVersion) {
                 String msg = String.format("the clone replica's version is stale. %d-%d, task visible version: %d-%d",
                         reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                         visibleVersion, visibleVersionHash);
@@ -829,49 +827,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (replica == null) {
                 throw new SchedException(Status.UNRECOVERABLE,
                         "replica does not exist. backend id: " + destBackendId);
-            }
-            
-            /*
-             * we set visible version as clone task version, and committed version as clone replica's
-             * last failed version.
-             * If at that moment, the visible version == committed version, then the report tablet's version(hash)
-             * should be equal to the clone replica's last failed version(hash).
-             * We check it here.
-             */
-            if (replica.getLastFailedVersion() == reportedTablet.getVersion()
-                    && replica.getLastFailedVersionHash() != reportedTablet.getVersion_hash()) {
-
-                if (replica.getLastFailedVersion() == 2 && replica.getLastFailedVersionHash() == 0
-                        && visibleVersion == 1 && visibleVersionHash == 0) {
-                    // this is a very tricky case.
-                    // the partitions's visible version is (1-0), and once there is a load job success in BE
-                    // but failed in FE. so in BE, the replica's version is (2-xx), and the clone task will
-                    // report (2-xx), which is not equal to what we set (2-0)
-                    // the version (2-xx) is delta version which need to be reverted. but because no more load
-                    // job being submitted, this delta version become a residual version.
-                    // we just let this pass
-                    LOG.warn("replica's last failed version equals to report version: "
-                            + replica.getLastFailedVersion() + " but hash is different: "
-                            + replica.getLastFailedVersionHash() + " vs. "
-                            + reportedTablet.getVersion_hash() + ", but we let it pass."
-                            + " tablet: {}, backend: {}", tabletId, replica.getBackendId());
-                } else if (replica.getVersion() == replica.getLastSuccessVersion()
-                        && replica.getVersionHash() == replica.getLastSuccessVersionHash()
-                        && replica.getVersion() == replica.getLastFailedVersion()) {
-                    // see replica.updateVersionInfo()'s case 5
-                    LOG.warn("replica's version(hash) and last success version(hash) are equal to "
-                            + "last failed version: {}, but last failed version hash is invalid: {}."
-                            + " we let it pass. tablet: {}, backend: {}",
-                            replica.getVersion(), replica.getLastFailedVersionHash(), tabletId, replica.getBackendId());
-                    
-                } else {
-                    // do not throw exception, cause we want this clone task retry again.
-                    throw new SchedException(Status.RUNNING_FAILED,
-                            "replica's last failed version equals to report version: "
-                                    + replica.getLastFailedVersion() + " but hash is different: "
-                                    + replica.getLastFailedVersionHash() + " vs. "
-                                    + reportedTablet.getVersion_hash());
-                }
             }
             
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),

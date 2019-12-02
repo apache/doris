@@ -356,8 +356,7 @@ public class TabletInvertedIndex {
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
         
-        if (backendTabletInfo.getVersion() > versionInFe
-                || (versionInFe == backendTabletInfo.getVersion() && versionHashInFe != backendTabletInfo.getVersion_hash())) {
+        if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
         } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersion_hash()

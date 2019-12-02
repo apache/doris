@@ -334,8 +334,7 @@ public class Replica implements Writable {
                     this.version, lastFailedVersion, lastFailedVersionHash, new Exception());
         }
         
-        if (lastFailedVersion != this.lastFailedVersion
-                || this.lastFailedVersionHash != lastFailedVersionHash) {
+        if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
                 this.lastFailedVersion = lastFailedVersion;
@@ -358,9 +357,7 @@ public class Replica implements Writable {
         }
         
         // Case 4:
-        if (this.version > this.lastFailedVersion 
-                || this.version == this.lastFailedVersion && this.versionHash == this.lastFailedVersionHash
-                || this.version == this.lastFailedVersion && this.lastFailedVersionHash == 0 && this.versionHash != 0) {
+        if (this.version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
             this.lastFailedVersionHash = 0;
             this.lastFailedTimestamp = -1;
@@ -368,14 +365,6 @@ public class Replica implements Writable {
                 this.version = this.lastSuccessVersion;
                 this.versionHash = this.lastSuccessVersionHash;
             }
-        }
-
-        // case 5:
-        if (this.version == this.lastSuccessVersion && this.versionHash == this.lastSuccessVersionHash
-                && this.version == this.lastFailedVersion && this.versionHash != this.lastFailedVersionHash) {
-            this.lastFailedVersion = -1;
-            this.lastFailedVersionHash = 0;
-            this.lastFailedTimestamp = -1;
         }
 
         LOG.debug("after update {}", this.toString());
@@ -406,8 +395,7 @@ public class Replica implements Writable {
             return true;
         }
 
-        if (this.version < expectedVersion
-                || (this.version == expectedVersion && this.versionHash != expectedVersionHash)) {
+        if (this.version < expectedVersion) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
                       expectedVersion, expectedVersionHash, this);
             return false;
