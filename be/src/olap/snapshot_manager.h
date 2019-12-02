@@ -97,6 +97,10 @@ private:
     OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
             TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
 
+    OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
+            const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path,
+            bool is_incremental);
+
 private:
     static SnapshotManager* _s_instance;
     static std::mutex _mlock;
