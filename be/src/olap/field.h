@@ -187,6 +187,11 @@ public:
         _type_info->shallow_copy(dst, src);
     }
 
+    //convert and copy field from src to desc
+    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type, MemPool* mem_pool) const {
+        return _type_info->convert_from(dest, src, src_type, mem_pool);
+    }
+
     // Copy srouce content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;

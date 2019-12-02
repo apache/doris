@@ -59,6 +59,11 @@ public:
         _direct_copy(dest, src);
     }
 
+    //convert and deep copy value from other type's source
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const{
+        return _convert_from(dest, src, src_type, mem_pool);
+    }
+
     OLAPStatus from_string(void* buf, const std::string& scan_key) const {
         return _from_string(buf, scan_key);
     }
@@ -79,6 +84,7 @@ private:
     void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
+    OLAPStatus (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool);
 
     OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -192,6 +198,10 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
 
     static inline void set_to_max(void* buf) {
@@ -374,6 +384,28 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
         snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
         return std::string(buf);
     }
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        //only support float now
+        if (src_type->type() == OLAP_FIELD_TYPE_FLOAT) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
+            //http://www.softelectro.ru/ieee754_en.html
+            //According to the definition of IEEE754, the effect of converting a float binary to a double binary 
+            //is the same as that of static_cast . Data precision cannot be guaranteed, but the progress of 
+            //decimal system can be guaranteed by converting a float to a char buffer and then to a double.
+            //float v2 = static_cast<double>(v1),
+            //float 0.3000000 is: 0 | 01111101 | 00110011001100110011010
+            //double 0.300000011920929 is: 0 | 01111111101 | 0000000000000000000001000000000000000000000000000000
+            //==float to char buffer to strtod==
+            //float 0.3000000 is: 0 | 01111101 | 00110011001100110011010
+            //double 0.300000000000000 is: 0 | 01111111101 | 0011001100110011001100110011001100110011001100110011
+            char buf[64] = {0};
+            snprintf(buf, 64, "%f", *reinterpret_cast<const SrcType*>(src));
+            char* tg;
+            *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
+            return OLAPStatus::OLAP_SUCCESS;    
+        }
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+    }
 };
 
 template<>
@@ -426,6 +458,21 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         char buf[20] = {'\0'};
         strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
         return std::string(buf);
+    }
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        //only support datetime now
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
+            SrcType src_value = *reinterpret_cast<const SrcType*>(src);
+            //only need part one
+            SrcType part1 = (src_value / 1000000L);
+            CppType year = static_cast<CppType>((part1 / 10000L) % 10000);
+            CppType mon = static_cast<CppType>((part1 / 100) % 100);
+            CppType mday = static_cast<CppType>(part1 % 100);
+            *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
+            return OLAPStatus::OLAP_SUCCESS;    
+        }                          
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;    
     }
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;

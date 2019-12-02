@@ -28,6 +28,7 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _shallow_copy(TypeTraitsClass::shallow_copy),
         _deep_copy(TypeTraitsClass::deep_copy),
         _direct_copy(TypeTraitsClass::direct_copy),
+        _convert_from(TypeTraitsClass::convert_from),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),
