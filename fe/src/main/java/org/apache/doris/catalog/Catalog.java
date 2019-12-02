@@ -3420,6 +3420,9 @@ public class Catalog {
             }
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
         } else {
+            if (DynamicPartitionUtils.checkDynamicPartitionPropertiesExist(stmt.getProperties())) {
+                throw new DdlException("Only support dynamic partition properties on range partition table");
+            }
             long partitionId = getNextId();
             // use table name as single partition name
             partitionNameToId.put(tableName, partitionId);
