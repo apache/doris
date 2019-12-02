@@ -22,8 +22,6 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
-#define getop(op) #op
-
 namespace doris {
 
 #define COMPARISON_PRED_CONSTRUCTOR(CLASS) \
@@ -142,6 +140,53 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
+#define BITMAP_COMPARE_EqualPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (!s.is_not_found()) { \
+                if (!s.ok()) { return s; } \
+                if (exact_match) { \
+                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring)); \
+                } \
+            } \
+
+#define BITMAP_COMPARE_NotEqualPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (s.is_not_found()) { return Status::OK(); } \
+            if (!s.ok()) { return s; } \
+            if (!exact_match) { return Status::OK(); } \
+            RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring)); \
+            *bitmap -= roaring; \
+            return Status::OK(); \
+
+#define BITMAP_COMPARE_LessPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (s.is_not_found()) { return Status::OK(); } \
+            if (!s.ok()) { return s; } \
+            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal, &roaring)); \
+
+#define BITMAP_COMPARE_LessEqualPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (s.is_not_found()) { return Status::OK(); } \
+            if (!s.ok()) { return s; } \
+            if (exact_match) { \
+                seeked_ordinal++; \
+            } \
+            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal, &roaring)); \
+
+#define BITMAP_COMPARE_GreaterPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (!s.is_not_found()) { \
+                if (!s.ok()) { return s; } \
+                if (exact_match) { \
+                    seeked_ordinal++; \
+                } \
+                RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal, ordinal_limit, &roaring)); \
+            } \
+
+#define BITMAP_COMPARE_GreaterEqualPredicate(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+            if (!s.is_not_found()) { \
+                if (!s.ok()) { return s; } \
+                RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal, ordinal_limit, &roaring)); \
+            } \
+
+#define BITMAP_COMPARE(CLASS, s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+        BITMAP_COMPARE_##CLASS(s, exact_match, seeked_ordinal, iterator, bitmap, roaring) \
+
 #define COMPARISON_PRED_BITMAP_EVALUATE(CLASS, OP) \
     template<class type> \
     Status CLASS<type>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const { \
@@ -149,7 +194,6 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         if (iterator == nullptr) { \
             return Status::OK(); \
         } \
-        std::string op = getop(OP); \
         rowid_t ordinal_limit = iterator->bitmap_nums(); \
         if (iterator->has_null_bitmap()) { \
             ordinal_limit--; \
@@ -161,45 +205,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         bool exact_match; \
         Status s = iterator->seek_dictionary(&_value, &exact_match); \
         rowid_t seeked_ordinal = iterator->current_ordinal(); \
-        if (op.compare("==") == 0) { \
-            if (!s.is_not_found()) { \
-                if (!s.ok()) { return s; } \
-                if (exact_match) { \
-                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring)); \
-                } \
-            } \
-        } else if (op.compare("!=") == 0) { \
-            if (s.is_not_found()) { return Status::OK(); } \
-            if (!s.ok()) { return s; } \
-            if (!exact_match) { return Status::OK(); } \
-            RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring)); \
-            *bitmap -= roaring; \
-            return Status::OK(); \
-        } else if (op.compare("<") == 0) { \
-            if (s.is_not_found()) { return Status::OK(); } \
-            if (!s.ok()) { return s; } \
-            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal, &roaring)); \
-        } else if (op.compare("<=") == 0) { \
-            if (s.is_not_found()) { return Status::OK(); } \
-            if (!s.ok()) { return s; } \
-            if (exact_match) { \
-                seeked_ordinal++; \
-            } \
-            RETURN_IF_ERROR(iterator->read_union_bitmap(0, seeked_ordinal, &roaring)); \
-        } else if (op.compare(">") == 0) { \
-            if (!s.is_not_found()) { \
-                if (!s.ok()) { return s; } \
-                if (exact_match) { \
-                    seeked_ordinal++; \
-                } \
-                RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal, ordinal_limit, &roaring)); \
-            } \
-        } else if (op.compare(">=") == 0) { \
-            if (!s.is_not_found()) { \
-                if (!s.ok()) { return s; } \
-                RETURN_IF_ERROR(iterator->read_union_bitmap(seeked_ordinal, ordinal_limit, &roaring)); \
-            } \
-        } \
+        BITMAP_COMPARE(CLASS, s, exact_match, seeked_ordinal, iterator, bitmap, roaring); \
         *bitmap &= roaring; \
         return Status::OK(); \
     } \
@@ -210,6 +216,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(LessPredicate, <)
 COMPARISON_PRED_BITMAP_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
+
 
 #define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
     template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value); \

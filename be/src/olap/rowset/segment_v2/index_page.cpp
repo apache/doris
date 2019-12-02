@@ -28,23 +28,20 @@ namespace segment_v2 {
 
 void IndexPageBuilder::add(const Slice& key, const PagePointer& ptr) {
     DCHECK(!_finished) << "must reset() after finish() to add new entry";
-    _entry_offsets.push_back(_buffer.size());
     put_length_prefixed_slice(&_buffer, key);
     ptr.encode_to(&_buffer);
+    _count++;
 }
 
 bool IndexPageBuilder::is_full() const {
     // estimate size of IndexPageFooterPB to be 16
-    return _buffer.size() + _entry_offsets.size() * sizeof(uint32_t) + 16 > _index_page_size;
+    return _buffer.size()  + 16 > _index_page_size;
 }
 
 Slice IndexPageBuilder::finish() {
     DCHECK(!_finished) << "already called finish()";
-    for (uint32_t offset : _entry_offsets) {
-        put_fixed32_le(&_buffer, offset);
-    }
     IndexPageFooterPB footer;
-    footer.set_num_entries(_entry_offsets.size());
+    footer.set_num_entries(_count);
     footer.set_type(_is_leaf ? IndexPageFooterPB::LEAF : IndexPageFooterPB::INTERNAL);
 
     std::string footer_buf;
@@ -55,7 +52,7 @@ Slice IndexPageBuilder::finish() {
 }
 
 Status IndexPageBuilder::get_first_key(Slice* key) const {
-    if (_entry_offsets.empty()) {
+    if (_count == 0) {
         return Status::NotFound("index page is empty");
     }
     Slice input(_buffer);
@@ -75,12 +72,6 @@ Status IndexPageReader::parse(const Slice& data) {
     std::string footer_buf(data.data + buffer_len - 4 - footer_size, footer_size);
     _footer.ParseFromString(footer_buf);
     size_t num_entries = _footer.num_entries();
-    size_t entry_offset_start = buffer_len - 4 - footer_size - num_entries * 4;
-    for(size_t i = 0; i < num_entries; i++) {
-        size_t entry_offset = decode_fixed32_le(buffer + entry_offset_start);
-        _entry_offsets.push_back(entry_offset);
-        entry_offset_start += 4;
-    }
 
     Slice input(data);
     for (int i = 0; i < num_entries; ++i) {

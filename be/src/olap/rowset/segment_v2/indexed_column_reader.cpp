@@ -160,7 +160,7 @@ Status IndexedColumnIterator::seek_to_ordinal(rowid_t idx) {
         return Status::OK();
     }
 
-    if (!_data_page || !_data_page->contains(idx)) {
+    if (_data_page == nullptr || !_data_page->contains(idx)) {
         // need to read the data page containing row at idx
         _data_page.reset(new ParsedPage());
         if (_reader->_has_index_page) {

@@ -111,7 +111,7 @@ public:
     // Get the ordinal index that the iterator is currently pointed to.
     rowid_t get_current_ordinal() const;
 
-    // After one seek, we can call this function many times to read data
+    // After one seek, we can only call this function once to read data
     // into ColumnBlock. when read string type data, memory will allocated
     // from Arena
     Status next_batch(size_t* n, ColumnBlockView* column_view);

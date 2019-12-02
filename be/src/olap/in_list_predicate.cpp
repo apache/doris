@@ -20,8 +20,6 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
-#define getop(op) #op
-
 namespace doris {
 
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS) \
@@ -123,7 +121,6 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
             RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap)); \
             *bitmap -= null_bitmap; \
         } \
-        std::string op = getop(OP); \
         Roaring roaring; \
         for (auto value:_values) { \
             bool exact_match; \
@@ -138,16 +135,12 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                 } \
             } \
         } \
-        if (op.compare("==") == 0) { \
-            *bitmap &= roaring; \
-        } else { \
-            *bitmap -= roaring; \
-        } \
+        *bitmap OP roaring; \
         return Status::OK(); \
     } \
 
-IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, ==)
-IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, !=)
+IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
+IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS) \
     template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values); \

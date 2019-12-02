@@ -253,8 +253,7 @@ Status ColumnReader::_load_zone_map_index() {
 Status ColumnReader::_load_bitmap_index() {
     if (_meta.has_bitmap_index()) {
         const BitmapIndexColumnPB bitmap_index_meta = _meta.bitmap_index();
-        _bitmap_index_reader.reset(new BitmapIndexReader(_file, _type_info,
-                                                         bitmap_index_meta));
+        _bitmap_index_reader.reset(new BitmapIndexReader(_file,bitmap_index_meta));
         RETURN_IF_ERROR(_bitmap_index_reader->load());
     } else {
         _bitmap_index_reader.reset(nullptr);

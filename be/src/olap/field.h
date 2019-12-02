@@ -223,10 +223,13 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
 
+    // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
+    // only applicable to string type
     void encode_ascending(const void* value, std::string* buf) const {
         _key_coder->encode_ascending(value, _index_size, buf);
     }
 
+    // encode the provided `value` into `buf`.
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }

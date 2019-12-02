@@ -74,8 +74,7 @@ void get_bitmap_reader_iter(std::string& file_name, BitmapIndexColumnPB& bitmap_
     auto st = Env::Default()->new_random_access_file(file_name, rfile);
     ASSERT_TRUE(st.ok());
 
-    const TypeInfo* type_info = get_type_info(type);
-    *reader = new BitmapIndexReader(rfile->get(), type_info, bitmap_index_meta);
+    *reader = new BitmapIndexReader(rfile->get(), bitmap_index_meta);
     st = (*reader)->load();
     ASSERT_TRUE(st.ok());
 
@@ -102,11 +101,6 @@ TEST_F(IndexColumnReaderWriterTest, test_invert) {
                                                     &rfile, &reader, &iter);
 
         int value = 2;
-//        std::string key;
-//        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(
-//            &value, &key);
-//
-//        std::cout << "test 2 input key  " << key << "\n";
         bool exact_match;
         Status st = iter->seek_dictionary(&value, &exact_match);
         ASSERT_TRUE(st.ok());
@@ -118,9 +112,6 @@ TEST_F(IndexColumnReaderWriterTest, test_invert) {
         ASSERT_TRUE(Roaring::bitmapOf(1, 2) == bitmap);
 
         int value2 = 1024 * 9;
-//        std::string key2;
-//        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(
-//            &value2, &key2);
         st = iter->seek_dictionary(&value2, &exact_match);
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(exact_match);
@@ -130,9 +121,6 @@ TEST_F(IndexColumnReaderWriterTest, test_invert) {
         ASSERT_EQ(1025, bitmap.cardinality());
 
         int value3 = 1024;
-//        std::string key3;
-//        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(
-//            &value3, &key3);
         iter->seek_dictionary(&value3, &exact_match);
         ASSERT_EQ(1024, iter->current_ordinal());
 

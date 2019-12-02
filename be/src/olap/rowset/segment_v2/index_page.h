@@ -57,7 +57,7 @@ public:
 
     bool is_full() const;
 
-    size_t count() const { return _entry_offsets.size(); }
+    size_t count() const { return _count; }
 
     Slice finish();
 
@@ -68,7 +68,7 @@ public:
     void reset() {
         _finished = false;
         _buffer.clear();
-        _entry_offsets.clear();
+        _count = 0;
     }
 
 private:
@@ -78,7 +78,7 @@ private:
     // is the builder currently between finish() and reset()?
     bool _finished = false;
     faststring _buffer;
-    std::vector<uint32_t> _entry_offsets;
+    uint32_t _count = 0;
 };
 
 class IndexPageIterator;
@@ -117,7 +117,6 @@ private:
     IndexPageFooterPB _footer;
     std::vector<Slice> _keys;
     std::vector<PagePointer> _values;
-    std::vector<uint32_t> _entry_offsets;
 };
 
 class IndexPageIterator {

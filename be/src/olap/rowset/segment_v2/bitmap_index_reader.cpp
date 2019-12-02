@@ -18,15 +18,13 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 
 #include "olap/types.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
 
 Status BitmapIndexReader::load() {
-    const IndexedColumnMetaPB dict_meta = _bitmap_index_meta.dict_column();
-    const IndexedColumnMetaPB bitmap_meta = _bitmap_index_meta.bitmap_column();
+    const IndexedColumnMetaPB& dict_meta = _bitmap_index_meta.dict_column();
+    const IndexedColumnMetaPB& bitmap_meta = _bitmap_index_meta.bitmap_column();
     _has_null = _bitmap_index_meta.has_null();
 
     _dict_column_reader.reset(new IndexedColumnReader(_file, dict_meta));
@@ -52,10 +50,8 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
 
     Slice value;
     uint8_t nullmap;
-    MemTracker mem_tracker;
-    MemPool mem_pool(&mem_tracker);
     size_t num_to_read = 1;
-    ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*) &value, &nullmap, num_to_read, &mem_pool);
+    ColumnBlock block(_reader->type_info(), (uint8_t*) &value, &nullmap, num_to_read, _pool.get());
     ColumnBlockView column_block_view(&block);
 
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
