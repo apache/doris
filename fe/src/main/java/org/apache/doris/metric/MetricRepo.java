@@ -293,10 +293,8 @@ public final class MetricRepo {
             visitor.visitHistogram(sb, entry.getKey(), entry.getValue());
         }
         
-        // master info
-        if (Catalog.getInstance().isMaster()) {
-            visitor.getNodeInfo(sb);
-        }
+        // node info
+        visitor.getNodeInfo(sb);
 
         return sb.toString();
     }
