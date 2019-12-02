@@ -86,7 +86,7 @@ public:
         column_schema(index)->shallow_copy_content(dst_cell, buf);
     }
     // convert and deep copy field content
-    OLAPStatus convert_from(size_t index, const char* src, const TypeInfo* src_type, MemPool* mem_pool){
+    OLAPStatus convert_from(size_t index, const char* src, const TypeInfo* src_type, MemPool* mem_pool) {
         char* dest = cell_ptr(index);
         return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
     }

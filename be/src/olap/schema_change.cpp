@@ -287,7 +287,7 @@ bool RowBlockChanger::change_row_block(
                     } else {
 
                         write_helper.set_not_null(i);
-                        if ( newtype == OLAP_FIELD_TYPE_CHAR) {
+                        if (newtype == OLAP_FIELD_TYPE_CHAR) {
                             // if modify length of CHAR type, the size of slice should be equal
                             // to new length.
                             Slice* src = (Slice*)(read_helper.cell_ptr(ref_column));
@@ -350,12 +350,13 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_null(i);
                     } else {
                         write_helper.set_not_null(i);
-                        const Field* ref_field= read_helper.column_schema(ref_column);
+                        const Field* ref_field = read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
                         OLAPStatus st = write_helper.convert_from(i, ref_value, ref_field->type_info(), mem_pool);
                         if (st != OLAPStatus::OLAP_SUCCESS) {
                             LOG(WARNING) << "the column type which was altered from was unsupported."
                                  << "status:" << st << ", from_type=" << reftype << ", to_type=" << newtype;
+                            return false;
                         }
                     }
                 }

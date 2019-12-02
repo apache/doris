@@ -188,7 +188,7 @@ public:
     }
 
     //convert and copy field from src to desc
-    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type, MemPool* mem_pool) const{        
+    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type, MemPool* mem_pool) const {
         return _type_info->convert_from(dest, src, src_type, mem_pool);
     }
 
