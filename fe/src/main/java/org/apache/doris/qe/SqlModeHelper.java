@@ -152,6 +152,8 @@ public class SqlModeHelper {
         for (String key : names) {
             if (StringUtils.isNumeric(key)) {
                 value |= expand(Long.valueOf(key));
+                LOG.warn("Set sql mode with numerical value");
+                continue;
             }
             // the SQL MODE must be supported, set sql mode repeatedly is not allowed
             if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
@@ -177,12 +179,12 @@ public class SqlModeHelper {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }
         value &= MODE_COMBINE_MASK;
-        if ((value & (value - 1)) > 0) {
+        if ((value & (value - 1)) != 0) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }
         for (String key : getCombineMode().keySet()) {
             if (value == getSupportedSqlMode().get(key)) {
-                sqlMode &= getCombineMode().get(key);
+                sqlMode |= getCombineMode().get(key);
             }
         }
         return sqlMode;
