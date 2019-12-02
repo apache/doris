@@ -31,6 +31,9 @@ public class SqlModeHelperTest {
         sqlMode = "";
         Assert.assertEquals(new Long(0L), SqlModeHelper.encode(sqlMode));
 
+        sqlMode = "0,1, PIPES_AS_CONCAT";
+        Assert.assertEquals(new Long(3L), SqlModeHelper.encode(sqlMode));
+
         long sqlModeValue = 2L;
         Assert.assertEquals("PIPES_AS_CONCAT", SqlModeHelper.decode(sqlModeValue));
 
