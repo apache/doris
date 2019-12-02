@@ -17,14 +17,14 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class SqlModeHelperTest {
 
     @Test
-    public void testNormal() throws AnalysisException {
+    public void testNormal() throws DdlException {
         String sqlMode = "PIPES_AS_CONCAT";
         Assert.assertEquals(new Long(2L), SqlModeHelper.encode(sqlMode));
 
@@ -38,22 +38,22 @@ public class SqlModeHelperTest {
         Assert.assertEquals("", SqlModeHelper.decode(sqlModeValue));
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlMode() throws AnalysisException {
+    @Test(expected = DdlException.class)
+    public void testInvalidSqlMode() throws DdlException {
         String sqlMode = "PIPES_AS_CONCAT, WRONG_MODE";
         SqlModeHelper.encode(sqlMode);
         Assert.fail("No exception throws");
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testMultiSqlMode() throws AnalysisException {
+    @Test(expected = DdlException.class)
+    public void testMultiSqlMode() throws DdlException {
         String sqlMode = "ANSI, TRADITIONAL";
         SqlModeHelper.encode(sqlMode);
         Assert.fail("No exception throws");
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testInvalidDecode() throws AnalysisException {
+    @Test(expected = DdlException.class)
+    public void testInvalidDecode() throws DdlException {
         long sqlMode = SqlModeHelper.MODE_LAST;
         SqlModeHelper.decode(sqlMode);
         Assert.fail("No exception throws");
