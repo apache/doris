@@ -108,6 +108,9 @@ public class DynamicPartitionUtils {
     }
 
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
+        if (properties == null) {
+            return false;
+        }
         return properties.containsKey(DynamicPartitionProperties.ENABLE.getDesc()) ||
                 properties.containsKey(DynamicPartitionProperties.TIME_UNIT.getDesc()) ||
                 properties.containsKey(DynamicPartitionProperties.PREFIX.getDesc()) ||
