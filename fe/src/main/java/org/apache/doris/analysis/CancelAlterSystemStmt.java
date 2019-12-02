@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+
 import com.google.common.base.Preconditions;
 
 import java.util.LinkedList;
@@ -52,7 +53,7 @@ public class CancelAlterSystemStmt extends CancelStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CANCEL ALTER CLUSTER DECOMMISSION BACKEND ");
+        sb.append("CANCEL DECOMMISSION BACKEND ");
         for (int i = 0; i < hostPorts.size(); i++) {
             sb.append("\"").append(hostPorts.get(i)).append("\"");
             if (i != hostPorts.size() - 1) {

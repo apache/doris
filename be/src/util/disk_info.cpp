@@ -29,6 +29,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 
+#include "gutil/strings/split.h"
+
 namespace doris {
 
 bool DiskInfo::_s_initialized;
@@ -52,8 +54,7 @@ void DiskInfo::get_device_names() {
         getline(partitions, line);
         boost::trim(line);
 
-        std::vector<std::string> fields;
-        boost::split(fields, line, boost::is_any_of(" "), boost::token_compress_on);
+        std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
 
         if (fields.size() != 4) {
             continue;
