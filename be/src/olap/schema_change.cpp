@@ -1933,7 +1933,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
-    if (max_continuous_version.second > request.alter_version) {
+    if (max_continuous_version.second >= request.alter_version) {
         return OLAP_SUCCESS;
     } else {
         return OLAP_ERR_VERSION_NOT_EXIST;
