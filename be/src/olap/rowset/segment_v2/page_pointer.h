@@ -53,6 +53,14 @@ struct PagePointer {
         return decode_varint32_ptr(data, limit, &size);
     }
 
+    bool decode_from(Slice* input) {
+        bool result = get_varint64(input, &offset);
+        if (!result) {
+            return false;
+        }
+        return get_varint32(input, &size);
+    }
+
     void encode_to(faststring* dst) const {
         put_varint64_varint32(dst, offset, size);
     }
@@ -63,6 +71,10 @@ struct PagePointer {
 
     bool operator==(const PagePointer& other) const {
         return offset == other.offset && size == other.size;
+    }
+
+    bool operator!=(const PagePointer& other) const {
+        return !(*this == other);
     }
 };
 

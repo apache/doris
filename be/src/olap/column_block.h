@@ -98,6 +98,7 @@ public:
     void advance(size_t skip) { _row_offset += skip; }
     size_t first_row_index() const { return _row_offset; }
     ColumnBlock* column_block() { return _block; }
+    const TypeInfo* type_info() const { return _block->type_info(); }
     MemPool* pool() const { return _block->pool(); }
     void set_null_bits(size_t num_rows, bool val) {
         BitmapChangeBits(_block->null_bitmap(), _row_offset, num_rows, val);

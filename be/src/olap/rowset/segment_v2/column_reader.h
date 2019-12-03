@@ -25,11 +25,13 @@
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/olap_cond.h" // for CondColumn
 #include "olap/tablet_schema.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
+#include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
 #include "util/once.h"
 
 namespace doris {
@@ -44,7 +46,6 @@ namespace segment_v2 {
 class EncodingInfo;
 class PageHandle;
 class PagePointer;
-class ParsedPage;
 class ColumnIterator;
 
 struct ColumnReaderOptions {
@@ -75,6 +76,8 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
+    // Client should delete returned iterator
+    Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
@@ -90,6 +93,10 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() const { return _meta.has_zone_map_page(); }
+
+    bool has_bitmap_index() {
+        return _meta.has_bitmap_index();
+    }
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
@@ -115,12 +122,14 @@ private:
         return _load_index_once.call([this] {
             RETURN_IF_ERROR(_load_zone_map_index());
             RETURN_IF_ERROR(_load_ordinal_index());
+            RETURN_IF_ERROR(_load_bitmap_index());
             return Status::OK();
         });
     }
 
     Status _load_zone_map_index();
     Status _load_ordinal_index();
+    Status _load_bitmap_index();
 
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
@@ -144,6 +153,7 @@ private:
     DorisCallOnce<Status> _load_index_once;
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
+    std::unique_ptr<BitmapIndexReader> _bitmap_index_reader;
 };
 
 // Base iterator to read one column data
@@ -167,9 +177,9 @@ public:
     virtual Status seek_to_ordinal(rowid_t ord_idx) = 0;
 
     // After one seek, we can call this function many times to read data 
-    // into ColumnBlock. when read string type data, memory will allocated
+    // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
-    virtual Status next_batch(size_t* n, ColumnBlock* dst) = 0;
+    virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
 
     virtual rowid_t get_current_ordinal() const = 0;
 
@@ -209,7 +219,7 @@ public:
 
     Status seek_to_ordinal(rowid_t ord_idx) override;
 
-    Status next_batch(size_t* n, ColumnBlock* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
@@ -274,7 +284,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlock* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
