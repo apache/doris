@@ -75,6 +75,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -93,6 +94,8 @@ public class HttpServer {
     private ActionController controller;
 
     private Thread serverThread;
+
+    private AtomicBoolean isStarted = new AtomicBoolean(false);
 
     public HttpServer(int port) {
         this.port = port;
@@ -203,7 +206,8 @@ public class HttpServer {
                         .childHandler(new PaloHttpServerInitializer());
                 Channel ch = serverBootstrap.bind(port).sync().channel();
                 ch.closeFuture().sync();
-
+                isStarted.set(true);
+                LOG.info("HttpServer started with port {}", port);
             } catch (Exception e) {
                 LOG.error("Fail to start FE query http server[port: " + port + "] ", e);
                 System.exit(-1);
@@ -220,12 +224,17 @@ public class HttpServer {
             Future future = serverBootstrap.config().group().shutdownGracefully(0, 1, TimeUnit.SECONDS).syncUninterruptibly();
             try {
                 future.get();
+                isStarted.set(false);
                 LOG.info("HttpServer was closed completely");
             } catch (Throwable e) {
                 LOG.warn("Exception happened when close HttpServer", e);
             }
             serverBootstrap = null;
         }
+    }
+
+    public boolean isStarted() {
+        return isStarted.get();
     }
 
     public static void main(String[] args) throws Exception {
