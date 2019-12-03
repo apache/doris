@@ -56,6 +56,11 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = "query_cache_size")
     private static long queryCacheSize = 1048576;
 
+    public static final String HEARTBEAT_FLAGS = "heartbeat_flags";
+    // the flags passed to Backends
+    @VariableMgr.VarAttr(name = "heartbeat_flags")
+    public static long heartbeatFlags = 0;
+
     // Don't allow create instance.
     private GlobalVariable() {
 

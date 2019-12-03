@@ -1124,6 +1124,9 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.partition_id = new_tablet->partition_id();
     context.tablet_schema_hash = new_tablet->schema_hash();
     context.rowset_type = new_rowset_type;
+    if (StorageEngine::instance()->set_default_rowset_type_to_beta()) {
+        context.rowset_type = BETA_ROWSET;
+    }
     context.rowset_path_prefix = new_tablet->tablet_path();
     context.tablet_schema = &(new_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
@@ -1471,6 +1474,9 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
+    if (StorageEngine::instance()->set_default_rowset_type_to_beta()) {
+        writer_context.rowset_type = BETA_ROWSET;
+    }
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
@@ -1697,6 +1703,9 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
+        if (StorageEngine::instance()->set_default_rowset_type_to_beta()) {
+            writer_context.rowset_type = BETA_ROWSET;
+        }
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
