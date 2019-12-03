@@ -205,9 +205,11 @@ public class HttpServer {
                         .channel(NioServerSocketChannel.class)
                         .childHandler(new PaloHttpServerInitializer());
                 Channel ch = serverBootstrap.bind(port).sync().channel();
-                ch.closeFuture().sync();
+
                 isStarted.set(true);
                 LOG.info("HttpServer started with port {}", port);
+                // block until server is closed
+                ch.closeFuture().sync();
             } catch (Exception e) {
                 LOG.error("Fail to start FE query http server[port: " + port + "] ", e);
                 System.exit(-1);
