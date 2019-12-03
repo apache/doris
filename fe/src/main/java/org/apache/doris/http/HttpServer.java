@@ -203,7 +203,7 @@ public class HttpServer {
                         .childHandler(new PaloHttpServerInitializer());
                 Channel ch = serverBootstrap.bind(port).sync().channel();
                 ch.closeFuture().sync();
-
+                LOG.info("HttpServer started with port: {}", port);
             } catch (Exception e) {
                 LOG.error("Fail to start FE query http server[port: " + port + "] ", e);
                 System.exit(-1);
