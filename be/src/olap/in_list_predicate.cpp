@@ -121,7 +121,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
             RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap)); \
             *result -= null_bitmap; \
         } \
-        Roaring indexs; \
+        Roaring indecies; \
         for (auto value:_values) { \
             bool exact_match; \
             Status s = iterator->seek_dictionary(&value, &exact_match); \
