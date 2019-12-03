@@ -230,8 +230,10 @@ public class ArithmeticExpr extends Expr {
             return;
         }
 
-        Type t1 = getChild(0).getType().getNumResultType();
-        Type t2 = getChild(1).getType().getNumResultType();
+        Type t1 = getChild(0).getType().getResultType();
+        Type t2 = getChild(1).getType().getResultType();
+        Preconditions.checkState(t1.isNumericType() && t2.isNumericType(), "Arithmetic operation requires numeric "
+                + "operands: " + toSqlImpl());
         // Find result type of this operator
         Type commonType = Type.INVALID;
         String fnName = op.getName();
