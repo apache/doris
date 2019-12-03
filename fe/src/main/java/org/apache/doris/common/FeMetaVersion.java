@@ -147,8 +147,10 @@ public final class FeMetaVersion {
     public static final int VERSION_67 = 67;
     // for es table context
     public static final int VERSION_68 = 68;
-    // modofy password checking logic
+    // modify password checking logic
     public static final int VERSION_69 = 69;
+    // dynamic partition
+    public static final int VERSION_70 = 70;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_69;
+    public static final int VERSION_CURRENT = VERSION_70;
 }

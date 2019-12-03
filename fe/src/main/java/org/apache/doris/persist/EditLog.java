@@ -692,6 +692,11 @@ public class EditLog {
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
+                case OperationType.OP_DYNAMIC_PARTITION: {
+                    DynamicPartitionInfo dynamicPartitionInfo = (DynamicPartitionInfo) journal.getData();
+                    catalog.replayModifyTableDynamicPartition(dynamicPartitionInfo);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1186,7 +1191,11 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 
-    public void logModifyDitrubutionType(TableInfo tableInfo) {
+    public void logModifyDistributionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+    }
+
+    public void logDynamicPartition(DynamicPartitionInfo info) {
+        logEdit(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -63,6 +64,8 @@ public class ModifyTablePropertiesClause extends AlterClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             // do nothing, these 2 properties will be analyzed when creating alter job
+        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

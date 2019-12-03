@@ -35,6 +35,7 @@ import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
+import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
@@ -68,6 +69,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -77,10 +79,12 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -237,6 +241,8 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
+        } else if (stmt instanceof ShowDynamicPartitionStmt) {
+            handleShowDynamicPartition();
         } else {
             handleEmtpy();
         }
@@ -1423,6 +1429,45 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
+    private void handleShowDynamicPartition() {
+        ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        Database db = ctx.getCatalog().getDb(showDynamicPartitionStmt.getDb());
+        if (db != null) {
+            db.readLock();
+            try {
+                for (Table tbl : db.getTables()) {
+                    if (!(tbl instanceof OlapTable)) {
+                        continue;
+                    }
+                    TableProperty tableProperty = ((OlapTable) tbl).getTableProperty();
+                    if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().isExist()) {
+                        continue;
+                    }
+                    // check tbl privs
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                            db.getFullName(), tbl.getName(),
+                            PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
+                    rows.add(Lists.newArrayList(tbl.getName(),
+                                                dynamicPartitionProperty.getEnable().toUpperCase(),
+                                                dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                                                dynamicPartitionProperty.getEnd().toUpperCase(),
+                                                dynamicPartitionProperty.getPrefix(),
+                                                dynamicPartitionProperty.getBuckets().toUpperCase(),
+                                                DynamicPartitionScheduler.getLastUpdateTime(),
+                                                DynamicPartitionScheduler.getLastSchedulerTime(),
+                                                DynamicPartitionScheduler.getDynamicPartitionState().toString(),
+                                                DynamicPartitionScheduler.getMsg()));
+                }
+            } finally {
+                db.readUnlock();
+            }
+            resultSet = new ShowResultSet(showDynamicPartitionStmt.getMetaData(), rows);
+        }
+    }
 }
 
 

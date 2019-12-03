@@ -57,6 +57,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -1316,6 +1317,9 @@ public class SchemaChangeHandler extends AlterHandler {
                      * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
                      */
                     sendClearAlterTask(db, olapTable);
+                    return;
+                } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                     return;
                 }
             }
