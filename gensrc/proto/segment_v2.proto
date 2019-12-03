@@ -219,4 +219,3 @@ message BitmapIndexColumnPB {
     optional IndexedColumnMetaPB bitmap_column = 5;
     optional BitmapType bitmap_type = 6 [default=ROARING_BITMAP];
 }
-

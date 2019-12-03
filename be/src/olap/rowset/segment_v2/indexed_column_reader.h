@@ -20,48 +20,77 @@
 #include <memory>
 
 #include "common/status.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/parsed_page.h"
+#include "util/block_compression.h"
 #include "util/slice.h"
 
 namespace doris {
 
+class KeyCoder;
 class RandomAccessFile;
+class TypeInfo;
 
 namespace segment_v2 {
 
+class EncodingInfo;
 class IndexedColumnIterator;
 
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(RandomAccessFile* file);
+    explicit IndexedColumnReader(RandomAccessFile* file, const IndexedColumnMetaPB& meta)
+        : _file(file), _meta(meta) {};
 
-    Status init();
+    Status load();
 
-    Status new_iterator(std::unique_ptr<IndexedColumnIterator>* iter);
+    Status read_page(const PagePointer& pp, PageHandle* handle) const;
 
-    Status read_page(const PagePointer& pp, PageHandle* ret);
+    int64_t num_values() const { return _num_values; }
 
-    const IndexedColumnMetaPB& meta() const;
+    const EncodingInfo* encoding_info() const { return _encoding_info; }
 
-    bool has_ordinal_index() const;
+    const TypeInfo* type_info() const { return _type_info; }
 
-    bool has_value_index() const;
+    bool support_ordinal_seek() const { return _meta.has_ordinal_index_meta(); }
+
+    bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
 private:
+    friend class IndexedColumnIterator;
 
+    RandomAccessFile* _file;
+    IndexedColumnMetaPB _meta;
+    int64_t _num_values = 0;
+    // whether this column contains any index page.
+    // could be false when the column contains only one data page.
+    bool _has_index_page = false;
+    // valid only when the column contains only one data page
+    PagePointer _sole_data_page;
+    IndexPageReader _ordinal_index_reader;
+    IndexPageReader _value_index_reader;
+    PageHandle _ordinal_index_page_handle;
+    PageHandle _value_index_page_handle;
+
+    bool _verify_checksum = true;
+    const TypeInfo* _type_info = nullptr;
+    const EncodingInfo* _encoding_info = nullptr;
+    const BlockCompressionCodec* _compress_codec = nullptr;
+    const KeyCoder* _validx_key_coder = nullptr;
 };
 
 class IndexedColumnIterator {
 public:
-    explicit IndexedColumnIterator(IndexedColumnReader* reader);
-
-    ~IndexedColumnIterator();
-
-    // Seek to the first entry. This works for both ordinal-indexed and value-indexed column
-    Status seek_to_first();
+    explicit IndexedColumnIterator(const IndexedColumnReader* reader)
+        : _reader(reader),
+          _ordinal_iter(&reader->_ordinal_index_reader),
+          _value_iter(&reader->_value_index_reader) {
+    }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return NotFound if provided seek point is past the end.
@@ -77,16 +106,31 @@ public:
     //
     // Return NotFound if the given key is greater than all keys in this column.
     // Return NotSupported for column without value index.
-    Status seek_at_or_after(const Slice &key,
-                            bool *exact_match);
-
-    // Return true if this reader is currently seeked.
-    // If the iterator is not seeked, it is an error to call any functions except
-    // for seek (including get_current_ordinal).
-    bool seeked() const;
+    Status seek_at_or_after(const void* key, bool* exact_match);
 
     // Get the ordinal index that the iterator is currently pointed to.
     rowid_t get_current_ordinal() const;
+
+    // After one seek, we can only call this function once to read data
+    // into ColumnBlock. when read string type data, memory will allocated
+    // from Arena
+    Status next_batch(size_t* n, ColumnBlockView* column_view);
+private:
+    Status _read_data_page(const PagePointer& page_pointer, ParsedPage* page);
+
+    const IndexedColumnReader* _reader;
+    // iterator for ordinal index page
+    IndexPageIterator _ordinal_iter;
+    // iterator for value index page
+    IndexPageIterator _value_iter;
+
+    bool _seeked = false;
+    // current in-use index iterator, could be `&_ordinal_iter` or `&_value_iter` or null
+    IndexPageIterator* _current_iter = nullptr;
+    // seeked data page, containing value at `_current_rowid`
+    std::unique_ptr<ParsedPage> _data_page;
+    // next_batch() will read from this position
+    rowid_t _current_rowid = 0;
 };
 
 } // namespace segment_v2

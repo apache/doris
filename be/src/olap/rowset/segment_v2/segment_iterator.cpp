@@ -39,9 +39,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment,
     : _segment(std::move(segment)),
       _schema(schema),
       _column_iterators(_schema.num_columns(), nullptr),
-      _row_ranges(RowRanges::create_single(_segment->num_rows())),
+      _bitmap_index_iterators(_schema.num_columns(), nullptr),
       _cur_rowid(0),
-      _cur_range_id(0),
       _inited(false) {
 }
 
@@ -49,18 +48,19 @@ SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
         delete iter;
     }
+    for (auto iter : _bitmap_index_iterators) {
+        delete iter;
+    }
 }
 
 Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
+    _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_column_iterators());
+    RETURN_IF_ERROR(_init_bitmap_index_iterators());
     RETURN_IF_ERROR(_get_row_ranges_by_keys());
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    if (!_row_ranges.is_empty()) {
-        _cur_range_id = 0;
-        _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
-    }
-    RETURN_IF_ERROR(_seek_columns(_schema.column_ids(), _cur_rowid));
+    _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     return Status::OK();
 }
 
@@ -68,7 +68,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     DorisMetrics::segment_row_total.increment(num_rows());
 
     // fast path for empty segment or empty key ranges
-    if (_row_ranges.is_empty() || _opts.key_ranges.empty()) {
+    if (_row_bitmap.isEmpty() || _opts.key_ranges.empty()) {
         return Status::OK();
     }
 
@@ -92,8 +92,8 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
         RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
     }
     // pre-condition: _row_ranges == [0, num_rows)
-    _row_ranges = std::move(result_ranges);
-    DorisMetrics::segment_rows_by_short_key.increment(_row_ranges.count());
+    _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
+    DorisMetrics::segment_rows_by_short_key.increment(_row_bitmap.cardinality());
 
     return Status::OK();
 }
@@ -133,15 +133,23 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 }
 
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
-    if (_row_ranges.is_empty()) {
+    if (_row_bitmap.isEmpty()) {
         // no data just return;
         return Status::OK();
+    }
+
+    if (_opts.column_predicates != nullptr) {
+        Roaring bitmap;
+        RETURN_IF_ERROR(_get_row_ranges_from_bitmap_index(&bitmap));
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap &= bitmap;
+        _opts.stats->bitmap_index_filter_count += (pre_size - _row_bitmap.cardinality());
     }
 
     if (_opts.conditions != nullptr || _opts.delete_conditions.size() > 0) {
         RowRanges condition_row_ranges;
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
-        RowRanges::ranges_intersection(_row_ranges, condition_row_ranges, &_row_ranges);
+        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
@@ -185,6 +193,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     return Status::OK();
 }
 
+Status SegmentIterator::_get_row_ranges_from_bitmap_index(Roaring* row_bitmap) {
+    SCOPED_RAW_TIMER(&_opts.stats->bitmap_index_filter_timer);
+    Roaring bitmap;
+    bitmap.addRange(0, _segment->num_rows());
+    for (auto pred: *_opts.column_predicates) {
+        RETURN_IF_ERROR(pred->evaluate(_schema, _bitmap_index_iterators, _segment->num_rows(), &bitmap));
+    }
+    *row_bitmap = std::move(bitmap);
+    return Status::OK();
+}
+
 Status SegmentIterator::_init_column_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
@@ -195,6 +214,18 @@ Status SegmentIterator::_init_column_iterators() {
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_init_bitmap_index_iterators() {
+    if (_cur_rowid >= num_rows()) {
+        return Status::OK();
+    }
+    for (auto cid: _schema.column_ids()) {
+        if (_bitmap_index_iterators[cid] == nullptr) {
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(cid, &_bitmap_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -281,19 +312,21 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
     // please note that usually RowBlockV2.clear() is called to free MemPool memory before reading the next block,
     // but here since there won't be too many keys to seek, we don't call RowBlockV2.clear() so that we can use
     // a single MemPool for all seeked keys.
-    RETURN_IF_ERROR(_next_batch(_seek_block.get(), &num_rows));
+    RETURN_IF_ERROR(_next_batch(_seek_block.get(), 0, &num_rows));
     _seek_block->set_num_rows(num_rows);
     return Status::OK();
 }
 
-// Trying to read `rows_read` rows into `block`. Return the actual number of rows read in `*rows_read`.
-Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
+// Trying to read `rows_read` rows into `block` at the given offset.
+// Return the actual number of rows read in `*rows_read`.
+Status SegmentIterator::_next_batch(RowBlockV2* block, size_t row_offset, size_t* rows_read) {
     bool has_read = false;
     size_t first_read = 0;
     for (auto cid : block->schema()->column_ids()) {
         size_t num_rows = has_read ? first_read : *rows_read;
         auto column_block = block->column_block(cid);
-        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &column_block));
+        ColumnBlockView dst(&column_block, row_offset);
+        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&num_rows, &dst));
         block->set_delete_state(column_block.delete_state());
         if (!has_read) {
             has_read = true;
@@ -310,6 +343,7 @@ Status SegmentIterator::_next_batch(RowBlockV2* block, size_t* rows_read) {
 }
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
+    _opts.stats->block_seek_num += 1;
     SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     for (auto cid : column_ids) {
         RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
@@ -324,43 +358,39 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         _inited = true;
     }
 
-    if (_row_ranges.is_empty() || _cur_rowid >= _row_ranges.to()) {
-        block->set_num_rows(0);
+    uint32_t total_read = 0;
+    uint32_t remaining = block->capacity();
+    // trying to fill in block
+    do {
+        uint32_t range_from;
+        uint32_t range_to;
+        bool has_next_range = _range_iter->next_range(remaining, &range_from, &range_to);
+        if (!has_next_range) {
+            break;
+        }
+        if (_cur_rowid == 0 || _cur_rowid != range_from) {
+            _cur_rowid = range_from;
+            RETURN_IF_ERROR(_seek_columns(block->schema()->column_ids(), _cur_rowid));
+        }
+        size_t rows_to_read = range_to - range_from;
+        size_t rows_read = rows_to_read;
+        RETURN_IF_ERROR(_next_batch(block, total_read, &rows_read));
+        DCHECK_EQ(rows_to_read, rows_read);
+        _cur_rowid += rows_to_read;
+        total_read += rows_to_read;
+        remaining -= rows_to_read;
+    } while (remaining > 0);
+
+    block->set_num_rows(total_read);
+    block->set_selected_size(total_read);
+    if (total_read == 0) {
         return Status::EndOfFile("no more data in segment");
     }
 
-    // check whether need to seek
-    if (_cur_rowid >= _row_ranges.get_range_to(_cur_range_id)) {
-        while (true) {
-            // step to next row range
-            ++_cur_range_id;
-            // current row range is read over, trying to read from next range
-            if (_cur_range_id > _row_ranges.range_size() - 1) {
-                block->set_num_rows(0);
-                return Status::EndOfFile("no more data in segment");
-            }
-            if (_row_ranges.get_range_count(_cur_range_id) == 0) {
-                // current row range is empty, just skip seek
-                continue;
-            }
-            _cur_rowid = _row_ranges.get_range_from(_cur_range_id);
-            RETURN_IF_ERROR(_seek_columns(block->schema()->column_ids(), _cur_rowid));
-            break;
-        }
-    }
-    // next_batch just return the rows in current row range
-    // it is easier to realize lazy materialization in the future
-    size_t rows_to_read = std::min(block->capacity(), size_t(_row_ranges.get_range_to(_cur_range_id) - _cur_rowid));
-    RETURN_IF_ERROR(_next_batch(block, &rows_to_read));
-    _cur_rowid += rows_to_read;
-    block->set_num_rows(rows_to_read);
-    block->set_selected_size(rows_to_read);
     // update raw_rows_read counter
     // judge nullptr for unit test case
-    _opts.stats->raw_rows_read += block->num_rows();
-    if (block->num_rows() == 0) {
-        return Status::EndOfFile("no more data in segment");
-    }
+    _opts.stats->raw_rows_read += total_read;
+
     // column predicate vectorization execution
     // TODO(hkp): lazy materialization
     // TODO(hkp): optimize column predicate to check column block once for one column

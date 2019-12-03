@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_STRING_SLICE_H
 
 #include <assert.h>
+#include <iostream>
 #include <map>
 #include <vector>
 #include <stddef.h>
@@ -168,6 +169,8 @@ public:
 
     friend bool operator==(const Slice& x, const Slice& y);
 
+    friend std::ostream& operator<< (std::ostream& os, const Slice& slice);
+
     static bool mem_equal(const void* a, const void* b, size_t n) {
         return memcmp(a, b, n) == 0;
     }
@@ -193,6 +196,11 @@ public:
     }
 
 };
+
+inline std::ostream& operator<< (std::ostream& os, const Slice& slice) {
+    os << slice.to_string();
+    return os;
+}
 
 /// Check whether two slices are identical.
 inline bool operator==(const Slice& x, const Slice& y) {

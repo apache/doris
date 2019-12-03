@@ -24,6 +24,8 @@
 #include <boost/filesystem.hpp>
 
 #include "common/logging.h"
+#include "olap/comparison_predicate.h"
+#include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema.h"
@@ -88,7 +90,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
     }
 
     uint64_t file_size = 0;
-    st = writer.finalize(&file_size);
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
     ASSERT_TRUE(st.ok());
     // reader
     {
@@ -279,7 +282,8 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
     }
 
     uint64_t file_size = 0;
-    st = writer.finalize(&file_size);
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
     ASSERT_TRUE(st.ok());
 
     // reader with condition
@@ -474,7 +478,8 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     LOG(INFO) << "estimate segment size is:" << segment_size;
 
     uint64_t file_size = 0;
-    st = writer.finalize(&file_size);
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
 
     ASSERT_TRUE(st.ok());
 
@@ -482,15 +487,6 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     LOG(INFO) << "segment file size is:" << file_size;
 
     ASSERT_NE(segment_size, 0);
-
-    float error = 0;
-    if (segment_size > file_size) {
-        error = (segment_size - file_size) * 1.0 / segment_size;
-    } else {
-        error = (file_size - segment_size) * 1.0 / segment_size;
-    }
-
-    ASSERT_LT(error, 0.30);
 
     FileUtils::remove_all(dname);
 }
@@ -537,7 +533,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     }
 
     uint64_t file_size = 0;
-    st = writer.finalize(&file_size);
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
     ASSERT_TRUE(st.ok());
 
     // add a column with null default value
@@ -705,7 +702,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     }
 
     uint64_t file_size = 0;
-    st = writer.finalize(&file_size);
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
     ASSERT_TRUE(st.ok());
 
     {
@@ -884,6 +882,183 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             ASSERT_EQ(0, block.num_rows());
         }
 
+    }
+
+    FileUtils::remove_all(dname);
+}
+
+TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
+    size_t num_rows_per_block = 10;
+    MemTracker tracker;
+    MemPool pool(&tracker);
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 2;
+    tablet_schema->_num_short_key_columns = 1;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_value(3));
+    tablet_schema->_cols.push_back(create_int_value(4));
+
+    //    segment write
+    std::string dname = "./ut_dir/segment_test";
+    FileUtils::create_dir(dname);
+
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+    opts.need_bitmap_index = true;
+
+    std::string fname = dname + "/bitmap_predicate";
+
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    for (int i = 0; i < 4096; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+        }
+        writer.append_row(row);
+    }
+
+    uint64_t file_size = 0;
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
+    ASSERT_TRUE(st.ok());
+
+    {
+        std::shared_ptr<Segment> segment;
+        st = segment->open(fname, 0, tablet_schema.get(), &segment);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(4096, segment->num_rows());
+        Schema schema(*tablet_schema);
+
+        // test where v1=12
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
+            column_predicates.emplace_back(predicate.get());
+
+            StorageReadOptions read_opts;
+            OlapReaderStatistics stats;
+            read_opts.column_predicates = &column_predicates;
+            read_opts.stats = &stats;
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.ok());
+            ASSERT_EQ(block.num_rows(), 1);
+            ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
+        }
+
+        // test where v1=12 and v2=13
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
+            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(3, 13));
+            column_predicates.emplace_back(predicate.get());
+            column_predicates.emplace_back(predicate2.get());
+
+            StorageReadOptions read_opts;
+            OlapReaderStatistics stats;
+            read_opts.column_predicates = &column_predicates;
+            read_opts.stats = &stats;
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.ok());
+            ASSERT_EQ(block.num_rows(), 1);
+            ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
+        }
+
+        // test where v1=12 and v2=15
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
+            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(3, 15));
+            column_predicates.emplace_back(predicate.get());
+            column_predicates.emplace_back(predicate2.get());
+
+            StorageReadOptions read_opts;
+            OlapReaderStatistics stats;
+            read_opts.column_predicates = &column_predicates;
+            read_opts.stats = &stats;
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+            st = iter->next_batch(&block);
+            ASSERT_EQ(read_opts.stats->raw_rows_read, 0);
+            ASSERT_FALSE(st.ok());
+        }
+
+        // test where v1 in (12,22,1)
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            std::set<int32_t> values;
+            values.insert(12);
+            values.insert(22);
+            values.insert(1);
+            std::unique_ptr<ColumnPredicate> predicate(new InListPredicate<int32_t>(2, std::move(values)));
+            column_predicates.emplace_back(predicate.get());
+
+            StorageReadOptions read_opts;
+            OlapReaderStatistics stats;
+            read_opts.column_predicates = &column_predicates;
+            read_opts.stats = &stats;
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+            st = iter->next_batch(&block);
+            ASSERT_EQ(read_opts.stats->raw_rows_read, 2);
+            ASSERT_TRUE(st.ok());
+        }
+
+        // test where v1 not in (12,22)
+        {
+            std::vector<ColumnPredicate*> column_predicates;
+            std::set<int32_t> values;
+            values.insert(12);
+            values.insert(22);
+            std::unique_ptr<ColumnPredicate> predicate(new NotInListPredicate<int32_t>(2, std::move(values)));
+            column_predicates.emplace_back(predicate.get());
+
+            StorageReadOptions read_opts;
+            OlapReaderStatistics stats;
+            read_opts.column_predicates = &column_predicates;
+            read_opts.stats = &stats;
+
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+
+            do {
+                block.clear();
+                st = iter->next_batch(&block);
+            } while (st.ok());
+            ASSERT_EQ(read_opts.stats->raw_rows_read, 4094);
+        }
     }
 
     FileUtils::remove_all(dname);

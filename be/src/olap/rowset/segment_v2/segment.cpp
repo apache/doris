@@ -215,5 +215,12 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     return _column_readers[cid]->new_iterator(iter);
 }
 
+Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter) {
+    if (_column_readers[cid] != nullptr && _column_readers[cid]->has_bitmap_index()) {
+        return _column_readers[cid]->new_bitmap_index_iterator(iter);
+    }
+    return Status::OK();
+}
+
 }
 }

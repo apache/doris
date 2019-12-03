@@ -172,6 +172,7 @@ private:
 
 } // namespace
 
+// TODO currently we don't support bitmap index for float/double/date/datetime/decimal/hll
 Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<BitmapIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {

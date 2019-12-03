@@ -36,7 +36,7 @@ class IndexPageIterator; // forward decl.
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
 // We use the same general format for all index pages, regardless of the data type and node type (leaf or internal)
-//   IndexPage := IndexEntry^NumEntry, StartOffset(4)^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
+//   IndexPage := IndexEntry^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
 //   IndexEntry := IndexKey, PagePointer
 //   IndexKey := KeyLength(vint32), KeyData(KeyLength bytes)
 //   PagePointer := PageOffset(vint64), PageSize(vint32)
@@ -57,7 +57,7 @@ public:
 
     bool is_full() const;
 
-    size_t count() const { return _entry_offsets.size(); }
+    size_t count() const { return _count; }
 
     Slice finish();
 
@@ -68,74 +68,89 @@ public:
     void reset() {
         _finished = false;
         _buffer.clear();
-        _entry_offsets.clear();
+        _count = 0;
     }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(IndexPageBuilder);
     const size_t _index_page_size;
     const bool _is_leaf;
-    // is the builder currently between finish() and reset()?
     bool _finished = false;
     faststring _buffer;
-    std::vector<uint32_t> _entry_offsets;
+    uint32_t _count = 0;
 };
 
+class IndexPageIterator;
 class IndexPageReader {
 public:
-    IndexPageReader();
+    IndexPageReader() : _parsed(false) {};
 
     Status parse(const Slice& data);
 
-    size_t count() const;
+    inline size_t count() const {
+        DCHECK(_parsed);
+        return _footer.num_entries();
+    }
 
-    bool is_leaf() const;
+    inline bool is_leaf() const {
+        DCHECK(_parsed);
+        return _footer.type() == IndexPageFooterPB::LEAF;
+    }
+
+    inline const Slice& get_key(int idx) const {
+        DCHECK(_parsed);
+        DCHECK(idx >= 0 && idx < _footer.num_entries());
+        return _keys[idx];
+    }
+
+    inline const PagePointer& get_value(int idx) const {
+        DCHECK(_parsed);
+        DCHECK(idx >= 0 && idx < _footer.num_entries());
+        return _values[idx];
+    }
 
     void reset();
 private:
-    friend class IndexPageIterator;
     bool _parsed;
 
-    // valid only when `_parsed == true`
-    Slice _data;
     IndexPageFooterPB _footer;
-    const uint8_t* _entry_offsets;
+    std::vector<Slice> _keys;
+    std::vector<PagePointer> _values;
 };
 
 class IndexPageIterator {
 public:
-    explicit IndexPageIterator(const IndexPageReader* reader);
+    explicit IndexPageIterator(const IndexPageReader* reader)
+        : _reader(reader), _pos(0) {
+    }
 
-    // Reset the state of this iterator. This should be used
-    // after the associated 'reader' parses a different page.
-    void reset();
-
-    // Find the highest index entry which has a key <= the given key.
-    // If such a entry is found, returns OK status.
-    // Otherwise Status::NotFound is returned. (i.e the smallest key in the
-    // index is still larger than the provided key)
-    //
-    // If this function returns an error, then the state of this
-    // iterator is undefined (i.e it may or may not have moved
-    // since the previous call)
+    // Find the largest index entry whose key is <= search_key.
+    // Return OK status when such entry exists.
+    // Return NotFound when no such entry is found (all keys > search_key).
+    // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
 
-    Status seek_ordinal(size_t idx);
+    // Move to the next index entry.
+    // Return true on success, false when no more entries can be read.
+    bool move_next() {
+        if (_pos >= _reader->count()) {
+            return false;
+        }
+        _pos++;
+        return true;
+    }
 
-    bool has_next() const { return _cur_idx + 1 < _reader->count(); }
+    const Slice& current_key() const {
+        return _reader->get_key(_pos);
+    }
 
-    Status next() { return seek_ordinal(_cur_idx + 1); }
-
-    const Slice& current_key() const;
-
-    const PagePointer& current_page_pointer() const;
+    const PagePointer& current_page_pointer() const {
+        return _reader->get_value(_pos);
+    }
 private:
     const IndexPageReader* _reader;
 
-    bool _seeked;
-    size_t _cur_idx;
-    Slice _cur_key;
-    PagePointer _cur_ptr;
+    size_t _pos;
 };
 
 } // namespace segment_v2
