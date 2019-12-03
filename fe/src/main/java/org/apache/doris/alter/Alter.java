@@ -49,6 +49,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -198,8 +199,10 @@ public class Alter {
                 Preconditions.checkState(alterClauses.size() == 1);
                 AlterClause alterClause = alterClauses.get(0);
                 if (alterClause instanceof DropPartitionClause) {
+                    DynamicPartitionUtil.checkAlterAllowed(olapTable);
                     Catalog.getInstance().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
                 } else if (alterClause instanceof ModifyPartitionClause) {
+                    DynamicPartitionUtil.checkAlterAllowed(olapTable);
                     Catalog.getInstance().modifyPartition(db, olapTable, ((ModifyPartitionClause) alterClause));
                 } else {
                     hasAddPartition = true;
@@ -216,6 +219,7 @@ public class Alter {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
+                DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
                 Catalog.getInstance().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else {
                 Preconditions.checkState(false);
