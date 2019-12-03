@@ -2834,11 +2834,6 @@ public class Catalog {
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        addPartition(db, tableName, null, addPartitionClause);
-    }
-
-    public Pair<Long, Partition> addPartition(Database db, String tableName, OlapTable givenTable,
-            AddPartitionClause addPartitionClause) throws DdlException {
         SingleRangePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
 
@@ -2858,12 +2853,8 @@ public class Catalog {
         db.readLock();
         try {
             Table table = db.getTable(tableName);
-            if (givenTable == null) {
-                if (table == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
-            } else {
-                table = givenTable;
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }
 
             if (table.getType() != TableType.OLAP) {
@@ -2872,7 +2863,7 @@ public class Catalog {
 
             // check state
             olapTable = (OlapTable) table;
-            if (olapTable.getState() != OlapTableState.NORMAL && !isRestore) {
+            if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
             }
 
@@ -2886,7 +2877,7 @@ public class Catalog {
             if (olapTable.getPartition(partitionName) != null) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
                     LOG.info("add partition[{}] which already exists", partitionName);
-                    return null;
+                    return;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
@@ -2900,9 +2891,7 @@ public class Catalog {
             // here we check partition's properties
             singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null);
 
-            if (!isRestore) {
-                rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
-            }
+            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
 
             // get distributionInfo
             List<Column> baseSchema = olapTable.getBaseSchema();
@@ -2979,18 +2968,14 @@ public class Catalog {
                     dataProperty.getStorageMedium(),
                     singlePartitionDesc.getReplicationNum(),
                     versionInfo, bfColumns, olapTable.getBfFpp(),
-                    tabletIdSet, isRestore);
+                    tabletIdSet);
 
             // check again
             db.writeLock();
             try {
                 Table table = db.getTable(tableName);
-                if (givenTable == null) {
-                    if (table == null) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                    }
-                } else {
-                    table = givenTable;
+                if (table == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
                 }
 
                 if (table.getType() != TableType.OLAP) {
@@ -3008,7 +2993,7 @@ public class Catalog {
                 if (olapTable.getPartition(partitionName) != null) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
                         LOG.debug("add partition[{}] which already exists", partitionName);
-                        return null;
+                        return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                     }
@@ -3039,28 +3024,19 @@ public class Catalog {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
 
-                if (!isRestore) {
-                    // update partition info
-                    RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                    rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
+                // update partition info
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
 
-                    olapTable.addPartition(partition);
-                    // log
-                    PartitionPersistInfo info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
-                            rangePartitionInfo.getRange(partitionId), dataProperty,
-                            rangePartitionInfo.getReplicationNum(partitionId));
-                    editLog.logAddPartition(info);
+                olapTable.addPartition(partition);
+                // log
+                PartitionPersistInfo info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                        rangePartitionInfo.getRange(partitionId), dataProperty,
+                        rangePartitionInfo.getReplicationNum(partitionId));
+                editLog.logAddPartition(info);
 
-                    LOG.info("succeed in creating partition[{}]", partitionId);
-                    return null;
-                } else {
-                    // ATTN: do not add this partition to table.
-                    // if add, replica info may be removed when handling tablet
-                    // report,
-                    // cause be does not have real data file
-                    LOG.info("succeed in creating partition[{}] to restore", partitionId);
-                    return new Pair<Long, Partition>(olapTable.getId(), partition);
-                }
+                LOG.info("succeed in creating partition[{}]", partitionId);
+                return;
             } finally {
                 db.writeUnlock();
             }
