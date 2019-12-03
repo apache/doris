@@ -81,7 +81,6 @@ public:
                     TTabletId tablet_id,
                     TSchemaHash schema_hash,
                     TVersion version,
-                    TVersionHash version_hash,
                     uint32_t* checksum));
     MOCK_METHOD1(reload_root_path, OLAPStatus(const std::string& root_paths));
     MOCK_METHOD2(check_tablet_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));

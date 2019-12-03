@@ -128,7 +128,7 @@ void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
     request->schema_hash = 1508825676;
     request->__set_version(2);
-    request->__set_version_hash(1);
+    request->__set_version_hash(0);
     request->timeout = 86400;
     request->push_type = TPushType::LOAD;
     request->__set_http_file_path("./be/test/olap/test_data/all_types_1000");

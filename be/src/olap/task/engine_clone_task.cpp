@@ -88,7 +88,7 @@ OLAPStatus EngineCloneTask::execute() {
         // version 2 may be an invalid rowset
         Version clone_version = {_clone_req.committed_version, _clone_req.committed_version};
         RowsetSharedPtr clone_rowset = tablet->get_rowset_by_version(clone_version);
-        if (clone_rowset == nullptr || clone_rowset->version_hash() == _clone_req.committed_version_hash) {
+        if (clone_rowset == nullptr) {
             // try to incremental clone
             vector<Version> missed_versions;
             tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
@@ -110,8 +110,6 @@ OLAPStatus EngineCloneTask::execute() {
         } else {
             LOG(INFO) << "current tablet has invalid rowset that's version == commit_version but version hash not equal"
                       << " clone req commit_version=" <<  _clone_req.committed_version
-                      << " clone req commit_version_hash=" <<  _clone_req.committed_version_hash
-                      << " cur rowset version=" << clone_rowset->version_hash()
                       << " tablet info = " << tablet->full_name();
         }
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
@@ -245,19 +243,13 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                          << " signature: " << _signature;
             _error_msgs->push_back("clone success, but get tablet info failed.");
             status = DORIS_ERROR;
-        } else if (
-            (_clone_req.__isset.committed_version
-                    && _clone_req.__isset.committed_version_hash)
-                    && (tablet_info.version < _clone_req.committed_version ||
-                        (tablet_info.version == _clone_req.committed_version
-                        && tablet_info.version_hash != _clone_req.committed_version_hash))) {
+        } else if (_clone_req.__isset.committed_version
+                   && tablet_info.version < _clone_req.committed_version) {
             LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
                       << ", schema_hash:" << _clone_req.schema_hash
                       << ", signature:" << _signature
                       << ", version:" << tablet_info.version
-                      << ", version_hash:" << tablet_info.version_hash
-                      << ", expected_version: " << _clone_req.committed_version
-                      << ", version_hash:" << _clone_req.committed_version_hash;
+                      << ", expected_version: " << _clone_req.committed_version;
             // if it is a new tablet and clone failed, then remove the tablet
             // if it is incremental clone, then must not drop the tablet
             if (is_new_tablet) {
@@ -268,9 +260,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                             << ", schema_hash:" << _clone_req.schema_hash
                             << ", signature:" << _signature
                             << ", version:" << tablet_info.version
-                            << ", version_hash:" << tablet_info.version_hash
-                            << ", expected_version: " << _clone_req.committed_version
-                            << ", version_hash:" << _clone_req.committed_version_hash;
+                            << ", expected_version: " << _clone_req.committed_version;
                 OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id, 
                     _clone_req.schema_hash);
                 if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
@@ -283,8 +273,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
             LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
                         << ", schema_hash:" << _clone_req.schema_hash
                         << ", signature:" << _signature
-                        << ", version:" << tablet_info.version
-                        << ", version_hash:" << tablet_info.version_hash;
+                        << ", version:" << tablet_info.version;
             _tablet_infos->push_back(tablet_info);
         }
     }
@@ -787,7 +776,6 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
     // check local versions
     for (auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
         Version local_version(rs_meta->start_version(), rs_meta->end_version());
-        VersionHash local_version_hash = rs_meta->version_hash();
         LOG(INFO) << "check local delta when full clone."
             << "tablet=" << tablet->full_name()
             << ", local_version=" << local_version.first << "-" << local_version.second;
@@ -813,8 +801,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
             // there is no necessity to clone it.
             for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
                 if (rs_meta->version().first == local_version.first
-                    && rs_meta->version().second == local_version.second
-                    && rs_meta->version_hash() == local_version_hash) {
+                    && rs_meta->version().second == local_version.second) {
                     existed_in_src = true;
                     break;
                 }
@@ -830,8 +817,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
                 } else {
                     LOG(INFO) << "Delta has already existed in local header, no need to clone."
                         << "tablet=" << tablet->full_name()
-                        << ", version='" << local_version.first<< "-" << local_version.second
-                        << ", version_hash=" << local_version_hash;
+                        << ", version='" << local_version.first<< "-" << local_version.second;
                 }
             } else {
                 // Delta labeled in local_version is not existed in clone header,
@@ -840,8 +826,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
                 versions_to_delete.push_back(local_version);
                 LOG(INFO) << "Delete delta not included by the clone header, should delete it from local header."
                           << "tablet=" << tablet->full_name() << ","
-                          << ", version=" << local_version.first<< "-" << local_version.second
-                          << ", version_hash=" << local_version_hash;
+                          << ", version=" << local_version.first<< "-" << local_version.second;
             }
         }
     }
@@ -851,8 +836,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
         LOG(INFO) << "Delta to clone."
                   << "tablet=" << tablet->full_name()
                   << ", version=" << rs_meta->version().first << "-"
-                  << rs_meta->version().second
-                  << ", version_hash=" << rs_meta->version_hash();
+                  << rs_meta->version().second;
     }
 
     // clone_data to tablet

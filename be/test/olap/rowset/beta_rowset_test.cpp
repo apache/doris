@@ -114,7 +114,6 @@ protected:
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
         rowset_writer_context->version.second = 10;
-        rowset_writer_context->version_hash = 110;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context, RowsetReaderSharedPtr* result) {
