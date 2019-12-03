@@ -303,17 +303,18 @@ public class Replica implements Writable {
             long newDataSize, long newRowCount) {
 
         LOG.debug("before update: {}", this.toString());
+        this.dataSize = newDataSize;
+        this.rowCount = newRowCount;
 
         if (newVersion < this.version) {
             // yiguolei: could not find any reason why new version less than this.version should run???
             LOG.warn("replica {} on backend {}'s new version {} is lower than meta version {}",
                     id, backendId, newVersion, this.version);
+            return;
         }
 
         this.version = newVersion;
         this.versionHash = newVersionHash;
-        this.dataSize = newDataSize;
-        this.rowCount = newRowCount;
 
         // just check it
         if (lastSuccessVersion <= this.version) {
@@ -395,11 +396,11 @@ public class Replica implements Writable {
             return true;
         }
 
-        if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
-                      expectedVersion, expectedVersionHash, this);
-            return false;
-        }
+//        if (this.version < expectedVersion) {
+//            LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
+//                      expectedVersion, expectedVersionHash, this);
+//            return false;
+//        }
         return true;
     }
 
