@@ -2783,10 +2783,6 @@ public class Catalog {
     }
 
     public void createTable(CreateTableStmt stmt) throws DdlException {
-        createTable(stmt, false);
-    }
-
-    public Table createTable(CreateTableStmt stmt, boolean isRestore) throws DdlException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -2806,45 +2802,43 @@ public class Catalog {
         }
 
         // check if table exists in db
-        if (!isRestore) {
-            db.readLock();
-            try {
-                if (db.getTable(tableName) != null) {
-                    if (stmt.isSetIfNotExists()) {
-                        LOG.info("create table[{}] which already exists", tableName);
-                        return db.getTable(tableName);
-                    } else {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-                    }
+        db.readLock();
+        try {
+            if (db.getTable(tableName) != null) {
+                if (stmt.isSetIfNotExists()) {
+                    LOG.info("create table[{}] which already exists", tableName);
+                    return;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
                 }
-            } finally {
-                db.readUnlock();
             }
+        } finally {
+            db.readUnlock();
         }
 
         if (engineName.equals("olap")) {
-            return createOlapTable(db, stmt, isRestore);
+            createOlapTable(db, stmt);
         } else if (engineName.equals("mysql")) {
-            return createMysqlTable(db, stmt, isRestore);
+            createMysqlTable(db, stmt);
         } else if (engineName.equals("kudu")) {
-            return createKuduTable(db, stmt);
+            createKuduTable(db, stmt);
         } else if (engineName.equals("broker")) {
-            return createBrokerTable(db, stmt, isRestore);
+            createBrokerTable(db, stmt);
         } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-            return createEsTable(db, stmt);
+            createEsTable(db, stmt);
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
-        return null;
+        return;
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        addPartition(db, tableName, null, addPartitionClause, false);
+        addPartition(db, tableName, null, addPartitionClause);
     }
 
     public Pair<Long, Partition> addPartition(Database db, String tableName, OlapTable givenTable,
-                                              AddPartitionClause addPartitionClause, boolean isRestore) throws DdlException {
+            AddPartitionClause addPartitionClause) throws DdlException {
         SingleRangePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
 
@@ -3277,8 +3271,7 @@ public class Catalog {
                                                  Pair<Long, Long> versionInfo,
                                                  Set<String> bfColumns,
                                                  double bfFpp,
-                                                 Set<Long> tabletIdSet,
-                                                 boolean isRestore) throws DdlException {
+            Set<Long> tabletIdSet) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3320,66 +3313,61 @@ public class Catalog {
             boolean ok = false;
             String errMsg = null;
 
-            if (!isRestore) {
-                // add create replica task for olap
-                short shortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
-                TStorageType storageType = indexIdToStorageType.get(indexId);
-                List<Column> schema = indexIdToSchema.get(indexId);
-                int totalTaskNum = index.getTablets().size() * replicationNum;
-                MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
-                AgentBatchTask batchTask = new AgentBatchTask();
-                for (Tablet tablet : index.getTablets()) {
-                    long tabletId = tablet.getId();
-                    for (Replica replica : tablet.getReplicas()) {
-                        long backendId = replica.getBackendId();
-                        countDownLatch.addMark(backendId, tabletId);
-                        CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId,
-                                partitionId, indexId, tabletId,
-                                shortKeyColumnCount, schemaHash,
-                                version, versionHash,
-                                keysType,
-                                storageType, storageMedium,
-                                schema, bfColumns, bfFpp,
-                                countDownLatch);
-                        batchTask.addTask(task);
-                        // add to AgentTaskQueue for handling finish report.
-                        // not for resending task
-                        AgentTaskQueue.addTask(task);
+            // add create replica task for olap
+            short shortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
+            TStorageType storageType = indexIdToStorageType.get(indexId);
+            List<Column> schema = indexIdToSchema.get(indexId);
+            int totalTaskNum = index.getTablets().size() * replicationNum;
+            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            AgentBatchTask batchTask = new AgentBatchTask();
+            for (Tablet tablet : index.getTablets()) {
+                long tabletId = tablet.getId();
+                for (Replica replica : tablet.getReplicas()) {
+                    long backendId = replica.getBackendId();
+                    countDownLatch.addMark(backendId, tabletId);
+                    CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId,
+                            partitionId, indexId, tabletId,
+                            shortKeyColumnCount, schemaHash,
+                            version, versionHash,
+                            keysType,
+                            storageType, storageMedium,
+                            schema, bfColumns, bfFpp,
+                            countDownLatch);
+                    batchTask.addTask(task);
+                    // add to AgentTaskQueue for handling finish report.
+                    // not for resending task
+                    AgentTaskQueue.addTask(task);
+                }
+            }
+            AgentTaskExecutor.submit(batchTask);
+
+            // estimate timeout
+            long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
+            try {
+                ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+                ok = false;
+            }
+
+            if (!ok || !countDownLatch.getStatus().ok()) {
+                errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
+                // clear tasks
+                AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
+
+                if (!countDownLatch.getStatus().ok()) {
+                    errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                } else {
+                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                    // only show at most 3 results
+                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                    if (!subList.isEmpty()) {
+                        errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
                     }
                 }
-                AgentTaskExecutor.submit(batchTask);
-
-                // estimate timeout
-                long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
-                timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
-                try {
-                    ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    LOG.warn("InterruptedException: ", e);
-                    ok = false;
-                }
-
-                if (!ok || !countDownLatch.getStatus().ok()) {
-                    errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
-                    // clear tasks
-                    AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
-
-                    if (!countDownLatch.getStatus().ok()) {
-                        errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
-                    } else {
-                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                        // only show at most 3 results
-                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
-                        if (!subList.isEmpty()) {
-                            errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
-                        }
-                    }
-                    LOG.warn(errMsg);
-                    throw new DdlException(errMsg);
-                }
-            } else {
-                // do nothing
-                // restore task will be done in RestoreJob
+                LOG.warn(errMsg);
+                throw new DdlException(errMsg);
             }
 
             if (index.getId() != baseIndexId) {
@@ -3391,7 +3379,7 @@ public class Catalog {
     }
 
     // Create olap table and related base index synchronously.
-    private Table createOlapTable(Database db, CreateTableStmt stmt, boolean isRestore) throws DdlException {
+    private void createOlapTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
@@ -3551,7 +3539,6 @@ public class Catalog {
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<Long>();
 
-        Table returnTable = null;
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
@@ -3572,7 +3559,7 @@ public class Catalog {
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
-                        tabletIdSet, isRestore);
+                        tabletIdSet);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3603,35 +3590,26 @@ public class Catalog {
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
-                            tabletIdSet, isRestore);
+                            tabletIdSet);
                     olapTable.addPartition(partition);
                 }
             } else {
                 throw new DdlException("Unsupport partition method: " + partitionInfo.getType().name());
             }
 
-            if (isRestore) {
-                // ATTN: do not add this table to db.
-                // if add, replica info may be removed when handling tablet
-                // report,
-                // cause be does not have real data file
-                returnTable = olapTable;
-                LOG.info("successfully create table[{};{}] to restore", tableName, tableId);
-            } else {
-                if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
-                }
-
-                // we have added these index to memory, only need to persist here
-                if (getColocateTableIndex().isColocateTable(tableId)) {
-                    GroupId groupId = getColocateTableIndex().getGroup(tableId);
-                    List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
-                    ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
-                    editLog.logColocateAddTable(info);
-                }
-
-                LOG.info("successfully create table[{};{}]", tableName, tableId);
+            if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
             }
+            
+            // we have added these index to memory, only need to persist here
+            if (getColocateTableIndex().isColocateTable(tableId)) {
+                GroupId groupId = getColocateTableIndex().getGroup(tableId);
+                List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
+                editLog.logColocateAddTable(info);
+            }
+            
+            LOG.info("successfully create table[{};{}]", tableName, tableId);
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
@@ -3644,11 +3622,10 @@ public class Catalog {
 
             throw e;
         }
-
-        return returnTable;
+        return;
     }
 
-    private Table createMysqlTable(Database db, CreateTableStmt stmt, boolean isRestore) throws DdlException {
+    private void createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
         List<Column> columns = stmt.getColumns();
@@ -3656,18 +3633,11 @@ public class Catalog {
         long tableId = Catalog.getInstance().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
-        Table returnTable = null;
-        if (isRestore) {
-            returnTable = mysqlTable;
-            LOG.info("successfully create table[{}-{}] to restore", tableName, tableId);
-        } else {
-            if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
-            }
-            LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
-
-        return returnTable;
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        return;
     }
 
     private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -3786,7 +3756,7 @@ public class Catalog {
         return kuduTable;
     }
 
-    private Table createBrokerTable(Database db, CreateTableStmt stmt, boolean isRestore) throws DdlException {
+    private void createBrokerTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
         List<Column> columns = stmt.getColumns();
@@ -3796,18 +3766,12 @@ public class Catalog {
         brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
 
-        Table returnTable = null;
-        if (isRestore) {
-            returnTable = brokerTable;
-            LOG.info("successfully create table[{}-{}] to restore", tableName, tableId);
-        } else {
-            if (!db.createTableWithLock(brokerTable, false, stmt.isSetIfNotExists())) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
-            }
-            LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        if (!db.createTableWithLock(brokerTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
 
-        return returnTable;
+        return;
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
@@ -6019,8 +5983,7 @@ public class Catalog {
                         null /* version info */,
                         copiedTbl.getCopiedBfColumns(),
                         copiedTbl.getBfFpp(),
-                        tabletIdSet,
-                        false /* not restore */);
+                        tabletIdSet);
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {
