@@ -111,7 +111,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP) \
     template<class type> \
-    Status CLASS<type>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const { \
+    Status CLASS<type>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* result) const { \
         BitmapIndexIterator *iterator = iterators[_column_id]; \
         if (iterator == nullptr) { \
             return Status::OK(); \
@@ -119,9 +119,9 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
         if (iterator->has_null_bitmap()) { \
             Roaring null_bitmap; \
             RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap)); \
-            *bitmap -= null_bitmap; \
+            *result -= null_bitmap; \
         } \
-        Roaring roaring; \
+        Roaring indexs; \
         for (auto value:_values) { \
             bool exact_match; \
             Status s = iterator->seek_dictionary(&value, &exact_match); \
@@ -129,13 +129,13 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
             if (!s.is_not_found()) { \
                 if (!s.ok()) { return s; } \
                 if (exact_match) { \
-                    Roaring bitmap; \
-                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &bitmap)); \
-                    roaring |= bitmap; \
+                    Roaring index; \
+                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &index)); \
+                    indexs |= index; \
                 } \
             } \
         } \
-        *bitmap OP roaring; \
+        *result OP indexs; \
         return Status::OK(); \
     } \
 

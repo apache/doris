@@ -36,7 +36,7 @@ class IndexPageIterator; // forward decl.
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
 // We use the same general format for all index pages, regardless of the data type and node type (leaf or internal)
-//   IndexPage := IndexEntry^NumEntry, StartOffset(4)^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
+//   IndexPage := IndexEntry^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
 //   IndexEntry := IndexKey, PagePointer
 //   IndexKey := KeyLength(vint32), KeyData(KeyLength bytes)
 //   PagePointer := PageOffset(vint64), PageSize(vint32)
@@ -75,7 +75,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(IndexPageBuilder);
     const size_t _index_page_size;
     const bool _is_leaf;
-    // is the builder currently between finish() and reset()?
     bool _finished = false;
     faststring _buffer;
     uint32_t _count = 0;
