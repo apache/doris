@@ -22,6 +22,10 @@ import org.apache.doris.common.DdlException;
 
 import java.util.Map;
 
+// Helper class to drives the convert of session variables according to the converters.
+// You can define your converter that implements interface VariableVarConverterI in here.
+// Each converter should put in map (variable name -> converters) and only converts the variable
+// with specified name.
 public class VariableVarConverters {
 
     public static final Map<String, VariableVarConverterI> converters = Maps.newHashMap();
@@ -37,6 +41,9 @@ public class VariableVarConverters {
         return value;
     }
 
+    /* Converters */
+
+    // Converter to convert sql mode variable
     public static class SqlModeConverter implements VariableVarConverterI {
         @Override
         public String convert(String value) throws DdlException {
