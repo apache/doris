@@ -76,6 +76,7 @@ private:
     // counters and statistics maintained during data write
     int64_t _num_rows_written;
     int64_t _total_data_size;
+    int64_t _total_index_size;
     // TODO rowset's Zonemap
 
     bool _is_pending = false;

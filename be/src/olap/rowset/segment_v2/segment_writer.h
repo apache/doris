@@ -44,6 +44,8 @@ extern const uint32_t k_segment_magic_length;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    // Todo(kks): only for UT, we should remove it when we support bitmap_index in FE
+    bool need_bitmap_index = false;
 };
 
 class SegmentWriter {
@@ -63,14 +65,14 @@ public:
 
     uint32_t num_rows_written() { return _row_count; }
 
-    Status finalize(uint64_t* segment_file_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* bitmap_index_size);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index();
+    Status _write_bitmap_index(uint64_t* bitmap_index_size);
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);

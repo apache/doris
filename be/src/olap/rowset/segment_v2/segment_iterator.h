@@ -20,6 +20,8 @@
 #include <memory>
 #include <vector>
 
+#include <roaring/roaring.hh>
+
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -37,6 +39,8 @@ class ShortKeyIndexIterator;
 
 namespace segment_v2 {
 
+class BitmapIndexIterator;
+class BitmapIndexReader;
 class ColumnIterator;
 
 class SegmentIterator : public RowwiseIterator {
@@ -64,9 +68,13 @@ private:
 
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
 
+    Status _get_row_ranges_from_bitmap_index(Roaring* bitmap_row_ranges);
+
     Status _init_column_iterators();
 
-    Status _next_batch(RowBlockV2* block, size_t* rows_read);
+    Status _init_bitmap_index_iterators();
+
+    Status _next_batch(RowBlockV2* block, size_t row_offset, size_t* rows_read);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -74,18 +82,70 @@ private:
     Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
 
 private:
+    class BitmapRangeIterator {
+       public:
+        explicit BitmapRangeIterator(const Roaring& bitmap) {
+            roaring_init_iterator(&bitmap.roaring, &_iter);
+            _last_val = 0;
+            _buf = new uint32_t[256];
+            _read_next_batch();
+        }
+
+        ~BitmapRangeIterator() {
+            delete[] _buf;
+        }
+
+        bool has_more_range() const { return !_eof; }
+
+        bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+            if (_eof) {
+                return false;
+            }
+            *from = _buf[_buf_pos];
+            uint32_t range_size = 0;
+            do {
+                _last_val = _buf[_buf_pos];
+                _buf_pos++;
+                range_size++;
+                if (_buf_pos == _buf_size) { // read next batch
+                    _read_next_batch();
+                }
+            } while (range_size < max_range_size && !_eof && _buf[_buf_pos] == _last_val + 1);
+            *to = *from + range_size;
+            return true;
+        }
+
+       private:
+        void _read_next_batch() {
+            uint32_t n = roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
+            _buf_pos = 0;
+            _buf_size = n;
+            _eof = n == 0;
+        }
+
+        static const uint32_t kBatchSize = 256;
+        roaring_uint32_iterator_t _iter;
+        uint32_t _last_val;
+        uint32_t* _buf = nullptr;
+        uint32_t _buf_pos;
+        uint32_t _buf_size;
+        bool _eof;
+    };
+
     std::shared_ptr<Segment> _segment;
     // TODO(zc): rethink if we need copy it
     Schema _schema;
     // _column_iterators.size() == _schema.num_columns()
     // _column_iterators[cid] == nullptr if cid is not in _schema
     std::vector<ColumnIterator*> _column_iterators;
-    // after init(), `_row_ranges` contains all rowid to scan
-    RowRanges _row_ranges;
+    // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
+    std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
+    // after init(), `_row_bitmap` contains all rowid to scan
+    Roaring _row_bitmap;
+    // an iterator for `_row_bitmap` that can be used to extract row range to scan
+    std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
     rowid_t _cur_rowid;
-    // index of the row range where `_cur_rowid` belongs to
-    size_t _cur_range_id;
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
 

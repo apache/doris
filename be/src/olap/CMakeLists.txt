@@ -82,6 +82,7 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
+    rowset/segment_v2/bitmap_index_reader.cpp
     rowset/segment_v2/bitmap_index_writer.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp

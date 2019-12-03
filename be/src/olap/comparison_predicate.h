@@ -33,6 +33,7 @@ class VectorizedRowBatch;
         virtual ~CLASS() { }  \
         virtual void evaluate(VectorizedRowBatch* batch) const override; \
         void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override; \
+        virtual Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* roaring) const override; \
     private: \
         type _value; \
     }; \
