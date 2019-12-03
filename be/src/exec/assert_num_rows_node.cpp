@@ -51,6 +51,7 @@ Status AssertNumRowsNode::open(RuntimeState* state) {
 Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    output_batch->reset();
     child(0)->get_next(state, output_batch, eos);
     _num_rows_returned += output_batch->num_rows();
     if (_num_rows_returned > _desired_num_rows) {
