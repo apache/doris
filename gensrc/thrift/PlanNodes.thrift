@@ -552,8 +552,8 @@ struct TBackendResourceProfile {
 }
 
 struct TAssertNumRowsNode {
-    1: required i32 desired_num_rows;
-    2: required string subquery_string;
+    1: optional i64 desired_num_rows;
+    2: optional string subquery_string;
 }
 
 // This is essentially a union of all messages corresponding to subclasses

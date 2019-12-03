@@ -356,7 +356,7 @@ public class StmtRewriter {
         // to eliminate any chance that column aliases from the parent query could reference
         // select items from the inline view after the rewrite.
         List<String> colLabels = Lists.newArrayList();
-        // 给subquery中的每个结果列取一个新的别名
+        // add a new alias for all of columns in subquery
         for (int i = 0; i < subqueryStmt.getColLabels().size(); ++i) {
             colLabels.add(subqueryStmt.getColumnAliasGenerator().getNextAlias());
         }

@@ -31,7 +31,7 @@ import org.apache.doris.thrift.TPlanNodeType;
  */
 public class AssertNumRowsNode extends PlanNode {
 
-    private int desiredNumOfRows;
+    private long desiredNumOfRows;
     private String subqueryString;
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {

@@ -18,15 +18,15 @@
 package org.apache.doris.analysis;
 
 public class AssertNumRowsElement {
-    private int desiredNumOfRows;
+    private long desiredNumOfRows;
     private String subqueryString;
 
-    public AssertNumRowsElement(int desiredNumOfRows, String subqueryString) {
+    public AssertNumRowsElement(long desiredNumOfRows, String subqueryString) {
         this.desiredNumOfRows = desiredNumOfRows;
         this.subqueryString = subqueryString;
     }
 
-    public int getDesiredNumOfRows() {
+    public long getDesiredNumOfRows() {
         return desiredNumOfRows;
     }
 

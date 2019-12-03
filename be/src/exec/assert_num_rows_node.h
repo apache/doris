@@ -34,7 +34,7 @@ public:
     virtual Status close(RuntimeState* state);
 
 private:
-    int _desired_num_rows;
+    int64_t _desired_num_rows;
     const std::string _subquery_string;
 };
 

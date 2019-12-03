@@ -21,6 +21,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 
@@ -51,16 +52,12 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     child(0)->get_next(state, output_batch, eos);
-    int num_rows_returned_before = _num_rows_returned;
     _num_rows_returned += output_batch->num_rows();
     if (_num_rows_returned > _desired_num_rows) {
-        _num_rows_returned = num_rows_returned_before;
         LOG(INFO) << "Expected no more than " << _desired_num_rows << " to be returned by expression "
                   << _subquery_string;
-        std::stringstream ss;
-        ss << "Expected no more than " << _desired_num_rows << " to be returned by expression "
-                  << _subquery_string;
-        return Status::Cancelled(ss.str());
+        return Status::Cancelled(Substitute("Expected no more than $0 to be returned by expression $1",
+                                            _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
