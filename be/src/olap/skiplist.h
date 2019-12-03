@@ -33,7 +33,6 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "runtime/mem_pool.h"
 #include "util/random.h"
-#include "olap/row.h"
 
 namespace doris {
 
@@ -41,20 +40,45 @@ template<typename Key, class Comparator>
 class SkipList {
 private:
     struct Node;
+    enum { kMaxHeight = 12 };
 
 public:
+    typedef Key key_type;
+	// One Hint object is to show position info of one row.
+	// It is used in the following scenarios:
+	//   // 1. check for existence
+	//   bool is_exist = skiplist->Find(key, & hint);
+	//   // 2. Do something separately based on the value of is_exist
+	//   if (is_exist) {
+	//       do_something1 ();
+	//   } else {
+	//       do_something2 ();
+	//       skiplist-> InsertUseHint (key, is_exist, hint);
+	//   }
+	//
+	// Note: The user should guarantee that there must not be any other insertion
+	// between calling Find() and InsertUseHint().
+    struct Hint {
+        Node* curr;
+        Node* prev[kMaxHeight];
+    };
+
     // Create a new SkipList object that will use "cmp" for comparing keys,
-    // and will allocate memory using "*mem_pool".  Objects allocated in the mem_pool
-    // must remain allocated for the lifetime of the skiplist object.
-    explicit SkipList(Comparator cmp, MemPool* mem_pool);
+    // and will allocate memory using "*mem_pool".
+    // NOTE: Objects allocated in the mem_pool must remain allocated for
+    // the lifetime of the skiplist object.
+    explicit SkipList(Comparator cmp, MemPool* mem_pool, bool can_dup);
 
     // Insert key into the list.
     // REQUIRES: nothing that compares equal to key is currently in the list.
-    void Insert(const Key& key, bool* overwritten, KeysType keys_type);
-    void Aggregate(const Key& k1, const Key& k2);
+    void Insert(const Key& key, bool* overwritten);
+    void InsertUseHint(const Key& key, bool is_exist, Hint* hint);
 
     // Returns true iff an entry that compares equal to key is in the list.
     bool Contains(const Key& key) const;
+    // Like Contains(), but it will return the position info as a hint. We can use this
+    // position info to insert directly using InsertUseHint().
+    bool Find(const Key& key, Hint* hint) const;
 
     // Iteration over the contents of a skip list
     class Iterator {
@@ -96,10 +120,10 @@ public:
     };
 
 private:
-    enum { kMaxHeight = 12 };
-
     // Immutable after construction
     Comparator const compare_;
+    // When value is true, means indicates that duplicate values are allowed.
+    bool _can_dup;
     MemPool* const _mem_pool;    // MemPool used for allocations of nodes
 
     Node* const head_;
@@ -322,8 +346,9 @@ SkipList<Key,Comparator>::FindLast() const {
 }
 
 template<typename Key, class Comparator>
-SkipList<Key,Comparator>::SkipList(Comparator cmp, MemPool* mem_pool)
-    : compare_(cmp),
+SkipList<Key,Comparator>::SkipList(Comparator cmp, MemPool* mem_pool, bool can_dup) :
+    compare_(cmp),
+    _can_dup(can_dup),
     _mem_pool(mem_pool),
     head_(NewNode(0 /* any key will do */, kMaxHeight)),
     max_height_(1),
@@ -334,22 +359,15 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, MemPool* mem_pool)
     }
 
 template<typename Key, class Comparator>
-void SkipList<Key, Comparator>::Aggregate(const Key& k1, const Key& k2) {
-    ContiguousRow dst_row(compare_._schema, k1);
-    ContiguousRow src_row(compare_._schema, k2);
-    agg_update_row(&dst_row, src_row, _mem_pool);
-}
-
-template<typename Key, class Comparator>
-void SkipList<Key,Comparator>::Insert(const Key& key, bool* overwritten, KeysType keys_type) {
+void SkipList<Key,Comparator>::Insert(const Key& key, bool* overwritten) {
     // TODO(opt): We can use a barrier-free variant of FindGreaterOrEqual()
     // here since Insert() is externally synchronized.
     Node* prev[kMaxHeight];
     Node* x = FindGreaterOrEqual(key, prev);
 
 #ifndef BE_TEST
-    if (x != nullptr && keys_type != KeysType::DUP_KEYS && Equal(key, x->key)) {
-        Aggregate(x->key, key);
+    // The key already exists and duplicate keys are not allowed, so we need to aggreage them
+    if (!_can_dup && x != nullptr && Equal(key, x->key)) {
         *overwritten = true;
         return;
     }
@@ -383,9 +401,61 @@ void SkipList<Key,Comparator>::Insert(const Key& key, bool* overwritten, KeysTyp
     }
 }
 
+// NOTE: Already be checked, the row is exist.
+template<typename Key, class Comparator>
+void SkipList<Key,Comparator>::InsertUseHint(const Key& key, bool is_exist, Hint* hint) {
+    Node* x = hint->curr;
+    DCHECK(!is_exist || x) << "curr pointer must not be null if row exists";
+
+#ifndef BE_TEST
+    // The key already exists and duplicate keys are not allowed, so we need to aggreage them
+    if (!_can_dup && is_exist) {
+        return;
+    }
+#endif
+
+    Node** prev = hint->prev;
+    // Our data structure does not allow duplicate insertion
+    int height = RandomHeight();
+    if (height > GetMaxHeight()) {
+        for (int i = GetMaxHeight(); i < height; i++) {
+            prev[i] = head_;
+        }
+        //fprintf(stderr, "Change height from %d to %d\n", max_height_, height);
+
+        // It is ok to mutate max_height_ without any synchronization
+        // with concurrent readers.  A concurrent reader that observes
+        // the new value of max_height_ will see either the old value of
+        // new level pointers from head_ (NULL), or a new value set in
+        // the loop below.  In the former case the reader will
+        // immediately drop to the next level since NULL sorts after all
+        // keys.  In the latter case the reader will use the new node.
+        max_height_.store(height, std::memory_order_relaxed);
+    }
+
+    x = NewNode(key, height);
+    for (int i = 0; i < height; i++) {
+        // NoBarrier_SetNext() suffices since we will add a barrier when
+        // we publish a pointer to "x" in prev[i].
+        x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
+        prev[i]->SetNext(i, x);
+    }
+}
+
 template<typename Key, class Comparator>
 bool SkipList<Key,Comparator>::Contains(const Key& key) const {
     Node* x = FindGreaterOrEqual(key, NULL);
+    if (x != NULL && Equal(key, x->key)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+template<typename Key, class Comparator>
+bool SkipList<Key,Comparator>::Find(const Key& key, Hint* hint) const {
+    Node* x = FindGreaterOrEqual(key, hint->prev);
+    hint->curr = x;
     if (x != NULL && Equal(key, x->key)) {
         return true;
     } else {
