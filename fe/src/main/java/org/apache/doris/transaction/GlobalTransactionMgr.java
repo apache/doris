@@ -1346,11 +1346,25 @@ public class GlobalTransactionMgr implements Writable {
         idGenerator.readFields(in);
     }
 
-    public TransactionState getCommittedTransactionStateByCallbackId(long callbackId) {
+    public TransactionState getTransactionStateByCallbackIdAndStatus(long callbackId, Set<TransactionStatus> status) {
         readLock();
         try {
             for (TransactionState txn : idToTransactionState.values()) {
-                if (txn.getCallbackId() == callbackId && txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
+                    return txn;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public TransactionState getTransactionStateByCallbackId(long callbackId) {
+        readLock();
+        try {
+            for (TransactionState txn : idToTransactionState.values()) {
+                if (txn.getCallbackId() == callbackId) {
                     return txn;
                 }
             }

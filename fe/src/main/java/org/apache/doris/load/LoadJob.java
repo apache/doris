@@ -63,6 +63,7 @@ public class LoadJob implements Writable {
     // QUORUM_FINISHED state is internal
     // To user, it should be transformed to FINISHED
     public enum JobState {
+        UNKNOWN, // only for show load state value check, details, see LoadJobV2's JobState
         PENDING,
         ETL,
         LOADING,
