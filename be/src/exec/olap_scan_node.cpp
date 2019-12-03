@@ -146,7 +146,6 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
-    _predicate_count = ADD_COUNTER(_runtime_profile, "PredicateCount", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {

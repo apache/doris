@@ -104,6 +104,35 @@ TEST_F(RowRangesTest, TestRowRanges) {
     ASSERT_EQ(20, row_ranges_union.get_range_count(0));
 }
 
+TEST_F(RowRangesTest, TestRangesToRoaring) {
+    RowRanges row_ranges;
+    RowRanges row_ranges1 = RowRanges::create_single(10, 20);
+    RowRanges row_ranges2 = RowRanges::create_single(20, 30);
+    RowRanges row_ranges3 = RowRanges::create_single(15, 30);
+    RowRanges row_ranges4 = RowRanges::create_single(40, 50);
+
+    Roaring row_bitmap = RowRanges::ranges_to_roaring(row_ranges1);
+    ASSERT_EQ(row_ranges1.count(), row_bitmap.cardinality());
+
+    row_bitmap = RowRanges::ranges_to_roaring(row_ranges3);
+    ASSERT_EQ(row_ranges3.count(), row_bitmap.cardinality());
+
+    RowRanges row_ranges_merge;
+    RowRanges::ranges_intersection(row_ranges1, row_ranges2, &row_ranges_merge);
+    row_bitmap = RowRanges::ranges_to_roaring(row_ranges_merge);
+    ASSERT_EQ(row_ranges_merge.count(), row_bitmap.cardinality());
+
+    RowRanges row_ranges_merge2;
+    RowRanges::ranges_intersection(row_ranges1, row_ranges3, &row_ranges_merge2);
+    row_bitmap = RowRanges::ranges_to_roaring(row_ranges_merge2);
+    ASSERT_EQ(row_ranges_merge2.count(), row_bitmap.cardinality());
+
+    RowRanges row_ranges_union;
+    RowRanges::ranges_union(row_ranges1, row_ranges2, &row_ranges_union);
+    row_bitmap = RowRanges::ranges_to_roaring(row_ranges_union);
+    ASSERT_EQ(row_ranges_union.count(), row_bitmap.cardinality());
+}
+
 }
 }
 

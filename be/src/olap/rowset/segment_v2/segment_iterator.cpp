@@ -198,7 +198,6 @@ Status SegmentIterator::_get_row_ranges_from_bitmap_index(Roaring* row_bitmap) {
     Roaring bitmap;
     bitmap.addRange(0, _segment->num_rows());
     for (auto pred: *_opts.column_predicates) {
-        _opts.stats->predicate_count += 1;
         RETURN_IF_ERROR(pred->evaluate(_schema, _bitmap_index_iterators, _segment->num_rows(), &bitmap));
     }
     *row_bitmap = std::move(bitmap);

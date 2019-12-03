@@ -275,9 +275,10 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
+    // row count filtered by bitmap inverted index
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
+    // time fro bitmap inverted index read and filter
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
-    RuntimeProfile::Counter* _predicate_count = nullptr;
 };
 
 } // namespace doris

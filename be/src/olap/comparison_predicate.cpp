@@ -196,7 +196,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 #define COMPARISON_PRED_BITMAP_EVALUATE(CLASS, OP) \
     template<class type> \
     Status CLASS<type>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const { \
-        BitmapIndexIterator *iterator = iterators[_column_id]; \
+        BitmapIndexIterator* iterator = iterators[_column_id]; \
         if (iterator == nullptr) { \
             return Status::OK(); \
         } \
