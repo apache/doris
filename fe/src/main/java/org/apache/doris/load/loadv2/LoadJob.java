@@ -293,9 +293,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return state == JobState.COMMITTED || state == JobState.FINISHED || state == JobState.CANCELLED;
     }
 
-    // return true if job is done(FINISHED/CANCELLED)
+    // return true if job is done(FINISHED/CANCELLED/UNKNOWN)
     public boolean isCompleted() {
-        return state == JobState.FINISHED || state == JobState.CANCELLED;
+        return state == JobState.FINISHED || state == JobState.CANCELLED || state == JobState.UNKNOWN;
     }
 
     protected void setJobProperties(Map<String, String> properties) throws DdlException {
@@ -430,6 +430,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected void unprotectedUpdateState(JobState jobState) {
         switch (jobState) {
+            case UNKNOWN:
+                executeUnknown();
+                break;
             case LOADING:
                 executeLoad();
                 break;
@@ -442,6 +445,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             default:
                 break;
         }
+    }
+
+    private void executeUnknown() {
+        // set finished timestamp to create timestamp, so that this unknown job
+        // can be remove due to label expiration so soon as possible
+        finishTimestamp = createTimestamp;
+        state = JobState.UNKNOWN;
     }
 
     private void executeLoad() {
@@ -557,7 +567,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                          .add("transaction_id", transactionId)
-                         .add("error_msg", "Failed to execute load with error " + failMsg.getMsg())
+                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg())
                          .build());
 
         // clean the loadingStatus
