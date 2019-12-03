@@ -152,7 +152,7 @@ public class SqlModeHelper {
         for (String key : names) {
             if (StringUtils.isNumeric(key)) {
                 value |= expand(Long.valueOf(key));
-                LOG.warn("Set sql mode with numerical value");
+                LOG.debug("Set sql mode with numerical value " + key);
                 continue;
             }
             // the SQL MODE must be supported, set sql mode repeatedly is not allowed
