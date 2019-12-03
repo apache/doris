@@ -255,7 +255,9 @@ abstract public class DorisHttpTestCase {
         httpServer.setup();
         httpServer.start();
         // must ensure the http server started before any unit test
-        Thread.sleep(5000);
+        while (!httpServer.isStarted()) {
+            Thread.sleep(500);
+        }
         doSetUp();
     }
 
