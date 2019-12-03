@@ -79,8 +79,8 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     if (docvalue_context.size() == 0 || docvalue_context.size() < fields.size()) {
         pure_docvalue = false;
     } else {
-        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
-            if (!(docvalue_context.find(*iter) != docvalue_context.end())) {
+        for (auto& select_field : fields) {
+            if (docvalue_context.find(select_field) == docvalue_context.end()) {
                 pure_docvalue = false;
                 break;
             }
@@ -88,13 +88,13 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     }
     rapidjson::Value source_node(rapidjson::kArrayType);
     if (pure_docvalue) {
-        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
-            rapidjson::Value field(docvalue_context.at(*iter).c_str(), allocator);
+        for (auto& select_field : fields) {
+            rapidjson::Value field(docvalue_context.at(select_field).c_str(), allocator);
             source_node.PushBack(field, allocator);
         }
     } else {
-        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
-            rapidjson::Value field(iter->c_str(), allocator);
+        for (auto& select_field : fields) {
+            rapidjson::Value field(select_field.c_str(), allocator);
             source_node.PushBack(field, allocator);
         }
     }
