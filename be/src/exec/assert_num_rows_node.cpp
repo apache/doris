@@ -56,8 +56,9 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
     if (_num_rows_returned > _desired_num_rows) {
         LOG(INFO) << "Expected no more than " << _desired_num_rows << " to be returned by expression "
                   << _subquery_string;
-        return Status::Cancelled(Substitute("Expected no more than $0 to be returned by expression $1",
-                                            _desired_num_rows, _subquery_string);
+        return Status::Cancelled(strings::Substitute(
+                                "Expected no more than $0 to be returned by expression $1",
+                                _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
