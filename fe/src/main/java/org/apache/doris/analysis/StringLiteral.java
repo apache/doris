@@ -38,7 +38,6 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -309,11 +308,6 @@ public class StringLiteral extends LiteralExpr {
         StringLiteral literal = new StringLiteral();
         literal.readFields(in);
         return literal;
-    }
-
-    @Override
-    public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(value);
     }
 }
 

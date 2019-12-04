@@ -34,7 +34,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
@@ -276,11 +275,6 @@ public class ArithmeticExpr extends Expr {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
         }
-    }
-
-    @Override
-    public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
 
