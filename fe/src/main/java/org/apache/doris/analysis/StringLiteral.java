@@ -17,14 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.Objects;
-
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -34,10 +26,19 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
+
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Preconditions;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -195,6 +196,17 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
+    /***
+     * get leading nums, e.g.
+     * 123 -> 123
+     * 123a -> 123
+     * -123 -> -123
+     * 123.123 -> 123.123
+     * 123e4 -> 123e4
+     * 123e-4 -> 123e-4
+     * @param str
+     * @return
+     */
     private String leadingNum(String str) {
         String in = str.trim();
         int len = in.length();
