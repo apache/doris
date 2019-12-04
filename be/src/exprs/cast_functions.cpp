@@ -113,7 +113,9 @@ CAST_FUNCTION(FloatVal, DoubleVal, double_val)
         num_type ret; \
         ret.val = StringParser::string_parser_fn<native_type>( \
                 reinterpret_cast<char*>(val.ptr), val.len, &result); \
-        if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) return num_type::null(); \
+        if (UNLIKELY(ret.val == NAN || ret.val == -NAN || ret.val == INFINITY || ret.val == -INFINITY)) { \
+            return num_type::null(); \
+        } \
         return ret; \
     }
 
