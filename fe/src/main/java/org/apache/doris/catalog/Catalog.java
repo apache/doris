@@ -110,6 +110,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.deploy.DeployManager;
@@ -418,6 +419,10 @@ public class Catalog {
 
     public MetaReplayState getMetaReplayState() {
         return metaReplayState;
+    }
+
+    public DynamicPartitionScheduler getDynamicPartitionScheduler() {
+        return this.dynamicPartitionScheduler;
     }
 
     private static class SingletonHolder {
@@ -3571,6 +3576,7 @@ public class Catalog {
                     Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
                     TableProperty tableProperty = new TableProperty();
                     tableProperty.modifyTableProperties(dynamicPartitionProperties);
+                    dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
                     olapTable.setTableProperty(tableProperty);
 
                     if (properties != null && !properties.isEmpty()) {
@@ -5072,6 +5078,7 @@ public class Catalog {
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
+            dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
             DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
             editLog.logDynamicPartition(info);
         }

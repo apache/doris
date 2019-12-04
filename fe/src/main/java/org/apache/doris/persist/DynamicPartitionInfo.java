@@ -66,10 +66,7 @@ public class DynamicPartitionInfo implements Writable {
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
-        JSONObject jsonObject = new JSONObject();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            jsonObject.put(entry.getKey(), entry.getValue());
-        }
+        JSONObject jsonObject = new JSONObject(properties);
         Text.writeString(out, jsonObject.toString());
     }
 
@@ -77,8 +74,7 @@ public class DynamicPartitionInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-        String jsonProperties = Text.readString(in);
-        JSONObject jsonObject = new JSONObject(jsonProperties);
+        JSONObject jsonObject = new JSONObject(Text.readString(in));
         Iterator<String> iterator = jsonObject.keys();
         while (iterator.hasNext()) {
             String key = iterator.next();
