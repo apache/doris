@@ -65,6 +65,7 @@ public abstract class ColumnType {
 
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {

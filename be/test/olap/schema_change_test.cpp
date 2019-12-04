@@ -377,6 +377,69 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
 }
 
+TEST_F(TestColumn, ConvertDateToDatetime) {
+    AddColumn(
+            "DateColumn",
+            "DATE",
+            "REPLACE",
+            3,
+            false,
+            true);
+    AddColumn(
+            "DateTimeColumn",
+            "DATETIME",
+            "REPLACE",
+            8,
+            false,
+            false);
+
+    TabletSchema tablet_schema;
+    InitTablet(&tablet_schema);
+    CreateColumnWriter(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    std::string origin_val = "2019-12-04";
+    std::string convert_val = "2019-12-04 00:00:00";
+    val_string_array.emplace_back(origin_val);
+    val_string_array.emplace_back(convert_val);
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+
+    ColumnDataHeaderMessage header_message;
+    ASSERT_EQ(_column_writer->finalize(&header_message), OLAP_SUCCESS);
+
+    CreateColumnReader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(tablet_schema);
+    _col_vector.reset(new ColumnVector());
+    ASSERT_EQ(_column_reader->next_vector(
+            _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.set_field_content(0, data, _mem_pool.get());
+    char* src = read_row.cell_ptr(0);
+    const Field* src_field = read_row.column_schema(0);
+    read_row.convert_from(1, src, src_field->type_info(), _mem_pool.get());
+    read_row.cell_ptr(1);
+    std::string dest_string = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
+    ASSERT_TRUE(dest_string.compare(convert_val) == 0);
+
+    //test not support type
+    TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
+    OLAPStatus st = read_row.convert_from(1, src, tp, _mem_pool.get());
+    ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
+}
+
 }
 
 int main(int argc, char** argv) {

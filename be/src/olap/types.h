@@ -523,6 +523,19 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> : public BaseFieldtypeTraits<OL
         strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
         return std::string(buf);
     }
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* memPool) {
+        // when convert date to datetime, automatic padding zero
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
+            auto value = *reinterpret_cast<const SrcType*>(src);
+            int day = static_cast<int>(value & 31);
+            int mon = static_cast<int>(value >> 5 & 15);
+            int year = static_cast<int>(value >> 9);
+            *reinterpret_cast<CppType*>(dest) = (year * 10000L + mon * 100L + day) * 1000000;
+            return OLAPStatus::OLAP_SUCCESS;
+        }
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+    }
     static void set_to_max(void* buf) {
         // 设置为最大时间，其含义为：9999-12-31 23:59:59
         *reinterpret_cast<CppType*>(buf) = 99991231235959L;
