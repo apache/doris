@@ -143,12 +143,10 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& pdelta : header_msg.delta()) {
         int64_t start_version = pdelta.start_version();
         int64_t end_version = pdelta.end_version();
-        int64_t version_hash = pdelta.version_hash();
         bool found = false;
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
             if (visible_rowset.start_version() == start_version
-                && visible_rowset.end_version() == end_version
-                && visible_rowset.version_hash() == version_hash) {
+                && visible_rowset.end_version() == end_version) {
                 found = true;
             }
         }
@@ -226,8 +224,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         bool found = false;
         for (auto& converted_pdelta : old_header_msg.delta()) {
             if (converted_pdelta.start_version() == pdelta.start_version()
-                && converted_pdelta.end_version() == pdelta.end_version()
-                && converted_pdelta.version_hash() == pdelta.version_hash()) {
+                && converted_pdelta.end_version() == pdelta.end_version()) {
                 found = true;
             }
         }
