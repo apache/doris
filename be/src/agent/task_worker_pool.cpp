@@ -810,6 +810,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
 
         DorisMetrics::publish_task_request_total.increment(1);
         LOG(INFO)<< "get publish version task, signature:" << agent_task_req.signature;
+        auto start = std::chrono::high_resolution_clock::now();
 
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
@@ -846,6 +847,9 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             _s_report_version++;
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        LOG(INFO) << "signature:" << agent_task_req.signature << " publish veriosn time " << elapsed;
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
