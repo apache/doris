@@ -17,6 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Objects;
+
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -25,17 +34,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
-
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import org.apache.logging.log4j.Logger;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
@@ -75,6 +75,11 @@ public class LargeIntLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid integer literal: " + value, e);
         }
         this.value = bigInt;
+        type = Type.LARGEINT;
+    }
+
+    public LargeIntLiteral(BigInteger value) {
+        this.value = value;
         type = Type.LARGEINT;
     }
 
@@ -222,4 +227,10 @@ public class LargeIntLiteral extends LiteralExpr {
         largeIntLiteral.readFields(in);
         return largeIntLiteral;
     }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
+    }
 }
+

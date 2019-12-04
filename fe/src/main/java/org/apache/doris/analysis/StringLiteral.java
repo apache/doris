@@ -21,6 +21,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Objects;
 
 import org.apache.doris.catalog.PrimitiveType;
@@ -155,6 +157,22 @@ public class StringLiteral extends LiteralExpr {
         return Double.valueOf(s);
     }
 
+    public BigInteger getBigIntegerValue() {
+        String s = leadingNum(value);
+        if (s == null || s.length() == 0) {
+            return new BigInteger("0");
+        }
+        return new BigInteger(s);
+    }
+
+    public BigDecimal getBigDecimalValue() {
+        String s = leadingNum(value);
+        if (s == null || s.length() == 0) {
+            return new BigDecimal(0);
+        }
+        return new BigDecimal(s);
+    }
+
     /**
      * Convert a string literal to a date literal
      *
@@ -228,9 +246,9 @@ public class StringLiteral extends LiteralExpr {
                 case SMALLINT:
                 case INT:
                 case BIGINT:
-                    return new IntLiteral(leadingNum(value), targetType);
+                    return new IntLiteral(getLongValue(), targetType);
                 case LARGEINT:
-                    return new LargeIntLiteral(leadingNum(value));
+                    return new LargeIntLiteral(getBigIntegerValue());
                 case FLOAT:
                 case DOUBLE:
                     try {
@@ -241,7 +259,7 @@ public class StringLiteral extends LiteralExpr {
                     break;
                 case DECIMAL:
                 case DECIMALV2:
-                    return new DecimalLiteral(leadingNum(value));
+                    return new DecimalLiteral(getBigDecimalValue());
                 default:
                     break;
             }
