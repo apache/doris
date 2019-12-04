@@ -15,10 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/heartbeat_flags_helper.h"
+#pragma once 
+
+#include <atomic>
+#include <map>
+#include <string>
 
 namespace doris {
 
-const std::string HeartbeatFlagsHelper::SET_DEFAULT_ROWSET_TYPE_TO_BETA = "set_default_rowset_type_to_beta";
+// This class is for parse control flags from heartbeat message
+// between FE and BE.
+class HeartbeatFlags {
+public:
+    HeartbeatFlags(uint64_t origin_flags) : _flags(origin_flags) { }
+
+    HeartbeatFlags() : HeartbeatFlags(0) { }
+
+    void update(uint64_t flags) {
+        _flags = flags;
+    }
+
+    bool is_set_default_rowset_type_to_beta() {
+        // the first bit is for IS_SET_DEFAULT_ROWSET_TYPE_TO_BETA flag
+        return _flags & 0x01;
+    }
+
+private:
+    std::atomic<uint64_t> _flags;
+};
 
 }

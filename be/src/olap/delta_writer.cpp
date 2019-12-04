@@ -24,6 +24,8 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/heartbeat_flags.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -128,7 +130,8 @@ OLAPStatus DeltaWriter::init() {
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
     writer_context.rowset_type = _storage_engine->default_rowset_type();
-    if (_storage_engine->set_default_rowset_type_to_beta()) {
+    HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
+    if (heartbeat_flags->is_set_default_rowset_type_to_beta()) {
         writer_context.rowset_type = BETA_ROWSET;
     }
     writer_context.rowset_path_prefix = _tablet->tablet_path();

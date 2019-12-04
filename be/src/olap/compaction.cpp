@@ -18,6 +18,8 @@
 #include "gutil/strings/substitute.h"
 #include "olap/compaction.h"
 #include "olap/rowset/rowset_factory.h"
+#include "runtime/exec_env.h"
+#include "runtime/heartbeat_flags.h"
 
 using std::vector;
 
@@ -94,7 +96,8 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
     context.rowset_type = StorageEngine::instance()->compaction_rowset_type();
-    if (StorageEngine::instance()->set_default_rowset_type_to_beta()) {
+    HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
+    if (heartbeat_flags->is_set_default_rowset_type_to_beta()) {
         context.rowset_type = BETA_ROWSET;
     }
     context.rowset_path_prefix = _tablet->tablet_path();

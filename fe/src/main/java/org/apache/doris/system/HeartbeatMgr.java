@@ -28,7 +28,6 @@ import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TBrokerOperationStatus;
@@ -67,6 +66,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
+    private HeartbeatFlags heartbeatFlags;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<TMasterInfo>();
 
@@ -74,6 +74,7 @@ public class HeartbeatMgr extends MasterDaemon {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
         this.executor = Executors.newCachedThreadPool();
+        this.heartbeatFlags = new HeartbeatFlags();
     }
 
     public void setMaster(int clusterId, String token, long epoch) {
@@ -81,7 +82,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
         tMasterInfo.setHttp_port(Config.http_port);
-        tMasterInfo.setHeartbeat_flag(GlobalVariable.heartbeatFlags);
+        long flags = heartbeatFlags.getHeartbeatFlags();
+        LOG.info("heartbeat flag:{}", flags);
+        tMasterInfo.setHeartbeat_flags(flags);
         masterInfo.set(tMasterInfo);
     }
 
@@ -218,7 +221,9 @@ public class HeartbeatMgr extends MasterDaemon {
 
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackend_ip(backend.getHost());
-                copiedMasterInfo.setHeartbeat_flag(GlobalVariable.heartbeatFlags);
+                long flags = heartbeatFlags.getHeartbeatFlags();
+                copiedMasterInfo.setHeartbeat_flags(flags);
+                LOG.info("heartbeat flag:{}", flags);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;

@@ -15,30 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/exec_env.h"
+package org.apache.doris.system;
 
-#include "gen_cpp/HeartbeatService_types.h"
-#include "runtime/heartbeat_flags.h"
+import org.apache.doris.qe.GlobalVariable;
 
-namespace doris {
-
-ExecEnv::ExecEnv() {
-}
-
-ExecEnv::~ExecEnv() {
-}
-
-const std::string& ExecEnv::token() const {
-    return _master_info->token;
-}
-
-HeartbeatFlags* ExecEnv::heartbeat_flags() {
-#ifdef BE_TEST
-    static HeartbeatFlags heartbeat_flags;
-    return &heartbeat_flags;
-#else
-    return _heartbeat_flags;
-#endif
-}
-
+public class HeartbeatFlags {
+    public long getHeartbeatFlags () {
+        long heartbeatFlags = 0;
+        if (GlobalVariable.is_set_default_rowset_to_beta) {
+            heartbeatFlags |= 0x01;
+        }
+        return heartbeatFlags;
+    }
 }

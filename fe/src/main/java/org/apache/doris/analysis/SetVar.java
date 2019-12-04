@@ -29,8 +29,6 @@ import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.qe.GlobalVariable;
-import org.apache.doris.qe.HeartbeatFlagHelper;
 
 // change one variable.
 public class SetVar {
@@ -125,17 +123,6 @@ public class SetVar {
             else if (result instanceof IntLiteral) {
                 String sqlMode = SqlModeHelper.decode(result.getLongValue());
                 result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
-            }
-        }
-        if (variable.equalsIgnoreCase(GlobalVariable.HEARTBEAT_FLAGS)) {
-            // For the case like "set GLOBAL heartbeat_flags = SET_DEFAULT_ROWSET_TYPE_TO_BETA"
-            if (result instanceof StringLiteral) {
-                String flags = result.getStringValue();
-                result = new StringLiteral(HeartbeatFlagHelper.analyze(flags).toString());
-            } else if (result instanceof IntLiteral) {
-                // For the case like "set GLOBAL heartbeat_flags = 1"
-                String sqlMode = HeartbeatFlagHelper.analyze(result.getLongValue());
-                result = new IntLiteral(result.getLongValue(), Type.BIGINT);
             }
         }
 
