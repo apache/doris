@@ -99,6 +99,18 @@ public:
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 };
 
+
+// process like predicate : k1 is null or k1 is not null"
+class ExistsQueryBuilder : public QueryBuilder {
+
+public:
+    ExistsQueryBuilder(const ExtIsNullPredicate& like_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
+
+private:
+    std::string _field;
+};
+
 // proccess bool compound query, and play the role of a bridge for transferring predicates to es native query
 class BooleanQueryBuilder : public QueryBuilder {
 
