@@ -151,7 +151,6 @@ Status HeartbeatServer::_heartbeat(
     if (master_info.__isset.heartbeat_flags) {
         HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
         heartbeat_flags->update(master_info.heartbeat_flags);
-        LOG(INFO) << "heartbeat_flags:" << master_info.heartbeat_flags;
     }
 
     if (need_report) {

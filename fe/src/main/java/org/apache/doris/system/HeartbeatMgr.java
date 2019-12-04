@@ -83,7 +83,6 @@ public class HeartbeatMgr extends MasterDaemon {
         tMasterInfo.setToken(token);
         tMasterInfo.setHttp_port(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
-        LOG.info("heartbeat flag:{}", flags);
         tMasterInfo.setHeartbeat_flags(flags);
         masterInfo.set(tMasterInfo);
     }
@@ -223,7 +222,6 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setBackend_ip(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeat_flags(flags);
-                LOG.info("heartbeat flag:{}", flags);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;
