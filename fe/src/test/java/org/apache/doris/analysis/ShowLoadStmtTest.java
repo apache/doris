@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -66,13 +66,9 @@ public class ShowLoadStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        ShowAlterStmt stmt = new ShowAlterStmt(AlterType.COLUMN, null);
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALTER COLUMN FROM `testCluster:testDb`", stmt.toString());
-
-        stmt = new ShowAlterStmt(AlterType.ROLLUP, null);
-        stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALTER ROLLUP FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -82,8 +78,28 @@ public class ShowLoadStmtTest {
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.replay(analyzer);
 
-        ShowAlterStmt stmt = new ShowAlterStmt(AlterType.ROLLUP, null);
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testWhere() throws UserException, AnalysisException {
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
+
+        SlotRef slotRef = new SlotRef(null, "label");
+        StringLiteral stringLiteral = new StringLiteral("abc");
+        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
+        stmt = new ShowLoadStmt(null, binaryPredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
+
+        LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
+                                                        slotRef, stringLiteral);
+        stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'abc\' LIMIT 10", stmt.toString());
     }
 }
