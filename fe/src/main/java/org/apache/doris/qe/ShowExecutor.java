@@ -1443,16 +1443,17 @@ public class ShowExecutor {
                         continue;
                     }
                     DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
+                    DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
                     rows.add(Lists.newArrayList(tbl.getName(),
                                                 dynamicPartitionProperty.getEnable().toUpperCase(),
                                                 dynamicPartitionProperty.getTimeUnit().toUpperCase(),
                                                 dynamicPartitionProperty.getEnd().toUpperCase(),
                                                 dynamicPartitionProperty.getPrefix(),
                                                 dynamicPartitionProperty.getBuckets().toUpperCase(),
-                                                DynamicPartitionScheduler.getLastUpdateTime(),
-                                                DynamicPartitionScheduler.getLastSchedulerTime(),
-                                                DynamicPartitionScheduler.getDynamicPartitionState().toString(),
-                                                DynamicPartitionScheduler.getMsg()));
+                                                dynamicPartitionScheduler.lastUpdateTime,
+                                                dynamicPartitionScheduler.lastSchedulerTime,
+                                                dynamicPartitionScheduler.dynamicPartitionState.toString(),
+                                                dynamicPartitionScheduler.Msg));
                 }
             } finally {
                 db.readUnlock();

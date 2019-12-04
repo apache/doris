@@ -50,87 +50,65 @@ import java.util.Set;
 public class DynamicPartitionScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionScheduler.class);
 
-    private static final String defaultValue = "N/A";
-    private static String lastSchedulerTime = defaultValue;
-    private static String lastUpdateTime = defaultValue;
-    private static State dynamicPartitionState = State.NORMAL;
-    private static String Msg = defaultValue;
+    private final String defaultValue = "N/A";
+    public String lastSchedulerTime = defaultValue;
+    public String lastUpdateTime = defaultValue;
+    public State dynamicPartitionState = State.NORMAL;
+    public String msg = defaultValue;
 
     public enum State {
         NORMAL,
         ERROR
     }
 
-    public static String getLastSchedulerTime() {
-        return lastSchedulerTime;
-    }
-
-    public static void setLastSchedulerTime(String lastSchedulerTime) {
-        DynamicPartitionScheduler.lastSchedulerTime = lastSchedulerTime;
-    }
-
-    public static String getLastUpdateTime() {
-        return lastUpdateTime;
-    }
-
-    public static void setLastUpdateTime(String lastUpdateTime) {
-        DynamicPartitionScheduler.lastUpdateTime = lastUpdateTime;
-    }
-
-    public static State getDynamicPartitionState() {
-        return dynamicPartitionState;
-    }
-
-    public static void setDynamicPartitionState(State state) {
-        dynamicPartitionState = state;
-    }
-
-    public static String getMsg() {
-        return Msg;
-    }
-
-    public static void setMsg(String msg) {
-        Msg = msg;
-    }
-
-
-    private static Set<Pair<Long, Long>> dynamicPartitionTableInfo = new HashSet<>();
+    private Set<Pair<Long, Long>> dynamicPartitionTableInfo = new HashSet<>();
     private boolean initialize;
 
     public DynamicPartitionScheduler(String name, long intervalMs) {
         super(name, intervalMs);
         this.initialize = false;
     }
-    public synchronized static void registerDynamicPartitionTable(Long dbId, Long tableId) {
+    public synchronized void registerDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
     }
 
-    public synchronized static void removeDynamicPartitionTable(Long dbId, Long tableId) {
+    public synchronized void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
-
-
 
     private void dynamicAddPartition() {
         for (Pair<Long, Long> tableInfo : dynamicPartitionTableInfo) {
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
             Database db = Catalog.getInstance().getDb(dbId);
-            if (db == null || db.getTable((tableId)) == null) {
-                DynamicPartitionScheduler.removeDynamicPartitionTable(dbId, tableId);
+
+            if (db == null) {
+                removeDynamicPartitionTable(dbId, tableId);
                 continue;
+            }
+
+            db.readLock();
+            Table table = db.getTable(tableId);
+            try {
+                if (table == null ||
+                        !Boolean.parseBoolean(((OlapTable) table).getTableProperty().getDynamicPartitionProperty().getEnable())) {
+                    removeDynamicPartitionTable(dbId, tableId);
+                    continue;
+                }
+            } finally {
+                db.readUnlock();
             }
 
             // Determine the partition column type
             // if column type is Date, format partition name as yyyyMMdd
             // if column type is DateTime, format partition name as yyyyMMddHHssmm
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
+            OlapTable olapTable = (OlapTable) table;
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
             Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
             String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
 
             Calendar calendar = Calendar.getInstance();
-            TableProperty tableProperty = table.getTableProperty();
+            TableProperty tableProperty = olapTable.getTableProperty();
             int end = Integer.parseInt(tableProperty.getDynamicPartitionProperty().getEnd());
             for (int i = 0; i <= end; i++) {
                 String dynamicPartitionPrefix = tableProperty.getDynamicPartitionProperty().getPrefix();
@@ -138,7 +116,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         i, (Calendar) calendar.clone(), partitionFormat);
                 String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(partitionRange);
                 // continue if partition already exists
-                if (table.getPartition(partitionName) != null) {
+                if (olapTable.getPartition(partitionName) != null) {
                     continue;
                 }
 
@@ -148,12 +126,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 PartitionValue partitionValue = new PartitionValue(nextBorder);
                 PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(partitionValue));
                 HashMap<String, String> partitionProperties = new HashMap<>(1);
-                partitionProperties.put("replication_num", String.valueOf(DynamicPartitionUtil.estimateReplicateNum(table)));
+                partitionProperties.put("replication_num", String.valueOf(DynamicPartitionUtil.estimateReplicateNum(olapTable)));
                 SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(true, partitionName,
                         partitionKeyDesc, partitionProperties);
 
                 // construct distribution desc
-                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) table.getDefaultDistributionInfo();
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) olapTable.getDefaultDistributionInfo();
                 List<String> distColumnNames = new ArrayList<>();
                 for (Column distributionColumn : hashDistributionInfo.getDistributionColumns()) {
                     distColumnNames.add(distributionColumn.getName());
@@ -164,14 +142,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 // add partition according to partition desc and distribution desc
                 AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
                 try {
-                    Catalog.getInstance().addPartition(db, table.getName(), addPartitionClause);
-                    setDynamicPartitionState(State.NORMAL);
-                    setMsg(defaultValue);
+                    Catalog.getInstance().addPartition(db, olapTable.getName(), addPartitionClause);
+                    dynamicPartitionState = State.NORMAL;
+                    msg = defaultValue;
                 } catch (DdlException e) {
-                    setDynamicPartitionState(State.ERROR);
-                    setMsg(e.getMessage());
+                    LOG.info("Dynamic add partition failed: " + e.getMessage());
+                    dynamicPartitionState = State.ERROR;
+                    msg = e.getMessage();
                 } finally {
-                    setLastSchedulerTime(TimeUtils.getCurrentFormatTime());
+                    lastSchedulerTime = TimeUtils.getCurrentFormatTime();
                 }
             }
         }
@@ -180,10 +159,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private void initDynamicPartitionTable() {
         for (Long dbId : Catalog.getInstance().getDbIds()) {
             Database db = Catalog.getInstance().getDb(dbId);
-            for (Table table : Catalog.getInstance().getDb(dbId).getTables()) {
-                if (DynamicPartitionUtil.isDynamicPartitionTable(table)) {
-                    registerDynamicPartitionTable(db.getId(), table.getId());
+            db.readLock();
+            try {
+                for (Table table : Catalog.getInstance().getDb(dbId).getTables()) {
+                    if (DynamicPartitionUtil.isDynamicPartitionTable(table)) {
+                        registerDynamicPartitionTable(db.getId(), table.getId());
+                    }
                 }
+            } finally {
+                db.readUnlock();
             }
         }
         initialize = true;

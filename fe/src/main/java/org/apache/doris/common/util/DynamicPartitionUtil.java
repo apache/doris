@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 
 import com.google.common.base.Strings;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
@@ -95,9 +96,9 @@ public class DynamicPartitionUtil {
                 Boolean.TRUE.toString().equalsIgnoreCase(enable) ||
                 Boolean.FALSE.toString().equalsIgnoreCase(enable)) {
             if (Boolean.parseBoolean(enable)) {
-                DynamicPartitionScheduler.registerDynamicPartitionTable(db.getId(), tbl.getId());
+                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(db.getId(), tbl.getId());
             } else {
-                DynamicPartitionScheduler.removeDynamicPartitionTable(db.getId(), tbl.getId());
+                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().removeDynamicPartitionTable(db.getId(), tbl.getId());
             }
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);

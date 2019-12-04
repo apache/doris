@@ -60,7 +60,6 @@ public class TableProperty implements Writable {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
-                DynamicPartitionScheduler.setLastUpdateTime(TimeUtils.getCurrentFormatTime());
             }
         }
         return new DynamicPartitionProperty(dynamicPartitionProperties);
@@ -74,10 +73,7 @@ public class TableProperty implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        JSONObject jsonObject = new JSONObject();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            jsonObject.put(entry.getKey(), entry.getValue());
-        }
+        JSONObject jsonObject = new JSONObject(properties);
         Text.writeString(out, jsonObject.toString());
     }
 
