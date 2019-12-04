@@ -177,6 +177,14 @@ public class Config extends ConfigBase {
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
     
     /*
+     * The heartbeat timeout of bdbje between master and follower.
+     * the default is 30 seconds, which is same as default value in bdbje.
+     * If the network is experiencing transient problems, of some unexpected long java GC annoying you,
+     * you can try to increase this value to decrease the chances of false timeouts
+     */
+    @ConfField public static int bdbje_heartbeat_timeout_second = 30;
+    
+    /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
      */
     @ConfField public static int txn_rollback_limit = 100;
