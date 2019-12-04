@@ -982,18 +982,9 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
     LOG(WARNING) << ss.str();
 }
 
- OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {
+OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {
     if (rowset == nullptr) {
         return OLAP_ERR_ROWSET_INVALID;
-    }
-    Version version = {rowset->start_version(), rowset->end_version()};
-    RowsetSharedPtr exist_rs = get_rowset_by_version(version);
-    // if there exist a rowset with version_hash == 0, should delete it
-    if (exist_rs != nullptr && exist_rs->version_hash() == 0) {
-        vector<RowsetSharedPtr> to_add;
-        vector<RowsetSharedPtr> to_delete;
-        to_delete.push_back(exist_rs);
-        RETURN_NOT_OK(modify_rowsets(to_add, to_delete));
     }
 
     // check if there exist a rowset contains the added rowset
