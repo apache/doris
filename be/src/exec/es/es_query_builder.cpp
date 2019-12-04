@@ -54,9 +54,8 @@ TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& 
 
 }
 
-TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) {
-    _field =  binary_predicate.col.name;
-    _term = binary_predicate.value.to_string();
+TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) : _field(binary_predicate.col.name), _term(binary_predicate.value.to_string()) {
+
 }
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -69,10 +68,7 @@ void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* 
     query->AddMember("term", term_node, allocator);
 }
 
-RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) {
-    _field = range_predicate.col.name;
-    _value = range_predicate.value.to_string();
-    _op = range_predicate.op;
+RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) : _field(range_predicate.col.name), _value(range_predicate.value.to_string()), _op(range_predicate.op) {
 }
 
 void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -112,11 +108,10 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     term_node.AddMember(field_value, term_value, allocator);
     query->AddMember("wildcard", term_node, allocator);
 }
-WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) {
+WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
     std::replace(_like_value.begin(), _like_value.end(), '_', '?');
     std::replace(_like_value.begin(), _like_value.end(), '%', '*');
-    _field = like_predicate.col.name;
 }
 
 void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -132,8 +127,7 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
     query->AddMember("terms", terms_node, allocator);
 }
 
-TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate) {
-    _field = in_predicate.col.name;
+TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate)  : _field(in_predicate.col.name) {
     for (auto& value : in_predicate.values) {
         _values.push_back(value.to_string());
     }
@@ -146,8 +140,8 @@ void MatchAllQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     query->AddMember("match_all", match_all_node, allocator);
 }
 
-ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate) {
-    _field = is_null_predicate.col.name;
+ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate) : _field(is_null_predicate.col.name) {
+
 }
 
 void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
