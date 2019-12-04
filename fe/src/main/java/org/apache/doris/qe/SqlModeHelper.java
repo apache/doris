@@ -160,30 +160,29 @@ public class SqlModeHelper {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
             }
             if (isCombineMode(key)) {
-                // set multiple combine mode is not allowed
-                if ((value & MODE_COMBINE_MASK) != 0) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
-                }
                 value |= getCombineMode().get(key);
             }
             value |= getSupportedSqlMode().get(key);
         }
 
+        // ensure multi sql mode is not set
+        long combineModeValue = value & MODE_COMBINE_MASK;
+        if ((combineModeValue & (combineModeValue -1)) != 0) {
+            throw new DdlException("Set multi combine mode is not allowed");
+        }
+
         return value;
     }
 
-    // expand the combine mode if exists, ensure not to set multi combine mode
+    // expand the combine mode if exists
     public static long expand(long sqlMode) throws DdlException {
         long value = sqlMode;
         if ((value & ~MODE_ALLOWED_MASK) != 0) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }
         value &= MODE_COMBINE_MASK;
-        if ((value & (value - 1)) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
-        }
         for (String key : getCombineMode().keySet()) {
-            if (value == getSupportedSqlMode().get(key)) {
+            if ((value & getSupportedSqlMode().get(key)) != 0) {
                 sqlMode |= getCombineMode().get(key);
             }
         }
