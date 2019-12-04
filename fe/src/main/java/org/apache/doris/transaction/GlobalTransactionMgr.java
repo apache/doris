@@ -622,73 +622,16 @@ public class GlobalTransactionMgr implements Writable {
      * a ready-to-publish txn's partition's visible version should be ONE less than txn's commit version.
      */
     public List<TransactionState> getReadyToPublishTransactions() throws UserException {
-        List<TransactionState> readyPublishTransactionState = new ArrayList<>();
-        List<TransactionState> allCommittedTransactionState = null;
-        writeLock();
+        readLock();
         try {
             // only send task to committed transaction
-            allCommittedTransactionState = idToTransactionState.values().stream()
+            return idToTransactionState.values().stream()
                     .filter(transactionState -> (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
+                    .sorted(Comparator.comparing(TransactionState::getCommitTime))
                     .collect(Collectors.toList());
-            for (TransactionState transactionState : allCommittedTransactionState) {
-                long dbId = transactionState.getDbId();
-                Database db = catalog.getDb(dbId);
-                if (null == db) {
-                    transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                    unprotectUpsertTransactionState(transactionState);
-                    continue;
-                }
-            }
         } finally {
-            writeUnlock();
+            readUnlock();
         }
-        
-        for (TransactionState transactionState : allCommittedTransactionState) {
-            boolean meetPublishPredicate = true;
-            long dbId = transactionState.getDbId();
-            Database db = catalog.getDb(dbId);
-            if (null == db) {
-                continue;
-            }
-            db.readLock();
-            try {
-                readLock();
-                try {
-                    for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                        OlapTable table = (OlapTable) db.getTable(tableCommitInfo.getTableId());
-                        if (null == table) {
-                            LOG.warn("table {} is dropped after commit, ignore this table",
-                                     tableCommitInfo.getTableId());
-                            continue;
-                        }
-                        for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
-                            Partition partition = table.getPartition(partitionCommitInfo.getPartitionId());
-                            if (null == partition) {
-                                LOG.warn("partition {} is dropped after commit, ignore this partition",
-                                         partitionCommitInfo.getPartitionId());
-                                continue;
-                            }
-                            if (partitionCommitInfo.getVersion() != partition.getVisibleVersion() + 1) {
-                                meetPublishPredicate = false;
-                                break;
-                            }
-                        }
-                        if (!meetPublishPredicate) {
-                            break;
-                        }
-                    }
-                    if (meetPublishPredicate) {
-                        LOG.debug("transaction [{}] is ready to publish", transactionState);
-                        readyPublishTransactionState.add(transactionState);
-                    }
-                } finally {
-                    readUnlock();
-                }
-            } finally {
-                db.readUnlock();
-            }
-        }
-        return readyPublishTransactionState;
     }
     
     /**
@@ -740,6 +683,13 @@ public class GlobalTransactionMgr implements Writable {
                 for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                     long partitionId = partitionCommitInfo.getPartitionId();
                     Partition partition = table.getPartition(partitionId);
+                    if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
+                        LOG.debug("transactionId {}  VisibleVersion {}, CommitIn version {}. need wait",
+                                transactionId,
+                                partition.getVisibleVersion(),
+                                partitionCommitInfo.getVersion());
+                        return;
+                    }
                     // partition maybe dropped between commit and publish version, ignore this error
                     if (partition == null) {
                         tableCommitInfo.removePartition(partitionId);
@@ -771,7 +721,6 @@ public class GlobalTransactionMgr implements Writable {
                                         && replica.getLastFailedVersion() < 0) {
                                     // this means the replica is a healthy replica,
                                     // it is healthy in the past and does not have error in current load
-                                    
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(),
                                             partition.getVisibleVersionHash(), true)) {
                                         // during rollup, the rollup replica's last failed version < 0,
@@ -787,6 +736,7 @@ public class GlobalTransactionMgr implements Writable {
                                         // B and C is crashed, now we need a Clone task to repair this tablet.
                                         // So, here we update A's version info, so that clone task will clone
                                         // the latest version of data.
+
                                         replica.updateVersionInfo(partitionCommitInfo.getVersion(),
                                                                   partitionCommitInfo.getVersionHash(),
                                                                   replica.getDataSize(), replica.getRowCount());

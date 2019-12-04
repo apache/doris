@@ -301,7 +301,6 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
-
         LOG.debug("before update: {}", this.toString());
 
         if (newVersion < this.version) {
