@@ -198,6 +198,24 @@ struct TBrokerScanNode {
 struct TEsScanNode {
     1: required Types.TTupleId tuple_id
     2: optional map<string,string> properties
+    // used to indicate which fields can get from ES docavalue
+    // because elasticsearch can have "fields" feature, field can have
+    // two or more types, the first type maybe have not docvalue but other
+    // can have, such as (text field not have docvalue, but keyword can have):
+    // "properties": {
+    //      "city": {
+    //        "type": "text",
+    //        "fields": {
+    //          "raw": {
+    //            "type":  "keyword"
+    //          }
+    //        }
+    //      }
+    //    }
+    // then the docvalue context provided the mapping between the select field and real request field :
+    // {"city": "city.raw"}
+    // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
+    3: optional map<string, string> docvalue_context
 }
 
 struct TMiniLoadEtlFunction {
