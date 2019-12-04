@@ -1453,7 +1453,7 @@ public class ShowExecutor {
                                                 dynamicPartitionScheduler.lastUpdateTime,
                                                 dynamicPartitionScheduler.lastSchedulerTime,
                                                 dynamicPartitionScheduler.dynamicPartitionState.toString(),
-                                                dynamicPartitionScheduler.Msg));
+                                                dynamicPartitionScheduler.msg));
                 }
             } finally {
                 db.readUnlock();
