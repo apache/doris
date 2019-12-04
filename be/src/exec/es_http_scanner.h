@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -66,7 +67,7 @@ public:
 
     Status open();
 
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof);
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context);
 
     void close();
 
