@@ -3910,6 +3910,12 @@ public class Catalog {
                 sb.append(colocateTable).append("\"");
             }
 
+            // 6. storage medium
+            if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+                sb.append(olapTable.getPartitionInfo().idToDataProperty.values().iterator().next().getStorageMedium()).append("\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4001,6 +4007,7 @@ public class Catalog {
                 sb.append("(\"version_info\" = \"");
                 sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
+                sb.append(",\"storage_medium\" = \"").append(partitionInfo.getDataProperty(partition.getId()).getStorageMedium()).append("\"");
                 if (replicationNum > 0) {
                     sb.append(", \"replication_num\" = \"").append(replicationNum).append("\"");
                 }

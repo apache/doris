@@ -386,6 +386,7 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
 
+            sb.append(", storage_medium=").append(idToDataProperty.get(partition.getId()).getStorageMedium());
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
