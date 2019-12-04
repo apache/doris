@@ -17,8 +17,7 @@
 
 #include "exprs/cast_functions.h"
 
-#include <math.h>
-#include <boost/lexical_cast.hpp>
+#include <cmath>
 
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
@@ -113,8 +112,8 @@ CAST_FUNCTION(FloatVal, DoubleVal, double_val)
         num_type ret; \
         ret.val = StringParser::string_parser_fn<native_type>( \
                 reinterpret_cast<char*>(val.ptr), val.len, &result); \
-        if (UNLIKELY(ret.val == NAN || ret.val == -NAN || ret.val == INFINITY || ret.val == -INFINITY)) { \
-            return num_type::null(); \
+        if (UNLIKELY(std::isnan(ret.val) || std::isinf(ret.val))) { \
+            ret.val = 0; \
         } \
         return ret; \
     }

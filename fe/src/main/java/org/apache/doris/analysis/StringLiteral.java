@@ -17,6 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.Objects;
+
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -26,16 +32,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
-
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import com.google.common.base.Preconditions;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -139,12 +139,20 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        return Long.valueOf(value);
+        String s = leadingNum(value);
+        if (s == null || s.length() == 0) {
+            return 0L;
+        }
+        return Long.valueOf(s);
     }
 
     @Override
     public double getDoubleValue() {
-        return Double.valueOf(value);
+        String s = leadingNum(value);
+        if (s == null || s.length() == 0) {
+            return 0.0;
+        }
+        return Double.valueOf(s);
     }
 
     /**
@@ -169,6 +177,49 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
+    private String leadingNum(String str) {
+        String in = str.trim();
+        int len = in.length();
+        int i = 0;
+        if (len == 0) {
+            return in;
+        }
+        char c = in.charAt(i);
+        if (c == '-' || c == '+') {
+            i++;
+        }
+        boolean decSeen = false;
+        while (i < len) {
+            c = in.charAt(i);
+            if (c == '.') {
+                if (decSeen) {
+                    return in.substring(0, i);
+                }
+                decSeen = true;
+            } else if (c < '0' || c > '9') {
+                break;
+            }
+            i++;
+        }
+        if ((i < len) && (((c == 'e') || (c == 'E')))) {
+            if (i + 1 < len) {
+                c = in.charAt(i++);
+                if (c == '-' || c == '+') {
+                    i++;
+                }
+            }
+            while (i < len) {
+                c = in.charAt(i);
+                if (c < '0' || c > '9') {
+                    break;
+                } else {
+                    i++;
+                }
+            }
+        }
+        return in.substring(0, i);
+    }
+
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isNumericType()) {
@@ -177,20 +228,20 @@ public class StringLiteral extends LiteralExpr {
                 case SMALLINT:
                 case INT:
                 case BIGINT:
-                    return new IntLiteral(value, targetType);
+                    return new IntLiteral(leadingNum(value), targetType);
                 case LARGEINT:
-                    return new LargeIntLiteral(value);
+                    return new LargeIntLiteral(leadingNum(value));
                 case FLOAT:
                 case DOUBLE:
                     try {
-                        return new FloatLiteral(Double.valueOf(value), targetType);
+                        return new FloatLiteral(getDoubleValue(), targetType);
                     } catch (NumberFormatException e) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
                     }
                     break;
                 case DECIMAL:
                 case DECIMALV2:
-                    return new DecimalLiteral(value);
+                    return new DecimalLiteral(leadingNum(value));
                 default:
                     break;
             }
@@ -229,4 +280,10 @@ public class StringLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
+    }
 }
+
