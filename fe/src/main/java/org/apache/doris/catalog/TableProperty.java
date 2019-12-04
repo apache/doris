@@ -17,10 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.TimeUtils;
 import org.json.JSONObject;
 
 import java.io.DataInput;
