@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -28,6 +29,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
@@ -41,12 +45,19 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+/**
+ * This class is used to periodically add or drop partition on an olapTable which specify dynamic partition properties
+ * Config.dynamic_partition_enable determine whether this feature is enable, Config.dynamic_partition_check_interval_seconds
+ * determine how often the task is performed
+ */
 public class DynamicPartitionScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionScheduler.class);
 
@@ -116,13 +127,25 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         i, (Calendar) calendar.clone(), partitionFormat);
                 String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(partitionRange);
                 // continue if partition already exists
-                if (olapTable.getPartition(partitionName) != null) {
+                String nextBorder = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
+                        i + 1, (Calendar) calendar.clone(), partitionFormat);
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                if (partitionInfo.getType() != PartitionType.RANGE) {
+                    continue;
+                }
+                boolean isPartitionExists = false;
+                RangePartitionInfo info = (RangePartitionInfo) (partitionInfo);
+                for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
+                    if (partitionKeyRange.upperEndpoint().getKeys().get(0).getStringValue().equals(nextBorder)) {
+                        isPartitionExists = true;
+                        break;
+                    }
+                }
+                if (isPartitionExists) {
                     continue;
                 }
 
                 // construct partition desc
-                String nextBorder = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
-                        i + 1, (Calendar) calendar.clone(), partitionFormat);
                 PartitionValue partitionValue = new PartitionValue(nextBorder);
                 PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(partitionValue));
                 HashMap<String, String> partitionProperties = new HashMap<>(1);
