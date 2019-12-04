@@ -47,8 +47,9 @@ public class DomainResolver extends MasterDaemon {
         this.auth = auth;
     }
 
+    // 'public' for test
     @Override
-    protected void runAfterCatalogReady() {
+    public void runAfterCatalogReady() {
         // qualified user name -> domain name
         Map<String, Set<String>> userMap = Maps.newHashMap();
         auth.getCopiedWhiteList(userMap);
