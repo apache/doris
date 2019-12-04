@@ -54,9 +54,8 @@ TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& 
 
 }
 
-TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) {
-    _field =  binary_predicate.col.name;
-    _term = binary_predicate.value.to_string();
+TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) : _field(binary_predicate.col.name), _term(binary_predicate.value.to_string()) {
+
 }
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -69,10 +68,7 @@ void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* 
     query->AddMember("term", term_node, allocator);
 }
 
-RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) {
-    _field = range_predicate.col.name;
-    _value = range_predicate.value.to_string();
-    _op = range_predicate.op;
+RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) : _field(range_predicate.col.name), _value(range_predicate.value.to_string()), _op(range_predicate.op) {
 }
 
 void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -112,11 +108,10 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     term_node.AddMember(field_value, term_value, allocator);
     query->AddMember("wildcard", term_node, allocator);
 }
-WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) {
+WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
     std::replace(_like_value.begin(), _like_value.end(), '_', '?');
     std::replace(_like_value.begin(), _like_value.end(), '%', '*');
-    _field = like_predicate.col.name;
 }
 
 void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -132,8 +127,7 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
     query->AddMember("terms", terms_node, allocator);
 }
 
-TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate) {
-    _field = in_predicate.col.name;
+TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate)  : _field(in_predicate.col.name) {
     for (auto& value : in_predicate.values) {
         _values.push_back(value.to_string());
     }
@@ -144,6 +138,19 @@ void MatchAllQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     rapidjson::Value match_all_node(rapidjson::kObjectType);
     match_all_node.SetObject();
     query->AddMember("match_all", match_all_node, allocator);
+}
+
+ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate) : _field(is_null_predicate.col.name) {
+
+}
+
+void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
+    rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
+    rapidjson::Value term_node(rapidjson::kObjectType);
+    term_node.SetObject();
+    rapidjson::Value field_name(_field.c_str(), allocator);
+    term_node.AddMember("field", field_name, allocator);
+    query->AddMember("exists", term_node, allocator);
 }
 
 BooleanQueryBuilder::BooleanQueryBuilder() {
@@ -217,6 +224,18 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
                 ExtLikePredicate* like_predicate = (ExtLikePredicate *)predicate;
                 WildCardQueryBuilder* wild_card_query = new WildCardQueryBuilder(*like_predicate);
                 _should_clauses.push_back(wild_card_query);
+                break;
+            }
+            case TExprNodeType::IS_NULL_PRED: {
+                ExtIsNullPredicate* is_null_preidicate = (ExtIsNullPredicate *)predicate;
+                ExistsQueryBuilder* exists_query = new ExistsQueryBuilder(*is_null_preidicate);
+                if (is_null_preidicate->is_not_null) {
+                    _should_clauses.push_back(exists_query);
+                } else {
+                    BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                    bool_query->must_not(exists_query);
+                    _should_clauses.push_back(bool_query);
+                }
                 break;
             }
             case TExprNodeType::FUNCTION_CALL: {
@@ -330,6 +349,7 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
                     break;
                 }
                 case TExprNodeType::LIKE_PRED:
+                case TExprNodeType::IS_NULL_PRED:
                 case TExprNodeType::IN_PRED: {
                     break;
                 }
