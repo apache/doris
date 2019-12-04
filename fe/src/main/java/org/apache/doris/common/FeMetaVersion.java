@@ -138,10 +138,16 @@ public final class FeMetaVersion {
     public static final int VERSION_63 = 63;
     // for table create time
     public static final int VERSION_64 = 64;
+
     // support sql mode, change sql_mode from string to long
     public static final int VERSION_65 = 65;
     // routine load/stream load persist session variables
     public static final int VERSION_66 = 66;
     // load_mem_limit session variable
     public static final int VERSION_67 = 67;
+    // for es table context
+    public static final int VERSION_68 = 68;
+
+    // note: when increment meta version, should assign the latest version to VERSION_CURRENT
+    public static final int VERSION_CURRENT = VERSION_68;
 }

@@ -17,7 +17,6 @@
 
 #include "exec/es/es_scroll_query.h"
 
-#include <boost/algorithm/string/join.hpp>
 #include <sstream>
 
 #include "common/logging.h"
@@ -64,7 +63,7 @@ std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scr
 
 std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
                 const std::vector<std::string>& fields,
-                std::vector<EsPredicate*>& predicates) {
+                std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context) {
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
@@ -75,15 +74,39 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
     // note: add `query` for this value....
     es_query_dsl.AddMember("query", query_node, allocator);
-    // just filter the selected fields for reducing the network cost
-    if (fields.size() > 0) {
-        rapidjson::Value source_node(rapidjson::kArrayType);
-        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
-            rapidjson::Value field(iter->c_str(), allocator);
+    bool pure_docvalue = true;
+    // check docvalue sacan optimization
+    if (docvalue_context.size() == 0 || docvalue_context.size() < fields.size()) {
+        pure_docvalue = false;
+    } else {
+        for (auto& select_field : fields) {
+            if (docvalue_context.find(select_field) == docvalue_context.end()) {
+                pure_docvalue = false;
+                break;
+            }
+        }
+    }
+    rapidjson::Value source_node(rapidjson::kArrayType);
+    if (pure_docvalue) {
+        for (auto& select_field : fields) {
+            rapidjson::Value field(docvalue_context.at(select_field).c_str(), allocator);
             source_node.PushBack(field, allocator);
         }
+    } else {
+        for (auto& select_field : fields) {
+            rapidjson::Value field(select_field.c_str(), allocator);
+            source_node.PushBack(field, allocator);
+        }
+    }
+
+    // just filter the selected fields for reducing the network cost
+    if (pure_docvalue) {
+        es_query_dsl.AddMember("stored_fields", "_none_", allocator);
+        es_query_dsl.AddMember("docvalue_fields", source_node, allocator);
+    } else {
         es_query_dsl.AddMember("_source", source_node, allocator);
     }
+
     int size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
     rapidjson::Value sort_node(rapidjson::kArrayType);
     // use the scroll-scan mode for scan index documents

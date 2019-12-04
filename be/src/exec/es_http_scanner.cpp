@@ -88,7 +88,7 @@ Status EsHttpScanner::open() {
     return Status::OK();
 }
 
-Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context) {
     SCOPED_TIMER(_read_timer);
     if (_line_eof && _batch_eof) {
         *eof = true;
@@ -107,7 +107,7 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
         RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(
-                        _tuple_desc, tuple, tuple_pool, &_line_eof));
+                        _tuple_desc, tuple, tuple_pool, &_line_eof, docvalue_context));
         if (!_line_eof) {
             break;
         }

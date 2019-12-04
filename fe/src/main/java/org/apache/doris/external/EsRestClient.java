@@ -94,6 +94,25 @@ public class EsRestClient {
     }
 
     /**
+     *
+     * Get the Elasticsearch cluster version
+     *
+     * @return
+     */
+    public EsMajorVersion version() {
+        Map<String, String> versionMap = get("/", "version");
+
+        EsMajorVersion majorVersion;
+        try {
+            majorVersion = EsMajorVersion.parse(versionMap.get("version"));
+        } catch (Exception e) {
+            LOG.warn("detect es version failure on node [{}]", currentNode);
+            return EsMajorVersion.V_5_X;
+        }
+        return majorVersion;
+    }
+
+    /**
      * execute request for specific path
      *
      * @param path the path must not leading with '/'
@@ -110,7 +129,7 @@ public class EsRestClient {
 
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
-            // NOTE. currentNode may have some spaces. 
+            // NOTE. currentNode may have some spaces.
             // User may set a config like described below:
             // hosts: "http://192.168.0.1:8200, http://192.168.0.2:8200"
             // then currentNode will be "http://192.168.0.1:8200", " http://192.168.0.2:8200"
