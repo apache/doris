@@ -178,6 +178,25 @@ TEST_F(BooleanQueryBuilderTest, match_all_query) {
     ASSERT_STREQ("{\"match_all\":{}}", actual_json.c_str());
 }
 
+TEST_F(BooleanQueryBuilderTest, exists_query) {
+    // k1 is not null
+    // {"exists":{"field":"k1"}}
+    std::string exists_field = "k1";
+    int exists_field_length = exists_field.length();
+    TypeDescriptor exists_col_type_desc = TypeDescriptor::create_varchar_type(exists_field_length);
+    ExtIsNullPredicate isNullPredicate(TExprNodeType::IS_NULL_PRED, "k1", exists_col_type_desc, true);
+    ExistsQueryBuilder exists_query(isNullPredicate);
+    rapidjson::Document document;
+    rapidjson::Value exists_query_value(rapidjson::kObjectType);
+    exists_query_value.SetObject();
+    exists_query.to_json(&document, &exists_query_value);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    exists_query_value.Accept(writer);
+    std::string actual_json = buffer.GetString();
+    ASSERT_STREQ("{\"exists\":{\"field\":\"k1\"}}", actual_json.c_str());
+}
+
 
 TEST_F(BooleanQueryBuilderTest, bool_query) {
     // content like 'a%e%g_'

@@ -141,8 +141,7 @@ struct ExtIsNullPredicate : public ExtPredicate {
                 TExprNodeType::type node_type,
                 const std::string& name, 
                 const TypeDescriptor& type,
-                bool is_not_null,
-                ExtLiteral value) :
+                bool is_not_null) :
         ExtPredicate(node_type),
         col(name, type),
         is_not_null(is_not_null) {

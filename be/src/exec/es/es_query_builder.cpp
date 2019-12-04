@@ -146,6 +146,19 @@ void MatchAllQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     query->AddMember("match_all", match_all_node, allocator);
 }
 
+ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate) {
+    _field = is_null_predicate.col.name;
+}
+
+void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
+    rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
+    rapidjson::Value term_node(rapidjson::kObjectType);
+    term_node.SetObject();
+    rapidjson::Value field_name(_field.c_str(), allocator);
+    term_node.AddMember("field", field_name, allocator);
+    query->AddMember("exists", term_node, allocator);
+}
+
 BooleanQueryBuilder::BooleanQueryBuilder() {
 
 }
@@ -217,6 +230,18 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
                 ExtLikePredicate* like_predicate = (ExtLikePredicate *)predicate;
                 WildCardQueryBuilder* wild_card_query = new WildCardQueryBuilder(*like_predicate);
                 _should_clauses.push_back(wild_card_query);
+                break;
+            }
+            case TExprNodeType::IS_NULL_PRED: {
+                ExtIsNullPredicate* is_null_preidicate = (ExtIsNullPredicate *)predicate;
+                ExistsQueryBuilder* exists_query = new ExistsQueryBuilder(*is_null_preidicate);
+                if (is_null_preidicate->is_not_null) {
+                    _should_clauses.push_back(exists_query);
+                } else {
+                    BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                    bool_query->must_not(exists_query);
+                    _should_clauses.push_back(bool_query);
+                }
                 break;
             }
             case TExprNodeType::FUNCTION_CALL: {
@@ -330,6 +355,7 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
                     break;
                 }
                 case TExprNodeType::LIKE_PRED:
+                case TExprNodeType::IS_NULL_PRED:
                 case TExprNodeType::IN_PRED: {
                     break;
                 }
