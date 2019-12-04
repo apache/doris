@@ -280,7 +280,23 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         _disjuncts.push_back(predicate);
 
         return Status::OK();
-    } 
+    }
+
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
+        && (conjunct->fn().name.function_name == "is_null_pred" || conjunct->fn().name.function_name == "is_not_null_pred")) {
+        SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
+        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+        bool is_not_null;
+        if (conjunct->fn().name.function_name == "is_null_pred") {
+            is_not_null = false;
+        } else {
+            is_not_null = true;
+        }
+        // use TExprNodeType::IS_NULL_PRED for BooleanQueryBuilder translate
+        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, slot_desc->col_name(), slot_desc->type(), is_not_null);
+        _disjuncts.push_back(predicate);
+        return Status::OK();
+    }
 
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()) {
         std::string fname = conjunct->fn().name.function_name;
