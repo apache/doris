@@ -613,8 +613,8 @@ public class LoadManager implements Writable{
                         Sets.newHashSet(TransactionStatus.COMMITTED));
                 if (txn != null) {
                     job.updateState(JobState.COMMITTED);
-                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
-                            job.getId(), txn.getTransactionId());
+                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED."
+                            + " label: {}, db: {}", job.getId(), txn.getTransactionId(), job.getLabel(), job.getDbId());
                     continue;
                 }
             }
@@ -649,7 +649,7 @@ public class LoadManager implements Writable{
                         LOG.info("transfer load job {} state from {} to FINISHED, because txn {} is VISIBLE",
                                 job.getId(), prevState, txn.getTransactionId());
                     } else if (txn.getTransactionStatus() == TransactionStatus.ABORTED) {
-                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL), false, false);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
                         LOG.info("transfer load job {} state from {} to CANCELLED, because txn {} is ABORTED",
                                 job.getId(), prevState, txn.getTransactionId());
                     } else {
@@ -657,13 +657,23 @@ public class LoadManager implements Writable{
                     }
                     continue;
                 }
-                
-                // unfortunately, the txn may already been removed due to label expired, so we don't know the txn's
-                // status. But we have to set the job as FINISHED, to void user load same data twice.
-                job.updateState(JobState.UNKNOWN);
-                job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
-                LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown. label: {}",
-                        job.getId(), prevState, job.getLabel());
+
+                if (job.getJobType() == EtlJobType.MINI) {
+                    // for mini load job, just set it as CANCELLED, because mini load is a synchronous load.
+                    // it would be failed if FE restart.
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
+                    LOG.info("transfer mini load job {} state from {} to CANCELLED, because transaction status is unknown"
+                            + ". label: {}, db: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId());
+                } else {
+                    // unfortunately, the txn may already been removed due to label expired, so we don't know the txn's
+                    // status. But we can not set the job either FINISHED or CANCELLED, this will cause the
+                    // user to make the wrong decision.
+                    job.updateState(JobState.UNKNOWN);
+                    job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
+                    LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown. label: {}, db: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId());
+                }
             }
         }
     }

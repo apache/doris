@@ -1109,7 +1109,7 @@ public class Catalog {
     /*
      * Add anything necessary here if there is meta data need to be fixed.
      */
-    private void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
                 try {
