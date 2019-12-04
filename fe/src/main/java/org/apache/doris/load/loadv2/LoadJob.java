@@ -39,6 +39,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
@@ -565,10 +566,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      *            true: abort txn when cancel job, false: only change the state of job and ignore abort txn
      */
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
-        LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                         .add("transaction_id", transactionId)
-                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg())
-                         .build());
+        LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("transaction_id", transactionId)
+                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg()).build());
 
         // clean the loadingStatus
         loadingStatus.setState(TEtlState.CANCELLED);
@@ -585,7 +584,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         // set failMsg and state
         this.failMsg = failMsg;
-        finishTimestamp = System.currentTimeMillis();
+        if (failMsg.getCancelType() == CancelType.TXN_UNKNOWN) {
+            // for bug fix, see LoadManager's fixLoadJobMetaBugs() method
+            finishTimestamp = createTimestamp;
+        } else {
+            finishTimestamp = System.currentTimeMillis();
+        }
 
         // remove callback before abortTransaction(), so that the afterAborted() callback will not be called again
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);

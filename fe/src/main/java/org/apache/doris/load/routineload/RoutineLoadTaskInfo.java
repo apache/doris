@@ -185,6 +185,7 @@ public abstract class RoutineLoadTaskInfo {
         List<String> row = Lists.newArrayList();
         row.add(DebugUtil.printId(id));
         row.add(String.valueOf(txnId));
+        row.add(txnStatus.name());
         row.add(String.valueOf(jobId));
         row.add(String.valueOf(TimeUtils.longToTimeString(createTimeMs)));
         row.add(String.valueOf(TimeUtils.longToTimeString(executeStartTimeMs)));

@@ -593,7 +593,7 @@ public class LoadManager implements Writable{
     }
 
     // This method is only for bug fix. And should be call after image and edit log are replayed.
-    public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
+    public void fixLoadJobMetaBugs(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
             /*
              * Bug 1:
@@ -666,16 +666,24 @@ public class LoadManager implements Writable{
                             + ". label: {}, db: {}",
                             job.getId(), prevState, job.getLabel(), job.getDbId());
                 } else {
-                    // unfortunately, the txn may already been removed due to label expired, so we don't know the txn's
-                    // status. But we can not set the job either FINISHED or CANCELLED, this will cause the
-                    // user to make the wrong decision.
-                    job.updateState(JobState.UNKNOWN);
-                    job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
-                    LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown. label: {}, db: {}",
+                    // txn is not found. here are 2 cases:
+                    // 1. txn is not start yet, so we can just set job to CANCELLED, and user need to submit the job again.
+                    // 2. because of the bug, txn is ABORTED of VISIBLE, and job is not finished. and txn is expired and
+                    //    be removed from transaction manager. So we don't know this job is finished or cancelled.
+                    //    in this case, the job should has been submitted long ago (otherwise the txn could not have been 
+                    //    removed by expiration). 
+                    // Without affecting the first case of job, we set the job finish time to be the same as the create time. 
+                    // In this way, the second type of job will be automatically cleared after running removeOldLoadJob();
+                    
+                    // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
+                    LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}",
                             job.getId(), prevState, job.getLabel(), job.getDbId());
                 }
             }
         }
+
+        removeOldLoadJob();
     }
 
     @Override

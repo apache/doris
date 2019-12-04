@@ -1121,7 +1121,7 @@ public class Catalog {
         }
 
         LOG.info("start to fix meta data bug");
-        loadManager.transferLoadingStateToCommitted(globalTransactionMgr);
+        loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
     }
 
     // start all daemon threads only running on Master

@@ -42,6 +42,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
                     .add("TaskId")
                     .add("TxnId")
+                    .add("TxnStatus")
                     .add("JobId")
                     .add("CreateTime")
                     .add("ExecuteStartTime")
