@@ -107,6 +107,8 @@ public class BDBEnvironment {
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
         replicationConfig.setConfigParam(ReplicationConfig.TXN_ROLLBACK_LIMIT,
                 String.valueOf(Config.txn_rollback_limit));
+        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT, String.valueOf(Config.bdbje_heartbeat_timeout_second));
+        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, String.valueOf(Config.bdbje_heartbeat_timeout_second));
 
         if (isElectable) {
             replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
