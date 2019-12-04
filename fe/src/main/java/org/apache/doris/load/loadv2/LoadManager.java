@@ -592,16 +592,20 @@ public class LoadManager implements Writable{
         }
     }
 
-    // in previous implementation, there is a bug that when the job's corresponding transaction is
-    // COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
-    // by timeout checker, which is not right.
-    // So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
-    // state to COMMITTED.
-    // this method should be removed at next upgrading.
-    // only mini load job will be in LOADING state when persist, because mini load job is executed before writing
-    // edit log.
+    // This method is only for bug fix. And should be call after image and edit log are replayed.
     public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
+            /*
+             * Bug 1:
+             * in previous implementation, there is a bug that when the job's corresponding transaction is
+             * COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
+             * by timeout checker, which is not right.
+             * So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
+             * state to COMMITTED.
+             * this method should be removed at next upgrading.
+             * only mini load job will be in LOADING state when persist, because mini load job is executed before writing
+             * edit log.
+             */
             if (job.getState() == JobState.LOADING) {
                 // unfortunately, transaction id in load job is also not persisted, so we have to traverse
                 // all transactions to find it.
@@ -616,6 +620,7 @@ public class LoadManager implements Writable{
             }
 
             /*
+             * Bug 2:
              * There is bug in Doris version 0.10.15. When a load job in PENDING or LOADING
              * state was replayed from image (not through the edit log), we forgot to add
              * the corresponding callback id in the CallbackFactory. As a result, the

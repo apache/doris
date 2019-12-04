@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.mysql.privilege.PaloAuth;
 
 import com.google.common.base.Strings;
@@ -35,15 +35,12 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-public class DomainResolver extends Daemon {
+public class DomainResolver extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DomainResolver.class);
     private static final String BNS_RESOLVER_TOOLS_PATH = "/usr/bin/get_instance_by_service";
 
     private PaloAuth auth;
-
-    private AtomicBoolean isStart = new AtomicBoolean(false);
 
     public DomainResolver(PaloAuth auth) {
         super("domain resolver", 10 * 1000);
@@ -51,14 +48,7 @@ public class DomainResolver extends Daemon {
     }
 
     @Override
-    public synchronized void start() {
-        if (isStart.compareAndSet(false, true)) {
-            super.start();
-        }
-    }
-
-    @Override
-    public void runOneCycle() {
+    protected void runAfterCatalogReady() {
         // qualified user name -> domain name
         Map<String, Set<String>> userMap = Maps.newHashMap();
         auth.getCopiedWhiteList(userMap);

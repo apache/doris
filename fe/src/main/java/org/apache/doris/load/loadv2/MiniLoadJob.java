@@ -34,12 +34,16 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
 public class MiniLoadJob extends LoadJob {
+    private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
     private String tableName;
 
@@ -102,6 +106,12 @@ public class MiniLoadJob extends LoadJob {
     private void updateLoadingStatue(TransactionState txnState) {
         MiniLoadTxnCommitAttachment miniLoadTxnCommitAttachment =
                 (MiniLoadTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        if (miniLoadTxnCommitAttachment == null) {
+            // aborted txn may not has attachment
+            LOG.info("no miniLoadTxnCommitAttachment, txn id: {} status: {}", txnState.getTransactionId(),
+                    txnState.getTransactionStatus());
+            return;
+        }
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getFilteredRows()));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getLoadedRows()));
         if (miniLoadTxnCommitAttachment.getErrorLogUrl() != null) {

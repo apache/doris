@@ -21,7 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -40,7 +40,7 @@ import java.util.Map;
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
  * Each FE will collect by itself.
  */
-public class TabletStatMgr extends Daemon {
+public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
     public TabletStatMgr() {
@@ -48,19 +48,7 @@ public class TabletStatMgr extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
-        // We should wait Frontend finished replaying logs, then begin to get tablet status
-        while (!Catalog.getInstance().isReady()) {
-            try {
-                // sleep here, not return. because if we return, we have to wait until next round, which may
-                // take a long time(default is tablet_stat_update_interval_second: 5 min)
-                Thread.sleep(10000);
-            } catch (InterruptedException e) {
-                LOG.info("get interrupted exception when sleep: ", e);
-                continue;
-            }
-        }
-
+    protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
 
         long start = System.currentTimeMillis();
