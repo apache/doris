@@ -30,20 +30,16 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.Daemon;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.apache.doris.common.util.MasterDaemon;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-import okhttp3.Authenticator;
-import okhttp3.Call;
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.Route;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
@@ -51,8 +47,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
-import org.json.JSONObject;
+import okhttp3.Authenticator;
+import okhttp3.Call;
+import okhttp3.Credentials;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.Route;
 
 
 /**
