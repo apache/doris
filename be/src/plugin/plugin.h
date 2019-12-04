@@ -21,7 +21,7 @@ namespace doris {
 #define PLUGIN_NOT_DYNAMIC_UNINSTALL 2UL
 #define PLUGIN_INSTALL_EARLY 4UL
 
-#define DORIS_PLUGIN_VERSION 0x0001
+#define DORIS_PLUGIN_VERSION 001100UL
 
 /**
  * define a plugin:
