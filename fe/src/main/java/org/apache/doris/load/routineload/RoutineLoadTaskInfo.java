@@ -29,6 +29,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 
@@ -65,6 +66,10 @@ public abstract class RoutineLoadTaskInfo {
     protected long lastScheduledTime = -1;
 
     protected long timeoutMs = -1;
+
+    // this status will be set when corresponding transaction's status is changed.
+    // so that user or other logic can know the status of the corresponding txn.
+    protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
     public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs) {
         this.id = id;
@@ -127,7 +132,20 @@ public abstract class RoutineLoadTaskInfo {
         return timeoutMs;
     }
 
+    public void setTxnStatus(TransactionStatus txnStatus) {
+        this.txnStatus = txnStatus;
+    }
+
+    public TransactionStatus getTxnStatus() {
+        return txnStatus;
+    }
+
     public boolean isTimeout() {
+        if (txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE) {
+            // the corresponding txn is already finished, this task can not be treated as timeout.
+            return false;
+        }
+
         if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
             LOG.debug("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
                     executeStartTimeMs, timeoutMs);
