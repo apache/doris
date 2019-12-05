@@ -3573,11 +3573,17 @@ public class Catalog {
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
 
-                    Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
-                    TableProperty tableProperty = new TableProperty();
-                    tableProperty.modifyTableProperties(dynamicPartitionProperties);
-                    dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
-                    olapTable.setTableProperty(tableProperty);
+                    if (properties != null && !properties.isEmpty()) {
+                        if (partitionInfo.isMultiColumnPartition()) {
+                            throw new DdlException("Dynamic partition only support single column partition");
+                        }
+                        // here, only dynamic partition properties should be checked
+                        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
+                        TableProperty tableProperty = new TableProperty();
+                        tableProperty.modifyTableProperties(dynamicPartitionProperties);
+                        dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
+                        olapTable.setTableProperty(tableProperty);
+                    }
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
