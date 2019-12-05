@@ -1044,7 +1044,9 @@ public class SchemaChangeJob extends AlterJob {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            olapTable.setState(OlapTableState.NORMAL);
+            if (olapTable != null) {
+                olapTable.setState(OlapTableState.NORMAL);
+            }
         } finally {
             db.writeUnlock();
         }
