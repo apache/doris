@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -677,8 +678,8 @@ public class LoadManager implements Writable{
                     
                     // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
                     job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
-                    LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}",
-                            job.getId(), prevState, job.getLabel(), job.getDbId());
+                    LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}, create: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId(), TimeUtils.longToTimeString(job.getCreateTimestamp()));
                 }
             }
         }

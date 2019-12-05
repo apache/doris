@@ -628,7 +628,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         state = JobState.FINISHED;
 
-        MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+        }
     }
 
     protected boolean checkDataQuality() {
