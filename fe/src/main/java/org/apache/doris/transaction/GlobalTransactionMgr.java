@@ -216,7 +216,7 @@ public class GlobalTransactionMgr implements Writable {
     private void checkRunningTxnExceedLimit(long dbId, LoadJobSourceType sourceType) throws BeginTransactionException {
         switch (sourceType) {
             case ROUTINE_LOAD_TASK:
-                // we do not limit the txn num of routine load here. for 2 reasons:
+                // no need to check limit for routine load task:
                 // 1. the number of running routine load tasks is limited by Config.max_routine_load_task_num_per_be
                 // 2. if we add routine load txn to runningTxnNums, runningTxnNums will always be occupied by routine load,
                 //    and other txn may not be able to submitted.

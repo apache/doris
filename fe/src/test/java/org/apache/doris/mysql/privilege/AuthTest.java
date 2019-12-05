@@ -247,7 +247,7 @@ public class AuthTest {
         }
         
         // 5.1 resolve domain [palo.domain1]
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         
         // 6. check if user from resolved ip can access to palo
         Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1",
@@ -296,7 +296,7 @@ public class AuthTest {
         }
 
         // 8.1 resolve domain [palo.domain2]
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
 
         Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1",
                                                   "123456"));
@@ -470,7 +470,7 @@ public class AuthTest {
                                             SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
                                             PrivPredicate.ALTER));
 
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
 
         Assert.assertTrue(auth.checkDbPriv("10.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db3",
                                             SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
@@ -502,7 +502,7 @@ public class AuthTest {
                                             SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
                                             PrivPredicate.SELECT));
 
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
 
         Assert.assertTrue(auth.checkDbPriv("10.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db3",
                                            SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
@@ -714,7 +714,7 @@ public class AuthTest {
         Assert.assertTrue(auth.checkDbPriv("10.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db3",
                                             SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
                                             PrivPredicate.DROP));
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         Assert.assertFalse(auth.checkDbPriv("10.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db3",
                                             SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
                                             PrivPredicate.DROP));
@@ -851,7 +851,7 @@ public class AuthTest {
         Assert.assertFalse(auth.checkDbPriv("20.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db4",
                                             SystemInfoService.DEFAULT_CLUSTER + ":chenliu",
                                             PrivPredicate.DROP));
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         Assert.assertTrue(auth.checkDbPriv("20.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db4",
                                            SystemInfoService.DEFAULT_CLUSTER + ":chenliu",
                                            PrivPredicate.DROP));
@@ -894,7 +894,7 @@ public class AuthTest {
         Assert.assertTrue(auth.checkDbPriv("20.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db4",
                                            SystemInfoService.DEFAULT_CLUSTER + ":chenliu",
                                            PrivPredicate.DROP));
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         Assert.assertFalse(auth.checkDbPriv("20.1.1.1", SystemInfoService.DEFAULT_CLUSTER + ":db4",
                                            SystemInfoService.DEFAULT_CLUSTER + ":chenliu",
                                            PrivPredicate.DROP));
