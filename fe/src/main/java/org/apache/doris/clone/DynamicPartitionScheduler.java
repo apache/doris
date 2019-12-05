@@ -45,12 +45,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -92,15 +90,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
             Database db = Catalog.getInstance().getDb(dbId);
-
             if (db == null) {
                 removeDynamicPartitionTable(dbId, tableId);
                 continue;
             }
-
             db.readLock();
-            Table table = db.getTable(tableId);
             try {
+                Table table = db.getTable(tableId);
                 if (table == null ||
                         !Boolean.parseBoolean(((OlapTable) table).getTableProperty().getDynamicPartitionProperty().getEnable())) {
                     removeDynamicPartitionTable(dbId, tableId);
@@ -113,7 +109,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // Determine the partition column type
             // if column type is Date, format partition name as yyyyMMdd
             // if column type is DateTime, format partition name as yyyyMMddHHssmm
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
             Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
             String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
@@ -126,6 +122,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 String partitionRange = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
                         i, (Calendar) calendar.clone(), partitionFormat);
                 String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(partitionRange);
+
                 // continue if partition already exists
                 String nextBorder = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
                         i + 1, (Calendar) calendar.clone(), partitionFormat);
@@ -134,8 +131,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
                 boolean isPartitionExists = false;
+
                 RangePartitionInfo info = (RangePartitionInfo) (partitionInfo);
                 for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
+                    // only support single column partition now
                     if (partitionKeyRange.upperEndpoint().getKeys().get(0).getStringValue().equals(nextBorder)) {
                         isPartitionExists = true;
                         break;

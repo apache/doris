@@ -150,9 +150,7 @@ public class DynamicPartitionUtil {
 
     public static Map<String, String> analyzeDynamicPartition(Database db, OlapTable olapTable,
                                                               Map<String, String> properties) throws DdlException {
-        if (properties == null || properties.isEmpty()) {
-            throw new DdlException("Table " + olapTable.getName() + " is not a dynamic partition olap table");
-        }
+        // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
             String timeUnitValue = properties.get(DynamicPartitionProperty.TIME_UNIT);
