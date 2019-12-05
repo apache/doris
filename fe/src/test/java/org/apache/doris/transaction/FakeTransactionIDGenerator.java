@@ -51,6 +51,7 @@ public final class FakeTransactionIDGenerator extends MockUp<TransactionIdGenera
         // do nothing
     }
 
+    @Mock
     public void readFields(DataInput in) throws IOException {
         // do nothing
     }

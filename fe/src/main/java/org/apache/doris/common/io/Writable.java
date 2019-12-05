@@ -43,6 +43,7 @@ import java.io.IOException;
  *         out.writeInt(counter);
  *         out.writeLong(timestamp);
  *       }
+ *       
  *       public void readFields(DataInput in) throws IOException {
  *         counter = in.readInt();
  *         timestamp = in.readLong();
