@@ -123,7 +123,6 @@ public class ArithmeticExpr extends Expr {
     }
 
     private final Operator op;
-    private String sqlStr;
 
     public ArithmeticExpr(Operator op, Expr e1, Expr e2) {
         super();
@@ -134,11 +133,6 @@ public class ArithmeticExpr extends Expr {
                 op == Operator.BITNOT && e2 == null || op != Operator.BITNOT && e2 != null);
         if (e2 != null) {
             children.add(e2);
-        }
-        if (children.size() == 1) {
-            sqlStr=op.toString() + " " + getChild(0).toSql();
-        } else {
-            sqlStr = getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
     }
 
@@ -162,7 +156,11 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        return sqlStr;
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toSql();
+        } else {
+            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        }
     }
 
     @Override

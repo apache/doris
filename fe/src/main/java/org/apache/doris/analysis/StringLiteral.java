@@ -206,8 +206,8 @@ public class StringLiteral extends LiteralExpr {
      * @param str
      * @return
      */
-    private String leadingNum(String str) {
-        String in = str.trim();
+    protected static String leadingNum(String str) {
+ String in = str.trim();
         int len = in.length();
         int i = 0;
         if (len == 0) {
@@ -218,21 +218,32 @@ public class StringLiteral extends LiteralExpr {
             i++;
         }
         boolean decSeen = false;
+        boolean numSeen = false;
         while (i < len) {
             c = in.charAt(i);
             if (c == '.') {
                 if (decSeen) {
+                    if (i > 0 && !(in.charAt(i - 1) >= '0' &&  in.charAt(i - 1) <= '9')) {
+                        return in.substring(0, i - 1);
+                    }
                     return in.substring(0, i);
                 }
                 decSeen = true;
-            } else if (c < '0' || c > '9') {
+            } else if (c >= '0' && c <= '9') {
+                numSeen = true;
+            } else {
                 break;
             }
             i++;
         }
+        if (!numSeen) {
+            return "";
+        }
+        numSeen = false;
+        int baseIdx = i;
         if ((i < len) && (((c == 'e') || (c == 'E')))) {
             if (i + 1 < len) {
-                c = in.charAt(i++);
+                c = in.charAt(++i);
                 if (c == '-' || c == '+') {
                     i++;
                 }
@@ -242,11 +253,15 @@ public class StringLiteral extends LiteralExpr {
                 if (c < '0' || c > '9') {
                     break;
                 } else {
+                    numSeen = true;
                     i++;
                 }
             }
         }
-        return in.substring(0, i);
+        if (numSeen) {
+            return in.substring(0, i);
+        }
+        return in.substring(0, baseIdx);
     }
 
     @Override

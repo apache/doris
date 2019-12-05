@@ -105,6 +105,10 @@ CAST_FUNCTION(BigIntVal, DoubleVal, double_val)
 CAST_FUNCTION(LargeIntVal, DoubleVal, double_val)
 CAST_FUNCTION(FloatVal, DoubleVal, double_val)
 
+// string_parser_fn returns parsed value and a ParseResult indcates success or not,
+// when parse failer the parsed value will be 0, but when input string is start with nan will
+// return NAN and success, start with -nan will return -NAN and success, the same with inf,
+// to compatible to mysql we set them to 0;
 #define CAST_FROM_STRING(num_type, type_name, native_type, string_parser_fn) \
     num_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const StringVal& val) { \
         if (val.is_null) return num_type::null(); \
@@ -112,7 +116,8 @@ CAST_FUNCTION(FloatVal, DoubleVal, double_val)
         num_type ret; \
         ret.val = StringParser::string_parser_fn<native_type>( \
                 reinterpret_cast<char*>(val.ptr), val.len, &result); \
-        if (UNLIKELY(std::isnan(ret.val) || std::isinf(ret.val))) { \
+        if (UNLIKELY(std::isnan(ret.val) || std::isinf(ret.val) \
+                     || result != StringParser::PARSE_SUCCESS)) { \
             ret.val = 0; \
         } \
         return ret; \
