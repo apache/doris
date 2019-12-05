@@ -39,6 +39,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -79,7 +80,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -308,15 +308,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         lock.writeLock().unlock();
     }
 
-    protected boolean tryWriteLock(long timeout, TimeUnit unit) {
-        try {
-            return this.lock.writeLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try write lock at db[" + id + "]", e);
-            return false;
-        }
-    }
-
     public String getName() {
         return name;
     }
@@ -439,6 +430,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // the corresponding txn will be aborted by txn manager.
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
+                    // the already committed task will not be handled here.
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -698,7 +690,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
-                executeCommitTask(routineLoadTaskInfo, txnState);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED);
                 ++committedTaskNum;
             }
         } catch (Throwable e) {
@@ -718,6 +710,56 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         this.committedTaskNum++;
         LOG.debug("replay on committed: {}", txnState);
+    }
+
+    /*
+     * the corresponding txn is visible, create a new task
+     */
+    @Override
+    public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        if (!txnOperated) {
+            String msg = String.format(
+                    "should not happen, we find that txnOperated if false when handling afterVisble. job id: %d, txn id: %d",
+                    id, txnState.getTransactionId());
+            LOG.warn(msg);
+            // print a log and return.
+            // if this really happen, the job will be blocked, and this task can be seen by
+            // "show routine load task" stmt, which is in COMMITTED state for a long time.
+            // so we can find this error and step in.
+            return;
+        }
+        
+        writeLock();
+        try {
+            if (state != JobState.RUNNING) {
+                // job is not running, nothing need to be done
+                return;
+            }
+
+            Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
+                    entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
+            RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
+            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
+                // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
+                String msg = String.format(
+                        "should not happen, we find that task %s is not COMMITTED when handling afterVisble. job id: %d, txn id: %d, txn status: %s",
+                        DebugUtil.printId(routineLoadTaskInfo.getId()), id, txnState.getTransactionId(), routineLoadTaskInfo.getTxnStatus().name());
+                LOG.warn(msg);
+                try {
+                    updateState(JobState.PAUSED, msg, false /* not replay */);
+                } catch (UserException e) {
+                    // should not happen
+                    LOG.warn("failed to pause the job {}. this should not happen", id, e);
+                }
+                return;
+            }
+
+            // create new task
+            RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
+            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+        } finally {
+            writeUnlock();
+        }
     }
 
     // the task is aborted when the correct number of rows is more then 0
@@ -765,7 +807,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // TODO(ml): use previous be id depend on change reason
                 }
                 // step2: commit task , update progress, maybe create a new task
-                executeCommitTask(routineLoadTaskInfo, txnState);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED);
             }
         } catch (Exception e) {
             updateState(JobState.PAUSED, "be " + taskBeId + " abort task " + txnState.getLabel() + " failed with error " + e.getMessage(),
@@ -791,8 +833,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     // check task exists or not before call method
-    private void executeCommitTask(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState)
-            throws UserException {
+    private void executeTaskOnTxnStatusChanged(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState,
+            TransactionStatus txnStatus) throws UserException {
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (rlTaskTxnCommitAttachment == null) {
@@ -814,9 +856,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         if (state == JobState.RUNNING) {
-            // step2: create a new task for partitions
-            RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            routineLoadTaskInfo.setTxnStatus(txnStatus);
+            if (txnStatus == TransactionStatus.ABORTED) {
+                RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
+                Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            } else if (txnStatus == TransactionStatus.COMMITTED) {
+                // this txn is just COMMITTED, create new task when the this txn is VISIBLE
+                // or if publish version task has some error, there will be lots of COMMITTED txns in GlobalTransactionMgr
+            }
         }
     }
 

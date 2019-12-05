@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -592,16 +593,20 @@ public class LoadManager implements Writable{
         }
     }
 
-    // in previous implementation, there is a bug that when the job's corresponding transaction is
-    // COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
-    // by timeout checker, which is not right.
-    // So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
-    // state to COMMITTED.
-    // this method should be removed at next upgrading.
-    // only mini load job will be in LOADING state when persist, because mini load job is executed before writing
-    // edit log.
-    public void transferLoadingStateToCommitted(GlobalTransactionMgr txnMgr) {
+    // This method is only for bug fix. And should be call after image and edit log are replayed.
+    public void fixLoadJobMetaBugs(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
+            /*
+             * Bug 1:
+             * in previous implementation, there is a bug that when the job's corresponding transaction is
+             * COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
+             * by timeout checker, which is not right.
+             * So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
+             * state to COMMITTED.
+             * this method should be removed at next upgrading.
+             * only mini load job will be in LOADING state when persist, because mini load job is executed before writing
+             * edit log.
+             */
             if (job.getState() == JobState.LOADING) {
                 // unfortunately, transaction id in load job is also not persisted, so we have to traverse
                 // all transactions to find it.
@@ -609,13 +614,14 @@ public class LoadManager implements Writable{
                         Sets.newHashSet(TransactionStatus.COMMITTED));
                 if (txn != null) {
                     job.updateState(JobState.COMMITTED);
-                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED",
-                            job.getId(), txn.getTransactionId());
+                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED."
+                            + " label: {}, db: {}", job.getId(), txn.getTransactionId(), job.getLabel(), job.getDbId());
                     continue;
                 }
             }
 
             /*
+             * Bug 2:
              * There is bug in Doris version 0.10.15. When a load job in PENDING or LOADING
              * state was replayed from image (not through the edit log), we forgot to add
              * the corresponding callback id in the CallbackFactory. As a result, the
@@ -644,7 +650,7 @@ public class LoadManager implements Writable{
                         LOG.info("transfer load job {} state from {} to FINISHED, because txn {} is VISIBLE",
                                 job.getId(), prevState, txn.getTransactionId());
                     } else if (txn.getTransactionStatus() == TransactionStatus.ABORTED) {
-                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL), false, false);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
                         LOG.info("transfer load job {} state from {} to CANCELLED, because txn {} is ABORTED",
                                 job.getId(), prevState, txn.getTransactionId());
                     } else {
@@ -652,15 +658,33 @@ public class LoadManager implements Writable{
                     }
                     continue;
                 }
-                
-                // unfortunately, the txn may already been removed due to label expired, so we don't know the txn's
-                // status. But we have to set the job as FINISHED, to void user load same data twice.
-                job.updateState(JobState.UNKNOWN);
-                job.failMsg = new FailMsg(CancelType.UNKNOWN, "transaction status is unknown");
-                LOG.info("finish load job {} from {} to UNKNOWN, because transaction status is unknown. label: {}",
-                        job.getId(), prevState, job.getLabel());
+
+                if (job.getJobType() == EtlJobType.MINI) {
+                    // for mini load job, just set it as CANCELLED, because mini load is a synchronous load.
+                    // it would be failed if FE restart.
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
+                    LOG.info("transfer mini load job {} state from {} to CANCELLED, because transaction status is unknown"
+                            + ". label: {}, db: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId());
+                } else {
+                    // txn is not found. here are 2 cases:
+                    // 1. txn is not start yet, so we can just set job to CANCELLED, and user need to submit the job again.
+                    // 2. because of the bug, txn is ABORTED of VISIBLE, and job is not finished. and txn is expired and
+                    //    be removed from transaction manager. So we don't know this job is finished or cancelled.
+                    //    in this case, the job should has been submitted long ago (otherwise the txn could not have been 
+                    //    removed by expiration). 
+                    // Without affecting the first case of job, we set the job finish time to be the same as the create time. 
+                    // In this way, the second type of job will be automatically cleared after running removeOldLoadJob();
+                    
+                    // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
+                    LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}, create: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId(), TimeUtils.longToTimeString(job.getCreateTimestamp()));
+                }
             }
         }
+
+        removeOldLoadJob();
     }
 
     @Override

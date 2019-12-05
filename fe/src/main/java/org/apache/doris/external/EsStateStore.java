@@ -30,19 +30,16 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.Daemon;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.common.util.MasterDaemon;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-import okhttp3.Authenticator;
-import okhttp3.Call;
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.Route;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
@@ -50,21 +47,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
-import org.json.JSONObject;
+import okhttp3.Authenticator;
+import okhttp3.Call;
+import okhttp3.Credentials;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.Route;
 
 
 /**
  * it is used to call es api to get shard allocation state
  */
-public class EsStateStore extends Daemon {
-
+public class EsStateStore extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(EsStateStore.class);
 
     private Map<Long, EsTable> esTables;
 
     public EsStateStore() {
-        super(Config.es_state_sync_interval_second * 1000);
+        super("es state store", Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
     }
 
@@ -80,8 +81,9 @@ public class EsStateStore extends Daemon {
         esTables.remove(tableId);
         LOG.info("deregister table [{}] from sync list", tableId);
     }
-
-    protected void runOneCycle() {
+    
+    @Override
+    protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsRestClient client = new EsRestClient(esTable.getSeeds(),
