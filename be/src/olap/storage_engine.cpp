@@ -115,7 +115,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_report_tablet_already(false),
         _tablet_manager(new TabletManager()),
         _txn_manager(new TxnManager()),
-        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)) {
+        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
+        _memtable_flush_executor(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
