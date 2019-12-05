@@ -126,7 +126,6 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         progress.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

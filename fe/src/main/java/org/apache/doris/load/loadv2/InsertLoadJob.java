@@ -113,7 +113,6 @@ public class InsertLoadJob extends LoadJob {
         out.writeLong(tableId);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         tableId = in.readLong();

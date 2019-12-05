@@ -440,7 +440,6 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
             codegenLevel = in.readInt();

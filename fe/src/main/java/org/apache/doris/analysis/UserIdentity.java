@@ -211,7 +211,6 @@ public class UserIdentity implements Writable {
         out.writeBoolean(isDomain);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         user = Text.readString(in);
         host = Text.readString(in);

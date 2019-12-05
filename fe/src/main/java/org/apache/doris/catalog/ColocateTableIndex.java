@@ -77,7 +77,6 @@ public class ColocateTableIndex implements Writable {
             out.writeLong(grpId);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             grpId = in.readLong();
@@ -545,7 +544,6 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {

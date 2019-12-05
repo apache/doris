@@ -66,7 +66,6 @@ public final class MaxLiteral extends LiteralExpr {
     public void write(DataOutput out) throws IOException {
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
     }
 

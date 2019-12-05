@@ -277,7 +277,6 @@ public class WhiteList implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             int ipWhiteListsLen = in.readInt();

@@ -681,7 +681,6 @@ public class FunctionCallExpr extends Expr {
         out.writeBoolean(isMergeAggFn);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         fnName = FunctionName.read(in);
         fnParams = FunctionParams.read(in);

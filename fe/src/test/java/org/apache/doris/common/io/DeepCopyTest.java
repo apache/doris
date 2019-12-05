@@ -15,30 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.common.io;
 
-import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.TableInfo;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.junit.Assert;
+import org.junit.Test;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+public class DeepCopyTest {
 
-public class FileSaver extends FileSaverI {
-
-    public FileSaver(String name) {
-        super(name);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeShort(1);
-        Text.writeString(out, name);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        throw new NotImplementedException();
+    @Test
+    public void test() {
+        TableInfo info = TableInfo.createForTableRename(1, 2, "newTbl");
+        TableInfo copied = new TableInfo();
+        boolean res = DeepCopy.copy(info, copied, TableInfo.class);
+        Assert.assertTrue(res);
+        Assert.assertEquals(1, copied.getDbId());
+        Assert.assertEquals(2, copied.getTableId());
+        Assert.assertEquals("newTbl", copied.getNewTableName());
     }
 }

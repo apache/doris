@@ -606,7 +606,6 @@ public class ExportJob implements Writable {
         tableName.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         isReplayed = true;
         id = in.readLong();
@@ -706,7 +705,6 @@ public class ExportJob implements Writable {
             Text.writeString(out, state.name());
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             jobId = in.readLong();
             state = JobState.valueOf(Text.readString(in));

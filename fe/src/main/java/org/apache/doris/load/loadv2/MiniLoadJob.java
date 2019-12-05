@@ -125,7 +125,6 @@ public class MiniLoadJob extends LoadJob {
         Text.writeString(out, tableName);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         tableName = Text.readString(in);

@@ -109,63 +109,73 @@ public class JournalEntity implements Writable {
         data.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
-        boolean needRead = true;
         opCode = in.readShort();
         LOG.debug("get opcode: {}", opCode);
         switch (opCode) {
             case OperationType.OP_SAVE_NEXTID: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_SAVE_TRANSACTION_ID: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_CREATE_DB: {
                 data = new Database();
+            ((Database) data).readFields(in);
                 break;
             }
             case OperationType.OP_DROP_DB: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_ALTER_DB:
             case OperationType.OP_RENAME_DB: {
                 data = new DatabaseInfo();
+            ((DatabaseInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_CREATE_TABLE: {
                 data = new CreateTableInfo();
+            ((CreateTableInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_DROP_TABLE: {
                 data = new DropInfo();
+            ((DropInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_ADD_PARTITION: {
                 data = new PartitionPersistInfo();
+            ((PartitionPersistInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_DROP_PARTITION: {
                 data = new DropPartitionInfo();
+            ((DropPartitionInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_MODIFY_PARTITION: {
                 data = new ModifyPartitionInfo();
+            ((ModifyPartitionInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_ERASE_DB:
             case OperationType.OP_ERASE_TABLE:
             case OperationType.OP_ERASE_PARTITION: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_RECOVER_DB:
             case OperationType.OP_RECOVER_TABLE:
             case OperationType.OP_RECOVER_PARTITION: {
                 data = new RecoverInfo();
+            ((RecoverInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_START_ROLLUP:
@@ -179,31 +189,31 @@ public class JournalEntity implements Writable {
             case OperationType.OP_START_DECOMMISSION_BACKEND:
             case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
                 data = AlterJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
                 data = new DropInfo();
+            ((DropInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_RENAME_TABLE:
             case OperationType.OP_RENAME_ROLLUP:
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
+            ((TableInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_BACKUP_JOB: {
                 data = BackupJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_RESTORE_JOB: {
                 data = RestoreJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
                 data = new ConsistencyCheckInfo();
+            ((ConsistencyCheckInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_LOAD_START:
@@ -213,21 +223,24 @@ public class JournalEntity implements Writable {
             case OperationType.OP_LOAD_DONE:
             case OperationType.OP_LOAD_CANCEL: {
                 data = new LoadJob();
+            ((LoadJob) data).readFields(in);
                 break;
             }
             case OperationType.OP_EXPORT_CREATE:
                 data = new ExportJob();
+            ((ExportJob) data).readFields(in);
                 break;
             case OperationType.OP_EXPORT_UPDATE_STATE:
                 data = new ExportJob.StateTransfer();
+            ((ExportJob.StateTransfer) data).readFields(in);
                 break;
             case OperationType.OP_FINISH_SYNC_DELETE: {
                 data = new DeleteInfo();
+            ((DeleteInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_FINISH_ASYNC_DELETE: {
                 data = AsyncDeleteJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_REPLICA:
@@ -235,28 +248,29 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DELETE_REPLICA:
             case OperationType.OP_CLEAR_ROLLUP_INFO: {
                 data = ReplicaPersistInfo.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
                 data = new Backend();
+            ((Backend) data).readFields(in);
                 break;
             }
             case OperationType.OP_ADD_FRONTEND:
             case OperationType.OP_ADD_FIRST_FRONTEND:
             case OperationType.OP_REMOVE_FRONTEND: {
                 data = new Frontend();
+            ((Frontend) data).readFields(in);
                 break;
             }
             case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
+            ((LoadErrorHub.Param) data).readFields(in);
                 break;
             }
             case OperationType.OP_NEW_DROP_USER: {
                 data = UserIdentity.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_CREATE_USER:
@@ -266,90 +280,92 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_ROLE:
             case OperationType.OP_DROP_ROLE: {
                 data = PrivInfo.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_UPDATE_USER_PROPERTY: {
                 data = UserPropertyInfo.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_MASTER_INFO_CHANGE: {
                 data = new MasterInfo();
+            ((MasterInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_TIMESTAMP: {
                 data = new Timestamp();
+            ((Timestamp) data).readFields(in);
                 break;
             }
             case OperationType.OP_META_VERSION: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_GLOBAL_VARIABLE: {
                 data = new SessionVariable();
+            ((SessionVariable) data).readFields(in);
                 break;
             }
             case OperationType.OP_CREATE_CLUSTER: {
                 data = Cluster.read(in);
-                needRead = false;
                 break;
             }
-            case OperationType.OP_DROP_CLUSTER: {
-                data = new ClusterInfo();
-                break;
-            }
+            case OperationType.OP_DROP_CLUSTER:
             case OperationType.OP_EXPAND_CLUSTER: {
                 data = new ClusterInfo();
+            ((ClusterInfo) data).readFields(in);
                 break;
             }
-            case OperationType.OP_LINK_CLUSTER: {
-                data = new BaseParam();
-                break;
-            }
+            case OperationType.OP_LINK_CLUSTER:
             case OperationType.OP_MIGRATE_CLUSTER: {
                 data = new BaseParam();
+            ((BaseParam) data).readFields(in);
                 break;
             }
             case OperationType.OP_UPDATE_DB: {
                 data = new DatabaseInfo();
+            ((DatabaseInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_DROP_LINKDB: {
                 data = new DropLinkDbAndUpdateDbInfo();
+            ((DropLinkDbAndUpdateDbInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_ADD_BROKER:
             case OperationType.OP_DROP_BROKER: {
                 data = new BrokerMgr.ModifyBrokerInfo();
+            ((BrokerMgr.ModifyBrokerInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_DROP_ALL_BROKER: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
             case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
                 data = new BackendIdsUpdateInfo();
+            ((BackendIdsUpdateInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_UPSERT_TRANSACTION_STATE:
             case OperationType.OP_DELETE_TRANSACTION_STATE: {
                 data = new TransactionState();
+            ((TransactionState) data).readFields(in);
                 break;
             }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_DROP_REPOSITORY: {
                 data = new Text();
+                ((Text) data).readFields(in);
                 break;
             }
 
             case OperationType.OP_TRUNCATE_TABLE: {
                 data = TruncateTableInfo.read(in);
-                needRead = false;
                 break;
             }
 
@@ -359,67 +375,58 @@ public class JournalEntity implements Writable {
             case OperationType.OP_COLOCATE_MARK_UNSTABLE:
             case OperationType.OP_COLOCATE_MARK_STABLE: {
                 data = new ColocatePersistInfo();
+            ((ColocatePersistInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                 data = new TablePropertyInfo();
+            ((TablePropertyInfo) data).readFields(in);
                 break;
             }
             case OperationType.OP_HEARTBEAT: {
                 data = HbPackage.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_FUNCTION: {
                 data = Function.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_DROP_FUNCTION: {
                 data = FunctionSearchDesc.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_BACKEND_TABLETS_INFO: {
                 data = BackendTabletsInfo.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB:
             case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadOperation.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_CREATE_LOAD_JOB: {
                 data = org.apache.doris.load.loadv2.LoadJob.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_END_LOAD_JOB: {
                 data = LoadJobFinalOperation.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_CREATE_SMALL_FILE:
             case OperationType.OP_DROP_SMALL_FILE: {
                 data = SmallFile.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_ALTER_JOB_V2: {
                 data = AlterJobV2.read(in);
-                needRead = false;
                 break;
             }
             case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                 data = TableInfo.read(in);
-                needRead = false;
                 break;
             }
             default: {
@@ -427,10 +434,6 @@ public class JournalEntity implements Writable {
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
                 throw e;
             }
-        }
-
-        if (needRead) {
-            data.readFields(in);
         }
     }
 }
