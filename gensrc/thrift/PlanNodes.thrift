@@ -45,7 +45,8 @@ enum TPlanNodeType {
   EMPTY_SET_NODE, 
   UNION_NODE,
   ES_SCAN_NODE,
-  ES_HTTP_SCAN_NODE
+  ES_HTTP_SCAN_NODE,
+  ASSERT_NUM_ROWS_NODE
 }
 
 // phases of an execution node
@@ -568,6 +569,11 @@ struct TBackendResourceProfile {
 4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
 }
 
+struct TAssertNumRowsNode {
+    1: optional i64 desired_num_rows;
+    2: optional string subquery_string;
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -605,6 +611,7 @@ struct TPlanNode {
   28: optional TUnionNode union_node
   29: optional TBackendResourceProfile resource_profile
   30: optional TEsScanNode es_scan_node
+  31: optional TAssertNumRowsNode assert_num_rows_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
