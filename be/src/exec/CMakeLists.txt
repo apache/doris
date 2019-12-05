@@ -93,6 +93,7 @@ set(EXEC_FILES
     broker_writer.cpp
     parquet_scanner.cpp
     parquet_reader.cpp
+    assert_num_rows_node.cpp
 )
 
 if (WITH_MYSQL)

@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CaseExpr;
@@ -269,6 +270,10 @@ public class SingleNodePlanner {
             root.computeStats(analyzer);
         }
 
+        // adding assert node at the end of single node planner
+        if (stmt.getAssertNumRowsElement() != null) {
+            root = createAssertRowCountNode(root, stmt.getAssertNumRowsElement(), analyzer);
+        }
         return root;
     }
 
@@ -1558,6 +1563,13 @@ public class SingleNodePlanner {
                     analyzer, unionStmt.getTupleId().asList(), result);
         }
         return result;
+    }
+
+    private PlanNode createAssertRowCountNode(PlanNode input, AssertNumRowsElement assertNumRowsElement,
+                                              Analyzer analyzer) throws UserException {
+        AssertNumRowsNode root = new AssertNumRowsNode(ctx_.getNextNodeId(), input, assertNumRowsElement);
+        root.init(analyzer);
+        return root;
     }
 
     /**

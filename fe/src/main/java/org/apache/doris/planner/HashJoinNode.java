@@ -272,7 +272,6 @@ public class HashJoinNode extends PlanNode {
     }
 
     @Override
-
     protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         String distrModeStr =
           (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
