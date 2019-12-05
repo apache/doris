@@ -54,6 +54,10 @@ public class DataProperty implements Writable {
         return cooldownTimeMs;
     }
 
+    public String getCooldownTimeString() {
+        return TimeUtils.longToTimeString(cooldownTimeMs);
+    }
+
     public static DataProperty read(DataInput in) throws IOException {
         DataProperty dataProperty = new DataProperty();
         dataProperty.readFields(in);
@@ -92,7 +96,7 @@ public class DataProperty implements Writable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
-        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("].");
+        sb.append("cool down[").append(getCooldownTimeString()).append("].");
         return sb.toString();
     }
 }

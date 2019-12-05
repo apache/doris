@@ -236,6 +236,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME;
+import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM;
+
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
     // 0 ~ 9999 used for qe
@@ -3912,8 +3915,13 @@ public class Catalog {
 
             // 6. storage medium
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
-                sb.append(olapTable.getPartitionInfo().idToDataProperty.values().iterator().next().getStorageMedium()).append("\"");
+                DataProperty dataProperty = olapTable.getPartitionInfo().idToDataProperty.values().iterator().next();
+                sb.append(",\n \"").append(PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+                sb.append(dataProperty.getStorageMedium()).append("\"");
+                if (dataProperty.getStorageMedium() == TStorageMedium.SSD) {
+                    sb.append(",\n \"").append(PROPERTIES_STORAGE_COLDOWN_TIME).append("\" = \"");
+                    sb.append(dataProperty.getCooldownTimeString()).append("\"");
+                }
             }
 
             sb.append("\n)");
@@ -4007,7 +4015,12 @@ public class Catalog {
                 sb.append("(\"version_info\" = \"");
                 sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
-                sb.append(",\"storage_medium\" = \"").append(partitionInfo.getDataProperty(partition.getId()).getStorageMedium()).append("\"");
+
+                DataProperty partitionDataProperty = partitionInfo.getDataProperty(partition.getId());
+                sb.append(",\"").append(PROPERTIES_STORAGE_MEDIUM).append("\" = \"").append(partitionDataProperty.getStorageMedium()).append("\"");
+                if (partitionDataProperty.getStorageMedium() == TStorageMedium.SSD) {
+                    sb.append(",\"").append(PROPERTIES_STORAGE_COLDOWN_TIME).append("\" = \"").append(partitionDataProperty.getCooldownTimeString()).append("\"");
+                }
                 if (replicationNum > 0) {
                     sb.append(", \"replication_num\" = \"").append(replicationNum).append("\"");
                 }

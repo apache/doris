@@ -125,7 +125,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(partitionId);
                     partitionInfo.add(dataProperty.getStorageMedium().name());
-                    partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
+                    partitionInfo.add(dataProperty.getCooldownTimeString());
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
@@ -176,7 +176,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                     DataProperty dataProperty = olapTable.getPartitionInfo().getDataProperty(partitionId);
                     partitionInfo.add(dataProperty.getStorageMedium().name());
-                    partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
+                    partitionInfo.add(dataProperty.getCooldownTimeString());
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
