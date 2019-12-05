@@ -272,7 +272,7 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
 
-    private Daemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
+    private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon replayer;
     private Daemon timePrinter;
@@ -1086,6 +1086,11 @@ public class Catalog {
         MasterInfo info = new MasterInfo(this.masterIp, this.masterHttpPort, this.masterRpcPort);
         editLog.logMasterInfo(info);
 
+        // for master, the 'isReady' is set behind.
+        // but we are sure that all metadata is replayed if we get here.
+        // so no need to check 'isReady' flag in this method
+        fixBugAfterMetadataReplayed(false);
+
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
         // start other daemon threads that should running on all FE
@@ -1099,6 +1104,24 @@ public class Catalog {
         String msg = "master finished to replay journal, can write now.";
         Util.stdoutWithTime(msg);
         LOG.info(msg);
+    }
+
+    /*
+     * Add anything necessary here if there is meta data need to be fixed.
+     */
+    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+        if (waitCatalogReady) {
+            while (!isReady()) {
+                try {
+                    Thread.sleep(10 * 1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        LOG.info("start to fix meta data bug");
+        loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
     }
 
     // start all daemon threads only running on Master
@@ -1193,6 +1216,9 @@ public class Catalog {
             createReplayer();
             replayer.start();
         }
+
+        // 'isReady' will be set to true in 'setCanRead()' method
+        fixBugAfterMetadataReplayed(true);
 
         startNonMasterDaemonThreads();
 
@@ -1720,7 +1746,6 @@ public class Catalog {
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
             loadManager.readFields(in);
-            loadManager.transferLoadingStateToCommitted(globalTransactionMgr);
         }
         return checksum;
     }
@@ -2055,9 +2080,9 @@ public class Catalog {
     }
 
     public void createLabelCleaner() {
-        labelCleaner = new Daemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
+        labelCleaner = new MasterDaemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
             @Override
-            protected void runOneCycle() {
+            protected void runAfterCatalogReady() {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
                 loadManager.removeOldLoadJob();

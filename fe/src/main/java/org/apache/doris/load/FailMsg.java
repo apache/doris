@@ -32,7 +32,8 @@ public class FailMsg implements Writable {
         ETL_QUALITY_UNSATISFIED,
         LOAD_RUN_FAIL,
         TIMEOUT,
-        UNKNOWN
+        UNKNOWN,
+        TXN_UNKNOWN // cancelled because txn status is unknown
     }
     
     private CancelType cancelType;

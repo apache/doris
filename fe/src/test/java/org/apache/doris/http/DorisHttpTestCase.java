@@ -110,7 +110,7 @@ abstract public class DorisHttpTestCase {
     public static final int HTTP_PORT;
     static {
         Random r = new Random(System.currentTimeMillis());
-        HTTP_PORT = 30000 + r.nextInt(10000);
+        HTTP_PORT = 20000 + r.nextInt(10000);
     }
 
     protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
