@@ -471,7 +471,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
     block.init(block_info);
 
     int time_val = 20191205;
-    write_row.set_field_content(0, reinterpret_cast<char *>(&value), _mem_pool.get());
+    write_row.set_field_content(0, reinterpret_cast<char *>(&time_val), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -497,7 +497,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
 
     //test not support type
     TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(1, src, tp, _mem_pool.get());
+    OLAPStatus st = read_row.convert_from(1, read_row.cell_ptr(0), tp, _mem_pool.get());
     ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
 }
 
