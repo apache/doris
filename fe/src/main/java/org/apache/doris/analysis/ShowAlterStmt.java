@@ -86,30 +86,31 @@ public class ShowAlterStmt extends ShowStmt {
         this.filterMap = new HashMap<String, Expr>();
     }
 
-    private boolean getPredicateValue(Expr subExpr) throws AnalysisException {
+    private void getPredicateValue(Expr subExpr) throws AnalysisException {
         if (!(subExpr instanceof BinaryPredicate)) {
-            return false;
+            return;
         }
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
-            return false;
+            return;
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
             if (!(subExpr.getChild(1) instanceof StringLiteral) ||
                     binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
-                return false;
+                throw new AnalysisException("Where clause : TableName = \"table1\" or "
+                    + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
         } else if (leftKey.equals("createtime") || leftKey.equals("finishtime")) {
             if (!(subExpr.getChild(1) instanceof StringLiteral)) {
-                return false;
+                throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
+                    + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
             subExpr.setChild(1,((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
         } else {
-            return false;
+            throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
         }
         filterMap.put(leftKey, subExpr);
-        return true;
     }
 
     private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
@@ -125,13 +126,7 @@ public class ShowAlterStmt extends ShowStmt {
             analyzeSubPredicate(cp.getChild(1));
             return;
         }
-        boolean valid = getPredicateValue(subExpr);
-        if (!valid) {
-            filterMap.clear();
-            throw new AnalysisException("Where clause should looks like: TableName = \"tablename\","
-                    + " or State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\", or CreateTime =/>=/<=/>/< \"2019-12-02\","
-                    + " FinishTime =/>=/<=/>/< \"2019-12-02 14:54:00\" or compound predicate with operator AND");
-        }
+        getPredicateValue(subExpr);
     }
 
     @Override
@@ -158,16 +153,7 @@ public class ShowAlterStmt extends ShowStmt {
 
         // analyze where clause if not null
         if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
-            } else {
-                analyzeSubPredicate(whereClause);
-            }
+            analyzeSubPredicate(whereClause);
         }
 
         // order by
@@ -232,19 +218,14 @@ public class ShowAlterStmt extends ShowStmt {
         if (orderByElements != null) {
             sb.append(" ORDER BY ");
             for (int i = 0; i < orderByElements.size(); ++i) {
-                sb.append(orderByElements.get(i).getExpr().toSql());
-                sb.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
+                sb.append(orderByElements.get(i).toSql());
                 sb.append((i + 1 != orderByElements.size()) ? ", " : "");
             }
         }
 
-        if (limitElement != null && limitElement.hasLimit()) {
-            sb.append(" LIMIT ").append(limitElement.getLimit());
-            if (limitElement.hasOffset()) {
-                sb.append(" OFFSET ").append(limitElement.getOffset());
-            }
+        if (limitElement != null) {
+            sb.append(limitElement.toSql());
         }
-        LOG.info("AlterSQL '{}'", sb.toString());
         return sb.toString();
     }
 

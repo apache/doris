@@ -78,7 +78,7 @@ public class ShowAlterStmtTest {
         ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, binaryPredicate, null,
                 new LimitElement(1,2));
         stmt.analyzeSyntax(analyzer);
-        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 2 OFFSET 1",
+        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 1, 2",
                 stmt.toString());
     }
     
