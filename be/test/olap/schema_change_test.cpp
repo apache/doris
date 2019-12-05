@@ -497,7 +497,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
 
     //test not support type
     TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(1, src, tp, _mem_pool.get());
+    OLAPStatus st = read_row.convert_from(1, read_row.cell_ptr(0), tp, _mem_pool.get());
     ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
 }
 
