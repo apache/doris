@@ -303,6 +303,10 @@ public class SelectStmt extends QueryStmt {
             } else {
                 // Analyze the resultExpr before generating a label to ensure enforcement
                 // of expr child and depth limits (toColumn() label may call toSql()).
+                // to avoid analyze change to sql string
+                if (item.getExpr() instanceof ArithmeticExpr) {
+                    item.getExpr().toSqlImpl();
+                }
                 item.getExpr().analyze(analyzer);
                 if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                     throw new AnalysisException(

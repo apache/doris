@@ -123,6 +123,7 @@ public class ArithmeticExpr extends Expr {
     }
 
     private final Operator op;
+    private String sqlStr;
 
     public ArithmeticExpr(Operator op, Expr e1, Expr e2) {
         super();
@@ -134,6 +135,7 @@ public class ArithmeticExpr extends Expr {
         if (e2 != null) {
             children.add(e2);
         }
+        sqlStr = null;
     }
 
     /**
@@ -142,6 +144,7 @@ public class ArithmeticExpr extends Expr {
     protected ArithmeticExpr(ArithmeticExpr other) {
         super(other);
         this.op = other.op;
+        this.sqlStr = other.sqlStr;
     }
 
     @Override
@@ -156,11 +159,14 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (children.size() == 1) {
-            return op.toString() + " " + getChild(0).toSql();
+        if (sqlStr != null) {
+            return sqlStr;
+        } else if (children.size() == 1) {
+            sqlStr = op.toString() + " " + getChild(0).toSql();
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            sqlStr = getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
+        return sqlStr;
     }
 
     @Override
