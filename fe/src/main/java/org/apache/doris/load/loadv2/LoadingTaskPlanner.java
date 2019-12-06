@@ -67,6 +67,7 @@ public class LoadingTaskPlanner {
     private final BrokerDesc brokerDesc;
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
+    private final long timeoutS;    // timeout of load job, in second
 
     // Something useful
     private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
@@ -80,7 +81,7 @@ public class LoadingTaskPlanner {
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone) {
+                              boolean strictMode, String timezone, long timeoutS) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -89,6 +90,7 @@ public class LoadingTaskPlanner {
         this.fileGroups = brokerFileGroups;
         this.strictMode = strictMode;
         this.analyzer.setTimezone(timezone);
+        this.timeoutS = timeoutS;
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
@@ -122,7 +124,7 @@ public class LoadingTaskPlanner {
         // 2. Olap table sink
         String partitionNames = convertBrokerDescPartitionInfo();
         OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionNames);
-        olapTableSink.init(loadId, txnId, dbId);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.finalize();
 
         // 3. Plan fragment

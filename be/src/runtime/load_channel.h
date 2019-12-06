@@ -36,7 +36,7 @@ class TabletsChannel;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker, int64_t timeout_s);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -65,6 +65,8 @@ public:
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
+    int64_t timeout() const { return _timeout_s; }
+
 private:
     // when mem consumption exceeds limit, should call this to find the max mem consumption channel
     // and try to reduce its mem usage.
@@ -85,6 +87,10 @@ private:
     bool _opened = false;
 
     std::atomic<time_t> _last_updated_time;
+
+    // the timeout of this load channel.
+    // if channel is timeout, it will be removed by load channel manager.
+    int64_t _timeout_s;
 };
 
 }
