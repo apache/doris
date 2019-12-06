@@ -75,6 +75,63 @@ TEST_F(FaststringTest, TestShrinkToFit_Random) {
   }
 }
 
+TEST_F(FaststringTest, TestPushBack) {
+  faststring s;
+  for (int i = 0; i < faststring::kInitialCapacity * 2; ++i) {
+    s.push_back('a');
+    ASSERT_LE(s.size(), s.capacity());
+    ASSERT_EQ(i + 1, s.size());
+    if (i + 1 <= faststring::kInitialCapacity) {
+      ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
+    }
+  }
+}
+
+TEST_F(FaststringTest, TestAppend_Simple) {
+  faststring s;
+  ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
+  ASSERT_EQ(s.size(), 0);
+
+  // append empty string
+  s.append("");
+  ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
+  ASSERT_EQ(s.size(), 0);
+
+  // len_ < kInitialCapacity
+  s.append("hello");
+  ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
+  ASSERT_EQ(s.size(), 5);
+
+  // len_ > kInitialCapacity
+  std::string tmp(faststring::kInitialCapacity, 'a');
+  s.append(tmp);
+  ASSERT_GT(s.capacity(), faststring::kInitialCapacity);
+  ASSERT_EQ(s.size(), 5 + faststring::kInitialCapacity);
+}
+
+TEST_F(FaststringTest, TestAppend_ExponentiallyExpand) {
+  size_t initial_capacity = faststring::kInitialCapacity / 2;
+  std::string tmp1(initial_capacity, 'a');
+
+  {
+    // Less than 150% after expansion
+    faststring s;
+    std::string tmp2(faststring::kInitialCapacity - 1, 'a');
+    s.append(tmp1);
+    s.append(tmp2);
+    ASSERT_EQ(s.capacity(), faststring::kInitialCapacity * 3 / 2);
+  }
+
+  {
+    // More than 150% after expansion
+    faststring s;
+    std::string tmp2(faststring::kInitialCapacity + 1, 'a');
+    s.append(tmp1);
+    s.append(tmp2);
+    ASSERT_GT(s.capacity(), faststring::kInitialCapacity * 3 / 2);
+  }
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {
