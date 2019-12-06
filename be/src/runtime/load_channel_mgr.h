@@ -60,6 +60,8 @@ private:
     int64_t _calc_total_mem_limit(int64_t process_mem_limit);
     // calculate the memory limit for a single load process.
     int64_t _calc_load_mem_limit(int64_t mem_limit);
+    // get the timeout of load channels
+    int64_t _get_load_channel_timeout(int64_t timeout_s);
 
     // check if the total load mem consumption exceeds limit.
     // If yes, it will pick a load channel to try to reduce memory consumption.

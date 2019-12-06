@@ -64,7 +64,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new load channel
             int64_t load_mem_limit = _calc_load_mem_limit(params.has_load_mem_limit() ? params.load_mem_limit() : -1);
-            channel.reset(new LoadChannel(load_id, load_mem_limit, _mem_tracker.get()));
+            int64_t load_channel_timeout_s = _get_load_channel_timeout(params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1);
+            channel.reset(new LoadChannel(load_id, load_mem_limit, _mem_tracker.get(), load_channel_timeout_s));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -84,6 +85,14 @@ int64_t LoadChannelMgr::_calc_load_mem_limit(int64_t mem_limit) {
         load_mem_limit = std::min<int64_t>(_mem_tracker->limit(), load_mem_limit);
     }
     return load_mem_limit;
+}
+
+int64_t LoadChannelMgr::_get_load_channel_timeout(int64_t timeout_s) {
+    int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
+    if (timeout_s > 0) {
+        load_channel_timeout_s = std::max<int64_t>(load_channel_timeout_s, timeout_s);
+    }
+    return load_channel_timeout_s;
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {
@@ -204,14 +213,13 @@ Status LoadChannelMgr::_start_bg_worker() {
 
 Status LoadChannelMgr::_start_load_channels_clean() {
     std::vector<std::shared_ptr<LoadChannel>> need_delete_channels;
-    const int32_t max_alive_time = config::streaming_load_rpc_max_alive_time_sec;
     time_t now = time(nullptr);
     {
         std::vector<UniqueId> need_delete_channel_ids;
         std::lock_guard<std::mutex> l(_lock);
         for (auto& kv : _load_channels) {
             time_t last_updated_time = kv.second->last_updated_time();
-            if (difftime(now, last_updated_time) >= max_alive_time) {
+            if (difftime(now, last_updated_time) >= kv.second->timeout()) {
                 need_delete_channel_ids.emplace_back(kv.first);
                 need_delete_channels.emplace_back(kv.second);
             }
@@ -228,7 +236,8 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
         channel->cancel();
-        LOG(INFO) << "load channel has been safely deleted: " << channel->load_id();
+        LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
+                  << ", timeout(s): " << channel->timeout();
     }
 
     // this log print every 1 min, so that we could observe the mem consumption of load process
