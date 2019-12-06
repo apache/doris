@@ -53,7 +53,7 @@ TEST_F(SkipTest, Empty) {
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     TestComparator cmp;
-    SkipList<Key, TestComparator> list(cmp, mem_pool.get());
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     ASSERT_TRUE(!list.Contains(10));
 
     SkipList<Key, TestComparator>::Iterator iter(&list);
@@ -75,12 +75,12 @@ TEST_F(SkipTest, InsertAndLookup) {
     Random rnd(1000);
     std::set<Key> keys;
     TestComparator cmp;
-    SkipList<Key, TestComparator> list(cmp, mem_pool.get());
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
         if (keys.insert(key).second) {
             bool overwritten = false;
-            list.Insert(key, &overwritten, KeysType::AGG_KEYS);
+            list.Insert(key, &overwritten);
         }
     }
 
@@ -144,6 +144,38 @@ TEST_F(SkipTest, InsertAndLookup) {
             iter.Prev();
         }
         ASSERT_TRUE(!iter.Valid());
+    }
+}
+
+// Only non-DUP model will use Find() and InsertWithHint().
+TEST_F(SkipTest, InsertWithHintNoneDupModel) {
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
+    const int N = 2000;
+    const int R = 5000;
+    Random rnd(1000);
+    std::set<Key> keys;
+    TestComparator cmp;
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
+    SkipList<Key, TestComparator>::Hint hint;
+    for (int i = 0; i < N; i++) {
+        Key key = rnd.Next() % R;
+        bool is_exist = list.Find(key, &hint);
+        if (keys.insert(key).second) {
+            ASSERT_FALSE(is_exist);
+            list.InsertWithHint(key, is_exist, &hint);
+        } else {
+            ASSERT_TRUE(is_exist);
+        }
+    }
+
+    for (int i = 0; i < R; i++) {
+        if (list.Contains(i)) {
+            ASSERT_EQ(keys.count(i), 1);
+        } else {
+            ASSERT_EQ(keys.count(i), 0);
+        }
     }
 }
 
@@ -238,7 +270,7 @@ public:
     ConcurrentTest():
         _mem_tracker(new MemTracker(-1)),
         _mem_pool(new MemPool(_mem_tracker.get())),
-        _list(TestComparator(), _mem_pool.get()){}
+        _list(TestComparator(), _mem_pool.get(), false) { }
 
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {
@@ -246,7 +278,7 @@ public:
         const int g = _current.get(k) + 1;
         const Key new_key = make_key(k, g);
         bool overwritten = false;
-        _list.Insert(new_key, &overwritten, KeysType::AGG_KEYS);
+        _list.Insert(new_key, &overwritten);
         _current.set(k, g);
     }
 
