@@ -88,11 +88,12 @@ public class OlapTableSink extends DataSink {
         this.partitions = Strings.emptyToNull(partitions);
     }
 
-    public void init(TUniqueId loadId, long txnId, long dbId) throws AnalysisException {
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoad_id(loadId);
         tSink.setTxn_id(txnId);
         tSink.setDb_id(dbId);
+        tSink.setLoad_channel_timeout_s(loadChannelTimeoutS);
         tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
         tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlap_table_sink(tSink);

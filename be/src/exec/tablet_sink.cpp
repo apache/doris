@@ -97,6 +97,7 @@ void NodeChannel::open() {
     request.set_num_senders(_parent->_num_senders);
     request.set_need_gen_rollup(_parent->_need_gen_rollup);
     request.set_load_mem_limit(_parent->_load_mem_limit);
+    request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -422,6 +423,12 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(_partition->init());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
+
+    if (table_sink.__isset.load_channel_timeout_s) {
+        _load_channel_timeout_s = table_sink.load_channel_timeout_s;
+    } else {
+        _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
+    }
 
     return Status::OK();
 }

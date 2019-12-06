@@ -580,7 +580,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         idToTasks.clear();
-        loadStatistic.clearAllLoads();
 
         // set failMsg and state
         this.failMsg = failMsg;
