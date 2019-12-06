@@ -25,6 +25,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -69,15 +70,14 @@ public class LoadAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo,
-            BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
 
         // A 'Load' request must have 100-continue header
         if (!request.getRequest().headers().contains(HttpHeaders.Names.EXPECT)) {
             throw new DdlException("There is no 100-continue header");
         }
 
-        final String clusterName = authInfo.cluster;
+        final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
             throw new DdlException("No cluster selected.");
         }
@@ -92,7 +92,7 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No table selected.");
         }
         
-        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+        String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
 
         String label = request.getSingleParameter(LABEL_KEY);
         if (!isStreamLoad) {
@@ -104,7 +104,7 @@ public class LoadAction extends RestBaseAction {
         }
  
         // check auth
-        checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
 
         if (!isStreamLoad && !Strings.isNullOrEmpty(request.getSingleParameter(SUB_LABEL_NAME_PARAM))) {
             // only multi mini load need to redirect to Master, because only Master has the info of table to

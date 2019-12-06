@@ -36,8 +36,13 @@ import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Set;
 
+/*
+ * DomainResolver resolve the domain name saved in user property to list of IPs,
+ * and refresh password entries in user priv table, periodically.
+ */
 public class DomainResolver extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DomainResolver.class);
+    // this is only available in BAIDU, for resolving BNS
     private static final String BNS_RESOLVER_TOOLS_PATH = "/usr/bin/get_instance_by_service";
 
     private PaloAuth auth;
@@ -50,33 +55,25 @@ public class DomainResolver extends MasterDaemon {
     // 'public' for test
     @Override
     public void runAfterCatalogReady() {
-        // qualified user name -> domain name
-        Map<String, Set<String>> userMap = Maps.newHashMap();
-        auth.getCopiedWhiteList(userMap);
-        LOG.info("begin to resolve domain: {}", userMap);
-
-        // get unique domain names
-        Set<String> domainSet = Sets.newHashSet();
-        for (Map.Entry<String, Set<String>> entry : userMap.entrySet()) {
-            domainSet.addAll(entry.getValue());
-        }
+        // domain name -> set of user names
+        Map<String, Set<String>> domainMap = Maps.newHashMap();
+        auth.getDomainMap(domainMap);
         
         // resolve domain name
-        for (String domain : domainSet) {
+        Map<String, Set<String>> resolvedIPsMap = Maps.newHashMap();
+        for (String domain : domainMap.keySet()) {
+            LOG.debug("begin to resolve domain: {}", domain);
             Set<String> resolvedIPs = Sets.newHashSet();
-            if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithBNS(domain, resolvedIPs)) {
+            if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithDNS(domain, resolvedIPs)) {
                 continue;
             }
             LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
 
-            for (Map.Entry<String, Set<String>> userEntry : userMap.entrySet()) {
-                if (!userEntry.getValue().contains(domain)) {
-                    continue;
-                }
-
-                auth.updateResolovedIps(userEntry.getKey(), domain, resolvedIPs);
-            }
+            resolvedIPsMap.put(domain, resolvedIPs);
         }
+
+        // refresh user priv table by resolved IPs
+        auth.refreshUserPrivEntriesByResovledIPs(resolvedIPsMap);
     }
 
     /**

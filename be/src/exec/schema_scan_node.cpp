@@ -23,6 +23,7 @@
 #include "exec/text_converter.hpp"
 #include "exec/schema_scanner/schema_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
 #include "runtime/string_value.h"
@@ -66,18 +67,20 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.wild = _pool->add(new std::string(tnode.schema_scan_node.wild));
     }
 
-    if (tnode.schema_scan_node.__isset.user) {
-        _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
+    if (tnode.schema_scan_node.__isset.current_user_ident) {
+        _scanner_param.current_user_ident = _pool->add(new TUserIdentity(tnode.schema_scan_node.current_user_ident));
+    } else {
+        if (tnode.schema_scan_node.__isset.user) {
+            _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
+        }
+        if (tnode.schema_scan_node.__isset.user_ip) {
+            _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
+        }
     }
 
     if (tnode.schema_scan_node.__isset.ip) {
         _scanner_param.ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
     }
-
-    if (tnode.schema_scan_node.__isset.user_ip) {
-        _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
-    }
-
     if (tnode.schema_scan_node.__isset.port) {
         _scanner_param.port = tnode.schema_scan_node.port;
     }

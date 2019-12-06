@@ -63,8 +63,9 @@ struct TColumnDef {
 struct TDescribeTableParams {
   1: optional string db
   2: required string table_name
-  3: optional string user
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // Results of a call to describeTable()
@@ -279,8 +280,9 @@ struct TExecRequest {
 struct TGetDbsParams {
   // If not set, match every database
   1: optional string pattern
-  2: optional string user
-  3: optional string user_ip
+  2: optional string user   // deprecated
+  3: optional string user_ip    // deprecated
+  4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // getDbNames returns a list of database names
@@ -296,8 +298,9 @@ struct TGetTablesParams {
 
   // If not set, match every table
   2: optional string pattern 
-  3: optional string user 
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 struct TTableStatus {

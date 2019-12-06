@@ -17,7 +17,10 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -43,7 +46,13 @@ public abstract class PrivTable implements Writable {
     // see PrivEntry for more detail
     protected boolean isClassNameWrote = false;
 
-    public void addEntry(PrivEntry newEntry, boolean errOnExist, boolean errOnNonExist) throws DdlException {
+    /*
+     * Add an entry to priv table.
+     * If entry already exists and errOnExist is false, we try to reset or merge the new priv entry with existing one.
+     * NOTICE, this method does not set password for the newly added entry if this is a user priv table, the caller
+     * need to set password later.
+     */
+    public PrivEntry addEntry(PrivEntry newEntry, boolean errOnExist, boolean errOnNonExist) throws DdlException {
         PrivEntry existingEntry = getExistingEntry(newEntry);
         if (existingEntry == null) {
             if (errOnNonExist) {
@@ -52,28 +61,26 @@ public abstract class PrivTable implements Writable {
             entries.add(newEntry);
             Collections.sort(entries);
             LOG.info("add priv entry: {}", newEntry);
+            return newEntry;
         } else {
             if (errOnExist) {
                 throw new DdlException("User already exist");
             } else {
-                if (!checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY")) {
-                    return;
-                } else {
-                    if (existingEntry.isSetByDomainResolver() && newEntry.isSetByDomainResolver()) {
-                        existingEntry.setPrivSet(newEntry.getPrivSet());
-                        LOG.debug("reset priv entry: {}", existingEntry);
-                    } else if (existingEntry.isSetByDomainResolver() && !newEntry.isSetByDomainResolver()
-                            || !existingEntry.isSetByDomainResolver() && !newEntry.isSetByDomainResolver()) {
-                        mergePriv(existingEntry, newEntry);
-                        existingEntry.setSetByDomainResolver(false);
-                        LOG.info("merge priv entry: {}", existingEntry);
-                    }
-                    return;
+                checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY");
+                // if existing entry is set by domain resolver, just replace it with the new entry.
+                // if existing entry is not set by domain resolver, merge the 2 entries.
+                if (existingEntry.isSetByDomainResolver()) {
+                    existingEntry.setPrivSet(newEntry.getPrivSet());
+                    existingEntry.setSetByDomainResolver(newEntry.isSetByDomainResolver());
+                    LOG.debug("reset priv entry: {}", existingEntry);
+                } else if (!newEntry.isSetByDomainResolver()) {
+                    mergePriv(existingEntry, newEntry);
+                    existingEntry.setSetByDomainResolver(false);
+                    LOG.debug("merge priv entry: {}", existingEntry);
                 }
             }
+            return existingEntry;
         }
-
-        return;
     }
 
     public void dropEntry(PrivEntry entry) {
@@ -88,33 +95,51 @@ public abstract class PrivTable implements Writable {
         }
     }
 
-    // drop all entries which user name are matched
-    public void dropUser(String qualifiedUser) {
+    public void clearEntriesSetByResolver() {
         Iterator<PrivEntry> iter = entries.iterator();
         while (iter.hasNext()) {
             PrivEntry privEntry = iter.next();
-            if (privEntry.getOrigUser().equals(qualifiedUser)) {
+            if (privEntry.isSetByDomainResolver()) {
+                iter.remove();
+                LOG.info("drop priv entry set by resolver: {}", privEntry);
+            }
+        }
+    }
+
+    // drop all entries which user name are matched, and is not set by resolver
+    public void dropUser(UserIdentity userIdentity) {
+        Iterator<PrivEntry> iter = entries.iterator();
+        while (iter.hasNext()) {
+            PrivEntry privEntry = iter.next();
+            if (privEntry.match(userIdentity, true /* exact match */) && !privEntry.isSetByDomainResolver()) {
                 iter.remove();
                 LOG.info("drop entry: {}", privEntry);
             }
         }
     }
 
-    public boolean revoke(PrivEntry entry, boolean errOnNonExist, boolean deleteEntryWhenEmpty) {
+    public void revoke(PrivEntry entry, boolean errOnNonExist, boolean deleteEntryWhenEmpty) throws DdlException {
         PrivEntry existingEntry = getExistingEntry(entry);
-        if (existingEntry == null && errOnNonExist) {
-            return false;
+        if (existingEntry == null) {
+            if (errOnNonExist) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
+                        entry.getOrigHost());
+            }
+            return;
         }
 
-        if (!checkOperationAllowed(existingEntry, entry, "REVOKE")) {
-            return true;
-        }
+        checkOperationAllowed(existingEntry, entry, "REVOKE");
 
         // check if privs to be revoked exist in priv entry.
         PrivBitSet tmp = existingEntry.getPrivSet().copy();
         tmp.and(entry.getPrivSet());
         if (tmp.isEmpty()) {
-            return !errOnNonExist;
+            if (errOnNonExist) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
+                        entry.getOrigHost());
+            }
+            // there is no such priv, nothing need to be done
+            return;
         }
 
         // revoke privs from existing priv entry
@@ -129,27 +154,19 @@ public abstract class PrivTable implements Writable {
             // no priv exists in this entry, remove it
             dropEntry(existingEntry);
         }
-
-        return true;
     }
 
     /*
      * the priv entry is classified by 'set by domain resolver'
      * or 'NOT set by domain resolver'(other specified operations).
      * if the existing entry is set by resolver, it can be reset by resolver or set by specified ops.
-     * if the existing entry is NOT set by resolver, it can not be set by resolver.
+     * in other word, if the existing entry is NOT set by resolver, it can not be set by resolver.
      */
-    protected boolean checkOperationAllowed(PrivEntry existingEntry, PrivEntry newEntry, String op) {
+    protected void checkOperationAllowed(PrivEntry existingEntry, PrivEntry newEntry, String op) throws DdlException {
         if (!existingEntry.isSetByDomainResolver() && newEntry.isSetByDomainResolver()) {
-            LOG.debug("the existing entry is NOT set by resolver: {}, can not be set by resolver {}, op: {}",
-                      existingEntry, newEntry);
-            return false;
-        } else if (existingEntry.isSetByDomainResolver() && !newEntry.isSetByDomainResolver()) {
-            LOG.debug("the existing entry is currently set by resolver: {}, be set by ops now: {}, op: {}",
-                      existingEntry, newEntry);
-            return true;
+            throw new DdlException("the existing entry is NOT set by resolver: " + existingEntry + ","
+                    + " can not be set by resolver " + newEntry + ", op: " + op);
         }
-        return true;
     }
 
     // Get existing entry which is the keys match the given entry
@@ -165,6 +182,15 @@ public abstract class PrivTable implements Writable {
     private void mergePriv(PrivEntry first, PrivEntry second) {
         first.getPrivSet().or(second.getPrivSet());
         first.setSetByDomainResolver(first.isSetByDomainResolver() || second.isSetByDomainResolver());
+    }
+
+    public boolean doesUsernameExist(String qualifiedUsername) {
+        for (PrivEntry entry : entries) {
+            if (entry.getOrigUser().equals(qualifiedUsername)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // for test only

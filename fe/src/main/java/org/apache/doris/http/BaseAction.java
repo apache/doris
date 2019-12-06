@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -25,6 +26,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -267,41 +269,40 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    protected void checkGlobalAuth(ActionAuthorizationInfo authInfo, PrivPredicate predicate) throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(authInfo.remoteIp,
-                                                                   authInfo.fullUserName,
-                                                                   predicate)) {
+    protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
-    protected void checkDbAuth(ActionAuthorizationInfo authInfo, String db, PrivPredicate predicate)
+    protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(authInfo.remoteIp, db, authInfo.fullUserName,
-                                                               predicate)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(currentUser, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
-    protected void checkTblAuth(ActionAuthorizationInfo authInfo, String db, String tbl, PrivPredicate predicate)
+    protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(authInfo.remoteIp, db, authInfo.fullUserName,
-                                                                tbl, predicate)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
-    protected void checkPassword(ActionAuthorizationInfo authInfo)
+    // return currentUserIdentity from Doris auth
+    protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
+        List<UserIdentity> currentUser = Lists.newArrayList();
         if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
-                                                                      authInfo.remoteIp,
-                                                                      authInfo.password)) {
+                authInfo.remoteIp, authInfo.password, currentUser)) {
             throw new UnauthorizedException("Access denied for "
                     + authInfo.fullUserName + "@" + authInfo.remoteIp);
         }
+        Preconditions.checkState(currentUser.size() == 1);
+        return currentUser.get(0);
     }
 
     public ActionAuthorizationInfo getAuthorizationInfo(BaseRequest request)

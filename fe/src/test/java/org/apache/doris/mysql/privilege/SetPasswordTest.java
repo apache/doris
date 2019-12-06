@@ -95,7 +95,7 @@ public class SetPasswordTest {
         // set password for 'cmy'@'%'
         UserIdentity currentUser1 = new UserIdentity("default_cluster:cmy", "%");
         currentUser1.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUser1);
+        ctx.setCurrentUserIdentity(currentUser1);
         ctx.setThreadLocalInfo();
 
         UserIdentity user1 = new UserIdentity("default_cluster:cmy", "%");
@@ -125,7 +125,7 @@ public class SetPasswordTest {
 
         UserIdentity currentUser2 = new UserIdentity("default_cluster:cmy2", "192.168.1.1");
         currentUser2.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUser2);
+        ctx.setCurrentUserIdentity(currentUser2);
         ctx.setThreadLocalInfo();
 
         // set password without for

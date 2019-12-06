@@ -144,7 +144,6 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -1356,7 +1355,6 @@ public class Catalog {
 
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
-            checksum = loadAccessService(dis, checksum);
             checksum = loadRecycleBin(dis, checksum);
             checksum = loadGlobalVariable(dis, checksum);
             checksum = loadCluster(dis, checksum);
@@ -1689,21 +1687,6 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
             // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
             auth.readFields(dis);
-        }
-        return checksum;
-    }
-
-    @Deprecated
-    public long loadAccessService(DataInputStream dis, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
-            int size = dis.readInt();
-            long newChecksum = checksum ^ size;
-            UserPropertyMgr tmpUserPropertyMgr = new UserPropertyMgr();
-            tmpUserPropertyMgr.readFields(dis);
-
-            // transform it. the old UserPropertyMgr is deprecated
-            tmpUserPropertyMgr.transform(auth);
-            return newChecksum;
         }
         return checksum;
     }
