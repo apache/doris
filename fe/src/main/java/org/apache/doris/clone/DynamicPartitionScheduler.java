@@ -49,6 +49,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -87,12 +88,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void dynamicAddPartition() {
-        for (Pair<Long, Long> tableInfo : dynamicPartitionTableInfo) {
+        Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfo.iterator();
+        while (iterator.hasNext()) {
+            Pair<Long, Long> tableInfo = iterator.next();
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
             Database db = Catalog.getInstance().getDb(dbId);
             if (db == null) {
-                removeDynamicPartitionTable(dbId, tableId);
+                iterator.remove();
                 continue;
             }
             db.readLock();
@@ -100,7 +103,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 Table table = db.getTable(tableId);
                 if (table == null ||
                         !Boolean.parseBoolean(((OlapTable) table).getTableProperty().getDynamicPartitionProperty().getEnable())) {
-                    removeDynamicPartitionTable(dbId, tableId);
+                    iterator.remove();
                     continue;
                 }
             } finally {
