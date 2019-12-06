@@ -77,7 +77,6 @@ public class TablePropertyInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         long dbId = -1;
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {

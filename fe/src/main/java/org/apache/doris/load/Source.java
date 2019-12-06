@@ -171,7 +171,6 @@ public class Source implements Writable {
             }
         }
     }
-
     public void readFields(DataInput in) throws IOException {
         int count = 0;
         

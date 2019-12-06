@@ -53,7 +53,6 @@ public class TableCommitInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         boolean hasPartitionInfo = in.readBoolean();

@@ -94,7 +94,6 @@ public class FunctionSearchDesc implements Writable {
         out.writeBoolean(isVariadic);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = FunctionName.read(in);
         // read args

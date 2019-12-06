@@ -290,7 +290,6 @@ public class ScalarFunction extends Function {
         writeOptionString(output, closeFnSymbol);
     }
 
-    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
         symbolName = Text.readString(input);

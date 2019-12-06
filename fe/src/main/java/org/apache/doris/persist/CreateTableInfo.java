@@ -59,7 +59,6 @@ public class CreateTableInfo implements Writable {
         Text.writeString(out, dbName);
         table.write(out);
     }
- 
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));

@@ -89,7 +89,6 @@ public class FunctionParams implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         isStar = in.readBoolean();
         isDistinct = in.readBoolean();

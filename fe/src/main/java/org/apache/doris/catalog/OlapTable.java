@@ -821,7 +821,6 @@ public class OlapTable extends Table {
         out.writeLong(baseIndexId);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -928,7 +927,7 @@ public class OlapTable extends Table {
 
     public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied)) {
+        if (!DeepCopy.copy(this, copied, OlapTable.class)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }

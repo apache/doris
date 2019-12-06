@@ -73,7 +73,6 @@ public class MasterInfo implements Writable {
         out.writeInt(rpcPort);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         ip = Text.readString(in);
         httpPort = in.readInt();

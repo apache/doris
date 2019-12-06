@@ -294,7 +294,6 @@ public class Text implements Writable {
         }
     }
 
-    // Deserialize
     public void readFields(DataInput in) throws IOException {
         int newLength = in.readInt();
         setCapacity(newLength, false);

@@ -191,7 +191,6 @@ public class FunctionName implements Writable {
         Text.writeString(out, fn_);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             db_ = Text.readString(in);

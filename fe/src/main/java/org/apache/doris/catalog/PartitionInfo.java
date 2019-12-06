@@ -116,7 +116,6 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         type = PartitionType.valueOf(Text.readString(in));
 

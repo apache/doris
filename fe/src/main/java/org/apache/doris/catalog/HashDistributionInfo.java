@@ -65,7 +65,6 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         out.writeInt(bucketNum);
     }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int columnCount = in.readInt();

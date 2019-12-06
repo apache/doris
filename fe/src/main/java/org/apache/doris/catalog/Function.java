@@ -609,7 +609,6 @@ public class Function implements Writable {
         throw new Error("Origin function cannot be serialized");
     }
 
-    @Override
     public void readFields(DataInput input) throws IOException {
         id = input.readLong();
         name = FunctionName.read(input);

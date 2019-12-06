@@ -329,7 +329,6 @@ public class Partition extends MetaObject implements Writable {
         distributionInfo.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

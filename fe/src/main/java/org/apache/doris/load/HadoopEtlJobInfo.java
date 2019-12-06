@@ -87,7 +87,6 @@ public class HadoopEtlJobInfo extends EtlJobInfo {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         cluster = Text.readString(in);
