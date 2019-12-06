@@ -22,17 +22,16 @@
 
 namespace doris {
 
-void faststring::GrowByAtLeast(size_t count) {
+void faststring::GrowToAtLeast(size_t newcapacity) {
   // Not enough space, need to reserve more.
   // Don't reserve exactly enough space for the new string -- that makes it
   // too easy to write perf bugs where you get O(n^2) append.
   // Instead, alwayhs expand by at least 50%.
 
-  size_t to_reserve = len_ + count;
-  if (len_ + count < len_ * 3 / 2) {
-    to_reserve = len_ *  3 / 2;
+  if (newcapacity < capacity_ * 3 / 2) {
+    newcapacity = capacity_ *  3 / 2;
   }
-  GrowArray(to_reserve);
+  GrowArray(newcapacity);
 }
 
 void faststring::GrowArray(size_t newcapacity) {

@@ -209,10 +209,10 @@ class faststring {
   // Reallocates the internal storage to fit only the current data.
   //
   // This may revert to using internal storage if the current length is shorter than
-  // kInitialCapacity. Note that, in that case, after this call, capacity() will return
-  // a capacity larger than the data length.
+  // kInitialCapacity. In that case, after this call, capacity() will go down to
+  // kInitialCapacity.
   //
-  // Any pointers within this instance are invalidated.
+  // Any pointers within this instance may be invalidated.
   void shrink_to_fit() {
     if (data_ == initial_data_ || capacity_ == len_) return;
     ShrinkToFitInternal();
@@ -236,12 +236,12 @@ class faststring {
 
     // Call the non-inline slow path - this reduces the number of instructions
     // on the hot path.
-    GrowByAtLeast(count);
+    GrowToAtLeast(len_ + count);
   }
 
-  // The slow path of MakeRoomFor. Grows the buffer by either
+  // The slow path of EnsureRoomForAppend. Grows the buffer by either
   // 'count' bytes, or 50%, whichever is more.
-  void GrowByAtLeast(size_t count);
+  void GrowToAtLeast(size_t newcapacity);
 
   // Grow the array to the given capacity, which must be more than
   // the current capacity.
@@ -252,7 +252,10 @@ class faststring {
   uint8_t* data_;
   uint8_t initial_data_[kInitialCapacity];
   size_t len_;
+  // NOTE: we will make a initial buffer as part of the object, so the smallest
+  // possible value of capacity_ is kInitialCapacity.
   size_t capacity_;
 };
 
 } // namespace doris
+
