@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -116,15 +117,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             Calendar calendar = Calendar.getInstance();
             TableProperty tableProperty = olapTable.getTableProperty();
-            int end = Integer.parseInt(tableProperty.getDynamicPartitionProperty().getEnd());
+            DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
+            int end = Integer.parseInt(dynamicPartitionProperty.getEnd());
             for (int i = 0; i <= end; i++) {
-                String dynamicPartitionPrefix = tableProperty.getDynamicPartitionProperty().getPrefix();
-                String partitionRange = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
+                String dynamicPartitionPrefix = dynamicPartitionProperty.getPrefix();
+                String partitionRange = DynamicPartitionUtil.getPartitionRange(dynamicPartitionProperty.getTimeUnit(),
                         i, (Calendar) calendar.clone(), partitionFormat);
                 String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(partitionRange);
 
                 // continue if partition already exists
-                String nextBorder = DynamicPartitionUtil.getPartitionRange(tableProperty.getDynamicPartitionProperty().getTimeUnit(),
+                String nextBorder = DynamicPartitionUtil.getPartitionRange(dynamicPartitionProperty.getTimeUnit(),
                         i + 1, (Calendar) calendar.clone(), partitionFormat);
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 if (partitionInfo.getType() != PartitionType.RANGE) {
@@ -159,7 +161,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     distColumnNames.add(distributionColumn.getName());
                 }
                 DistributionDesc distributionDesc = new HashDistributionDesc(
-                        Integer.parseInt(tableProperty.getDynamicPartitionProperty().getBuckets()), distColumnNames);
+                        Integer.parseInt(dynamicPartitionProperty.getBuckets()), distColumnNames);
 
                 // add partition according to partition desc and distribution desc
                 AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
