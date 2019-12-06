@@ -28,6 +28,8 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_compression.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h" // for TypeInfo
 #include "util/crc32c.h"
 #include "util/faststring.h" // for fastring
@@ -118,6 +120,10 @@ Status ColumnWriter::init() {
     if (_opts.need_bitmap_index) {
         RETURN_IF_ERROR(BitmapIndexWriter::create(_field->type_info(), &_bitmap_index_builder));
     }
+    if (_opts.need_bloom_filter) {
+        RETURN_IF_ERROR(BloomFilterIndexWriter::create(BloomFilterOptions(),
+                _field->type_info(), &_bloom_filter_index_builder));
+    }
     return Status::OK();
 }
 
@@ -129,6 +135,9 @@ Status ColumnWriter::append_nulls(size_t num_rows) {
     }
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_nulls(num_rows);
+    }
+    if (_opts.need_bloom_filter) {
+        _bloom_filter_index_builder->add_nulls(num_rows);
     }
     return Status::OK();
 }
@@ -150,6 +159,9 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
         }
         if (_opts.need_bitmap_index) {
             _bitmap_index_builder->add_values(*ptr, num_written);
+        }
+        if (_opts.need_bloom_filter) {
+            _bloom_filter_index_builder->add_values(*ptr, num_written);
         }
 
         bool is_page_full = (num_written < remaining);
@@ -185,6 +197,9 @@ Status ColumnWriter::append_nullable(
             if (_opts.need_bitmap_index) {
                 _bitmap_index_builder->add_nulls(this_run);
             }
+            if (_opts.need_bloom_filter) {
+                _bloom_filter_index_builder->add_nulls(this_run);
+            }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
         }
@@ -209,6 +224,12 @@ uint64_t ColumnWriter::estimate_buffer_size() {
     size += _ordinal_index_builder->size();
     if (_opts.need_zone_map) {
         size += _column_zone_map_builder->size();
+    }
+    if (_opts.need_bitmap_index) {
+        size += _bitmap_index_builder->size();
+    }
+    if (_opts.need_bloom_filter) {
+        size += _bloom_filter_index_builder->size();
     }
     return size;
 }
@@ -256,6 +277,13 @@ Status ColumnWriter::write_bitmap_index() {
     return _bitmap_index_builder->finish(_output_file, &_bitmap_index_meta);
 }
 
+Status ColumnWriter::write_bloom_filter_index() {
+    if (!_opts.need_bloom_filter) {
+        return Status::OK();
+    }
+    return _bloom_filter_index_builder->finish(_output_file, &_bloom_filter_index_meta);
+}
+
 void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_type(_field->type());
     meta->set_encoding(_opts.encoding_type);
@@ -271,6 +299,9 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     }
     if (_opts.need_bitmap_index) {
         meta->mutable_bitmap_index()->CopyFrom(_bitmap_index_meta);
+    }
+    if (_opts.need_bloom_filter) {
+        meta->mutable_bloom_filter_index()->CopyFrom(_bloom_filter_index_meta);
     }
 }
 
@@ -362,6 +393,9 @@ Status ColumnWriter::_finish_current_page() {
         RETURN_IF_ERROR(_column_zone_map_builder->flush());
     }
 
+    if (_opts.need_bloom_filter) {
+        RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
+    }
     return Status::OK();
 }
 

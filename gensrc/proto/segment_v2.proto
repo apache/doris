@@ -102,6 +102,8 @@ message ColumnMetaPB {
     optional BitmapIndexColumnPB bitmap_index = 11;
     // var length for string type
     optional int32 length = 12;
+    // bloom filter index
+    optional BloomFilterIndexPB bloom_filter_index = 13;
 
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
@@ -199,7 +201,8 @@ message IndexedColumnMetaPB {
     optional BTreeMetaPB value_index_meta = 5;
     // compression type for data and index page
     optional CompressionTypePB compression = 6 [default=NO_COMPRESSION];
-    // optional bool is_nullable = 7 [default=false];
+    // index size
+    optional uint64 size = 7;
 }
 
 message BitmapIndexColumnPB {
@@ -218,4 +221,21 @@ message BitmapIndexColumnPB {
     // required: meta for bitmaps part
     optional IndexedColumnMetaPB bitmap_column = 5;
     optional BitmapType bitmap_type = 6 [default=ROARING_BITMAP];
+}
+
+enum HashStrategyPB {
+    HASH_MURMUR3_X64_64 = 0;
+}
+
+enum BloomFilterAlgorithmPB {
+    BLOCK_BLOOM_FILTER = 0;
+    CLASSIC_BLOOM_FILTER = 1;
+}
+
+message BloomFilterIndexPB {
+    // required
+    optional HashStrategyPB hash_strategy = 1;
+    optional BloomFilterAlgorithmPB algorithm = 2;
+    // required: meta for bloom filters
+    optional IndexedColumnMetaPB bloom_filter = 3;
 }

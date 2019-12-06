@@ -31,22 +31,27 @@ class WritableFile;
 
 namespace segment_v2 {
 
-class BitmapIndexWriter {
-public:
-    static Status create(const TypeInfo* typeinfo, std::unique_ptr<BitmapIndexWriter>* res);
+class BloomFilterOptions;
 
-    BitmapIndexWriter() = default;
-    virtual ~BitmapIndexWriter() = default;
+class BloomFilterIndexWriter {
+public:
+    static Status create(const BloomFilterOptions& bf_options,
+            const TypeInfo* typeinfo, std::unique_ptr<BloomFilterIndexWriter>* res);
+
+    BloomFilterIndexWriter() = default;
+    virtual ~BloomFilterIndexWriter() = default;
 
     virtual void add_values(const void* values, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
-    virtual Status finish(WritableFile* file, BitmapIndexColumnPB* meta) = 0;
+    virtual Status flush() = 0;
+
+    virtual Status finish(WritableFile* file, BloomFilterIndexPB* meta) = 0;
 
     virtual uint64_t size() = 0;
 private:
-    DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
+    DISALLOW_COPY_AND_ASSIGN(BloomFilterIndexWriter);
 };
 
 } // segment_v2

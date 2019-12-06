@@ -44,6 +44,7 @@ struct ColumnWriterOptions {
     double compression_min_space_saving = 0.1;
     bool need_zone_map = false;
     bool need_bitmap_index = false;
+    bool need_bloom_filter = false;
 };
 
 class BitmapIndexWriter;
@@ -51,6 +52,7 @@ class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalPageIndexBuilder;
 class PageBuilder;
+class BloomFilterIndexWriter;
 
 // Encode one column's data into some memory slice.
 // Because some columns would be stored in a file, we should wait
@@ -99,20 +101,21 @@ public:
     Status write_ordinal_index();
     Status write_zone_map();
     Status write_bitmap_index();
+    Status write_bloom_filter_index();
     void write_meta(ColumnMetaPB* meta);
 
 private:
-    struct Page {
-        int32_t first_rowid;
-        int32_t num_rows;
-        OwnedSlice null_bitmap;
-        OwnedSlice data;
-        Page* next = nullptr;
-    };
+    struct Page {	
+        int32_t first_rowid;	
+        int32_t num_rows;	
+        OwnedSlice null_bitmap;	
+        OwnedSlice data;	
+        Page* next = nullptr;	
+    };	
 
-    struct PageHead {
-        Page* head = nullptr;
-        Page* tail = nullptr;
+    struct PageHead {	
+        Page* head = nullptr;	
+        Page* tail = nullptr;	
     };
 
     void _push_back_page(Page* page) {
@@ -152,7 +155,9 @@ private:
     std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
     std::unique_ptr<Field> _field;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
+    std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
     BitmapIndexColumnPB _bitmap_index_meta;
+    BloomFilterIndexPB _bloom_filter_index_meta;
 
     PagePointer _ordinal_index_pp;
     PagePointer _zone_map_pp;

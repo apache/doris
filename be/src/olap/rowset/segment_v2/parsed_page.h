@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_decoder.h"
+#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_handle.h"
 #include "util/rle_encoding.h" // for RleDecoder
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
-
-class PageHandle;
-struct PagePointer;
 
 // This contains information when one page is loaded, and ready for read
 // This struct can be reused, client should call reset first before reusing
