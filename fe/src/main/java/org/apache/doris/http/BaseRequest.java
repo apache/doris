@@ -17,6 +17,8 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.common.DdlException;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
@@ -24,16 +26,14 @@ import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http.Cookie;
-import io.netty.handler.codec.http.CookieDecoder;
 import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.QueryStringDecoder;
-import org.apache.doris.common.DdlException;
+import io.netty.handler.codec.http.cookie.ClientCookieDecoder;
+import io.netty.handler.codec.http.cookie.Cookie;
 
 public class BaseRequest {
     protected ChannelHandlerContext context;
@@ -81,15 +81,11 @@ public class BaseRequest {
     }
     
     public Cookie getCookieByName(String cookieName) {
-        String cookieString = request.headers().get(HttpHeaders.Names.COOKIE);
+        String cookieString = request.headers().get(HttpHeaderNames.COOKIE.toString());
         if (!Strings.isNullOrEmpty(cookieString)) {
-            Set<Cookie> cookies = CookieDecoder.decode(cookieString);
-            if (!cookies.isEmpty()) {
-                for (Cookie cookie : cookies) {
-                    if (cookie.name().equalsIgnoreCase(cookieName)) {
-                        return cookie;
-                    }
-                }
+            Cookie cookie = ClientCookieDecoder.STRICT.decode(cookieString);
+            if (cookie.name().equalsIgnoreCase(cookieName)) {
+                return cookie;
             }
         }
         return null;

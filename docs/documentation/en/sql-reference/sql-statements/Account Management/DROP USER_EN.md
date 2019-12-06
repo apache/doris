@@ -22,15 +22,21 @@ under the License.
 
 Syntax:
 
-DROP USER 'user_name'
+    DROP USER 'user_identity'
 
-The DROP USER command deletes a Palo user. Doris does not support deleting the specified user_identity here. When a specified user is deleted, all user_identities corresponding to that user are deleted. For example, two users, Jack @'192%'and Jack @['domain'] were created through the CREATE USER statement. After DROP USER'jack' was executed, Jack @'192%'and Jack @['domain'] would be deleted.
+    `user_identity`:
+
+        user@'host'
+        user@['domain']
+
+    Drop a specified user identity.
 
 ## example
 
-1. Delete user jack
+1. Delete user jack@'192.%'
 
-DROP USER 'jack'
+    DROP USER 'jack'@'192.%'
 
 ## keyword
-DROP, USER
+
+    DROP, USER

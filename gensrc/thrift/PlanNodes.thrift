@@ -252,16 +252,16 @@ struct TSchemaScanNode {
   3: optional string db
   4: optional string table
   5: optional string wild
-  6: optional string user
-  7: optional string ip
-  8: optional i32 port
+  6: optional string user   // deprecated
+  7: optional string ip // frontend ip
+  8: optional i32 port  // frontend thrift server port
   9: optional i64 thread_id
-  10: optional string user_ip
+  10: optional string user_ip   // deprecated
+  11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
 }
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-
   2: required string table_name
   3: optional string db
   4: optional string table

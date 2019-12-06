@@ -188,6 +188,14 @@ ADMIN\_PRIV and GRANT\_PRIV have the authority of **"grant authority"** at the s
 
 8. Having GRANT\_PRIV at GLOBAL level is actually equivalent to having ADMIN\_PRIV, because GRANT\_PRIV at this level has the right to grant arbitrary permissions, please use it carefully.
 
+9. `current_user()` and `user()`
+
+    Users can view `current_user` and `user` respectively by `SELECT current_user();` and `SELECT user();`. Where `current_user` indicates which identity the current user is passing through the authentication system, and `user` is the user's current actual `user_identity`.
+
+    For example, suppose the user `user1@'192.%'` is created, and then a user user1 from 192.168.10.1 is logged into the system. At this time, `current_user` is `user1@'192.%'`, and `user` is `user1@'192.168.10.1'`.
+
+    All privileges are given to a `current_user`, and the real user has all the privileges of the corresponding `current_user`.
+
 ## Best Practices
 
 Here are some usage scenarios of Doris privilege system.
@@ -202,6 +210,8 @@ Here are some usage scenarios of Doris privilege system.
 
 	There are multiple services in a cluster, and each business may use one or more data. Each business needs to manage its own users. In this scenario. Administrator users can create a user with GRANT privileges at the DATABASE level for each database. The user can only authorize the specified database for the user.
 
+3. Blacklist
 
+    Doris itself does not support blacklist, only whitelist, but we can simulate blacklist in some way. Suppose you first create a user named `user@'192.%'`, which allows users from `192.*` to login. At this time, if you want to prohibit users from `192.168.10.1` from logging in, you can create another user with `cmy@'192.168.10.1'` and set a new password. Since `192.168.10.1` has a higher priority than `192.%`, user can no longer login by using the old password from `192.168.10.1`.
 
 

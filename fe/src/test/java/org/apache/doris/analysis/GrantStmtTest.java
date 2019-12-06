@@ -66,6 +66,9 @@ public class GrantStmtTest {
                 ctx.getRemoteIP();
                 result = "192.168.0.1";
 
+                ctx.getCurrentUserIdentity();
+                result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
+
                 Catalog.getCurrentCatalog();
                 result = catalog;
 

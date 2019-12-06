@@ -18,6 +18,7 @@
 package org.apache.doris.http.action;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -28,6 +29,7 @@ import org.apache.doris.http.BaseAction;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.HttpAuthManager;
+import org.apache.doris.http.HttpAuthManager.SessionValue;
 import org.apache.doris.http.UnauthorizedException;
 import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
@@ -43,10 +45,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.UUID;
 
-import io.netty.handler.codec.http.DefaultCookie;
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.cookie.DefaultCookie;
 
 public class WebBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(WebBaseAction.class);
@@ -145,18 +147,20 @@ public class WebBaseAction extends BaseAction {
         ActionAuthorizationInfo authInfo;
         try {
             authInfo = getAuthorizationInfo(request);
-            checkPassword(authInfo);
+            UserIdentity currentUser = checkPassword(authInfo);
             if (needAdmin()) {
-                checkGlobalAuth(authInfo, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                         PaloPrivilege.NODE_PRIV),
-                                                           Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                        PaloPrivilege.NODE_PRIV), Operator.OR));
             }
             request.setAuthorized(true);
-            addSession(request, response, authInfo.fullUserName);
+            SessionValue value = new SessionValue();
+            value.currentUser = currentUser;
+            addSession(request, response, value);
 
             ConnectContext ctx = new ConnectContext(null);
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
             ctx.setThreadLocalInfo();
 
             return true;
@@ -171,8 +175,11 @@ public class WebBaseAction extends BaseAction {
         String sessionId = request.getCookieValue(PALO_SESSION_ID);
         HttpAuthManager authMgr = HttpAuthManager.getInstance();
         if (!Strings.isNullOrEmpty(sessionId)) {
-            String username = authMgr.getUsername(sessionId);
-            if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(request.getHostString(), username,
+            SessionValue sessionValue = authMgr.getSessionValue(sessionId);
+            if (sessionValue == null) {
+                return false;
+            }
+            if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(sessionValue.currentUser,
                                                                       PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
                                                                                                      PaloPrivilege.NODE_PRIV),
                                                                                        Operator.OR))) {
@@ -180,8 +187,9 @@ public class WebBaseAction extends BaseAction {
                 request.setAuthorized(true);
 
                 ConnectContext ctx = new ConnectContext(null);
-                ctx.setQualifiedUser(username);
+                ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
                 ctx.setRemoteIP(request.getHostString());
+                ctx.setCurrentUserIdentity(sessionValue.currentUser);
                 ctx.setThreadLocalInfo();
                 return true;
             }
@@ -202,7 +210,7 @@ public class WebBaseAction extends BaseAction {
     }
 
     protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
-        response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+        response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
         writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
     }
 
@@ -210,12 +218,12 @@ public class WebBaseAction extends BaseAction {
         writeResponse(request, response, HttpResponseStatus.OK);
     }
 
-    protected void addSession(BaseRequest request, BaseResponse response, String value) {
+    protected void addSession(BaseRequest request, BaseResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         DefaultCookie cookie = new DefaultCookie(PALO_SESSION_ID, key);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         response.addCookie(cookie);
-        HttpAuthManager.getInstance().addClient(key, value);
+        HttpAuthManager.getInstance().addSessionValue(key, value);
     }
 
     protected void getPageHeader(BaseRequest request, StringBuilder sb) {

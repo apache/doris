@@ -58,7 +58,6 @@ public class DppSchedulerTest {
         dppScheduler = new DppScheduler(Load.dppDefaultConfig);
     }
     
-    
     @Test
     public void testCalcReduceNumByInputSize() throws Exception {
         // mock hadoop count

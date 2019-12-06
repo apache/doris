@@ -28,6 +28,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
@@ -50,16 +51,15 @@ public class StorageTypeCheckAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("Parameter db is missing");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
         Database db = catalog.getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Database " + dbName + " does not exist");

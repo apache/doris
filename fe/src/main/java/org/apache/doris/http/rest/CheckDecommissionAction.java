@@ -26,6 +26,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
@@ -54,9 +55,9 @@ public class CheckDecommissionAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
-        checkGlobalAuth(authInfo, PrivPredicate.OPERATOR);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         String hostPorts = request.getSingleParameter(HOST_PORTS);
         if (Strings.isNullOrEmpty(hostPorts)) {

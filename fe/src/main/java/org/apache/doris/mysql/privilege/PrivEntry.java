@@ -18,8 +18,10 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -45,18 +47,23 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     protected String origUser;
     protected boolean isAnyUser = false;
     protected PrivBitSet privSet;
-
+    // true if this entry is set by domain resolver
     protected boolean isSetByDomainResolver = false;
+    // true if origHost is a domain name.
+    // For global priv entry, if isDomain is true, it should only be used for priv checking, not password checking
+    protected boolean isDomain = false;
 
     // isClassNameWrote to guarantee the class name can only be written once when persisting.
     // see PrivEntry.read() for more details.
     protected boolean isClassNameWrote = false;
 
+    private UserIdentity userIdentity;
+
     protected PrivEntry() {
     }
 
     protected PrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher userPattern, String origUser,
-            PrivBitSet privSet) {
+            boolean isDomain, PrivBitSet privSet) {
         this.hostPattern = hostPattern;
         this.origHost = origHost;
         if (origHost.equals(ANY_HOST)) {
@@ -67,7 +74,13 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         if (origUser.equals(ANY_USER)) {
             isAnyUser = true;
         }
+        this.isDomain = isDomain;
         this.privSet = privSet;
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
     }
 
     public PatternMatcher getHostPattern() {
@@ -111,9 +124,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     }
 
     public UserIdentity getUserIdent() {
-        UserIdentity userIdent = new UserIdentity(origUser, origHost);
-        userIdent.setIsAnalyzed();
-        return userIdent;
+        return userIdentity;
     }
 
     public boolean match(UserIdentity userIdent, boolean exactMatch) {
@@ -208,6 +219,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet.write(out);
 
         out.writeBoolean(isSetByDomainResolver);
+        out.writeBoolean(isDomain);
 
         isClassNameWrote = false;
     }
@@ -233,6 +245,15 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         privSet = PrivBitSet.read(in);
 
         isSetByDomainResolver = in.readBoolean();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_69) {
+            isDomain = in.readBoolean();
+        }
+
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
     }
 
     @Override
