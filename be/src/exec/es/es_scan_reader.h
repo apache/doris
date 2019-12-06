@@ -64,10 +64,26 @@ private:
     std::string _shards;
     // distinguish the first scroll phase and the following scroll
     bool _is_first;
+
+    // `_init_scroll_url` and `_next_scroll_url` used for scrolling result from Elasticsearch
+    //In order to use scrolling, the initial search request should specify the scroll parameter in the query string,
+    // which tells Elasticsearch how long it should keep the “search context” alive:
+    // {index}/{type}/_search?scroll=5m
     std::string _init_scroll_url;
+    // The result from the above request includes a _scroll_id, which should be passed to the scroll API in order to retrieve the next batch of results
+    // _next_scroll_url for the subsequent scroll request, like /_search/scroll
+    // POST /_search/scroll 
+    // {
+    //    "scroll" : "1m", 
+    //    "scroll_id" : "DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAAAD4WYm9laVYtZndUQlNsdDcwakFMNjU1QQ==" 
+    // }
+    // Each call to the scroll API returns the next batch of results until there are no more results left to return
     std::string _next_scroll_url;
+    
+    // _search_url used to exeucte just only one search request to Elasticsearch
+    // _search_url would go into effect when `limit` specified:
+    // select * from es_table limit 10 -> /es_table/doc/_search?terminate_after=10
     std::string _search_url;
-    std::string _terminate_after;
     bool _eos;
     int _batch_size;
 

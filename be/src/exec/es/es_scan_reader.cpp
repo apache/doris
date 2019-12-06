@@ -57,9 +57,8 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
 
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
-        _terminate_after = props.at(KEY_TERMINATE_AFTER);
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
-        _search_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?terminate_after=" + _terminate_after + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REQUEST_SEARCH_FILTER_PATH;
+        _search_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?terminate_after=" + props.at(KEY_TERMINATE_AFTER) + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REQUEST_SEARCH_FILTER_PATH;
     } else {
         _exactly_once = false;
         // scroll request for scanning 
