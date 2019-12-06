@@ -176,9 +176,9 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
     }
 
     public static int analyzeColumn(String columnName) throws AnalysisException {
-        for (String title : TITLE_NAMES) {
-            if (title.equalsIgnoreCase(columnName)) {
-                return TITLE_NAMES.indexOf(title);
+        for (int i = 0; i < TITLE_NAMES.size(); ++i) {
+            if (TITLE_NAMES.get(i).equalsIgnoreCase(columnName)) {
+                return i;
             }
         }
         throw new AnalysisException("Title name[" + columnName + "] does not exist");

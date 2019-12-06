@@ -34,10 +34,13 @@ CLUSTER: Show the cluster operation related tasks (only administrators use! To b
 1. Show the task execution of all modified columns of default DB
 SHOW ALTER TABLE COLUMN;
 
-2. Show the execution of tasks to create or delete ROLLUP index for specified DB
+2. Show the last task execution of modified columns of some table
+SHOW ALTER TABLE COLUMN WHERE TableName = "table1" ORDER BY CreateTime LIMIT 1;
+
+3. Show the execution of tasks to create or delete ROLLUP index for specified DB
 SHOW ALTER TABLE ROLLUP FROM example_db;
 
-3. Show cluster operations related tasks (only administrators use! To be realized...
+4. Show cluster operations related tasks (only administrators use! To be realized...
 SHOW ALTER CLUSTER;
 
 ## keyword

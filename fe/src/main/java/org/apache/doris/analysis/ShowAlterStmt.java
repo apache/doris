@@ -88,11 +88,11 @@ public class ShowAlterStmt extends ShowStmt {
 
     private void getPredicateValue(Expr subExpr) throws AnalysisException {
         if (!(subExpr instanceof BinaryPredicate)) {
-            return;
+            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported."); 
         }
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
-            return;
+            throw new AnalysisException("Only support column = xxx syntax."); 
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
