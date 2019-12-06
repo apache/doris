@@ -67,11 +67,12 @@ public abstract class PrivTable implements Writable {
                 throw new DdlException("User already exist");
             } else {
                 checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY");
-                if (existingEntry.isSetByDomainResolver() && newEntry.isSetByDomainResolver()) {
+                // if existing entry is set by domain resolver, just replace it with the new entry.
+                // if existing entry is not set by domain resolver, merge the 2 entries.
+                if (existingEntry.isSetByDomainResolver()) {
                     existingEntry.setPrivSet(newEntry.getPrivSet());
                     LOG.debug("reset priv entry: {}", existingEntry);
-                } else if (existingEntry.isSetByDomainResolver() && !newEntry.isSetByDomainResolver()
-                        || !existingEntry.isSetByDomainResolver() && !newEntry.isSetByDomainResolver()) {
+                } else if (!newEntry.isSetByDomainResolver()) {
                     mergePriv(existingEntry, newEntry);
                     existingEntry.setSetByDomainResolver(false);
                     LOG.debug("merge priv entry: {}", existingEntry);

@@ -851,7 +851,7 @@ public class AuthTest {
         currentUser2.clear();
         auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
         Assert.assertEquals(0, currentUser2.size());
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         currentUser2.clear();
         auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
         Assert.assertEquals(1, currentUser2.size());
@@ -997,7 +997,7 @@ public class AuthTest {
         }
         Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", null));
         
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", null));
         Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde", null));
 
@@ -1020,7 +1020,7 @@ public class AuthTest {
         Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
         
-        resolver.runOneCycle();
+        resolver.runAfterCatalogReady();
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
         Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
         

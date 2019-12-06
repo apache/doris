@@ -375,8 +375,8 @@ enum TLoadSourceType {
 
 // represent a user identity
 struct TUserIdentity {
-    1: required string username
-    2: required string host
-    3: required bool is_domain
+    1: optional string username
+    2: optional string host
+    3: optional bool is_domain
 }
 

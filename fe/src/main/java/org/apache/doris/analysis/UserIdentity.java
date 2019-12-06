@@ -157,7 +157,10 @@ public class UserIdentity implements Writable {
 
     public TUserIdentity toThrift() {
         Preconditions.checkState(isAnalyzed);
-        TUserIdentity tUserIdent = new TUserIdentity(user, host, isDomain);
+        TUserIdentity tUserIdent = new TUserIdentity();
+        tUserIdent.setHost(host);
+        tUserIdent.setUsername(user);
+        tUserIdent.setIs_domain(isDomain);
         return tUserIdent;
     }
 

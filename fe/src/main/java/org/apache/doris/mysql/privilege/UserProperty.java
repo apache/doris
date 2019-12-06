@@ -158,7 +158,7 @@ public class UserProperty implements Writable {
         }
     }
 
-    public void removeDamain(String domain) {
+    public void removeDomain(String domain) {
         whiteList.removeDomain(domain);
     }
 

@@ -96,7 +96,7 @@ public class UserPropertyMgr implements Writable {
         if (userProperty == null) {
             return;
         }
-        userProperty.removeDamain(userIdentity.getHost());
+        userProperty.removeDomain(userIdentity.getHost());
         resourceVersion.incrementAndGet();
     }
 

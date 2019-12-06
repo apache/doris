@@ -70,7 +70,7 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
         db_params.__set_pattern(*(_param->db));
     }
     if (NULL != _param->current_user_ident) {
-        db_params.__set_current_user_ident(*(_param->current_user_ident));
+        db_params.__set_current_user_ident(*_param->current_user_ident);
     } else {
         if (NULL != _param->user) {
             db_params.__set_user(*(_param->user));
