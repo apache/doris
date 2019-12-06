@@ -362,6 +362,9 @@ public class FEFunctions {
 
     @FEFunction(name = "divide", argTypes = { "DOUBLE", "DOUBLE" }, returnType = "DOUBLE")
     public static FloatLiteral divideDouble(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        if (second.getDoubleValue() == 0.0) {
+            return null;
+        }
         double result = first.getDoubleValue() / second.getDoubleValue();
         return new FloatLiteral(result, Type.DOUBLE);
     }
@@ -370,6 +373,9 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
     }
@@ -378,7 +384,9 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimalV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
     }
