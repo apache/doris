@@ -1428,4 +1428,14 @@ void write_log_info(char *buf, size_t buf_len, const char *fmt, ...) {
     va_end(args);
 }
 
+uint32_t highest_one_bit(uint32_t i) {
+    // HD, Figure 3-1
+    i |= (i >> 1);
+    i |= (i >> 2);
+    i |= (i >> 4);
+    i |= (i >> 8);
+    i |= (i >> 16);
+    return i - (i >> 1);
+}
+
 }  // namespace doris

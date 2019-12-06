@@ -512,6 +512,10 @@ bool valid_datetime(const std::string& value_str);
         }\
     } while (0)
 
+// get the highest bit of 1 in uint32_t
+// copy from java Integer.highestOneBit()
+uint32_t highest_one_bit(uint32_t i);
+
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_UTILS_H

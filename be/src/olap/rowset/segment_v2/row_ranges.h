@@ -106,6 +106,13 @@ public:
         return strings::Substitute("[$0-$1)", _from, _to);
     }
 
+    // Comparator struct, useful for ordered collections (like STL maps).
+    struct Comparator {
+        bool operator()(const RowRange& a, const RowRange& b) const {
+            return a.from() < b.from() || (a.from() == b.from() && a.to() < b.to());
+        }
+    };
+
 private:
     int64_t _from;
     int64_t _to;
@@ -267,7 +274,6 @@ public:
         return result;
     }
 
-private:
     // Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
     // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
     // the last one or might be overlapped with some of the last ones.

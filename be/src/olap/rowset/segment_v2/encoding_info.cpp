@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
+#include "olap/rowset/segment_v2/bloom_filter_page.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
@@ -117,6 +118,18 @@ struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
     }
 };
 
+template<FieldType type, typename CppType>
+struct TypeEncodingTraits<type, BLOOM_FILTER, CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new BloomFilterPageBuilder<type>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new BloomFilterPageDecoder(data, opts);
+        return Status::OK();
+    }
+};
+
 template<FieldType type>
 struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
@@ -180,17 +193,22 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_TINYINT, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_SMALLINT, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_INT, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_BIGINT, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_LARGEINT, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
@@ -198,21 +216,25 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
+    _add_map<OLAP_FIELD_TYPE_CHAR, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
+    _add_map<OLAP_FIELD_TYPE_VARCHAR, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_HLL, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_BOOL, BLOOM_FILTER>();
     _add_map<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_OBJECT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_OBJECT, BLOOM_FILTER>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {

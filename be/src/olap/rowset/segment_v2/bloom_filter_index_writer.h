@@ -17,29 +17,37 @@
 
 #pragma once
 
+#include <cstddef>
+#include <memory>
+
+#include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "gutil/macros.h"
 
 namespace doris {
+
+class TypeInfo;
+class WritableFile;
+
 namespace segment_v2 {
 
-class BinaryPlainPageDecoder;
+class BloomFilterIndexWriter {
+public:
+    static Status create(const TypeInfo* typeinfo, WritableFile* file, std::unique_ptr<BloomFilterIndexWriter>* res);
 
-static const size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
+    BloomFilterIndexWriter() = default;
+    virtual ~BloomFilterIndexWriter() = default;
 
-struct PageBuilderOptions {
-    size_t data_page_size = DEFAULT_PAGE_SIZE;
+    virtual void add_values(const void* values, size_t count) = 0;
 
-    size_t dict_page_size = DEFAULT_PAGE_SIZE;
+    virtual void add_nulls(uint32_t count) = 0;
 
-    HashStrategyPB hash_strategy = HASH_MURMUR3_X64_64;
-    double bf_fpp = 0.05;
-    BloomFilterAlgorithmPB bf_algorithm = BLOCK_BLOOM_FILTER;
-    // expected distinct records for bloom filter
-    uint32_t expected_num = 1024;
+    virtual Status finish(BloomFilterIndexPB* meta) = 0;
+
+    virtual uint64_t size() = 0;
+private:
+    DISALLOW_COPY_AND_ASSIGN(BloomFilterIndexWriter);
 };
 
-struct PageDecoderOptions {
-};
-
-} // namespace segment_v2
+} // segment_v2
 } // namespace doris

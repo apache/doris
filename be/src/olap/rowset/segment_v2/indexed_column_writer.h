@@ -26,6 +26,8 @@
 #include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/parsed_page.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
@@ -72,24 +74,44 @@ public:
 
     ~IndexedColumnWriter();
 
-    Status init();
+    Status init() {
+        return init(PageBuilderOptions());
+    }
 
-    // add a single not-null value
+    Status init(const PageBuilderOptions& page_options);
+
+    // add a single value
+    // maybe add null value for bloom filter index
     Status add(const void* value);
 
     Status finish(IndexedColumnMetaPB* meta);
 
+    uint64_t size();
+
 private:
+    void _push_back_page(Page* page) {
+        // add page to pages' tail
+        if (_pages.tail != nullptr) {
+            _pages.tail->next = page;
+        }
+        _pages.tail = page;
+        if (_pages.head == nullptr) {
+            _pages.head = page;
+        }
+    }
+
     Status _finish_current_data_page();
 
     // Append the given data page, update ordinal index or value index if they're used.
-    Status _append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid);
+    Status _append_data_page(const Page* page);
 
     // Append the given page into the file. After return, *pp points to the newly
     // inserted page.
     // Input data will be compressed when compression is enabled.
     // We also compute and append checksum for the page.
     Status _append_page(const std::vector<Slice>& page, PagePointer* pp);
+
+    Status _flush_data();
 
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
@@ -100,6 +122,8 @@ private:
     MemTracker _mem_tracker;
     MemPool _mem_pool;
 
+    // cached generated pages,
+    PageHead _pages;
     rowid_t _num_values;
     uint32_t _num_data_pages;
     // remember the first value in current page

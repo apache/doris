@@ -111,6 +111,14 @@ public:
     // Get the ordinal index that the iterator is currently pointed to.
     rowid_t get_current_ordinal() const;
 
+    size_t current_page_index() const {
+        return _data_page->page_index;
+    }
+
+    rowid_t current_page_last_rowid() {
+        return _data_page->last_rowid();
+    }
+
     // After one seek, we can only call this function once to read data
     // into ColumnBlock. when read string type data, memory will allocated
     // from Arena

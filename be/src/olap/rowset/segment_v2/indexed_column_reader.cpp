@@ -148,7 +148,6 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& page_pointer, P
 
 Status IndexedColumnIterator::seek_to_ordinal(rowid_t idx) {
     DCHECK(idx >= 0 && idx <= _reader->num_values());
-
     if (!_reader->support_ordinal_seek()) {
         return Status::NotSupported("no ordinal index");
     }
@@ -159,7 +158,6 @@ Status IndexedColumnIterator::seek_to_ordinal(rowid_t idx) {
         _seeked = true;
         return Status::OK();
     }
-
     if (_data_page == nullptr || !_data_page->contains(idx)) {
         // need to read the data page containing row at idx
         _data_page.reset(new ParsedPage());
@@ -178,6 +176,11 @@ Status IndexedColumnIterator::seek_to_ordinal(rowid_t idx) {
     RETURN_IF_ERROR(_data_page->data_decoder->seek_to_position_in_page(offset_in_page));
     DCHECK(offset_in_page == _data_page->data_decoder->current_index());
     _data_page->offset_in_page = offset_in_page;
+    if (_current_iter == nullptr) {
+        _data_page->page_index = 0;
+    } else {
+        _data_page->page_index = _current_iter->current_page_index();
+    }
     _current_rowid = idx;
     _seeked = true;
     return Status::OK();
@@ -221,6 +224,11 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     _data_page->offset_in_page = _data_page->data_decoder->current_index();
     _current_rowid = _data_page->first_rowid + _data_page->offset_in_page;
     DCHECK(_data_page->contains(_current_rowid));
+    if (_current_iter == nullptr) {
+        _data_page->page_index = 0;
+    } else {
+        _data_page->page_index = _current_iter->current_page_index();
+    }
     _seeked = true;
     return Status::OK();
 }

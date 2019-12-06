@@ -50,14 +50,21 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
     _first_value.resize(_typeinfo->size());
 }
 
-IndexedColumnWriter::~IndexedColumnWriter() = default;
+IndexedColumnWriter::~IndexedColumnWriter() {
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        Page* current = page;
+        page = page->next;
+        delete current;
+    }
+}
 
-Status IndexedColumnWriter::init() {
+Status IndexedColumnWriter::init(const PageBuilderOptions& page_options) {
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(_typeinfo, _options.encoding, &encoding_info));
 
     PageBuilder* data_page_builder;
-    RETURN_IF_ERROR(encoding_info->create_page_builder(PageBuilderOptions(), &data_page_builder));
+    RETURN_IF_ERROR(encoding_info->create_page_builder(page_options, &data_page_builder));
     _data_page_builder.reset(data_page_builder);
 
     if (_options.write_ordinal_index) {
@@ -96,30 +103,35 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     }
 
     uint32_t first_rowid = _num_values - page_row_count;
-    faststring page_header;
-    put_varint32(&page_header, first_rowid);
-    put_varint32(&page_header, page_row_count);
 
-    OwnedSlice page_data = _data_page_builder->finish();
+    Page* page = new Page();
+    page->first_rowid = first_rowid;
+    page->first_value.append(_first_value.data(), _first_value.size());
+    page->num_rows = page_row_count;
+    page->data = _data_page_builder->finish();
+    _push_back_page(page);
     _data_page_builder->reset();
-
-    return _append_data_page({Slice(page_header), page_data.slice()}, first_rowid);
+    return Status::OK();
 }
 
-Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid) {
+Status IndexedColumnWriter::_append_data_page(const Page* page) {
+    faststring page_header;
+    put_varint32(&page_header, page->first_rowid);
+    put_varint32(&page_header, page->num_rows);
+    std::vector<Slice> data_page = {Slice(page_header), page->data.slice()};
     RETURN_IF_ERROR(_append_page(data_page, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
         std::string key;
         KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::full_encode_ascending(
-            &first_rowid, &key);
+            &page->first_rowid, &key);
         _ordinal_index_builder->add(key, _last_data_page);
     }
 
     if (_options.write_value_index) {
         std::string key;
-        _validx_key_coder->full_encode_ascending(_first_value.data(), &key);
+        _validx_key_coder->full_encode_ascending(page->first_value.data(), &key);
         // TODO short separate key optimize
         _value_index_builder->add(key, _last_data_page);
         // TODO record last key in short separate key optimize
@@ -154,6 +166,8 @@ Status IndexedColumnWriter::_append_page(const std::vector<Slice>& page, PagePoi
 
 Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     RETURN_IF_ERROR(_finish_current_data_page());
+    uint64_t file_offset = _file->size();
+    RETURN_IF_ERROR(_flush_data());
     if (_options.write_ordinal_index) {
         RETURN_IF_ERROR(_flush_index(_ordinal_index_builder.get(),
                                      meta->mutable_ordinal_index_meta()));
@@ -166,6 +180,29 @@ Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     meta->set_encoding(_options.encoding);
     meta->set_num_values(_num_values);
     meta->set_compression(_options.compression);
+    meta->set_size(_file->size() - file_offset);
+    return Status::OK();
+}
+
+uint64_t IndexedColumnWriter::size() {
+    uint64_t size = 0;
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        size += page->data.slice().size;
+        page = page->next;
+    }
+    size += _data_page_builder->size();
+    size += _ordinal_index_builder->size();
+    size += _value_index_builder->size();
+    return size;
+}
+
+Status IndexedColumnWriter::_flush_data() {
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        RETURN_IF_ERROR(_append_data_page(page));
+        page = page->next;
+    }
     return Status::OK();
 }
 
