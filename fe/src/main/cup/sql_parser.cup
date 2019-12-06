@@ -1932,9 +1932,9 @@ show_param ::=
         RESULT = new ShowDeleteStmt(db);
     :}
     /* Show alter table statement: used to show process of alter table statement */
-    | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db
+    | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowAlterStmt(type, db);
+        RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
     /* Show data statement: used to show data size of specified range */
     | KW_DATA
