@@ -36,6 +36,7 @@ Usage: $0 <options>
   Eg.
     $0                      build and run ut
     $0 --coverage           build and run coverage statistic
+    $0 --run xxx            build and run the specified class
   "
   exit 1
 }
@@ -44,6 +45,7 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -l 'coverage' \
+  -l 'run' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -52,15 +54,19 @@ fi
 
 eval set -- "$OPTS"
 
+RUN=
 COVERAGE=
 if [ $# == 1 ] ; then
     #default
+    RUN=0
     COVERAGE=0
 else
+    RUN=0
     COVERAGE=0
     while true; do 
         case "$1" in
             --coverage) COVERAGE=1 ; shift ;;
+            --run) RUN=1 ; shift ;;
             --) shift ;  break ;;
             *) ehco "Internal error" ; exit 1 ;;
         esac
@@ -83,6 +89,11 @@ if [ ${COVERAGE} -eq 1 ]; then
     echo "Run coverage statistic"
     ant cover-test
 else
-    echo "Run Frontend UT"
-    $MVN test    
+    if [ ${RUN} -eq 1 ]; then
+        echo "Run the specified class"  
+        $MVN test -D test=$1
+    else    
+        echo "Run Frontend UT"
+        $MVN test   
+    fi 
 fi
