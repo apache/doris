@@ -104,6 +104,7 @@ struct TOlapTableSink {
     11: required Descriptors.TOlapTablePartitionParam partition
     12: required Descriptors.TOlapTableLocationParam location
     13: required Descriptors.TPaloNodesInfo nodes_info
+    14: optional load_channel_timeout_s // the timeout of load channels in second
 }
 
 struct TDataSink {
