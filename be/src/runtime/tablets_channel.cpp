@@ -46,7 +46,9 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
         // Normal case, already open by other sender
         return Status::OK();
     }
-    LOG(INFO) << "open tablets channel: " << _key;
+    LOG(INFO) << "open tablets channel: " << _key
+              << ", tablets num: " << params.tablets().size()
+              << ", timeout(s): " << params.load_channel_timeout_s();
     _txn_id = params.txn_id();
     _index_id = params.index_id();
     _schema = new OlapTableSchemaParam();

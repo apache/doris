@@ -286,6 +286,9 @@ private:
 
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;
+
+    // the timeout of load channels opened by this tablet sink. in second
+    int64_t _load_channel_timeout_s = 0;
 };
 
 }

@@ -100,7 +100,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -136,7 +136,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         try {
             sink.finalize();
         } catch (UserException e) {
@@ -158,7 +158,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p3");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -175,7 +175,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));

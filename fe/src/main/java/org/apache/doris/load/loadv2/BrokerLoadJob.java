@@ -372,7 +372,7 @@ public class BrokerLoadJob extends LoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         entry.getValue(), getDeadlineMs(), execMemLimit,
-                        strictMode, transactionId, this, timezone);
+                        strictMode, transactionId, this, timezone, timeoutSecond);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(tableId), attachment.getFileNumByTable(tableId));

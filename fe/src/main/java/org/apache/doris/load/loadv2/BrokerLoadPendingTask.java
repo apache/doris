@@ -61,13 +61,15 @@ public class BrokerLoadPendingTask extends LoadTask {
     private void getAllFileStatus()
             throws UserException {
         long start = System.currentTimeMillis();
+        long totalFileSize = 0;
+        int totalFileNum = 0;
         for (Map.Entry<Long, List<BrokerFileGroup>> entry : tableToBrokerFileList.entrySet()) {
             long tableId = entry.getKey();
 
             List<List<TBrokerFileStatus>> fileStatusList = Lists.newArrayList();
             List<BrokerFileGroup> fileGroups = entry.getValue();
-            long totalFileSize = 0;
-            int totalFileNum = 0;
+            long tableTotalFileSize = 0;
+            int tabletotalFileNum = 0;
             int groupNum = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
                 long groupFileSize = 0;
@@ -83,17 +85,20 @@ public class BrokerLoadPendingTask extends LoadTask {
                                 .add("file_status", fstatus).build());
                     }
                 }
-                totalFileSize += groupFileSize;
-                totalFileNum += fileStatuses.size();
+                tableTotalFileSize += groupFileSize;
+                tabletotalFileNum += fileStatuses.size();
                 LOG.info("get {} files in file group {} for table {}. size: {}. job: {}",
                         fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId());
                 groupNum++;
             }
 
-            ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
+            totalFileSize += tableTotalFileSize;
+            totalFileNum += tabletotalFileNum;
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
-                    totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
+                    tabletotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
         }
+
+        ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
     }
 }

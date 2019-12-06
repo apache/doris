@@ -69,6 +69,7 @@ message PTabletWriterOpenRequest {
     required int32 num_senders = 6;
     required bool need_gen_rollup = 7;
     optional int64 load_mem_limit = 8;
+    optional int64 load_channel_timeout_s = 9;
 };
 
 message PTabletWriterOpenResult {

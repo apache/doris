@@ -281,6 +281,7 @@ public class InsertStmt extends DdlStmt {
         uuid = UUID.randomUUID();
 
         // create label and begin transaction
+        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (!isExplain() && !isTransactionBegin) {
             if (Strings.isNullOrEmpty(label)) {
                 label = "insert_" + uuid.toString();
@@ -288,7 +289,6 @@ public class InsertStmt extends DdlStmt {
 
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-                long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
             }
@@ -299,7 +299,7 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            sink.init(loadId, transactionId, db.getId());
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
         }
     }
 
