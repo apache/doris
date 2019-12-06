@@ -61,7 +61,8 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
 }
 
 void MemTable::insert(const Tuple* tuple) {
-	bool overwritten = false;
+    bool overwritten = false;
+    uint8_t* _tuple_buf = nullptr;
     if (_keys_type == KeysType::DUP_KEYS) {
         // Will insert directly, so use memory from _table_mem_pool
         _tuple_buf = _table_mem_pool->allocate(_schema_size);
@@ -87,7 +88,7 @@ void MemTable::insert(const Tuple* tuple) {
         _tuple_buf = _table_mem_pool->allocate(_schema_size);
         ContiguousRow dst_row(_schema, _tuple_buf);
         copy_row(&dst_row, src_row, _table_mem_pool.get());
-        _skip_list->InsertUseHint((TableKey)_tuple_buf, is_exist, &_hint);
+        _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
     }
 
     // Make MemPool to be reusable, but does not free its memory

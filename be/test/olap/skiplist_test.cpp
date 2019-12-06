@@ -147,6 +147,38 @@ TEST_F(SkipTest, InsertAndLookup) {
     }
 }
 
+// Only non-DUP model will use Find() and InsertWithHint().
+TEST_F(SkipTest, InsertWithHintNoneDupModel) {
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
+    const int N = 2000;
+    const int R = 5000;
+    Random rnd(1000);
+    std::set<Key> keys;
+    TestComparator cmp;
+    SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
+    SkipList<Key, TestComparator>::Hint hint;
+    for (int i = 0; i < N; i++) {
+        Key key = rnd.Next() % R;
+        bool is_exist = list.Find(key, &hint);
+        if (keys.insert(key).second) {
+            ASSERT_FALSE(is_exist);
+            list.InsertWithHint(key, is_exist, &hint);
+        } else {
+            ASSERT_TRUE(is_exist);
+        }
+    }
+
+    for (int i = 0; i < R; i++) {
+        if (list.Contains(i)) {
+            ASSERT_EQ(keys.count(i), 1);
+        } else {
+            ASSERT_EQ(keys.count(i), 0);
+        }
+    }
+}
+
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a
 // reader's iterator is created), the reader always observes all the

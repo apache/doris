@@ -44,20 +44,20 @@ private:
 
 public:
     typedef Key key_type;
-	// One Hint object is to show position info of one row.
-	// It is used in the following scenarios:
-	//   // 1. check for existence
-	//   bool is_exist = skiplist->Find(key, & hint);
-	//   // 2. Do something separately based on the value of is_exist
-	//   if (is_exist) {
-	//       do_something1 ();
-	//   } else {
-	//       do_something2 ();
-	//       skiplist-> InsertUseHint (key, is_exist, hint);
-	//   }
-	//
-	// Note: The user should guarantee that there must not be any other insertion
-	// between calling Find() and InsertUseHint().
+    // One Hint object is to show position info of one row.
+    // It is used in the following scenarios:
+    //   // 1. check for existence
+    //   bool is_exist = skiplist->Find(key, &hint);
+    //   // 2. Do something separately based on the value of is_exist
+    //   if (is_exist) {
+    //       do_something1 ();
+    //   } else {
+    //       do_something2 ();
+    //       skiplist->InsertWithHint(key, is_exist, hint);
+    //   }
+    //
+    // Note: The user should guarantee that there must not be any other insertion
+    // between calling Find() and InsertWithHint().
     struct Hint {
         Node* curr;
         Node* prev[kMaxHeight];
@@ -70,14 +70,14 @@ public:
     explicit SkipList(Comparator cmp, MemPool* mem_pool, bool can_dup);
 
     // Insert key into the list.
-    // REQUIRES: nothing that compares equal to key is currently in the list.
     void Insert(const Key& key, bool* overwritten);
-    void InsertUseHint(const Key& key, bool is_exist, Hint* hint);
+    // Use hint to insert a key. the hint is from previous Find()
+    void InsertWithHint(const Key& key, bool is_exist, Hint* hint);
 
     // Returns true iff an entry that compares equal to key is in the list.
     bool Contains(const Key& key) const;
     // Like Contains(), but it will return the position info as a hint. We can use this
-    // position info to insert directly using InsertUseHint().
+    // position info to insert directly using InsertWithHint().
     bool Find(const Key& key, Hint* hint) const;
 
     // Iteration over the contents of a skip list
@@ -403,7 +403,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key, bool* overwritten) {
 
 // NOTE: Already be checked, the row is exist.
 template<typename Key, class Comparator>
-void SkipList<Key,Comparator>::InsertUseHint(const Key& key, bool is_exist, Hint* hint) {
+void SkipList<Key,Comparator>::InsertWithHint(const Key& key, bool is_exist, Hint* hint) {
     Node* x = hint->curr;
     DCHECK(!is_exist || x) << "curr pointer must not be null if row exists";
 

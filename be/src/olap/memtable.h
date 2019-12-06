@@ -82,7 +82,6 @@ private:
     std::unique_ptr<MemPool> _table_mem_pool;
     ObjectPool _agg_object_pool;
 
-    u_int8_t* _tuple_buf;
     size_t _schema_size;
     Table* _skip_list;
     Table::Hint _hint;
