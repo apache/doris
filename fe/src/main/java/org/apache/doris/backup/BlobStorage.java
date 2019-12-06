@@ -748,7 +748,6 @@ public class BlobStorage implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         brokerName = Text.readString(in);
 

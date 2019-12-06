@@ -317,7 +317,6 @@ public class Tablet extends MetaObject implements Writable {
         out.writeLong(checkedVersionHash);
         out.writeBoolean(isConsistent);
     }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

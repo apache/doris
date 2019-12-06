@@ -402,7 +402,6 @@ public class AggregateFunction extends Function {
         output.writeBoolean(returnsNonNullOnEmpty);
     }
 
-    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
 

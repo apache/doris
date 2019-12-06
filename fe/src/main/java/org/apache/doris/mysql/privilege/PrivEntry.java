@@ -212,7 +212,6 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         isClassNameWrote = false;
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         origHost = Text.readString(in);
         try {

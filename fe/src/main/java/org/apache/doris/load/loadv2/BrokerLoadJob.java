@@ -526,7 +526,6 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);

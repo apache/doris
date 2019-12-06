@@ -461,7 +461,6 @@ public class UserProperty implements Writable {
 
         whiteList.write(out);
     }
-
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             // consume the flag of empty user name

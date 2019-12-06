@@ -465,7 +465,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerList = Text.readString(in);

@@ -138,7 +138,6 @@ public class CloneInfo implements Writable {
         Text.writeString(out, type.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

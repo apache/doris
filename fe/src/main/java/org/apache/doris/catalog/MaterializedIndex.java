@@ -203,7 +203,6 @@ public class MaterializedIndex extends MetaObject implements Writable {
         out.writeLong(rollupFinishedVersion);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -1270,7 +1270,6 @@ public class SchemaChangeJob extends AlterJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

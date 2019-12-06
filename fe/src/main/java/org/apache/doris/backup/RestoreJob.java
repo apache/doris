@@ -1505,7 +1505,6 @@ public class RestoreJob extends AbstractJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

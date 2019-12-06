@@ -93,7 +93,6 @@ public class PullLoadSourceInfo implements Writable {
         out.writeInt(0);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         // The pull load source info also need to be replayed
         // because size of file groups in old broker load is more then zero.

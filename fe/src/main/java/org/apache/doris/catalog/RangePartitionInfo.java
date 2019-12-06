@@ -336,7 +336,6 @@ public class RangePartitionInfo extends PartitionInfo {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

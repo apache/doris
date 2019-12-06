@@ -288,7 +288,6 @@ public class SlotRef extends Expr {
         Text.writeString(out, col);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             tblName = new TableName();

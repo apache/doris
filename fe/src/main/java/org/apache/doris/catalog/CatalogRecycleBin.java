@@ -691,7 +691,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
@@ -757,7 +756,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
             
@@ -796,7 +794,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             table.write(out);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             table = Table.read(in);
@@ -859,7 +856,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             out.writeShort(replicationNum);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             tableId = in.readLong();

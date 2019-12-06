@@ -108,7 +108,6 @@ public class BoolLiteral extends LiteralExpr {
         out.writeBoolean(value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readBoolean();

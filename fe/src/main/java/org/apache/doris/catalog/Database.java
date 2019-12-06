@@ -415,7 +415,6 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -381,7 +381,6 @@ public class DppConfig implements Writable {
         Text.writeString(out, priority.name());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         boolean readPaloPath = false;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_12) {

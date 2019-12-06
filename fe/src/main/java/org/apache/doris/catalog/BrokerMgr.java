@@ -373,7 +373,6 @@ public class BrokerMgr {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             brokerName = Text.readString(in);
             int size = in.readInt();

@@ -170,7 +170,6 @@ public class EsTable extends Table {
         Text.writeString(out, transport);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         hosts = Text.readString(in);

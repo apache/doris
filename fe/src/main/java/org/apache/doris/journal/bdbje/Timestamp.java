@@ -40,7 +40,6 @@ public class Timestamp implements Writable {
         out.writeLong(timestamp);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         timestamp = in.readLong();
     }

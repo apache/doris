@@ -471,7 +471,6 @@ public class Backend implements Writable {
         out.writeInt(brpcPort.get());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         host = Text.readString(in);

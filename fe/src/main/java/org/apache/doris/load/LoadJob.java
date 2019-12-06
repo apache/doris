@@ -828,7 +828,6 @@ public class LoadJob implements Writable {
             Text.writeString(out, tableName);
         }
     }
-
     public void readFields(DataInput in) throws IOException {
         long version = Catalog.getCurrentCatalogJournalVersion();
 

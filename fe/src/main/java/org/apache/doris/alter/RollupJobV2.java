@@ -530,7 +530,6 @@ public class RollupJobV2 extends AlterJobV2 {
         out.writeLong(watershedTxnId);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

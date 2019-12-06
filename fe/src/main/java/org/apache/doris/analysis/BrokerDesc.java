@@ -62,7 +62,6 @@ public class BrokerDesc implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         int size = in.readInt();

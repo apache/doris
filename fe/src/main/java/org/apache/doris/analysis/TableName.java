@@ -133,7 +133,6 @@ public class TableName implements Writable {
         Text.writeString(out, tbl);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         db = Text.readString(in);
         tbl = Text.readString(in);

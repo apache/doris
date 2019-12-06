@@ -47,7 +47,6 @@ public class PartitionCommitInfo implements Writable {
         out.writeLong(versionHash);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         partitionId = in.readLong();
         version = in.readLong();

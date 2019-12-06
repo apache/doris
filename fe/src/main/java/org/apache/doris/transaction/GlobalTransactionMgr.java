@@ -1384,7 +1384,6 @@ public class GlobalTransactionMgr implements Writable {
         idGenerator.write(out);
     }
     
-    @Override
     public void readFields(DataInput in) throws IOException {
         int numTransactions = in.readInt();
         for (int i = 0; i < numTransactions; ++i) {

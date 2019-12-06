@@ -402,7 +402,6 @@ public class SchemaTable extends Table {
         throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         throw new UnsupportedOperationException("Do not allow read SchemaTable from image.");
     }

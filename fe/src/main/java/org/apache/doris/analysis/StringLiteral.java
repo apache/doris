@@ -218,7 +218,6 @@ public class StringLiteral extends LiteralExpr {
         Text.writeString(out, value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = Text.readString(in);

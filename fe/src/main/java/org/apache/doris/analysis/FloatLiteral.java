@@ -176,7 +176,6 @@ public class FloatLiteral extends LiteralExpr {
         out.writeDouble(value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readDouble();

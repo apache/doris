@@ -67,7 +67,6 @@ public class RandomDistributionDesc extends DistributionDesc {
         out.writeInt(numBucket);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         numBucket = in.readInt();
     }

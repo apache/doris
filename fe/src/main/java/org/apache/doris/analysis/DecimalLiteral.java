@@ -199,7 +199,6 @@ public class DecimalLiteral extends LiteralExpr {
         Text.writeString(out, value.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = new BigDecimal(Text.readString(in));

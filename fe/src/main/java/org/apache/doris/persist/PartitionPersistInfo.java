@@ -86,7 +86,6 @@ public class PartitionPersistInfo implements Writable {
         dataProperty.write(out);
         out.writeShort(replicationNum);
     }
- 
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

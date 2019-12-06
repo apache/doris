@@ -295,7 +295,6 @@ public abstract class AlterJob implements Writable {
         }
     }
     
-    @Override
     public synchronized void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJob.write().
         // except 'type' member, which is read in AlterJob.read()

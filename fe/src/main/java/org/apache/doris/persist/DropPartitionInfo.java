@@ -55,7 +55,6 @@ public class DropPartitionInfo implements Writable {
         out.writeLong(tableId);
         Text.writeString(out, partitionName);
     }
- 
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

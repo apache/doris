@@ -87,7 +87,6 @@ public class ModifyPartitionInfo implements Writable {
         out.writeShort(replicationNum);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

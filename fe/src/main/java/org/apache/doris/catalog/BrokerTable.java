@@ -228,7 +228,6 @@ public class BrokerTable extends Table {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

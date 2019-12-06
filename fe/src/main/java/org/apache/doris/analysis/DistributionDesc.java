@@ -72,7 +72,6 @@ public class DistributionDesc implements Writable {
         Text.writeString(out, type.name());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         throw new NotImplementedException();
     }

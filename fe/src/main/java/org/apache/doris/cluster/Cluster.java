@@ -237,7 +237,6 @@ public class Cluster implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         name = Text.readString(in);

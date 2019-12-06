@@ -1328,7 +1328,6 @@ public class PaloAuth implements Writable {
         propertyMgr.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         roleManager = RoleManager.read(in);
         userPrivTable = (UserPrivTable) PrivTable.read(in);

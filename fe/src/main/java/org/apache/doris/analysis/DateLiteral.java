@@ -375,7 +375,6 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {

@@ -404,7 +404,6 @@ public class Column implements Writable {
         Text.writeString(out, comment);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);

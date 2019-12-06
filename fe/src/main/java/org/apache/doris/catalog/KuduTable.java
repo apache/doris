@@ -132,7 +132,6 @@ public class KuduTable extends Table {
         out.writeBoolean(isObsolate);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

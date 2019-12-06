@@ -103,7 +103,6 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         id = in.readLong();
