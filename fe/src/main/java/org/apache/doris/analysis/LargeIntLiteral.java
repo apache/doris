@@ -26,8 +26,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
 
-import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -75,11 +75,6 @@ public class LargeIntLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid integer literal: " + value, e);
         }
         this.value = bigInt;
-        type = Type.LARGEINT;
-    }
-
-    public LargeIntLiteral(BigInteger value) {
-        this.value = value;
         type = Type.LARGEINT;
     }
 
@@ -228,4 +223,3 @@ public class LargeIntLiteral extends LiteralExpr {
         return largeIntLiteral;
     }
 }
-

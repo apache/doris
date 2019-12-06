@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,7 +36,7 @@ import java.util.List;
 
 public class ArithmeticExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
-
+    
     enum OperatorPosition {
         BINARY_INFIX,
         UNARY_PREFIX,
@@ -123,7 +122,6 @@ public class ArithmeticExpr extends Expr {
     }
 
     private final Operator op;
-    private String sqlStr;
 
     public ArithmeticExpr(Operator op, Expr e1, Expr e2) {
         super();
@@ -135,7 +133,6 @@ public class ArithmeticExpr extends Expr {
         if (e2 != null) {
             children.add(e2);
         }
-        sqlStr = null;
     }
 
     /**
@@ -144,7 +141,6 @@ public class ArithmeticExpr extends Expr {
     protected ArithmeticExpr(ArithmeticExpr other) {
         super(other);
         this.op = other.op;
-        this.sqlStr = other.sqlStr;
     }
 
     @Override
@@ -159,14 +155,11 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (sqlStr != null) {
-            return sqlStr;
-        } else if (children.size() == 1) {
-            sqlStr = op.toString() + " " + getChild(0).toSql();
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toSql();
         } else {
-            sqlStr = getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
-        return sqlStr;
     }
 
     @Override
@@ -203,7 +196,7 @@ public class ArithmeticExpr extends Expr {
     private Type findCommonType(Type t1, Type t2) {
         PrimitiveType pt1 = t1.getPrimitiveType();
         PrimitiveType pt2 = t2.getPrimitiveType();
-
+        
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
@@ -281,4 +274,3 @@ public class ArithmeticExpr extends Expr {
         }
     }
 }
-
