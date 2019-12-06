@@ -200,7 +200,6 @@ public class View extends Table {
         Text.writeString(out, inlineViewDef);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         // just do not want to modify the meta version, so leave originalViewDef here but set it as empty

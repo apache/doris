@@ -1224,7 +1224,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             dataSourceType = LoadDataSourceType.valueOf(Text.readString(in));

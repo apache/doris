@@ -253,7 +253,6 @@ public class EsTable extends Table {
         partitionInfo.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {

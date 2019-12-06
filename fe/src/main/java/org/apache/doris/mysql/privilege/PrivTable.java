@@ -247,7 +247,6 @@ public abstract class PrivTable implements Writable {
         isClassNameWrote = false;
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

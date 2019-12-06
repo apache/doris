@@ -127,7 +127,6 @@ public class KeysDesc implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         type = KeysType.valueOf(Text.readString(in));
 

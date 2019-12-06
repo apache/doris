@@ -197,7 +197,6 @@ public abstract class AlterJobV2 implements Writable {
         out.writeLong(timeoutMs);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJobV2.write().
         // except 'type' member, which is read in AlterJobV2.read()

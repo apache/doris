@@ -64,7 +64,6 @@ public class InfoSchemaDb extends Database {
         // Do nothing
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         throw new IOException("Not support.");
     }

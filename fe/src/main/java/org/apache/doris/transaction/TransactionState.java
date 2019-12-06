@@ -538,7 +538,6 @@ public class TransactionState implements Writable {
         out.writeLong(timeoutMs);
     }
     
-    @Override
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);

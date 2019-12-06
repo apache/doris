@@ -108,7 +108,6 @@ public class TableInfo implements Writable {
         Text.writeString(out, newPartitionName);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

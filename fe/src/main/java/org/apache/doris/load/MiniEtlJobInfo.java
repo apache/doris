@@ -67,7 +67,6 @@ public class MiniEtlJobInfo extends EtlJobInfo {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int taskNum = in.readInt();

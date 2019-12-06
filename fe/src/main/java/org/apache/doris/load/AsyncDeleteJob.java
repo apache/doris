@@ -227,7 +227,6 @@ public class AsyncDeleteJob implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         state = DeleteState.valueOf(Text.readString(in));
         jobId = in.readLong();

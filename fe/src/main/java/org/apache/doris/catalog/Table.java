@@ -201,7 +201,6 @@ public class Table extends MetaObject implements Writable {
         out.writeLong(createTime);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = TableType.valueOf(Text.readString(in));

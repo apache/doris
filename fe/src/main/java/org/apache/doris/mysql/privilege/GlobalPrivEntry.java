@@ -156,7 +156,6 @@ public class GlobalPrivEntry extends PrivEntry {
         isClassNameWrote = false;
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int passwordLen = in.readInt();

@@ -298,7 +298,6 @@ public class DecommissionBackendJob extends AlterJob {
      * @param in
      * @throws IOException
      */
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -325,7 +325,6 @@ public class IntLiteral extends LiteralExpr {
         out.writeLong(value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readLong();
