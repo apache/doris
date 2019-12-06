@@ -207,7 +207,7 @@ public class StringLiteral extends LiteralExpr {
      * @return
      */
     protected static String leadingNum(String str) {
- String in = str.trim();
+        String in = str.trim();
         int len = in.length();
         int i = 0;
         if (len == 0) {
