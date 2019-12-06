@@ -71,6 +71,7 @@ public abstract class PrivTable implements Writable {
                 // if existing entry is not set by domain resolver, merge the 2 entries.
                 if (existingEntry.isSetByDomainResolver()) {
                     existingEntry.setPrivSet(newEntry.getPrivSet());
+                    existingEntry.setSetByDomainResolver(newEntry.isSetByDomainResolver());
                     LOG.debug("reset priv entry: {}", existingEntry);
                 } else if (!newEntry.isSetByDomainResolver()) {
                     mergePriv(existingEntry, newEntry);
