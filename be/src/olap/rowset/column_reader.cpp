@@ -644,6 +644,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     }
 
     case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_OBJECT:
     case OLAP_FIELD_TYPE_HLL: {
         if (ColumnEncodingMessage::DIRECT == encode_kind) {
             reader = new(std::nothrow) VarStringColumnReader<StringColumnDirectReader>(
