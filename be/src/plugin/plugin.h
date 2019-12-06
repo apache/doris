@@ -36,7 +36,7 @@ namespace doris {
  * } declare_plugin_end
  * 
  */
-typedef struct st_plugin {
+struct Plugin {
     // support by type-specific plugin
     void* handler;
 
@@ -54,7 +54,7 @@ typedef struct st_plugin {
 
     // return the plugin's status
     void* status;
-} Plugin;
+};
 
 
 #define declare_plugin(NAME)                                \
