@@ -36,8 +36,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -141,36 +139,12 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        String s = leadingNum(value);
-        if (s == null || s.length() == 0) {
-            return 0L;
-        }
-        return Long.valueOf(s);
+        return Long.valueOf(value);
     }
 
     @Override
     public double getDoubleValue() {
-        String s = leadingNum(value);
-        if (s == null || s.length() == 0) {
-            return 0.0;
-        }
-        return Double.valueOf(s);
-    }
-
-    public BigInteger getBigIntegerValue() {
-        String s = leadingNum(value);
-        if (s == null || s.length() == 0) {
-            return new BigInteger("0");
-        }
-        return new BigInteger(s);
-    }
-
-    public BigDecimal getBigDecimalValue() {
-        String s = leadingNum(value);
-        if (s == null || s.length() == 0) {
-            return new BigDecimal(0);
-        }
-        return new BigDecimal(s);
+        return Double.valueOf(value);
     }
 
     /**
@@ -195,75 +169,6 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    /***
-     * get leading nums, e.g.
-     * 123 -> 123
-     * 123a -> 123
-     * -123 -> -123
-     * 123.123 -> 123.123
-     * 123e4 -> 123e4
-     * 123e-4 -> 123e-4
-     * @param str
-     * @return
-     */
-    protected static String leadingNum(String str) {
-        String in = str.trim();
-        int len = in.length();
-        int i = 0;
-        if (len == 0) {
-            return in;
-        }
-        char c = in.charAt(i);
-        if (c == '-' || c == '+') {
-            i++;
-        }
-        boolean decSeen = false;
-        boolean numSeen = false;
-        while (i < len) {
-            c = in.charAt(i);
-            if (c == '.') {
-                if (decSeen) {
-                    if (i > 0 && !(in.charAt(i - 1) >= '0' &&  in.charAt(i - 1) <= '9')) {
-                        return in.substring(0, i - 1);
-                    }
-                    return in.substring(0, i);
-                }
-                decSeen = true;
-            } else if (c >= '0' && c <= '9') {
-                numSeen = true;
-            } else {
-                break;
-            }
-            i++;
-        }
-        if (!numSeen) {
-            return "";
-        }
-        numSeen = false;
-        int baseIdx = i;
-        if ((i < len) && (((c == 'e') || (c == 'E')))) {
-            if (i + 1 < len) {
-                c = in.charAt(++i);
-                if (c == '-' || c == '+') {
-                    i++;
-                }
-            }
-            while (i < len) {
-                c = in.charAt(i);
-                if (c < '0' || c > '9') {
-                    break;
-                } else {
-                    numSeen = true;
-                    i++;
-                }
-            }
-        }
-        if (numSeen) {
-            return in.substring(0, i);
-        }
-        return in.substring(0, baseIdx);
-    }
-
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isNumericType()) {
@@ -272,20 +177,20 @@ public class StringLiteral extends LiteralExpr {
                 case SMALLINT:
                 case INT:
                 case BIGINT:
-                    return new IntLiteral(getLongValue(), targetType);
+                    return new IntLiteral(value, targetType);
                 case LARGEINT:
-                    return new LargeIntLiteral(getBigIntegerValue());
+                    return new LargeIntLiteral(value);
                 case FLOAT:
                 case DOUBLE:
                     try {
-                        return new FloatLiteral(getDoubleValue(), targetType);
+                        return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
                     }
                     break;
                 case DECIMAL:
                 case DECIMALV2:
-                    return new DecimalLiteral(getBigDecimalValue());
+                    return new DecimalLiteral(value);
                 default:
                     break;
             }
@@ -325,4 +230,3 @@ public class StringLiteral extends LiteralExpr {
         return literal;
     }
 }
-
