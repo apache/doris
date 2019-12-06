@@ -107,7 +107,12 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
         es_query_dsl.AddMember("_source", source_node, allocator);
     }
 
-    int size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
+    int size;
+    if (properties.find(ESScanReader::KEY_TERMINATE_AFTER) != properties.end()) {
+        size = atoi(properties.at(ESScanReader::KEY_TERMINATE_AFTER).c_str());
+    } else {
+        size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
+    }
     rapidjson::Value sort_node(rapidjson::kArrayType);
     // use the scroll-scan mode for scan index documents
     rapidjson::Value field("_doc", allocator);

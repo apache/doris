@@ -33,6 +33,8 @@ const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 
+const std::string REQUEST_SEARCH_FILTER_PATH = "filter_path=hits.hits._source,hits.total,_id,hits.hits._source.fields,hits.hits.fields";
+
 ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props) : _scroll_keep_alive(config::es_scroll_keepalive), _http_timeout_ms(config::es_http_timeout_ms) {
     _target = target;
     _index = props.at(KEY_INDEX);
@@ -49,11 +51,21 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
     if (props.find(KEY_QUERY) != props.end()) {
         _query = props.at(KEY_QUERY);
     }
+
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
-    _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + _scroll_keep_alive + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
-    _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
+
+    if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
+        _exactly_once = true;
+        _terminate_after = props.at(KEY_TERMINATE_AFTER);
+        _search_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?terminate_after=" + _terminate_after + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REQUEST_SEARCH_FILTER_PATH;
+    } else {
+        _exactly_once = false;
+        _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + _scroll_keep_alive + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
+        _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
+    }
     _eos = false;
+    
 }
 
 ESScanReader::~ESScanReader() {
@@ -61,8 +73,13 @@ ESScanReader::~ESScanReader() {
 
 Status ESScanReader::open() {
     _is_first = true;
-    RETURN_IF_ERROR(_network_client.init(_init_scroll_url));
-    LOG(INFO) << "First scroll request URL: " << _init_scroll_url;
+    if (_exactly_once) {
+        RETURN_IF_ERROR(_network_client.init(_search_url));
+        LOG(INFO) << "search request URL: " << _search_url;
+    } else {
+        RETURN_IF_ERROR(_network_client.init(_init_scroll_url));
+        LOG(INFO) << "First scroll request URL: " << _init_scroll_url;
+    }
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
     // phase open, we cached the first response for `get_next` phase
@@ -89,6 +106,9 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         response = _cached_response;
         _is_first = false;
     } else {
+        if (_exactly_once) {
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_network_client.init(_next_scroll_url));
         _network_client.set_basic_auth(_user_name, _passwd);
         _network_client.set_content_type("application/json");
@@ -110,21 +130,26 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     }
 
     scroll_parser.reset(new ScrollParser());
-    Status status = scroll_parser->parse(response);
+    VLOG(1) << "get_next request ES, returned response: " << response;
+    Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()){
         _eos = true;
         LOG(WARNING) << status.get_error_msg();
         return status;
     }
 
-    _scroll_id = scroll_parser->get_scroll_id();
-    if (scroll_parser->get_total() == 0) {
+    // request ES just only once
+    if (_exactly_once) {
         _eos = true;
-        return Status::OK();
+    } else {
+        _scroll_id = scroll_parser->get_scroll_id();
+        if (scroll_parser->get_total() == 0) {
+            _eos = true;
+            return Status::OK();
+        }
+
+        _eos = scroll_parser->get_size() < _batch_size;
     }
-
-    _eos = scroll_parser->get_size() < _batch_size;
-
     *scan_eos = false;
     return Status::OK();
 }

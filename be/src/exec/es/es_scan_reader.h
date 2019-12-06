@@ -39,6 +39,7 @@ public:
     static constexpr const char* KEY_SHARD = "shard_id";
     static constexpr const char* KEY_QUERY = "query";
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
+    static constexpr const char* KEY_TERMINATE_AFTER = "limit";
     ESScanReader(const std::string& target, const std::map<std::string, std::string>& props);
     ~ESScanReader();
 
@@ -65,6 +66,8 @@ private:
     bool _is_first;
     std::string _init_scroll_url;
     std::string _next_scroll_url;
+    std::string _search_url;
+    std::string _terminate_after;
     bool _eos;
     int _batch_size;
 
@@ -73,6 +76,8 @@ private:
     std::string _scroll_keep_alive;
     // timeout for es http connetion
     int _http_timeout_ms;
+
+    bool _exactly_once;
 };
 }
 
