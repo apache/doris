@@ -170,7 +170,6 @@ public abstract class LiteralExpr extends Expr {
     public void write(DataOutput out) throws IOException {
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
     }
     

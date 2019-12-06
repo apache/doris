@@ -646,7 +646,6 @@ public class Repository implements Writable {
         out.writeLong(createTime);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         name = Text.readString(in);

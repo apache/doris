@@ -122,7 +122,6 @@ public class ColumnStats implements Writable {
         out.writeLong(maxSize);
         out.writeLong(numNulls);
     }
-
     public void readFields(DataInput in) throws IOException {
         numDistinctValues = in.readLong();
         avgSerializedSize = in.readFloat();

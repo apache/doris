@@ -317,7 +317,6 @@ public class ReplicaPersistInfo implements Writable {
         out.writeInt(schemaHash);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         
         dbId = in.readLong();

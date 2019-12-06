@@ -131,7 +131,6 @@ public class EtlStatus implements Writable {
             Text.writeString(out, entry.getValue());
         }
     }
-
     public void readFields(DataInput in) throws IOException {
         state = TEtlState.valueOf(Text.readString(in));
         trackingUrl = Text.readString(in);

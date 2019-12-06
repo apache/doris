@@ -707,7 +707,6 @@ public class TableRef implements ParseNode, Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = new TableName();
         name.readFields(in);

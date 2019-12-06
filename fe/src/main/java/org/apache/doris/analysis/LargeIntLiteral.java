@@ -211,7 +211,6 @@ public class LargeIntLiteral extends LiteralExpr {
         Text.writeString(out, value.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = new BigInteger(Text.readString(in));

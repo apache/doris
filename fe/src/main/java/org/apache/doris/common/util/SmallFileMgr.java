@@ -112,7 +112,6 @@ public class SmallFileMgr implements Writable {
             out.writeBoolean(isContent);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             catalog = Text.readString(in);
@@ -502,7 +501,6 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

@@ -953,7 +953,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         Text.writeString(out, timezone);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (!isJobTypeRead) {
             jobType = EtlJobType.valueOf(Text.readString(in));

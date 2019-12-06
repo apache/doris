@@ -87,7 +87,6 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         out.writeLong(replayedJournalId);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         name = Text.readString(in);

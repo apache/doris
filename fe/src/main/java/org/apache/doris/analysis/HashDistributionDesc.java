@@ -132,7 +132,6 @@ public class HashDistributionDesc extends DistributionDesc {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         numBucket = in.readInt();
         int count = in.readInt();

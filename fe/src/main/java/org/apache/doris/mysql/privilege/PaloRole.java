@@ -121,7 +121,6 @@ public class PaloRole implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         roleName = Text.readString(in);
         int size = in.readInt();

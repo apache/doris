@@ -122,7 +122,6 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
             Text.writeString(out, table);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             host = Text.readString(in);
             port = in.readInt();

@@ -88,7 +88,6 @@ public class BackendTabletsInfo implements Writable {
         out.writeBoolean(false);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         backendId = in.readLong();
 

@@ -69,7 +69,6 @@ public class TabletLoadInfo implements Writable {
             out.writeLong(fileSize);
         }
     }
-
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             filePath = Text.readString(in).intern();
