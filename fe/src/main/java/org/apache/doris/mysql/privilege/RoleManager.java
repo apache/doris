@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
@@ -94,9 +95,9 @@ public class RoleManager implements Writable {
         return existingRole;
     }
 
-    public void dropUser(String qualifiedUser) {
+    public void dropUser(UserIdentity userIdentity) {
         for (PaloRole role : roles.values()) {
-            role.dropUser(qualifiedUser);
+            role.dropUser(userIdentity);
         }
     }
 

@@ -65,8 +65,12 @@ public class ConnectContext {
     private volatile String currentDb = "";
     // cluster name
     private volatile String clusterName = "";
-    // user
+    // username@host of current login user
     private volatile String qualifiedUser;
+    // username@host combination for the Doris account
+    // that the server used to authenticate the current client.
+    // In other word, currentUserIdentity is the entry that matched in Doris auth table.
+    // This account determines user's access privileges.
     private volatile UserIdentity currentUserIdentity;
     // Serializer used to pack MySQL packet.
     private volatile MysqlSerializer serializer;
@@ -184,7 +188,7 @@ public class ConnectContext {
         return currentUserIdentity;
     }
 
-    public void setCurrentUserIdentitfy(UserIdentity currentUserIdentity) {
+    public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
         this.currentUserIdentity = currentUserIdentity;
     }
 

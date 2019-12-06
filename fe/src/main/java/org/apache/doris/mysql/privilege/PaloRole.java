@@ -19,7 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -91,17 +90,11 @@ public class PaloRole implements Writable {
         users.add(userIdent);
     }
 
-    public void dropUser(String qualifiedUser) {
+    public void dropUser(UserIdentity userIdentity) {
         Iterator<UserIdentity> iter = users.iterator();
         while (iter.hasNext()) {
             UserIdentity userIdent = iter.next();
-            boolean match = false;
-            if (CaseSensibility.USER.getCaseSensibility()) {
-                match = userIdent.getQualifiedUser().equals(qualifiedUser);
-            } else {
-                match = userIdent.getQualifiedUser().equalsIgnoreCase(qualifiedUser);
-            }
-            if (match) {
+            if (userIdent.equals(userIdentity)) {
                 iter.remove();
             }
         }

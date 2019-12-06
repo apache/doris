@@ -39,8 +39,8 @@ public class DbPrivEntry extends PrivEntry {
     }
 
     protected DbPrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
-            PatternMatcher userPattern, String user, PrivBitSet privSet) {
-        super(hostPattern, origHost, userPattern, user, privSet);
+            PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
+        super(hostPattern, origHost, userPattern, user, isDomain, privSet);
         this.dbPattern = dbPattern;
         this.origDb = origDb;
         if (origDb.equals(ANY_DB)) {
@@ -48,7 +48,7 @@ public class DbPrivEntry extends PrivEntry {
         }
     }
 
-    public static DbPrivEntry create(String host, String db, String user, PrivBitSet privs)
+    public static DbPrivEntry create(String host, String db, String user, boolean isDomain, PrivBitSet privs)
             throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         
@@ -60,7 +60,7 @@ public class DbPrivEntry extends PrivEntry {
             throw new AnalysisException("Db privilege can not contains global privileges: " + privs);
         }
 
-        return new DbPrivEntry(hostPattern, host, dbPattern, db, userPattern, user, privs);
+        return new DbPrivEntry(hostPattern, host, dbPattern, db, userPattern, user, isDomain, privs);
     }
 
     private static PatternMatcher createDbPatternMatcher(String db) throws AnalysisException {
@@ -114,7 +114,7 @@ public class DbPrivEntry extends PrivEntry {
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
         if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb)) {
+                && origDb.equals(otherEntry.origDb) && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;

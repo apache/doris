@@ -28,6 +28,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Preconditions;
+
 /*
  *  SHOW ALL GRANTS;
  *      show all grants.
@@ -64,10 +66,6 @@ public class ShowGrantsStmt extends ShowStmt {
         return userIdent;
     }
 
-    public boolean isAll() {
-        return isAll;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (userIdent != null) {
@@ -78,15 +76,13 @@ public class ShowGrantsStmt extends ShowStmt {
         } else {
             if (!isAll) {
                 // self
-                userIdent = new UserIdentity(ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP());
-                userIdent.setIsAnalyzed();
+                userIdent = ConnectContext.get().getCurrentUserIdentity();
             }
         }
+        Preconditions.checkState(isAll || userIdent != null);
+        UserIdentity self = ConnectContext.get().getCurrentUserIdentity();
 
-        UserIdentity self = new UserIdentity(ConnectContext.get().getQualifiedUser(),
-                ConnectContext.get().getRemoteIP());
-
+        // if show all grants, or show other user's grants, need global GRANT priv.
         if (isAll || !self.equals(userIdent)) {
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");

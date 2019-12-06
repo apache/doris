@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
@@ -33,22 +34,27 @@ public class GlobalPrivEntry extends PrivEntry {
     private static final Logger LOG = LogManager.getLogger(GlobalPrivEntry.class);
 
     private byte[] password;
+    // set domainUserIdent when this a password entry and is set by domain resolver.
+    // so that when user checking password with user@'IP' and match a entry set by the resolver,
+    // it should return this domainUserIdent as "current user". And user can use this user ident to get privileges
+    // further.
+    private UserIdentity domainUserIdent;
 
     protected GlobalPrivEntry() {
     }
 
     protected GlobalPrivEntry(PatternMatcher hostPattern, String origHost,
-            PatternMatcher userPattern, String origUser,
+            PatternMatcher userPattern, String origUser, boolean isDomain,
             byte[] password, PrivBitSet privSet) {
-        super(hostPattern, origHost, userPattern, origUser, privSet);
+        super(hostPattern, origHost, userPattern, origUser, isDomain, privSet);
         this.password = password;
     }
 
-    public static GlobalPrivEntry create(String host, String user, byte[] password,
-            PrivBitSet privs) throws AnalysisException {
+    public static GlobalPrivEntry create(String host, String user, boolean isDomain, byte[] password, PrivBitSet privs)
+            throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
-        return new GlobalPrivEntry(hostPattern, host, userPattern, user, password, privs);
+        return new GlobalPrivEntry(hostPattern, host, userPattern, user, isDomain, password, privs);
     }
 
     public byte[] getPassword() {
@@ -57,6 +63,18 @@ public class GlobalPrivEntry extends PrivEntry {
 
     public void setPassword(byte[] password) {
         this.password = password;
+    }
+
+    public void setDomainUserIdent(UserIdentity domainUserIdent) {
+        this.domainUserIdent = domainUserIdent;
+    }
+
+    public UserIdentity getDomainUserIdent() {
+        if (isSetByDomainResolver()) {
+            return domainUserIdent;
+        } else {
+            return getUserIdent();
+        }
     }
 
     /*
@@ -106,7 +124,8 @@ public class GlobalPrivEntry extends PrivEntry {
         }
 
         GlobalPrivEntry otherEntry = (GlobalPrivEntry) other;
-        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)) {
+        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
+                && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;
@@ -117,6 +136,7 @@ public class GlobalPrivEntry extends PrivEntry {
         StringBuilder sb = new StringBuilder();
         sb.append("global priv. host: ").append(origHost).append(", user: ").append(origUser);
         sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
+        sb.append(", domain user ident: ").append(domainUserIdent);
         return sb.toString();
     }
 
@@ -143,5 +163,4 @@ public class GlobalPrivEntry extends PrivEntry {
         password = new byte[passwordLen];
         in.readFully(password);
     }
-
 }

@@ -37,8 +37,9 @@ public class TablePrivEntry extends DbPrivEntry {
     }
 
     private TablePrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
-            PatternMatcher userPattern, String user, PatternMatcher tblPattern, String origTbl, PrivBitSet privSet) {
-        super(hostPattern, origHost, dbPattern, origDb, userPattern, user, privSet);
+            PatternMatcher userPattern, String user, PatternMatcher tblPattern, String origTbl,
+            boolean isDomain, PrivBitSet privSet) {
+        super(hostPattern, origHost, dbPattern, origDb, userPattern, user, isDomain, privSet);
         this.tblPattern = tblPattern;
         this.origTbl = origTbl;
         if (origTbl.equals(ANY_TBL)) {
@@ -46,7 +47,7 @@ public class TablePrivEntry extends DbPrivEntry {
         }
     }
 
-    public static TablePrivEntry create(String host, String db, String user, String tbl,
+    public static TablePrivEntry create(String host, String db, String user, String tbl, boolean isDomain,
             PrivBitSet privs) throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher dbPattern = PatternMatcher.createMysqlPattern(db.equals(ANY_DB) ? "%" : db,
@@ -60,7 +61,7 @@ public class TablePrivEntry extends DbPrivEntry {
             throw new AnalysisException("Table privilege can not contains global privileges: " + privs);
         }
 
-        return new TablePrivEntry(hostPattern, host, dbPattern, db, userPattern, user, tblPattern, tbl, privs);
+        return new TablePrivEntry(hostPattern, host, dbPattern, db, userPattern, user, tblPattern, tbl, isDomain, privs);
     }
 
     public PatternMatcher getTblPattern() {
@@ -108,7 +109,8 @@ public class TablePrivEntry extends DbPrivEntry {
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
         if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb) && origTbl.equals(otherEntry.origTbl)) {
+                && origDb.equals(otherEntry.origDb) && origTbl.equals(otherEntry.origTbl)
+                && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;
