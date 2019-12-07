@@ -30,6 +30,7 @@
 #include "olap/uint24.h"
 #include "olap/decimal12.h"
 #include "runtime/mem_pool.h"
+#include "runtime/datetime_value.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
 #include "util/slice.h"
@@ -460,7 +461,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        //only support datetime now
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
@@ -471,7 +471,22 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             CppType mday = static_cast<CppType>(part1 % 100);
             *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
             return OLAPStatus::OLAP_SUCCESS;    
-        }                          
+        }
+
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_INT) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_INT>::CppType;
+            SrcType src_value = *reinterpret_cast<const SrcType*>(src);
+            DateTimeValue dt;
+            if (!dt.from_date_int64(src_value)) {
+                return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+            }
+            CppType year = static_cast<CppType>(src_value / 10000);
+            CppType month = static_cast<CppType>((src_value % 10000) / 100);
+            CppType day = static_cast<CppType>(src_value % 100);
+            *reinterpret_cast<CppType*>(dest) = (year << 9) + (month << 5) + day;
+            return OLAPStatus::OLAP_SUCCESS;
+        }
+
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;    
     }
     static void set_to_max(void* buf) {
