@@ -96,10 +96,6 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
     context.rowset_type = StorageEngine::instance()->compaction_rowset_type();
-    HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
-    if (heartbeat_flags->is_set_default_rowset_type_to_beta()) {
-        context.rowset_type = BETA_ROWSET;
-    }
     context.rowset_path_prefix = _tablet->tablet_path();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;

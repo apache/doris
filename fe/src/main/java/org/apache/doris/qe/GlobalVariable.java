@@ -58,7 +58,7 @@ public final class GlobalVariable {
 
     // the flags passed to Backends
     @VariableMgr.VarAttr(name = "is_set_default_rowset_to_beta")
-    public static boolean is_set_default_rowset_to_beta = false;
+    public static boolean isSetDefaultRowsetToBeta = false;
 
     // Don't allow create instance.
     private GlobalVariable() {

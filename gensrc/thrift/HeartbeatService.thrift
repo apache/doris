@@ -18,6 +18,8 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 
+const i64 IS_SET_DEFAULT_ROWSET_TO_BETA_BIT = 0x01;
+
 struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id

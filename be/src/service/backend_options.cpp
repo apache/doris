@@ -32,6 +32,7 @@ static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
+HeartbeatFlags BackendOptions::_heartbeat_flags;
 
 bool BackendOptions::init() {
     if (!analyze_priority_cidrs()) {
@@ -108,6 +109,10 @@ bool BackendOptions::is_in_prior_network(const std::string& ip) {
         }
     }
     return false;
+}
+
+HeartbeatFlags* BackendOptions::heartbeat_flags() {
+    return &_heartbeat_flags;
 }
 
 }

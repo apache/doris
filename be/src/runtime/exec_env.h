@@ -130,7 +130,8 @@ public:
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
-    HeartbeatFlags* heartbeat_flags();
+    void set_heartbeat_flags(HeartbeatFlags* heartbeat_flags) { _heartbeat_flags = heartbeat_flags; }
+    HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);

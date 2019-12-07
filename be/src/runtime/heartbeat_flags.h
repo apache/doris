@@ -18,8 +18,8 @@
 #pragma once 
 
 #include <atomic>
-#include <map>
-#include <string>
+
+#include "gen_cpp/HeartbeatService_constants.h"
 
 namespace doris {
 
@@ -36,8 +36,7 @@ public:
     }
 
     bool is_set_default_rowset_type_to_beta() {
-        // the first bit is for IS_SET_DEFAULT_ROWSET_TYPE_TO_BETA flag
-        return _flags & 0x01;
+        return _flags & g_HeartbeatService_constants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
     }
 
 private:

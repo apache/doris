@@ -30,6 +30,7 @@
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
 #include "util/file_utils.h"
+#include "runtime/heartbeat_flags.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -63,6 +64,7 @@ public:
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
+        k_engine->set_heartbeat_flags(&_heartbeat_flags);
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
@@ -96,6 +98,7 @@ private:
     int32_t _schema_hash;
     string _tablet_data_path;
     TabletManager _tablet_mgr;
+    HeartbeatFlags _heartbeat_flags;
 };
 
 TEST_F(TabletMgrTest, CreateTablet) {

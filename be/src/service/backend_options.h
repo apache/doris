@@ -22,6 +22,8 @@
 #include <vector>
 #include <gutil/macros.h>
 
+#include "runtime/heartbeat_flags.h"
+
 namespace doris {
 
 class CIDR;
@@ -30,6 +32,7 @@ class BackendOptions {
 public:
     static bool init();
     static std::string get_localhost();
+    static HeartbeatFlags* heartbeat_flags();
 
 private:
     static bool analyze_priority_cidrs();
@@ -37,6 +40,7 @@ private:
 
     static std::string _s_localhost;
     static std::vector<CIDR> _s_priority_cidrs;
+    static HeartbeatFlags _heartbeat_flags;
 
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };

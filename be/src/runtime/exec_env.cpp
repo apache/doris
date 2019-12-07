@@ -18,7 +18,6 @@
 #include "runtime/exec_env.h"
 
 #include "gen_cpp/HeartbeatService_types.h"
-#include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
@@ -30,15 +29,6 @@ ExecEnv::~ExecEnv() {
 
 const std::string& ExecEnv::token() const {
     return _master_info->token;
-}
-
-HeartbeatFlags* ExecEnv::heartbeat_flags() {
-#ifdef BE_TEST
-    static HeartbeatFlags heartbeat_flags;
-    return &heartbeat_flags;
-#else
-    return _heartbeat_flags;
-#endif
 }
 
 }
