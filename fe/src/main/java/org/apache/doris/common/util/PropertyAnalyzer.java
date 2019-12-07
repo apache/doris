@@ -380,4 +380,13 @@ public class PropertyAnalyzer {
         }
         return timeout;
     }
+
+    public static boolean analyzeStorageFormat(Map<String, String> properties) throws AnalysisException {
+        String storage_format = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
+            storage_format = properties.get(PROPERTIES_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_TIMEOUT);
+        }
+        return storage_format.equals("v2");
+    }
 }

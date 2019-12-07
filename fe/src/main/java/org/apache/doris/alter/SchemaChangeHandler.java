@@ -841,12 +841,16 @@ public class SchemaChangeHandler extends AlterHandler {
         
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
+        boolean changeStorageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
         // create job
         Catalog catalog = Catalog.getCurrentCatalog();
         long jobId = catalog.getNextId();
         SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
+        if (changeStorageFormat) {
+            schemaChangeJob.setStorageFormat(TStorageFormat.V2);
+        }
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop 
         long tableId = olapTable.getId();
@@ -903,6 +907,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         break;
                     }
                 }
+            } else if (changeStorageFormat) {
+                needAlter = true;
             }
 
             if (!needAlter) {

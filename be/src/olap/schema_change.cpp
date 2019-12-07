@@ -1655,7 +1655,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     bool sc_sorting = false;
     bool sc_directly = false;
     SchemaChange* sc_procedure = nullptr;
-    bool create_beta_rowset_rollup = false;
+    bool use_beta_rowset = false;
 
     // a. 解析Alter请求，转换成内部的表示形式
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
@@ -1665,12 +1665,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    if (sc_params.alter_type == TAlterType::ROLLUP && sc_params.new_tablet->tablet_meta()->has_preferred_rowset_type()
+    if (sc_params.new_tablet->tablet_meta()->has_preferred_rowset_type()
             && sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        // in this case, rollup must have all the same columns as base
-        // just use directly type
+        // if the tablet meta has preferred_rowset_type field set to BETA_ROWST, just use directly type
         sc_directly = true;
-        create_beta_rowset_rollup = true;
+        use_beta_rowset = true;
     }
 
     // b. 生成历史数据转换器
@@ -1712,8 +1711,8 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (create_beta_rowset_rollup) {
-            // To create a all column rollup index from base table use BETA_ROWSET type.
+        if (use_beta_rowset) {
+            // Use beta rowset to do schema change
             // And in this case, linked schema change will not be used.
             writer_context.rowset_type = BETA_ROWSET;
         }

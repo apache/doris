@@ -193,6 +193,15 @@ public class MaterializedViewHandler extends AlterHandler {
         if (properties != null && properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("V2")) {
             mvJob.setStorageFormat(TStorageFormat.V2);
         }
+        String newStorageFormatIndexName = "__v2_" + baseIndexName;
+        if (rollupIndexName.equalsIgnoreCase(newStorageFormatIndexName)) {
+            List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
+            // create the same schema as base table
+            rollupColumnNames.clear();
+            for (Column column : columns) {
+                rollupColumnNames.add(column.getName());
+            }
+        }
 
         /*
          * create all rollup indexes. and set state.
@@ -474,6 +483,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (baseIndexId == null) {
             throw new DdlException("Base index[" + baseIndexName + "] does not exist");
         }
+
         /*
          * create all rollup indexes. and set state.
          * After setting, Tables' state will be ROLLUP
@@ -532,48 +542,6 @@ public class MaterializedViewHandler extends AlterHandler {
         DropInfo dropInfo = new DropInfo(dbId, tableId, rollupIndexId);
         editLog.logDropRollup(dropInfo);
         LOG.info("finished drop rollup index[{}] in table[{}]", rollupIndexName, olapTable.getName());
-    }
-
-    // sql: alter table base_table_name set property ("storage_format" = "v2");
-    // this is a temparory function for upgrade purpose
-    // create a new rollup index in format v2 with a special name by add base table name with prefix "__v2"
-    //
-    // main steps:
-    // 1. validate the alterClause
-    // 2. construct a AddRollupClause based on base table
-    // 3. call processAddRollup
-    private void procesModifyTableStorageFormat(ModifyTablePropertiesClause modifyClause,
-                                              Database db, OlapTable olapTable) throws DdlException {
-        Map<String, String> properties = modifyClause.getProperties();
-        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT) ||
-                !properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
-            throw  new DdlException("invalid storage format");
-        }
-        // check the special rollup index exists
-        // it is for temparory upgrade purpose, so use a format as following
-        String baseIndexName = olapTable.getName();
-        String newStorageFormatIndexName = "__v2_" + baseIndexName;
-        if (olapTable.hasMaterializedIndex(newStorageFormatIndexName)) {
-            throw new DdlException("Rollup index[" + newStorageFormatIndexName + "] already exists");
-        }
-        Long baseIndexId = olapTable.getIndexIdByName(baseIndexName);
-        if (baseIndexId == null) {
-            throw new DdlException("Base index[" + baseIndexName + "] does not exist");
-        }
-        List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
-        List<String> columnNames = new ArrayList<String>(columns.size());
-        for (Column column : columns) {
-            columnNames.add(column.getName());
-        }
-        long timeoutSecond = 0;
-        try {
-            timeoutSecond = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second);
-        } catch (Exception e) {
-            throw new DdlException("analyze timeout failed");
-        }
-        AddRollupClause addRollupClause = new AddRollupClause(newStorageFormatIndexName, columnNames, null, baseIndexName, properties);
-        addRollupClause.setTimeoutSecond(timeoutSecond);
-        processAddRollup(addRollupClause, db, olapTable);
     }
 
     public void replayDropRollup(DropInfo dropInfo, Catalog catalog) {
@@ -813,8 +781,6 @@ public class MaterializedViewHandler extends AlterHandler {
                 processAddRollup((AddRollupClause) alterClause, db, olapTable);
             } else if (alterClause instanceof DropRollupClause) {
                 processDropRollup((DropRollupClause) alterClause, db, olapTable);
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                procesModifyTableStorageFormat((ModifyTablePropertiesClause)alterClause, db, olapTable);
             } else {
                 Preconditions.checkState(false);
             }
