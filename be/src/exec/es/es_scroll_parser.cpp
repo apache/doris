@@ -198,7 +198,7 @@ ScrollParser::ScrollParser() :
 ScrollParser::~ScrollParser() {
 }
 
-Status ScrollParser::parse(const std::string& scroll_result) {
+Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     _document_node.Parse(scroll_result.c_str());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
@@ -206,13 +206,15 @@ Status ScrollParser::parse(const std::string& scroll_result) {
         return Status::InternalError(ss.str());
     }
 
-    if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
+    if (!exactly_once && !_document_node.HasMember(FIELD_SCROLL_ID)) {
         LOG(WARNING) << "Document has not a scroll id field scroll reponse:" << scroll_result;
         return Status::InternalError("Document has not a scroll id field");
     }
 
-    const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
-    _scroll_id = scroll_node.GetString();
+    if (!exactly_once) {
+        const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
+        _scroll_id = scroll_node.GetString();
+    }
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
