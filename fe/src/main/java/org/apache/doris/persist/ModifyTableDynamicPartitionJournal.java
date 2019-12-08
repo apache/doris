@@ -17,52 +17,50 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 
-public class DynamicPartitionInfo implements Writable {
+public class ModifyTableDynamicPartitionJournal implements Writable {
+    private long dbId;
+    private long tableId;
+    private DynamicPartitionInfo dynamicPartitionInfo;
 
-    private Map<String, String> properties = new HashMap<>();
-
-    public DynamicPartitionInfo() {
+    public ModifyTableDynamicPartitionJournal() {
 
     }
 
-    public DynamicPartitionInfo(Map<String, String> properties) {
-        this.properties = properties;
+    public ModifyTableDynamicPartitionJournal(long dbId, long tableId, DynamicPartitionInfo dynamicPartitionInfo) {
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.dynamicPartitionInfo = dynamicPartitionInfo;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public long getDbId() {
+        return dbId;
     }
 
-    public static DynamicPartitionInfo read(DataInput in) throws IOException {
-        DynamicPartitionInfo info = new DynamicPartitionInfo();
-        info.readFields(in);
-        return info;
+    public long getTableId() {
+        return tableId;
+    }
+
+    public DynamicPartitionInfo getDynamicPartitionInfo() {
+        return dynamicPartitionInfo;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        JSONObject jsonObject = new JSONObject(properties);
-        Text.writeString(out, jsonObject.toString());
+        out.writeLong(dbId);
+        out.writeLong(tableId);
+        dynamicPartitionInfo.write(out);
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        JSONObject jsonObject = new JSONObject(Text.readString(in));
-        Iterator<String> iterator = jsonObject.keys();
-        while (iterator.hasNext()) {
-            String key = iterator.next();
-            properties.put(key, jsonObject.getString(key));
-        }
+        dbId = in.readLong();
+        tableId = in.readLong();
+        dynamicPartitionInfo = DynamicPartitionInfo.read(in);
     }
 }
