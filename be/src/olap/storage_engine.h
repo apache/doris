@@ -200,14 +200,14 @@ public:
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
     RowsetTypePB default_rowset_type() const {
-        if (_heartbeat_flags->is_set_default_rowset_type_to_beta()) {
+        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
             return BETA_ROWSET;
         }
         return _default_rowset_type;
     }
 
     RowsetTypePB compaction_rowset_type() const {
-        if (_heartbeat_flags->is_set_default_rowset_type_to_beta()) {
+        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
             return BETA_ROWSET;
         }
         return _compaction_rowset_type;

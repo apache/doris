@@ -23,11 +23,15 @@ import org.apache.doris.thrift.HeartbeatServiceConstants;
 // This class is to manage the control flag in heartbeat message between FE and BE.
 // The control flag is for FE to control some behaviors of BE.
 // Now the flag is represented by 64-bit long type, each bit can be used to control
-// one behavior. The first bit is used for isSetDefaultRowsetToBeta flag.
+// one behavior. The first bit is used for set default rowset type to beta flag.
 public class HeartbeatFlags {
+    public static boolean isValidRowsetType(String rowsetType) {
+        return rowsetType.equalsIgnoreCase("alpha") || rowsetType.equalsIgnoreCase("beta");
+    }
+
     public long getHeartbeatFlags () {
         long heartbeatFlags = 0;
-        if (GlobalVariable.isSetDefaultRowsetToBeta) {
+        if (GlobalVariable.defaultRowsetType.equalsIgnoreCase("beta")) {
             heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
         }
         return heartbeatFlags;

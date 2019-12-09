@@ -26,6 +26,8 @@ import java.time.ZoneId;
 // and change its value through `SET variable_name = xxx`
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
+    public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
+
     @VariableMgr.VarAttr(name = "version_comment", flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version " + Version.PALO_BUILD_VERSION;
 
@@ -57,8 +59,8 @@ public final class GlobalVariable {
     private static long queryCacheSize = 1048576;
 
     // the flags passed to Backends
-    @VariableMgr.VarAttr(name = "is_set_default_rowset_to_beta")
-    public static boolean isSetDefaultRowsetToBeta = false;
+    @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
+    public static String defaultRowsetType = "alpha";
 
     // Don't allow create instance.
     private GlobalVariable() {

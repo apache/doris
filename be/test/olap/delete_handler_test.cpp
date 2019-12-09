@@ -34,7 +34,6 @@
 #include "olap/options.h"
 #include "util/logging.h"
 #include "util/file_utils.h"
-#include "runtime/heartbeat_flags.h"
 
 using namespace std;
 using namespace doris;
@@ -45,7 +44,6 @@ namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
-static HeartbeatFlags heartbeat_flags;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -61,7 +59,6 @@ void set_up() {
     doris::EngineOptions options;
     options.store_paths = paths;
     doris::StorageEngine::open(options, &k_engine);
-    k_engine->set_heartbeat_flags(&heartbeat_flags);
 }
 
 void tear_down() {

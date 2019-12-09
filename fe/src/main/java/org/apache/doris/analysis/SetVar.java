@@ -27,8 +27,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.HeartbeatFlags;
 
 // change one variable.
 public class SetVar {
@@ -130,6 +132,11 @@ public class SetVar {
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
             if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
                 throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
+            }
+        }
+        if (variable.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
+            if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
+                throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
             }
         }
     }

@@ -18,8 +18,6 @@
 #include "gutil/strings/substitute.h"
 #include "olap/compaction.h"
 #include "olap/rowset/rowset_factory.h"
-#include "runtime/exec_env.h"
-#include "runtime/heartbeat_flags.h"
 
 using std::vector;
 

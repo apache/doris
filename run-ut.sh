@@ -292,6 +292,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
+${DORIS_TEST_BINARY_DIR}/runtime/heartbeat_flags_test
 
 # Running agent unittest
 # Prepare agent testdata

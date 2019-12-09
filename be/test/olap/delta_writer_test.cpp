@@ -37,7 +37,6 @@
 #include "util/file_utils.h"
 #include "olap/options.h"
 #include "olap/tablet_meta_manager.h"
-#include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
@@ -49,7 +48,6 @@ static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
 MemTracker* k_mem_tracker = nullptr;
-HeartbeatFlags heartbeat_flags;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -63,7 +61,9 @@ void set_up() {
     doris::EngineOptions options;
     options.store_paths = paths;
     doris::StorageEngine::open(options, &k_engine);
-    k_engine->set_heartbeat_flags(&heartbeat_flags);
+
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_storage_engine(k_engine);
 
     k_mem_tracker = new MemTracker(-1, "delta writer test");
 }

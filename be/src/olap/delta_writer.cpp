@@ -24,8 +24,6 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
-#include "runtime/heartbeat_flags.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 
