@@ -66,8 +66,7 @@ public abstract class Resource implements Writable {
         tagSet.write(out);
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         id = in.readLong();
         tagSet = TagSet.read(in);
     }

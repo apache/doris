@@ -103,8 +103,7 @@ public class Tag implements Writable {
         Text.writeString(out, tag);
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         type = Tag.Type.valueOf(Text.readString(in));
         tag = Text.readString(in);
     }
