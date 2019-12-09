@@ -54,6 +54,7 @@ public class GsonUtils {
 
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
+            .enableComplexMapKeySerialization()
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter());
 
@@ -206,7 +207,8 @@ public class GsonUtils {
             jsonObject.addProperty("clazz", map.getClass().getSimpleName());
             Map<K, Collection<V>> asMap = map.asMap();
             Type type = asMapType(typeOfSrc);
-            jsonObject.add("map", context.serialize(asMap, type));
+            JsonElement jsonElement = context.serialize(asMap, type);
+            jsonObject.add("map", jsonElement);
             return jsonObject;
         }
     

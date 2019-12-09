@@ -105,6 +105,7 @@ public class TagSerializationTest {
 
         TagManager readTagManager = TagManager.read(in);
         Assert.assertEquals(Sets.newHashSet(1L, 2L), readTagManager.getResourceIdsByTag(Tag.create(Type.LOCATION, "rack1")));
+        Assert.assertEquals(Sets.newHashSet(2L), readTagManager.getResourceIdsByTags(TagSet.create(Tag.create(Type.LOCATION, "rack2"))));
 
         in.close();
     }

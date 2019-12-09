@@ -23,7 +23,6 @@ import org.apache.doris.common.util.GsonUtils;
 import org.apache.doris.resource.Tag.Type;
 
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -31,7 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -162,9 +160,9 @@ public class TagManager implements Writable {
     // get resource ids by the given set of tags.
     // The relationship between these tags is "AND".
     // return a empty set if tag is empty or no resource meets requirement.
-    public List<Long> getResourceIdsByTags(TagSet tagSet) {
+    public Set<Long> getResourceIdsByTags(TagSet tagSet) {
         if (tagSet.isEmpty()) {
-            return Lists.newArrayList();
+            return Sets.newHashSet();
         }
         lock.readLock().lock();
         try {
@@ -181,7 +179,7 @@ public class TagManager implements Writable {
                     break;
                 }
             }
-            return Lists.newArrayList(res);
+            return res == null ? Sets.newHashSet() : res;
         } finally {
             lock.readLock().unlock();
         }

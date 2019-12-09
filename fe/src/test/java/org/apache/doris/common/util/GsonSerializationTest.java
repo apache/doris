@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.GsonSerializationTest.Key.MyEnum;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
@@ -44,6 +45,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class GsonSerializationTest {
@@ -329,5 +331,87 @@ public class GsonSerializationTest {
         Assert.assertEquals(0, readClassA.classA1ChangeName.map2.get(2).ignoreField);
         Assert.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1ChangeName.set1);
         in.close();
+    }
+
+    public static class MultiMapClassA implements Writable {
+        @SerializedName(value = "map")
+        public Multimap<Key, Long> map = HashMultimap.create();
+
+        public MultiMapClassA() {
+            map.put(new Key(MyEnum.TYPE_A, "key1"), 1L);
+            map.put(new Key(MyEnum.TYPE_B, "key2"), 2L);
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
+        }
+
+        public static MultiMapClassA read(DataInput in) throws IOException {
+            String json = Text.readString(in);
+            MultiMapClassA classA = GsonUtils.GSON.fromJson(json, MultiMapClassA.class);
+            return classA;
+        }
+    }
+
+    public static class Key {
+        public enum MyEnum {
+            TYPE_A, TYPE_B
+        }
+
+        @SerializedName(value = "type")
+        public MyEnum type;
+        @SerializedName(value = "value")
+        public String value;
+
+        public Key(MyEnum type, String value) {
+            this.type = type;
+            this.value = value;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, value);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof Key)) {
+                return false;
+            }
+
+            if (this == obj) {
+                return true;
+            }
+
+            Key other = (Key) obj;
+            return other.type == this.type && other.value.equals(this.value);
+        }
+
+        @Override
+        public String toString() {
+            return type + ":" + value;
+        }
+    }
+
+    @Test
+    public void testMultiMapWithCustomKey() throws IOException {
+        // 1. Write objects to file
+        File file = new File(fileName);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        MultiMapClassA classA = new MultiMapClassA();
+        classA.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+
+        MultiMapClassA readClassA = MultiMapClassA.read(in);
+        Assert.assertEquals(Sets.newHashSet(new Key(MyEnum.TYPE_A, "key1"), new Key(MyEnum.TYPE_B, "key2")),
+                readClassA.map.keySet());
     }
 }
