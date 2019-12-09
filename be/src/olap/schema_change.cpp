@@ -957,6 +957,12 @@ bool SchemaChangeWithSorting::process(
     reset_merged_rows();
     reset_filtered_rows();
 
+    bool use_beta_rowset = false;
+    if (new_tablet->tablet_meta()->has_preferred_rowset_type()
+                    || new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        use_beta_rowset = true;
+    }
+
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
@@ -976,12 +982,16 @@ bool SchemaChangeWithSorting::process(
 
             // enter here while memory limitation is reached.
             RowsetSharedPtr rowset;
+            RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+            if (use_beta_rowset) {
+                new_rowset_type = BETA_ROWSET;
+            }
             if (!_internal_sorting(row_block_arr,
                                    Version(_temp_delta_versions.second,
                                            _temp_delta_versions.second),
                                    rowset_reader->version_hash(),
                                    new_tablet,
-                                   StorageEngine::instance()->default_rowset_type(),
+                                   new_rowset_type,
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -1034,11 +1044,15 @@ bool SchemaChangeWithSorting::process(
         // enter here while memory limitation is reached.
         RowsetSharedPtr rowset = nullptr;
 
+        RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (use_beta_rowset) {
+            new_rowset_type = BETA_ROWSET;
+        }
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
-                               StorageEngine::instance()->default_rowset_type(),
+                               new_rowset_type,
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1477,6 +1491,10 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+    if (new_tablet->tablet_meta()->has_preferred_rowset_type()
+                    || new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        writer_context.rowset_type = BETA_ROWSET;
+    }
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;

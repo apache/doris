@@ -66,6 +66,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
