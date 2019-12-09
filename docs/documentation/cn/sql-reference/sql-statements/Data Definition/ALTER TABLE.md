@@ -127,6 +127,10 @@ under the License.
                 TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
                 LARGEINT 转换成 DOUBLE
                 VARCHAR 支持修改最大长度
+                DATETIME 转换成 DATE
+                DATE 转换成 DATETIME
+                FLOAT 转换成 DOUBLE
+                INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
             6) 不支持从NULL转为NOT NULL
                 
     5. 对指定 index 的列进行重新排序

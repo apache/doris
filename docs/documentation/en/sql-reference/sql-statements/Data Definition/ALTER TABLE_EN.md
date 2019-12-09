@@ -127,6 +127,10 @@ under the License.
                 TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
                 Convert LARGEINT to DOUBLE
                 VARCHAR supports modification of maximum length
+                Convert DATETIME to DATE
+                Convert DATE to DATETIME
+                Convert FLOAT to DOUBLE
+                Convert INT to DATE (If the INT data fails to convert, the original data remains the same)
             6) Does not support changing from NULL to NOT NULL
                 
     5. Reorder the columns of the specified index
