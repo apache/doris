@@ -683,13 +683,6 @@ public class GlobalTransactionMgr implements Writable {
                 for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                     long partitionId = partitionCommitInfo.getPartitionId();
                     Partition partition = table.getPartition(partitionId);
-                    if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
-                        LOG.debug("transactionId {}  VisibleVersion {}, CommitIn version {}. need wait",
-                                transactionId,
-                                partition.getVisibleVersion(),
-                                partitionCommitInfo.getVersion());
-                        return;
-                    }
                     // partition maybe dropped between commit and publish version, ignore this error
                     if (partition == null) {
                         tableCommitInfo.removePartition(partitionId);
@@ -697,6 +690,14 @@ public class GlobalTransactionMgr implements Writable {
                                  partitionId,
                                  transactionState);
                         continue;
+                    }
+                    if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
+                        LOG.debug("transactionId {} partition commitInfo version {} is not equal with " +
+                                        "partition visible version {} plus one, need wait",
+                                transactionId,
+                                partitionCommitInfo.getVersion(),
+                                partition.getVisibleVersion());
+                        return;
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
 
