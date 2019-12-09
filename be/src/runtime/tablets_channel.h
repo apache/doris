@@ -88,6 +88,13 @@ private:
     // make execute sequece
     std::mutex _lock;
 
+    enum State {
+        kInitialized,
+        kOpened,
+        kFinished // closed or cancelled
+    };
+    State _state;
+
     // initialized in open function
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
@@ -95,7 +102,6 @@ private:
     TupleDescriptor* _tuple_desc = nullptr;
     // row_desc used to construct
     RowDescriptor* _row_desc = nullptr;
-    bool _opened = false;
 
     // next sequence we expect
     int _num_remaining_senders = 0;
