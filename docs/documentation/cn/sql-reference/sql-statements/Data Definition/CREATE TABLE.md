@@ -134,6 +134,7 @@ under the License.
                                  适合按key列进行增删改查的点查询业务。
                     DUPLICATE KEY:key列相同的记录，同时存在于Palo中，
                                  适合存储明细数据或者数据无聚合特性的业务场景。
+            默认为DUPLICATE KEY，key列为列定义中的所有列。
         注意：
             除AGGREGATE KEY外，其他key_type在建表时，value列不需要指定聚合类型。
 

@@ -160,6 +160,7 @@ under the License.
             DUPLICATE KEY:
 
                     All incoming rows will be saved.
+        the default key_type is DUPLICATE KEY, and key columns are all columns in column_definition.
                     
     NOTICE: 
         Except for AGGREGATE KEY, no need to specify aggregation type for value columns.

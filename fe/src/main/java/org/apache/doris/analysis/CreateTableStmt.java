@@ -220,7 +220,7 @@ public class CreateTableStmt extends DdlStmt {
                             keysColumnNames.add(columnDef.getName());
                         }
                     }
-                    keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
+                    keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
 
                 keysDesc.analyze(columnDefs);
