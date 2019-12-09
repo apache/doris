@@ -17,11 +17,20 @@
 
 package org.apache.doris.resource;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.GsonUtils;
+import org.apache.doris.resource.Tag.Type;
+
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,11 +42,19 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *      one is from resource to tags 
  * The caller can get a set of resources based on a given set of Tags
  */
-public class TagManager {
+public class TagManager implements Writable {
+    @SerializedName(value = "tagIndex")
     // tag -> set of resource id
     private HashMultimap<Tag, Long> tagIndex = HashMultimap.create();
+    @SerializedName(value = "resourceIndex")
+    // resource id -> tag set
     private Map<Long, TagSet> resourceIndex = Maps.newHashMap();
+
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    public TagManager() {
+        // TODO Auto-generated constructor stub
+    }
 
     public boolean addResourceTag(Long resourceId, Tag tag) {
         lock.writeLock().lock();
@@ -168,5 +185,19 @@ public class TagManager {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Tag.create(Type.LOCATION, "rack1");
+        Text.writeString(out, json);
+    }
+
+    public static TagManager read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        System.out.println(json);
+        TagManager tagManager = GsonUtils.GSON.fromJson(json, TagManager.class);
+        return tagManager;
     }
 }

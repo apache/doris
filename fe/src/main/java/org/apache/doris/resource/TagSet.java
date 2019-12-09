@@ -18,13 +18,16 @@
 package org.apache.doris.resource;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.GsonUtils;
 import org.apache.doris.resource.Tag.Type;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -42,6 +45,7 @@ import java.util.stream.Collectors;
 public class TagSet implements Writable {
     public static final TagSet EMPTY_TAGSET = new TagSet();
 
+    @SerializedName(value = "tags")
     private Set<Tag> tags = Sets.newHashSet();
 
     private TagSet() {
@@ -193,23 +197,11 @@ public class TagSet implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(tags.size());
-        for (Tag tag : tags) {
-            tag.write(out);
-        }
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Tag tag = Tag.read(in);
-            tags.add(tag);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static TagSet read(DataInput in) throws IOException {
-        TagSet tagSet = new TagSet();
-        tagSet.readFields(in);
-        return tagSet;
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TagSet.class);
     }
 }

@@ -20,9 +20,11 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -51,7 +53,9 @@ public class Tag implements Writable {
             "frontend", "backend", "broker", "remote_storage", "store", "computation", "default_cluster");
     private static final String TAG_NAME_REGEX = "^[a-z][a-z0-9_]{0,32}$";
 
+    @SerializedName(value = "type")
     public Type type;
+    @SerializedName(value = "tag")
     public String tag;
 
     private Tag(Type type, String tag) {
@@ -99,18 +103,11 @@ public class Tag implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        Text.writeString(out, tag);
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        type = Tag.Type.valueOf(Text.readString(in));
-        tag = Text.readString(in);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static Tag read(DataInput in) throws IOException {
-        Type type = Tag.Type.valueOf(Text.readString(in));
-        String tag = Text.readString(in);
-        return Tag.create(type, tag);
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Tag.class);
     }
 }
