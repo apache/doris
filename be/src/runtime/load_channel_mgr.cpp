@@ -143,7 +143,7 @@ Status LoadChannelMgr::add_batch(
                 load_id.to_string(), nullptr, 1, dummy_deleter);
             _lastest_success_channel->release(handle);
         }
-        LOG(INFO) << "removed load channel " << load_id;
+        VLOG(1) << "removed load channel " << load_id;
     }
     return Status::OK();
 }
@@ -218,16 +218,15 @@ Status LoadChannelMgr::_start_bg_worker() {
 
 Status LoadChannelMgr::_start_load_channels_clean() {
     std::vector<std::shared_ptr<LoadChannel>> need_delete_channels;
-    const int32_t max_alive_time = config::streaming_load_rpc_max_alive_time_sec;
-    LOG(INFO) << "start cleaning load channel which is not active for more than " << max_alive_time << " seconds";
+    LOG(INFO) << "start cleaning load channels that have timed out";
     time_t now = time(nullptr);
     {
         std::vector<UniqueId> need_delete_channel_ids;
         std::lock_guard<std::mutex> l(_lock);
-        LOG(INFO) << "there are " << _load_channels.size() << " running load channels";
+        VLOG(1) << "there are " << _load_channels.size() << " running load channels";
         int i = 0;
         for (auto& kv : _load_channels) {
-            LOG(INFO) << "load channel[" << i++ << "]: " << *(kv.second);
+            VLOG(1) << "load channel[" << i++ << "]: " << *(kv.second);
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= kv.second->timeout()) {
                 need_delete_channel_ids.emplace_back(kv.first);

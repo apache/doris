@@ -90,7 +90,7 @@ private:
 
 }; // class MemTable
 
-ostream& operator<<(ostream& os, const MemTable& table) {
+inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
     os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id() << ", mem=" << table.memory_usage();
     return os;
 }
