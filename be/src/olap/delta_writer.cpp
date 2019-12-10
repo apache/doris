@@ -201,6 +201,7 @@ OLAPStatus DeltaWriter::close() {
     }
 
     RETURN_NOT_OK(_flush_memtable_async());
+    _mem_table.reset();
     return OLAP_SUCCESS;
 }
 
@@ -208,6 +209,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     DCHECK(_is_init) << "delta writer is supposed be to initialized before close_wait() being called";
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_handler->wait());
+    DCHECK_EQ(_mem_tracker->consumption(), 0);
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -265,11 +267,13 @@ OLAPStatus DeltaWriter::cancel() {
     if (!_is_init) {
         return OLAP_SUCCESS;
     }
+    _mem_table.reset();
     if (_flush_handler != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
         _flush_handler->cancel();
         _flush_handler->wait();
     }
+    DCHECK_EQ(_mem_tracker->consumption(), 0);
     return OLAP_SUCCESS;
 }
 

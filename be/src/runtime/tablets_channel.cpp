@@ -28,7 +28,7 @@ namespace doris {
 TabletsChannel::TabletsChannel(
         const TabletsChannelKey& key,
         MemTracker* mem_tracker): 
-    _key(key), _closed_senders(64) {
+    _key(key), _state(kInitialized), _closed_senders(64) {
     _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
 }
 
@@ -42,7 +42,7 @@ TabletsChannel::~TabletsChannel() {
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     std::lock_guard<std::mutex> l(_lock);
-    if (_opened) {
+    if (_state == kOpened) {
         // Normal case, already open by other sender
         return Status::OK();
     }
@@ -62,14 +62,14 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(_open_all_writers(params));
 
-    _opened = true;
+    _state = kOpened;
     return Status::OK();
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
     std::lock_guard<std::mutex> l(_lock);
-    DCHECK(_opened);
+    DCHECK_EQ(_state, kOpened);
     auto next_seq = _next_seqs[params.sender_id()];
     // check packet
     if (params.packet_seq() < next_seq) {
@@ -153,12 +153,20 @@ Status TabletsChannel::close(int sender_id, bool* finished,
             // tablet_vec will only contains success tablet, and then let FE judge it.
             writer->close_wait(tablet_vec);
         }
+        // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
+        // DCHECK_EQ(_mem_tracker->consumption(), 0);
+        _state = kFinished;
     }
     return Status::OK();
 }
 
 Status TabletsChannel::reduce_mem_usage() {
     std::lock_guard<std::mutex> l(_lock);
+    if (_state == kFinished) {
+        // TabletsChannel is closed without LoadChannel's lock,
+        // therefore it's possible for reduce_mem_usage() to be called right after close()
+        return Status::OK();
+    }
     // find tablet writer with largest mem consumption
     int64_t max_consume = 0L;
     DeltaWriter* writer = nullptr;
@@ -235,6 +243,8 @@ Status TabletsChannel::cancel() {
     for (auto& it : _tablet_writers) {
         it.second->cancel();
     }
+    DCHECK_EQ(_mem_tracker->consumption(), 0);
+    _state = kFinished;
     return Status::OK();
 }
 
