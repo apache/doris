@@ -31,7 +31,7 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     ctx.memtable = std::move(memtable);
     ctx.flush_handler = this->shared_from_this();
     _counter_cond.inc();
-    VLOG(5) << "submitting" << *(ctx.memtable) << " to flush queue " << _flush_queue_idx;
+    VLOG(5) << "submitting " << *(ctx.memtable) << " to flush queue " << _flush_queue_idx;
     RETURN_NOT_OK(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
     return OLAP_SUCCESS; 
 }
