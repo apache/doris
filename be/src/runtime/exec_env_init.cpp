@@ -123,9 +123,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
-    if (_storage_engine != nullptr) {
-        _storage_engine->set_heartbeat_flags(_heartbeat_flags);
-    }
     return Status::OK();
 }
 

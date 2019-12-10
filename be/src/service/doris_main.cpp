@@ -165,8 +165,9 @@ int main(int argc, char** argv) {
 
     // start backend service for the coordinator on be_port
     auto exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(engine);
     doris::ExecEnv::init(exec_env, paths);
+    exec_env->set_storage_engine(engine);
+    engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
     doris::ThriftRpcHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;
