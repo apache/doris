@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
@@ -61,14 +62,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
 
-import mockit.Delegate;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class RestoreJobTest {
 
     private Database db;
@@ -99,15 +92,11 @@ public class RestoreJobTest {
 
     private BackupMeta backupMeta;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws AnalysisException {
         db = CatalogMocker.mockDb();
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getBackupHandler();
                 result = backupHandler;
@@ -129,7 +118,7 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
                 result = new Delegate() {
@@ -145,14 +134,14 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 backupHandler.getRepoMgr();
                 result = repoMgr;
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 repoMgr.getRepo(anyInt);
                 result = repo;
@@ -160,7 +149,7 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
                 result = new Delegate() {
@@ -171,7 +160,7 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 repo.upload(anyString, anyString);
                 result = Status.OK;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.SetPassVar;
@@ -36,8 +37,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class SetPasswordTest {
 
@@ -49,14 +48,10 @@ public class SetPasswordTest {
     @Mocked
     private EditLog editLog;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         auth = new PaloAuth();
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 analyzer.getClusterName();
                 minTimes = 0;

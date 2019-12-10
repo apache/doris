@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -58,13 +59,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import mockit.Delegate;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class BackupJobTest {
 
     private BackupJob job;
@@ -94,10 +88,6 @@ public class BackupJobTest {
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
             new BlobStorage("broker", Maps.newHashMap()));
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @BeforeClass
     public static void start() {
         Config.tmp_dir = "./";
@@ -120,7 +110,7 @@ public class BackupJobTest {
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getBackupHandler();
                 result = backupHandler;
@@ -139,14 +129,14 @@ public class BackupJobTest {
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 backupHandler.getRepoMgr();
                 result = repoMgr;
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 repoMgr.getRepo(anyInt);
                 result = repo;
@@ -154,7 +144,7 @@ public class BackupJobTest {
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
                 result = new Delegate() {
@@ -172,7 +162,7 @@ public class BackupJobTest {
             }
         };
 
-        new NonStrictExpectations(Repository.class) {
+        new Expectations(Repository.class) {
             {
                 repo.upload(anyString, anyString);
                 minTimes = 0;

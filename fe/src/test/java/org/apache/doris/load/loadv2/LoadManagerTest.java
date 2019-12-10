@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
@@ -44,7 +45,6 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;

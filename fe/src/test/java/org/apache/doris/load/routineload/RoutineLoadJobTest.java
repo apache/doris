@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.transaction.TransactionException;
@@ -41,7 +42,6 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import java_cup.runtime.Symbol;
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;

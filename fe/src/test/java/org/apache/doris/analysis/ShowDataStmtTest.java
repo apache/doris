@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -33,8 +34,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class ShowDataStmtTest {
 
@@ -51,17 +50,13 @@ public class ShowDataStmtTest {
 
     private Database db;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws AnalysisException {
         auth = new PaloAuth();
 
         
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentInvertedIndex();
                 result = invertedIndex;
@@ -70,7 +65,7 @@ public class ShowDataStmtTest {
 
         db = CatalogMocker.mockDb();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 analyzer.getClusterName();
                 result = SystemInfoService.DEFAULT_CLUSTER;
@@ -105,7 +100,7 @@ public class ShowDataStmtTest {
         };
         
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 result = true;

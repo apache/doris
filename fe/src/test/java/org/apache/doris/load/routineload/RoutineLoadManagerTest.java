@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import static mockit.Deencapsulation.invoke;
-
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
@@ -35,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
@@ -56,7 +55,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -281,7 +279,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations(routineLoadManager) {
             {
-                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
                 result = beIdToConcurrentTaskMap;
             }
         };
@@ -366,7 +364,7 @@ public class RoutineLoadManagerTest {
         beIdToConcurrentTaskMap.put(1L, 1);
         new Expectations(routineLoadManager) {
             {
-                invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
                 result = beIdToConcurrentTaskMap;
             }
         };

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -31,11 +32,9 @@ import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class DataDescriptionTest {
 
@@ -43,10 +42,6 @@ public class DataDescriptionTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {

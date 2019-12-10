@@ -17,16 +17,15 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
-import mockit.NonStrictExpectations;
-
 public class MockedAuth {
 
     public static void mockedAuth(PaloAuth auth) {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 result = true;
@@ -43,7 +42,7 @@ public class MockedAuth {
     }
 
     public static void mockedConnectContext(ConnectContext ctx, String user, String ip) {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
                 result = ctx;

@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
@@ -41,7 +42,6 @@ import org.junit.Test;
 
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Mocked;
 

@@ -65,7 +65,6 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import junit.framework.AssertionFailedError;
-import mockit.internal.startup.Startup;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -221,10 +220,6 @@ abstract public class DorisHttpTestCase {
         } catch (AnalysisException e) {
             return null;
         }
-    }
-
-    static {
-        Startup.initializeIfPossible();
     }
 
     private static void assignBackends() {

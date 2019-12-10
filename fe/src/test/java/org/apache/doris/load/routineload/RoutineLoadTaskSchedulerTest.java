@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
@@ -39,7 +40,6 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;

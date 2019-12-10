@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -32,8 +33,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class AlterDatabaseQuotaStmtTest {
     private Analyzer analyzer;
@@ -41,15 +40,11 @@ public class AlterDatabaseQuotaStmtTest {
     @Mocked
     private PaloAuth auth;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 result = true;

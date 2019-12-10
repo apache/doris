@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
@@ -70,13 +71,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Delegate;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class BackupHandlerTest {
 
     private BackupHandler handler;
@@ -98,17 +92,13 @@ public class BackupHandlerTest {
 
     private TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
         rootDir.mkdirs();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getBrokerMgr();
                 result = brokerMgr;
@@ -137,7 +127,7 @@ public class BackupHandlerTest {
             Assert.fail();
         }
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getDb(anyString);
                 result = db;
@@ -169,7 +159,7 @@ public class BackupHandlerTest {
 
     @Test
     public void testCreateAndDropRepository() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logCreateRepository((Repository) any);
                 result = new Delegate() {
@@ -224,7 +214,7 @@ public class BackupHandlerTest {
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 brokerMgr.contaisnBroker(anyString);
                 result = true;

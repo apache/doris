@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -33,8 +34,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class GrantStmtTest {
     private Analyzer analyzer;
@@ -46,16 +45,12 @@ public class GrantStmtTest {
     @Mocked
     private Catalog catalog;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         auth = new PaloAuth();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
                 result = ctx;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
@@ -42,12 +43,6 @@ import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Delegate;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class RepositoryTest {
 
@@ -62,9 +57,6 @@ public class RepositoryTest {
     @Mocked
     private BlobStorage storage;
 
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
@@ -74,7 +66,7 @@ public class RepositoryTest {
         files.add("1.idx");
         info = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path/to/tablet/snapshot/", files);
 
-        new NonStrictExpectations(FrontendOptions.class) {
+        new Expectations(FrontendOptions.class) {
             {
                 FrontendOptions.getLocalHostAddress();
                 minTimes = 0;
@@ -105,7 +97,7 @@ public class RepositoryTest {
 
     @Test
     public void testInit() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
                 result = new Delegate<Status>() {
@@ -157,7 +149,7 @@ public class RepositoryTest {
 
     @Test
     public void testPing() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 storage.checkPathExist(anyString);
                 result = Status.OK;
@@ -171,7 +163,7 @@ public class RepositoryTest {
 
     @Test
     public void testListSnapshots() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
                 result = new Delegate() {
@@ -194,7 +186,7 @@ public class RepositoryTest {
 
     @Test
     public void testUpload() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 storage.upload(anyString, anyString);
                 result = Status.OK;
@@ -237,7 +229,7 @@ public class RepositoryTest {
                 Assert.fail();
             }
 
-            new NonStrictExpectations() {
+            new Expectations() {
                 {
                     storage.list(anyString, (List<RemoteFile>) any);
                     result = new Delegate() {
@@ -270,7 +262,7 @@ public class RepositoryTest {
 
     @Test
     public void testGetSnapshotInfo() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
                 result = new Delegate() {

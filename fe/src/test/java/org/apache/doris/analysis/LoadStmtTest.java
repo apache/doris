@@ -34,8 +34,6 @@ import java.util.List;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class LoadStmtTest {
     private DataDescription desc;
@@ -47,10 +45,6 @@ public class LoadStmtTest {
     @Mocked
     private ConnectContext ctx;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
@@ -59,7 +53,7 @@ public class LoadStmtTest {
         EasyMock.expect(desc.toSql()).andReturn("XXX");
         dataDescriptions.add(desc);
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
                 result = ctx;

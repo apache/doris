@@ -28,7 +28,6 @@ import org.apache.doris.persist.EditLog;
 import org.junit.Assert;
 import org.junit.Test;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;

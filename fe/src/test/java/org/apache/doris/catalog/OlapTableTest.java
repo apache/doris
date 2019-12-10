@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
@@ -29,19 +30,12 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class OlapTableTest {
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Test
     public void test() throws IOException {
         
-        new NonStrictExpectations(Catalog.class) {
+        new Expectations(Catalog.class) {
             {
                 Catalog.getCurrentCatalogJournalVersion();
                 minTimes = 0;

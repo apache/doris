@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
@@ -51,8 +52,6 @@ import java.util.Set;
 
 import mockit.Delegate;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class AuthTest {
 
@@ -68,15 +67,11 @@ public class AuthTest {
 
     private DomainResolver resolver;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
         auth = new PaloAuth();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 analyzer.getClusterName();
                 minTimes = 0;
@@ -121,7 +116,7 @@ public class AuthTest {
 
         resolver = new DomainResolver(auth);
 
-        new NonStrictExpectations(resolver) {
+        new Expectations(resolver) {
             {
                 resolver.resolveWithBNS("palo.domain1", (Set<String>) any);
                 result = new Delegate() {

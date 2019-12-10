@@ -31,7 +31,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class AlterClusterStmtTest {
 
@@ -41,10 +40,6 @@ public class AlterClusterStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before()
     public void setUp() {
