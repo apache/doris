@@ -30,14 +30,26 @@ import java.util.Map;
 
 public class DynamicPartitionInfo implements Writable {
 
+    private long dbId;
+    private long tableId;
     private Map<String, String> properties = new HashMap<>();
 
     public DynamicPartitionInfo() {
 
     }
 
-    public DynamicPartitionInfo(Map<String, String> properties) {
+    public DynamicPartitionInfo(long dbId, long tableId, Map<String, String> properties) {
+        this.dbId = dbId;
+        this.tableId = tableId;
         this.properties = properties;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     public Map<String, String> getProperties() {
@@ -52,12 +64,16 @@ public class DynamicPartitionInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        out.writeLong(dbId);
+        out.writeLong(tableId);
         JSONObject jsonObject = new JSONObject(properties);
         Text.writeString(out, jsonObject.toString());
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
+        dbId = in.readLong();
+        tableId = in.readLong();
         JSONObject jsonObject = new JSONObject(Text.readString(in));
         Iterator<String> iterator = jsonObject.keys();
         while (iterator.hasNext()) {

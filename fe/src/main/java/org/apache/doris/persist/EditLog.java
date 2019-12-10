@@ -693,8 +693,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION: {
-                    ModifyTableDynamicPartitionJournal modifyTableDynamicPartitionJournal = (ModifyTableDynamicPartitionJournal) journal.getData();
-                    catalog.replayModifyTableDynamicPartition(modifyTableDynamicPartitionJournal);
+                    DynamicPartitionInfo dynamicPartitionInfo = (DynamicPartitionInfo) journal.getData();
+                    catalog.replayModifyTableDynamicPartition(dynamicPartitionInfo);
                     break;
                 }
                 default: {
@@ -1195,8 +1195,7 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
     }
 
-    public void logDynamicPartition(long dbId, long tableId, DynamicPartitionInfo info) {
-        ModifyTableDynamicPartitionJournal journal = new ModifyTableDynamicPartitionJournal(dbId, tableId, info);
-        logEdit(OperationType.OP_DYNAMIC_PARTITION, journal);
+    public void logDynamicPartition(DynamicPartitionInfo info) {
+        logEdit(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 }

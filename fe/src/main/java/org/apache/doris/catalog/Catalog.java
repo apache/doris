@@ -158,7 +158,6 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DynamicPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
-import org.apache.doris.persist.ModifyTableDynamicPartitionJournal;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -5086,21 +5085,21 @@ public class Catalog {
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
-            DynamicPartitionInfo info = new DynamicPartitionInfo(tableProperty.getProperties());
-            editLog.logDynamicPartition(db.getId(), table.getId(), info);
+            DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+            editLog.logDynamicPartition(info);
         }
     }
 
-    public void replayModifyTableDynamicPartition(ModifyTableDynamicPartitionJournal journal) {
-        long dbId = journal.getDbId();
-        long tableId = journal.getTableId();
-        DynamicPartitionInfo dynamicPartitionInfo = journal.getDynamicPartitionInfo();
+    public void replayModifyTableDynamicPartition(DynamicPartitionInfo info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        Map<String, String> properties = info.getProperties();
 
         Database db = getDb(dbId);
         db.writeLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
-            table.getTableProperty().modifyTableProperties(dynamicPartitionInfo.getProperties());
+            table.getTableProperty().modifyTableProperties(properties);
         } finally {
             db.writeUnlock();
         }
