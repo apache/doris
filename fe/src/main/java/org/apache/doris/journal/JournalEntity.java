@@ -53,7 +53,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.DynamicPartitionInfo;
+import org.apache.doris.persist.ModifyDynamicPartitionInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
@@ -493,7 +493,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DYNAMIC_PARTITION: {
-                data = DynamicPartitionInfo.read(in);
+                data = ModifyDynamicPartitionInfo.read(in);
                 needRead = false;
                 break;
             }

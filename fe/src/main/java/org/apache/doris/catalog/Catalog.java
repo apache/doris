@@ -155,7 +155,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.DynamicPartitionInfo;
+import org.apache.doris.persist.ModifyDynamicPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -5085,12 +5085,12 @@ public class Catalog {
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
-            DynamicPartitionInfo info = new DynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+            ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
             editLog.logDynamicPartition(info);
         }
     }
 
-    public void replayModifyTableDynamicPartition(DynamicPartitionInfo info) {
+    public void replayModifyTableDynamicPartition(ModifyDynamicPartitionInfo info) {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();

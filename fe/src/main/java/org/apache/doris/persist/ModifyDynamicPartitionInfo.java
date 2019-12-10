@@ -28,17 +28,17 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-public class DynamicPartitionInfo implements Writable {
+public class ModifyDynamicPartitionInfo implements Writable {
 
     private long dbId;
     private long tableId;
     private Map<String, String> properties = new HashMap<>();
 
-    public DynamicPartitionInfo() {
+    public ModifyDynamicPartitionInfo() {
 
     }
 
-    public DynamicPartitionInfo(long dbId, long tableId, Map<String, String> properties) {
+    public ModifyDynamicPartitionInfo(long dbId, long tableId, Map<String, String> properties) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.properties = properties;
@@ -56,8 +56,8 @@ public class DynamicPartitionInfo implements Writable {
         return properties;
     }
 
-    public static DynamicPartitionInfo read(DataInput in) throws IOException {
-        DynamicPartitionInfo info = new DynamicPartitionInfo();
+    public static ModifyDynamicPartitionInfo read(DataInput in) throws IOException {
+        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo();
         info.readFields(in);
         return info;
     }
