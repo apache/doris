@@ -64,6 +64,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
             return;
         }
+
         // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
         // but should do more work. for example, if a table is migrate from one cluster to another cluster
         // should publish to two clusters.
@@ -127,12 +128,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
-        long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
-            if (currentTime - transactionState.getPublishVersionTime() < Config.publish_version_interval_ms * 2) {
-                // wait 2 rounds before handling publish result
-                continue;
-            }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
             Set<Long> publishErrorReplicaIds = Sets.newHashSet();
             List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();

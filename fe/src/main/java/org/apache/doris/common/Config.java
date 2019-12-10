@@ -305,7 +305,7 @@ public class Config extends ConfigBase {
     /*
      * minimal intervals between two publish version action
      */
-    @ConfField public static int publish_version_interval_ms = 100;
+    @ConfField public static int publish_version_interval_ms = 10;
 
     /*
      * Maximal wait seconds for straggler node in load
