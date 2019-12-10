@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TEtlState;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
@@ -58,6 +59,7 @@ public class DppSchedulerTest {
         dppScheduler = new DppScheduler(Load.dppDefaultConfig);
     }
     
+    @Ignore
     @Test
     public void testCalcReduceNumByInputSize() throws Exception {
         // mock hadoop count
