@@ -52,6 +52,8 @@ struct WriteRequest {
     const std::vector<SlotDescriptor*>* slots;
 };
 
+// Writer for a particular (load, index, tablet).
+// This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
@@ -65,9 +67,12 @@ public:
     OLAPStatus write(Tuple* tuple);
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
-    // wait for all memtables being flushed
+    // wait for all memtables to be flushed.
+    // mem_consumption() should be 0 after this function returns.
     OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
+    // abandon current memtable and wait for all pending-flushing memtables to be destructed.
+    // mem_consumption() should be 0 after this function returns.
     OLAPStatus cancel();
 
     // submit current memtable to flush queue, and wait all memtables in flush queue
