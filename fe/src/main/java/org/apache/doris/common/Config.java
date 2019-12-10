@@ -340,6 +340,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_layout_length_per_row = 100000; // 100k
 
+    public static final int DEFAULT_DUP_KEYS_COUNT = 3;
+    public static final int DEFAULT_DUP_KEYS_BYTES = 36;
+
     /*
      * Load checker's running interval.
      * A load job will transfer its state from PENDING to ETL to LOADING to FINISHED.

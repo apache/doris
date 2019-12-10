@@ -225,7 +225,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
-    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
+    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
 
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
@@ -724,6 +724,10 @@ alter_table_clause ::=
     | KW_ADD KW_ROLLUP ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
     {:
         RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
+    :}
+    | KW_ADD KW_MATERIALIZED KW_VIEW ident:mvName LPAREN select_stmt:selectStmt RPAREN opt_properties:properties
+    {:
+        RESULT = new AddMaterializedViewClause(mvName, selectStmt, properties);
     :}
     | KW_DROP KW_COLUMN ident:col opt_from_rollup:rollup opt_properties:properties
     {:
@@ -4223,6 +4227,8 @@ keyword ::=
     | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VIEW:id
+    {: RESULT = id; :}
+    | KW_MATERIALIZED:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}

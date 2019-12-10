@@ -17,7 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
@@ -392,7 +392,7 @@ public class CatalogMocker {
             EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList(TEST_DB_NAME)).anyTimes();
             EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
             EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
+            EasyMock.expect(catalog.getRollupHandler()).andReturn(new MaterializedViewHandler()).anyTimes();
             EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq(WRONG_DB));
             EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
