@@ -56,7 +56,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static void checkPrefix(String prefix) throws DdlException {
+    private static void checkPrefix(String prefix) throws DdlException {
         try {
             FeNameFormat.checkPartitionName(prefix);
         } catch (AnalysisException e) {
@@ -64,7 +64,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static void checkEnd(String end) throws DdlException {
+    private static void checkEnd(String end) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
         }
@@ -77,7 +77,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static void checkBuckets(String buckets) throws DdlException {
+    private static void checkBuckets(String buckets) throws DdlException {
         if (Strings.isNullOrEmpty(buckets)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_BUCKETS_EMPTY);
         }
@@ -90,16 +90,10 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
-        if (!Strings.isNullOrEmpty(enable) ||
-                Boolean.TRUE.toString().equalsIgnoreCase(enable) ||
-                Boolean.FALSE.toString().equalsIgnoreCase(enable)) {
-            if (Boolean.parseBoolean(enable)) {
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(db.getId(), tbl.getId());
-            } else {
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().removeDynamicPartitionTable(db.getId(), tbl.getId());
-            }
-        } else {
+    private static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
+        if (Strings.isNullOrEmpty(enable) ||
+                !Boolean.TRUE.toString().equalsIgnoreCase(enable) ||
+                !Boolean.FALSE.toString().equalsIgnoreCase(enable)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
         }
     }
@@ -145,6 +139,14 @@ public class DynamicPartitionUtil {
                 enable = Boolean.TRUE.toString();
                 properties.put(DynamicPartitionProperty.ENABLE, enable);
             }
+        }
+    }
+
+    public static void registerDynamicPartitionTableIfEnable(long dbId, OlapTable olapTable) {
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getDynamicPartitionProperty() != null
+                && Boolean.parseBoolean(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())) {
+            Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(dbId, olapTable.getId());
         }
     }
 

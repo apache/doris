@@ -3617,7 +3617,7 @@ public class Catalog {
             if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
             }
-            
+
             // we have added these index to memory, only need to persist here
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 GroupId groupId = getColocateTableIndex().getGroup(tableId);
@@ -3627,6 +3627,8 @@ public class Catalog {
             }
             
             LOG.info("successfully create table[{};{}]", tableName, tableId);
+            // register table to DynamicPartition if needed after table created
+            DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), olapTable);
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
@@ -5084,6 +5086,7 @@ public class Catalog {
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
+            DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), table);
             dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
             ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
             editLog.logDynamicPartition(info);
