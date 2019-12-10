@@ -55,8 +55,8 @@ public class CreateTableStmt extends DdlStmt {
 
     private static final String DEFAULT_ENGINE_NAME = "olap";
 
-    private static final int MAX_DUP_KEYS_COUNT = 3;
-    private static final int MAX_DUP_KEYS_BYTES = 36;
+    private static final int DEFAULT_DUP_KEYS_COUNT = 3;
+    private static final int DEFAULT_DUP_KEYS_BYTES = 36;
 
     private boolean ifNotExists;
     private boolean isExternal;
@@ -223,7 +223,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getAggregateType() == null) {
                             keyLength += columnDef.getType().getColumnSize() == null ? 0:
                                     columnDef.getType().getColumnSize();
-                            if (keysColumnNames.size() < MAX_DUP_KEYS_COUNT || keyLength < MAX_DUP_KEYS_BYTES) {
+                            if (keysColumnNames.size() < DEFAULT_DUP_KEYS_COUNT || keyLength < DEFAULT_DUP_KEYS_BYTES) {
                                 keysColumnNames.add(columnDef.getName());
                             }
                         }
