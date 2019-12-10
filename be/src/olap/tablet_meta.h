@@ -183,11 +183,15 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
-    bool has_preferred_rowset_type() {
+    bool is_beta_rowset_preferred() const {
+        return has_preferred_rowset_type() && _preferred_rowset_type == BETA_ROWSET;
+    }
+
+    bool has_preferred_rowset_type() const {
         return _has_preferred_rowset_type;
     }
 
-    RowsetTypePB preferred_rowset_type() {
+    RowsetTypePB preferred_rowset_type() const {
         return _preferred_rowset_type;
     }
 

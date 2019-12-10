@@ -958,8 +958,7 @@ bool SchemaChangeWithSorting::process(
     reset_filtered_rows();
 
     bool use_beta_rowset = false;
-    if (new_tablet->tablet_meta()->has_preferred_rowset_type()
-                    || new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+    if (new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
         use_beta_rowset = true;
     }
 
@@ -1491,8 +1490,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
-    if (new_tablet->tablet_meta()->has_preferred_rowset_type()
-                    || new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+    if (new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
         writer_context.rowset_type = BETA_ROWSET;
     }
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
@@ -1683,8 +1681,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    if (sc_params.new_tablet->tablet_meta()->has_preferred_rowset_type()
-            && sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+    if (sc_params.new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
         // if the tablet meta has preferred_rowset_type field set to BETA_ROWST, just use directly type
         sc_directly = true;
         use_beta_rowset = true;
