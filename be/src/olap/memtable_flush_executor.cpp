@@ -28,16 +28,16 @@ namespace doris {
 OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     RETURN_NOT_OK(_last_flush_status.load());
     MemTableFlushContext ctx;
-    ctx.memtable = memtable;
+    ctx.memtable = std::move(memtable);
     ctx.flush_handler = this->shared_from_this();
     _counter_cond.inc();
+    VLOG(5) << "submitting " << *(ctx.memtable) << " to flush queue " << _flush_queue_idx;
     RETURN_NOT_OK(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
-    return OLAP_SUCCESS;
+    return OLAP_SUCCESS; 
 }
 
 OLAPStatus FlushHandler::wait() {
-    // wait util encoutering error, or all submitted memtables are finished
-    RETURN_NOT_OK(_last_flush_status.load());
+    // wait all submitted tasks to be finished or cancelled
     _counter_cond.block_wait();
     return _last_flush_status.load();
 }
@@ -45,13 +45,11 @@ OLAPStatus FlushHandler::wait() {
 void FlushHandler::on_flush_finished(const FlushResult& res) {
     if (res.flush_status != OLAP_SUCCESS) {
         _last_flush_status.store(res.flush_status);
-        // if one failed, all other memtables no need to flush
-        _counter_cond.dec_to_zero();
     } else {
         _stats.flush_time_ns.fetch_add(res.flush_time_ns);
         _stats.flush_count.fetch_add(1);
-        _counter_cond.dec();
     }
+    _counter_cond.dec();
 }
 
 OLAPStatus MemTableFlushExecutor::create_flush_handler(
@@ -136,6 +134,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
 
         // if last flush of this tablet already failed, just skip
         if (ctx.flush_handler->is_cancelled()) {
+            VLOG(5) << "skip flushing " << *(ctx.memtable) << " due to cancellation";
             // must release memtable before notifying
             ctx.memtable.reset();
             ctx.flush_handler->on_flush_cancelled();
@@ -143,12 +142,15 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         }
 
         // flush the memtable
+        VLOG(5) << "begin to flush " << *(ctx.memtable);
         FlushResult res;
         MonotonicStopWatch timer;
         timer.start();
         res.flush_status = ctx.memtable->flush();
         res.flush_time_ns = timer.elapsed_time();
         res.flush_size_bytes = ctx.memtable->memory_usage();
+        VLOG(5) << "flushed " << *(ctx.memtable) << " in " << res.flush_time_ns / 1000 / 1000
+                << " ms, status=" << res.flush_status;
         // must release memtable before notifying
         ctx.memtable.reset();
         // callback

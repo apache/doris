@@ -184,6 +184,16 @@ MemTracker* MemTracker::CreateQueryMemTracker(const TUniqueId& id,
 }
 
 MemTracker::~MemTracker() {
+    int64_t remaining_bytes = consumption();
+    // work around some scenario where consume() is not paired with release()
+    // e.g., in the initialization of hll and bitmap aggregator (see aggregate_func.h)
+    // TODO(gaodayue) should be replaced with `DCHECK_EQ(consumption(), 0);` when
+    // we fixed thoses invalid usages
+    if (remaining_bytes > 0) {
+        for (auto tracker : _all_trackers) {
+            tracker->_consumption->add(-remaining_bytes);
+        }
+    }
     delete _reservation_counters.load();
 }
 

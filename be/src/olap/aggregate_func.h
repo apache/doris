@@ -515,15 +515,17 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         DCHECK_EQ(src.is_null(), false);
 
-        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-        auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst_slice->data);
+        auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        DCHECK_EQ(dst_slice->size, 0);
+        auto dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst_slice->data);
+        auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
 
         // fixme(kks): trick here, need improve
         if (mem_pool == nullptr) { // for query
             RoaringBitmap src_bitmap = RoaringBitmap(src_slice->data);
             dst_bitmap->merge(src_bitmap);
         } else {   // for stream load
+            DCHECK_EQ(src_slice->size, 0);
             auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src_slice->data);
             dst_bitmap->merge(*src_bitmap);
         }
@@ -531,8 +533,9 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
     // The RoaringBitmap object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {
-        auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
-        auto *bitmap = reinterpret_cast<RoaringBitmap*>(slice->data);
+        auto slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        DCHECK_EQ(slice->size, 0);
+        auto bitmap = reinterpret_cast<RoaringBitmap*>(slice->data);
 
         slice->size = bitmap->size();
         slice->data = (char*)mem_pool->allocate(slice->size);

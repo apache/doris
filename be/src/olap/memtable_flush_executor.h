@@ -91,8 +91,7 @@ public:
     void on_flush_finished(const FlushResult& res);
     // called when a flush memtable execution is cancelled
     void on_flush_cancelled() {
-        // for now, if one memtable cancelled, no more memtables will be flushed, so dec to zero.
-        _counter_cond.dec_to_zero();
+        _counter_cond.dec();
     }
 
     bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load(); }
