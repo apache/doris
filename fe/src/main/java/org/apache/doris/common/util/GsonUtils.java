@@ -48,10 +48,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /*
- * Some utilities about Gson
+ * Some utilities about Gson.
+ * User should get GSON instance inside this class to do the serialization.
+ * 
+ *      GsonUtils.GSON.toJson(...)
+ *      GsonUtils.GSON.fromJson(...)
+ *      
+ * And developers may need to add other serialization adapters for custom complex java classes.
  */
 public class GsonUtils {
 
+    // the builder of GSON instance.
+    // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
             .enableComplexMapKeySerialization()
@@ -81,7 +89,7 @@ public class GsonUtils {
      * Current support:
      * 1. HashBasedTable
      * 
-     * The RowKey, ColumnKey and Value in Table should also be serializable.
+     * The RowKey, ColumnKey and Value classes in Table should also be serializable.
      */
     private static class GuavaTableAdapter<R, C, V>
             implements JsonSerializer<Table<R, C, V>>, JsonDeserializer<Table<R, C, V>> {
@@ -182,7 +190,7 @@ public class GsonUtils {
      * 3. LinkedListMultimap
      * 4. LinkedHashMultimap
      * 
-     * The key and value of multi map should also be json serializable.
+     * The key and value classes of multi map should also be json serializable.
      */
     private static class GuavaMultimapAdapter<K, V>
             implements JsonSerializer<Multimap<K, V>>, JsonDeserializer<Multimap<K, V>> {
