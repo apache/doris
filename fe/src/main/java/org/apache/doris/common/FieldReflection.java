@@ -20,7 +20,13 @@ package org.apache.doris.common;
 import sun.reflect.FieldAccessor;
 import sun.reflect.ReflectionFactory;
 
-import java.lang.reflect.*;
+import java.lang.reflect.AccessibleObject;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Type;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.TypeVariable;
+
 
 /**
  * Util class to set and get the value of specified field.
