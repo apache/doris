@@ -87,7 +87,7 @@ public final class ParameterReflection {
     }
 
     /**
-     * Get type from {@args} by index
+     * Get type from {@args} by index.
      */
     static Class<?> getArgumentTypeFromArgumentValue(int i, Object[] args) {
         Object arg = args[i];
@@ -95,8 +95,12 @@ public final class ParameterReflection {
             throw new IllegalArgumentException("Invalid null value passed as argument " + i);
         } else {
             Class argType;
-            argType = (Class)arg;
-            args[i] = null;
+            if (arg instanceof Class) {
+                argType = (Class) arg;
+                args[i] = null;
+            } else {
+                argType = GeneratedClasses.getMockedClass(arg);
+            }
 
             return argType;
         }
