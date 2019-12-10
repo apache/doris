@@ -2818,14 +2818,19 @@ public class Catalog {
 
         if (engineName.equals("olap")) {
             createOlapTable(db, stmt);
+            return;
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
+            return;
         } else if (engineName.equals("kudu")) {
             createKuduTable(db, stmt);
+            return;
         } else if (engineName.equals("broker")) {
             createBrokerTable(db, stmt);
+            return;
         } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
             createEsTable(db, stmt);
+            return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
