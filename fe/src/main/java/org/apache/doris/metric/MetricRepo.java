@@ -53,7 +53,7 @@ public final class MetricRepo {
     public static AtomicBoolean isInit = new AtomicBoolean(false);
 
     public static final String TABLET_NUM = "tablet_num";
-    public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_core";
+    public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
@@ -190,7 +190,7 @@ public final class MetricRepo {
         GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query error rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
-        GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_core",
+        GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score",
                 "max tablet compaction score of all backends");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
         GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
@@ -279,7 +279,7 @@ public final class MetricRepo {
             PALO_METRIC_REGISTER.addPaloMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
-            GaugeMetric<Long> tabletMaxCompactionCore = (GaugeMetric<Long>) new GaugeMetric<Long>(
+            GaugeMetric<Long> tabletMaxCompactionScore = (GaugeMetric<Long>) new GaugeMetric<Long>(
                     TABLET_MAX_COMPACTION_SCORE,
                     "tablet max compaction score") {
                 @Override
@@ -290,8 +290,8 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
-            PALO_METRIC_REGISTER.addPaloMetrics(tabletMaxCompactionCore);
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            PALO_METRIC_REGISTER.addPaloMetrics(tabletMaxCompactionScore);
 
         } // end for backends
     }

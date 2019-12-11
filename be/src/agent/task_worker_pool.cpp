@@ -1287,7 +1287,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
             return (void*)0;
 #endif
         }
-        request.__set_tablet_max_version_count(DorisMetrics::tablet_max_version_count.value());
+        request.__set_tablet_max_compaction_score(DorisMetrics::tablet_max_compaction_score.value());
 
         TMasterResult result;
         status = worker_pool_this->_master_client->report(request, &result);

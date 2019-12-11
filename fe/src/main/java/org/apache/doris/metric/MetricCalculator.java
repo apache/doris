@@ -68,13 +68,13 @@ public class MetricCalculator extends TimerTask {
         lastTs = currentTs;
 
         // max tabet compaction score of all backends
-        long maCompactionScore = 0;
+        long maxCompactionScore = 0;
         List<Metric> compactionScoreMetrics = MetricRepo.getMetricsByName(MetricRepo.TABLET_MAX_COMPACTION_SCORE);
         for (Metric metric : compactionScoreMetrics) {
-            if (((GaugeMetric<Long>) metric).getValue() > maCompactionScore) {
-                maCompactionScore = ((GaugeMetric<Long>) metric).getValue();
+            if (((GaugeMetric<Long>) metric).getValue() > maxCompactionScore) {
+                maxCompactionScore = ((GaugeMetric<Long>) metric).getValue();
             }
         }
-        MetricRepo.GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(maCompactionScore);
+        MetricRepo.GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(maxCompactionScore);
     }
 }
