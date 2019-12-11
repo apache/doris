@@ -384,6 +384,23 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
         }
 
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT))) {
+            if (children.size() != 1) {
+                throw new AnalysisException("BITMAP_UNION_COUNT function could only have one child");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                Column column = slotRef.getDesc().getColumn();
+                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
+                }
+            } else {
+                throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
+            }
+            return;
+        }
+
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT))) {
             if (children.size() != 1) {
                 throw new AnalysisException("BITMAP_COUNT function could only have one child");
@@ -411,6 +428,7 @@ public class FunctionCallExpr extends Expr {
             } else {
                 throw new AnalysisException("BITMAP_COUNT only support BITMAP_UNION(column) or BITMAP_COUNT(BITMAP_UNION(column))");
             }
+            return;
         }
 
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION))) {
@@ -431,6 +449,7 @@ public class FunctionCallExpr extends Expr {
             } else {
                 throw new AnalysisException("BITMAP_UNION only support BITMAP_UNION(column) or BITMAP_UNION(TO_BITMAP(column))");
             }
+            return;
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
@@ -465,8 +484,8 @@ public class FunctionCallExpr extends Expr {
                             + this.toSql());
                 }
             }
+            return;
         }
-        return;
     }
 
     // Provide better error message for some aggregate builtins. These can be
