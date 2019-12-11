@@ -56,6 +56,12 @@ public:
         _deep_copy(dest, src, mem_pool);
     }
 
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const {
+        _copy_object(dest, src, mem_pool);
+    }
+
     inline void direct_copy(void* dest, const void* src) const {
         _direct_copy(dest, src);
     }
@@ -84,6 +90,7 @@ private:
 
     void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
+    void (*_copy_object)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
     OLAPStatus (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool);
 
@@ -194,6 +201,10 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 
     static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
+        *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
+    }
+
+    static inline void copy_object(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
@@ -317,7 +328,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
             }
 
             // the max value of uint64_t is 18446744073709551615UL,
-            // so use Z19_UINT64 to divide uint128_t 
+            // so use Z19_UINT64 to divide uint128_t
             const static uint64_t Z19_UINT64 = 10000000000000000000ULL;
             uint64_t suffix = abs_value % Z19_UINT64;
             uint64_t middle = abs_value / Z19_UINT64 % Z19_UINT64;
@@ -345,6 +356,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
+        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
+    }
+
+    static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -390,8 +405,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
         if (src_type->type() == OLAP_FIELD_TYPE_FLOAT) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
             //http://www.softelectro.ru/ieee754_en.html
-            //According to the definition of IEEE754, the effect of converting a float binary to a double binary 
-            //is the same as that of static_cast . Data precision cannot be guaranteed, but the progress of 
+            //According to the definition of IEEE754, the effect of converting a float binary to a double binary
+            //is the same as that of static_cast . Data precision cannot be guaranteed, but the progress of
             //decimal system can be guaranteed by converting a float to a char buffer and then to a double.
             //float v2 = static_cast<double>(v1),
             //float 0.3000000 is: 0 | 01111101 | 00110011001100110011010
@@ -403,7 +418,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
             snprintf(buf, 64, "%f", *reinterpret_cast<const SrcType*>(src));
             char* tg;
             *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
-            return OLAPStatus::OLAP_SUCCESS;    
+            return OLAPStatus::OLAP_SUCCESS;
         }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
@@ -470,7 +485,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             CppType mon = static_cast<CppType>((part1 / 100) % 100);
             CppType mday = static_cast<CppType>(part1 % 100);
             *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
-            return OLAPStatus::OLAP_SUCCESS;    
+            return OLAPStatus::OLAP_SUCCESS;
         }
 
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_INT) {
@@ -487,7 +502,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             return OLAPStatus::OLAP_SUCCESS;
         }
 
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;    
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
@@ -606,6 +621,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
+
+    static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
+        deep_copy(dest, src, mem_pool);
+    }
+
     static void direct_copy(void* dest, const void* src) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
@@ -655,6 +675,15 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_HLL> : public FieldTypeTraits<OLAP_FIELD_
      * cmp/from_string/set_to_max/set_to_min function
      * in this struct has no significance
      */
+
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
+        auto dst_slice = reinterpret_cast<Slice*>(dest);
+        auto src_slice = reinterpret_cast<const Slice*>(src);
+        DCHECK_EQ(src_slice->size, 0);
+        dst_slice->data = src_slice->data;
+        dst_slice->size = 0;
+    }
 };
 
 template<>
@@ -664,6 +693,15 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIE
      * cmp/from_string/set_to_max/set_to_min function
      * in this struct has no significance
      */
+
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
+        auto dst_slice = reinterpret_cast<Slice*>(dest);
+        auto src_slice = reinterpret_cast<const Slice*>(src);
+        DCHECK_EQ(src_slice->size, 0);
+        dst_slice->data = src_slice->data;
+        dst_slice->size = 0;
+    }
 };
 
 // Instantiate this template to get static access to the type traits.
