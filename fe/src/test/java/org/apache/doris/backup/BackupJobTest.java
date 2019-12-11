@@ -81,9 +81,32 @@ public class BackupJobTest {
     @Mocked
     private Catalog catalog;
 
-    private BackupHandler backupHandler;
+    private MockBackupHandler backupHandler;
 
-    private RepositoryMgr repoMgr;
+    private MockRepositoryMgr repoMgr;
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockBackupHandler extends BackupHandler {
+        public MockBackupHandler(Catalog catalog) {
+            super(catalog);
+        }
+        @Override
+        public RepositoryMgr getRepoMgr() {
+            return repoMgr;
+        }
+    }
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockRepositoryMgr extends RepositoryMgr {
+        public MockRepositoryMgr() {
+            super();
+        }
+        @Override
+        public Repository getRepo(long repoId) {
+            return repo;
+        }
+    }
+
     @Mocked
     private EditLog editLog;
 
@@ -110,16 +133,11 @@ public class BackupJobTest {
     @Before
     public void setUp() {
 
-        repoMgr = new RepositoryMgr();
-        backupHandler = new BackupHandler(catalog);
-
-        Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
-        repoIdMap.put(repoId, repo);
+        repoMgr = new MockRepositoryMgr();
+        backupHandler = new MockBackupHandler(catalog);
 
         // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
         Deencapsulation.setField(catalog, "backupHandler", backupHandler);
-        Deencapsulation.setField(backupHandler, "repoMgr", repoMgr);
-        Deencapsulation.setField(repoMgr, "repoIdMap", repoIdMap);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
 

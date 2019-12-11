@@ -79,9 +79,32 @@ public class RestoreJobTest {
     @Mocked
     private Catalog catalog;
 
-    private BackupHandler backupHandler;
+    private MockBackupHandler backupHandler;
 
-    private RepositoryMgr repoMgr;
+    private MockRepositoryMgr repoMgr;
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockBackupHandler extends BackupHandler {
+        public MockBackupHandler(Catalog catalog) {
+            super(catalog);
+        }
+        @Override
+        public RepositoryMgr getRepoMgr() {
+            return repoMgr;
+        }
+    }
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockRepositoryMgr extends RepositoryMgr {
+        public MockRepositoryMgr() {
+            super();
+        }
+        @Override
+        public Repository getRepo(long repoId) {
+            return repo;
+        }
+    }
+
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -96,8 +119,10 @@ public class RestoreJobTest {
     @Before
     public void setUp() throws AnalysisException {
         db = CatalogMocker.mockDb();
-        backupHandler = new BackupHandler(catalog);
-        repoMgr = new RepositoryMgr();
+        backupHandler = new MockBackupHandler(catalog);
+        repoMgr = new MockRepositoryMgr();
+
+        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
 
         new Expectations() {
             {
@@ -177,13 +202,6 @@ public class RestoreJobTest {
             }
         };
 
-        Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
-        repoIdMap.put(repoId, repo);
-
-        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
-        Deencapsulation.setField(backupHandler, "repoMgr", repoMgr);
-        Deencapsulation.setField(repoMgr, "repoIdMap", repoIdMap);
-        
         // gen BackupJobInfo
         jobInfo = new BackupJobInfo();
         jobInfo.backupTime = System.currentTimeMillis();
