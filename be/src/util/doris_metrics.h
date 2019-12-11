@@ -139,6 +139,9 @@ public:
     static IntGaugeMetricsMap disks_data_used_capacity;
     static IntGaugeMetricsMap disks_state;
 
+    // the max compaction score of all tablets
+    static IntGauge tablet_max_compaction_score;
+
     // The following metrics will be calculated
     // by metric calculator
     static IntGauge push_request_write_bytes_per_second;

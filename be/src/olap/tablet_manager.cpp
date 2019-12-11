@@ -759,6 +759,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         LOG(INFO) << "find best tablet to do compaction."
             << " type: " << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "cumulative" : "base")
             << ", tablet id: " << best_tablet->tablet_id() << ", score: " << highest_score;
+        DorisMetrics::tablet_max_compaction_score.set_value(highest_score);
     }
     return best_tablet;
 }
