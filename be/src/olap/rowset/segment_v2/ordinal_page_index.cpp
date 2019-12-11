@@ -21,8 +21,8 @@ namespace doris {
 namespace segment_v2 {
 
 OrdinalPageIndex::~OrdinalPageIndex() {
-    delete _rowids;
-    delete _pages;
+    delete[] _rowids;
+    delete[] _pages;
 }
 
 Status OrdinalPageIndex::load() {
