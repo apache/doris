@@ -24,7 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;

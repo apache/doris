@@ -27,7 +27,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;

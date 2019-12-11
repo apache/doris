@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.transaction.TransactionException;

@@ -35,7 +35,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.KafkaTaskInfo;

@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;

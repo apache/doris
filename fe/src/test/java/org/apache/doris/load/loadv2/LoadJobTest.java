@@ -25,7 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;

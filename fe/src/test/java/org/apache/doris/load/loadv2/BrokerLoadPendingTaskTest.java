@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.thrift.TBrokerFileStatus;
 

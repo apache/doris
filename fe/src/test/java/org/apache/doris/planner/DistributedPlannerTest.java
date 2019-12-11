@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TupleId;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.common.util.Deencapsulation;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
