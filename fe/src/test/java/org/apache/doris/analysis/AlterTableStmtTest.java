@@ -40,10 +40,6 @@ public class AlterTableStmtTest {
     @Mocked
     private PaloAuth auth;
 
-//    static {
-//        Startup.initializeIfPossible();
-//    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
@@ -51,12 +47,15 @@ public class AlterTableStmtTest {
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };

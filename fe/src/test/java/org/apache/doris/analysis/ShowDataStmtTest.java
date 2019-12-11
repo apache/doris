@@ -59,6 +59,7 @@ public class ShowDataStmtTest {
         new Expectations() {
             {
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
             }
         };
@@ -68,33 +69,43 @@ public class ShowDataStmtTest {
         new Expectations() {
             {
                 analyzer.getClusterName();
+                minTimes = 0;
                 result = SystemInfoService.DEFAULT_CLUSTER;
 
                 analyzer.getDefaultDb();
+                minTimes = 0;
                 result = "testCluster:testDb";
 
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 Catalog.getInstance();
+                minTimes = 0;
                 result = catalog;
 
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
 
                 catalog.getAuth();
+                minTimes = 0;
                 result = auth;
 
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
 
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "root";
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = "192.168.1.1";
             }
         };
@@ -103,12 +114,15 @@ public class ShowDataStmtTest {
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };

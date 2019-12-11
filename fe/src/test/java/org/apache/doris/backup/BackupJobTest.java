@@ -23,9 +23,11 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
@@ -78,9 +80,9 @@ public class BackupJobTest {
 
     @Mocked
     private Catalog catalog;
-    @Mocked
+
     private BackupHandler backupHandler;
-    @Mocked
+
     private RepositoryMgr repoMgr;
     @Mocked
     private EditLog editLog;
@@ -108,45 +110,43 @@ public class BackupJobTest {
     @Before
     public void setUp() {
 
+        repoMgr = new RepositoryMgr();
+        backupHandler = new BackupHandler(catalog);
+
+        Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
+        repoIdMap.put(repoId, repo);
+
+        // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
+        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+        Deencapsulation.setField(backupHandler, "repoMgr", repoMgr);
+        Deencapsulation.setField(repoMgr, "repoIdMap", repoIdMap);
+
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
 
-        new Expectations() {
+        new Expectations(catalog) {
             {
-                catalog.getBackupHandler();
-                result = backupHandler;
-
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
 
                 catalog.getNextId();
+                minTimes = 0;
                 result = id.getAndIncrement();
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };
 
         new Expectations() {
             {
-                backupHandler.getRepoMgr();
-                result = repoMgr;
-            }
-        };
-
-        new Expectations() {
-            {
-                repoMgr.getRepo(anyInt);
-                result = repo;
-                minTimes = 0;
-            }
-        };
-
-        new Expectations() {
-            {
                 editLog.logBackupJob((BackupJob) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logBackupJob(BackupJob job) {
                         System.out.println("log backup job: " + job);
@@ -162,11 +162,16 @@ public class BackupJobTest {
             }
         };
 
-        new Expectations(Repository.class) {
-            {
-                repo.upload(anyString, anyString);
-                minTimes = 0;
-                result = Status.OK;
+        new MockUp<Repository>() {
+            @Mock
+            Status upload(String localFilePath, String remoteFilePath) {
+                return Status.OK;
+            }
+
+            @Mock
+            Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+                brokerAddrs.add(new FsBroker());
+                return Status.OK;
             }
         };
 

@@ -63,12 +63,15 @@ public class SetExecutorTest {
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.setPassword((SetPassVar) any);

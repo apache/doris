@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
@@ -35,11 +37,10 @@ public class OlapTableTest {
     @Test
     public void test() throws IOException {
         
-        new Expectations(Catalog.class) {
-            {
-                Catalog.getCurrentCatalogJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
+        new MockUp<Catalog>() {
+            @Mock
+            int getCurrentCatalogJournalVersion() {
+                return FeConstants.meta_version;
             }
         };
 

@@ -74,6 +74,7 @@ public class MetadataViewerTest {
                 result = catalog;
 
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
             }
         };
@@ -85,6 +86,7 @@ public class MetadataViewerTest {
                 result = infoService;
 
                 infoService.getBackendIds(anyBoolean);
+                minTimes = 0;
                 result = Lists.newArrayList(10000L, 10001L, 10002L);
             }
         };

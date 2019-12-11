@@ -66,11 +66,10 @@ public class RepositoryTest {
         files.add("1.idx");
         info = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path/to/tablet/snapshot/", files);
 
-        new Expectations(FrontendOptions.class) {
-            {
-                FrontendOptions.getLocalHostAddress();
-                minTimes = 0;
-                result = "127.0.0.1";
+        new MockUp<FrontendOptions>() {
+            @Mock
+            String getLocalHostAddress() {
+                return "127.0.0.1";
             }
         };
 
@@ -100,6 +99,7 @@ public class RepositoryTest {
         new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
+                minTimes = 0;
                 result = new Delegate<Status>() {
                     public Status list(String remotePath, List<RemoteFile> result) {
                         result.clear();
@@ -108,6 +108,7 @@ public class RepositoryTest {
                 };
 
                 storage.directUpload(anyString, anyString);
+                minTimes = 0;
                 result = Status.OK;
             }
         };
@@ -152,6 +153,7 @@ public class RepositoryTest {
         new Expectations() {
             {
                 storage.checkPathExist(anyString);
+                minTimes = 0;
                 result = Status.OK;
             }
         };
@@ -166,6 +168,7 @@ public class RepositoryTest {
         new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
                         result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100));
@@ -189,12 +192,15 @@ public class RepositoryTest {
         new Expectations() {
             {
                 storage.upload(anyString, anyString);
+                minTimes = 0;
                 result = Status.OK;
 
                 storage.rename(anyString, anyString);
+                minTimes = 0;
                 result = Status.OK;
 
                 storage.delete(anyString);
+                minTimes = 0;
                 result = Status.OK;
             }
         };
@@ -232,6 +238,7 @@ public class RepositoryTest {
             new Expectations() {
                 {
                     storage.list(anyString, (List<RemoteFile>) any);
+                    minTimes = 0;
                     result = new Delegate() {
                         public Status list(String remotePath, List<RemoteFile> result) {
                             result.add(new RemoteFile("remote_file.0cc175b9c0f1b6a831c399e269772661", true, 100));
@@ -240,6 +247,7 @@ public class RepositoryTest {
                     };
 
                     storage.downloadWithFileSize(anyString, anyString, anyLong);
+                    minTimes = 0;
                     result = Status.OK;
                 }
             };
@@ -265,6 +273,7 @@ public class RepositoryTest {
         new Expectations() {
             {
                 storage.list(anyString, (List<RemoteFile>) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
                         if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {

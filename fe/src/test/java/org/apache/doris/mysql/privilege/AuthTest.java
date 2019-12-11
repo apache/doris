@@ -65,7 +65,30 @@ public class AuthTest {
     @Mocked
     private ConnectContext ctx;
 
-    private DomainResolver resolver;
+    private MockDomianResolver resolver;
+
+    // Thread is not mockable in Jmockit, so use a subclass instead.
+    public static class MockDomianResolver extends DomainResolver {
+        public MockDomianResolver(PaloAuth auth) {
+            super(auth);
+        }
+        @Override
+        public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
+            switch (domainName) {
+                case "palo.domain1":
+                    resolvedIPs.add("10.1.1.1");
+                    resolvedIPs.add("10.1.1.2");
+                    resolvedIPs.add("10.1.1.3");
+                    break;
+                case "palo.domain2":
+                    resolvedIPs.add("20.1.1.1");
+                    resolvedIPs.add("20.1.1.2");
+                    resolvedIPs.add("20.1.1.3");
+                    break;
+            }
+            return true;
+        }
+    }
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
@@ -114,31 +137,7 @@ public class AuthTest {
             }
         };
 
-        resolver = new DomainResolver(auth);
-
-        new Expectations(resolver) {
-            {
-                resolver.resolveWithBNS("palo.domain1", (Set<String>) any);
-                result = new Delegate() {
-                    public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
-                        resolvedIPs.add("10.1.1.1");
-                        resolvedIPs.add("10.1.1.2");
-                        resolvedIPs.add("10.1.1.3");
-                        return true;
-                    }
-                };
-
-                resolver.resolveWithBNS("palo.domain2", (Set<String>) any);
-                result = new Delegate() {
-                    public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
-                        resolvedIPs.add("20.1.1.1");
-                        resolvedIPs.add("20.1.1.2");
-                        resolvedIPs.add("20.1.1.3");
-                        return true;
-                    }
-                };
-            }
-        };
+        resolver = new MockDomianResolver(auth);
     }
 
     @Test

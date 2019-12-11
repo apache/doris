@@ -86,24 +86,33 @@ public class RoutineLoadTaskSchedulerTest {
         new Expectations() {
             {
                 Catalog.getInstance();
+                minTimes = 0;
                 result = catalog;
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
 
                 routineLoadManager.getClusterIdleSlotNum();
+                minTimes = 0;
                 result = 1;
                 routineLoadManager.checkTaskInJob((UUID) any);
+                minTimes = 0;
                 result = true;
 
                 kafkaRoutineLoadJob1.getDbId();
+                minTimes = 0;
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
+                minTimes = 0;
                 result = 1L;
                 kafkaRoutineLoadJob1.getName();
+                minTimes = 0;
                 result = "";
                 routineLoadManager.getMinTaskBeId(anyString);
+                minTimes = 0;
                 result = beId;
                 routineLoadManager.getJob(anyLong);
+                minTimes = 0;
                 result = kafkaRoutineLoadJob1;
             }
         };

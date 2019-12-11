@@ -59,8 +59,7 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testCreateHadoopJob(@Mocked LoadJobScheduler loadJobScheduler,
-                                    @Injectable LoadStmt stmt,
+    public void testCreateHadoopJob(@Injectable LoadStmt stmt,
                                     @Injectable LabelName labelName,
                                     @Mocked Catalog catalog,
                                     @Injectable Database database,
@@ -72,17 +71,22 @@ public class LoadManagerTest {
         loadJobs.add(brokerLoadJob);
         labelToLoadJobs.put(label1, loadJobs);
         dbIdToLabelToLoadJobs.put(1L, labelToLoadJobs);
+        LoadJobScheduler loadJobScheduler = new LoadJobScheduler();
         loadManager = new LoadManager(loadJobScheduler);
         Deencapsulation.setField(loadManager, "dbIdToLabelToLoadJobs", dbIdToLabelToLoadJobs);
         new Expectations() {
             {
                 stmt.getLabel();
+                minTimes = 0;
                 result = labelName;
                 labelName.getLabelName();
+                minTimes = 0;
                 result = "label1";
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
             }
         };
@@ -105,12 +109,16 @@ public class LoadManagerTest {
         new Expectations(){
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = table;
                 table.getName();
+                minTimes = 0;
                 result = "tablename";
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeMetaVersion.VERSION_56;
             }
         };
@@ -136,10 +144,13 @@ public class LoadManagerTest {
         new Expectations(){
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = table;
                 table.getName();
+                minTimes = 0;
                 result = "tablename";
             }
         };

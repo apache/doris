@@ -51,12 +51,15 @@ public class HeartbeatMgrTest {
         new Expectations() {
             {
                 catalog.getSelfNode();
+                minTimes = 0;
                 result = Pair.create("192.168.1.3", 9010); // not self
 
                 catalog.isReady();
+                minTimes = 0;
                 result = true;
 
                 Catalog.getInstance();
+                minTimes = 0;
                 result = catalog;
             }
         };
@@ -126,6 +129,7 @@ public class HeartbeatMgrTest {
         new Expectations() {
             {
                 client.ping((TBrokerPingBrokerRequest) any);
+                minTimes = 0;
                 result = status;
             }
         };

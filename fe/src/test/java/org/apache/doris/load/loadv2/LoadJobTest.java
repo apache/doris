@@ -54,6 +54,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getDb(1L);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -107,6 +108,7 @@ public class LoadJobTest {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, (TUniqueId) any, anyString,
                         (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                minTimes = 0;
                 result = 1;
             }
         };
@@ -152,6 +154,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };

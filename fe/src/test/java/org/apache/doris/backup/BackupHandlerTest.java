@@ -101,21 +101,27 @@ public class BackupHandlerTest {
         new Expectations() {
             {
                 catalog.getBrokerMgr();
+                minTimes = 0;
                 result = brokerMgr;
 
                 catalog.getNextId();
+                minTimes = 0;
                 result = idGen++;
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
 
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
 
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
             }
         };
@@ -130,6 +136,7 @@ public class BackupHandlerTest {
         new Expectations() {
             {
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
             }
         };
@@ -162,6 +169,7 @@ public class BackupHandlerTest {
         new Expectations() {
             {
                 editLog.logCreateRepository((Repository) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logCreateRepository(Repository repo) {
 
@@ -169,6 +177,7 @@ public class BackupHandlerTest {
                 };
 
                 editLog.logDropRepository(anyString);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logDropRepository(String repoName) {
 
@@ -217,6 +226,7 @@ public class BackupHandlerTest {
         new Expectations() {
             {
                 brokerMgr.contaisnBroker(anyString);
+                minTimes = 0;
                 result = true;
             }
         };

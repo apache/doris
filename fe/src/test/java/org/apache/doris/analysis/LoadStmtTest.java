@@ -56,9 +56,11 @@ public class LoadStmtTest {
         new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "default_cluster:user";
             }
         };
@@ -72,6 +74,7 @@ public class LoadStmtTest {
         new Expectations(){
             {
                 desc.toSql();
+                minTimes = 0;
                 result = "XXX";
             }
         };

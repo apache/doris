@@ -22,6 +22,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
+import static org.apache.doris.common.ThrowOfCheckedException.doThrow;
+
 /**
  * Util class to get and invoke method from specified class.
  */
@@ -63,6 +65,7 @@ public final class MethodReflection {
             } else if (cause instanceof RuntimeException) {
                 throw (RuntimeException)cause;
             } else {
+                ThrowOfCheckedException.doThrow((Exception)cause);
                 return null;
             }
         }

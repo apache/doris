@@ -53,21 +53,27 @@ public class GrantStmtTest {
         new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "root";
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = "192.168.0.1";
 
                 ctx.getCurrentUserIdentity();
+                minTimes = 0;
                 result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
 
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 catalog.getAuth();
+                minTimes = 0;
                 result = auth;
             }
         };

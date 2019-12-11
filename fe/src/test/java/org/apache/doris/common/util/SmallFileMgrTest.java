@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import mockit.MockUp;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -46,36 +47,45 @@ public class SmallFileMgrTest {
         new Expectations() {
             {
                 db.getId();
+                minTimes = 0;
                 result = 1L;
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
                 stmt1.getDbName();
+                minTimes = 0;
                 result = "db1";
                 stmt1.getFileName();
+                minTimes = 0;
                 result = "file1";
                 stmt1.getCatalogName();
+                minTimes = 0;
                 result = "kafka";
                 stmt1.getDownloadUrl();
+                minTimes = 0;
                 result = "http://127.0.0.1:8001/file1";
 
                 stmt2.getDbName();
+                minTimes = 0;
                 result = "db1";
                 stmt2.getFileName();
+                minTimes = 0;
                 result = "file2";
                 stmt2.getCatalogName();
+                minTimes = 0;
                 result = "kafka";
                 stmt2.getDownloadUrl();
+                minTimes = 0;
                 result = "http://127.0.0.1:8001/file2";
             }
         };
         
         SmallFile smallFile = new SmallFile(1L, "kafka", "file1", 10001L, "ABCD", 12, "12345", true);
         final SmallFileMgr smallFileMgr = new SmallFileMgr();
-        new Expectations(SmallFileMgr.class) {
-            {
-                Deencapsulation.invoke(smallFileMgr, "downloadAndCheck", anyLong, anyString, anyString, anyString,
-                        anyString, anyBoolean);
-                result = smallFile;
+        new MockUp<SmallFileMgr>() {
+            SmallFile downloadAndCheck(long dbId, String catalog, String fileName,
+                String downloadUrl, String md5sum, boolean saveContent) {
+                return smallFile;
             }
         };
 

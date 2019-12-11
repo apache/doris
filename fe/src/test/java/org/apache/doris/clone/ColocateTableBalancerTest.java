@@ -46,7 +46,7 @@ public class ColocateTableBalancerTest {
     private Catalog catalog;
     @Mocked
     private SystemInfoService infoService;
-    @Mocked
+
     private TabletScheduler tabletScheduler;
     
     private ColocateTableBalancer balancer = ColocateTableBalancer.getInstance();

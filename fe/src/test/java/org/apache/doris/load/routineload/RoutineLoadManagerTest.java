@@ -106,8 +106,10 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -163,8 +165,10 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                minTimes = 0;
                 result = false;
             }
         };
@@ -225,6 +229,7 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };
@@ -257,7 +262,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testGetMinTaskBeId() throws LoadException {
+    public void testGetMinTaskBeId(@Injectable RoutineLoadJob routineLoadJob) throws LoadException {
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
@@ -265,24 +270,37 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getClusterBackendIds(anyString, true);
+                minTimes = 0;
                 result = beIds;
                 systemInfoService.getBackendIds(true);
+                minTimes = 0;
                 result = beIds;
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
             }
         };
 
+        new MockUp<Catalog>() {
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
+            }
+        };
+
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+        idToRoutineLoadJob.put(1L, routineLoadJob);
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 1);
 
-        new Expectations(routineLoadManager) {
+        new Expectations(routineLoadJob) {
             {
-                Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrentTaskMap;
+                routineLoadJob.getState();
+                result = RoutineLoadJob.JobState.RUNNING;
             }
         };
+
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+
         Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
     }
 
@@ -291,9 +309,14 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getClusterBackendIds(anyString, true);
+                minTimes = 0;
                 result = null;
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
+            }
+        };
+
+        new MockUp<Catalog>() {
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
             }
         };
 
@@ -317,15 +340,23 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getClusterBackendIds(anyString, true);
+                minTimes = 0;
                 result = beIds;
                 systemInfoService.getBackendIds(true);
+                minTimes = 0;
                 result = beIds;
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
                 routineLoadJob.getBeCurrentTasksNumMap();
+                minTimes = 0;
                 result = beIdToConcurrentTaskMap;
                 routineLoadJob.getState();
+                minTimes = 0;
                 result = RoutineLoadJob.JobState.RUNNING;
+            }
+        };
+
+        new MockUp<Catalog>() {
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
             }
         };
 
@@ -345,7 +376,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testGetTotalIdleTaskNum() {
+    public void testGetTotalIdleTaskNum(@Injectable RoutineLoadJob routineLoadJob) {
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
@@ -353,21 +384,34 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getBackendIds(true);
+                minTimes = 0;
                 result = beIds;
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
             }
         };
 
+        new MockUp<Catalog>() {
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
+            }
+        };
+
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+        idToRoutineLoadJob.put(1L, routineLoadJob);
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
         beIdToConcurrentTaskMap.put(1L, 1);
-        new Expectations(routineLoadManager) {
+
+        new Expectations(routineLoadJob) {
             {
-                Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
+                routineLoadJob.getBeCurrentTasksNumMap();
                 result = beIdToConcurrentTaskMap;
+                routineLoadJob.getState();
+                result = RoutineLoadJob.JobState.RUNNING;
             }
         };
+
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+
         Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
                 routineLoadManager.getClusterIdleSlotNum());
     }
@@ -385,9 +429,14 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getBackendIds(true);
+                minTimes = 0;
                 returns(oldBeIds, newBeIds);
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
+            }
+        };
+
+        new MockUp<Catalog>() {
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
             }
         };
 
@@ -418,10 +467,11 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob1.isFinal();
+                minTimes = 0;
                 result = true;
                 routineLoadJob2.isFinal();
+                minTimes = 0;
                 result = false;
-
             }
         };
 
@@ -444,10 +494,13 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob1.isFinal();
+                minTimes = 0;
                 result = true;
                 routineLoadJob2.isFinal();
+                minTimes = 0;
                 result = false;
                 routineLoadJob3.isFinal();
+                minTimes = 0;
                 result = true;
             }
         };
@@ -475,14 +528,19 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob1.isFinal();
+                minTimes = 0;
                 result = true;
                 routineLoadJob2.isFinal();
+                minTimes = 0;
                 result = false;
                 routineLoadJob3.isFinal();
+                minTimes = 0;
                 result = true;
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
             }
         };
@@ -524,16 +582,22 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 pauseRoutineLoadStmt.getDbFullName();
+                minTimes = 0;
                 result = "";
                 pauseRoutineLoadStmt.getName();
+                minTimes = 0;
                 result = "";
                 catalog.getDb("");
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -562,16 +626,22 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 resumeRoutineLoadStmt.getDbFullName();
+                minTimes = 0;
                 result = "";
                 resumeRoutineLoadStmt.getName();
+                minTimes = 0;
                 result = "";
                 catalog.getDb("");
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -600,16 +670,22 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 stopRoutineLoadStmt.getDbFullName();
+                minTimes = 0;
                 result = "";
                 stopRoutineLoadStmt.getName();
+                minTimes = 0;
                 result = "";
                 catalog.getDb("");
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -629,6 +705,7 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 systemInfoService.getClusterBackendIds("default", true);
+                minTimes = 0;
                 result = beIdsInCluster;
             }
         };
@@ -658,12 +735,16 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob.needRemove();
+                minTimes = 0;
                 result = true;
                 routineLoadJob.getDbId();
+                minTimes = 0;
                 result = 1L;
                 routineLoadJob.getName();
+                minTimes = 0;
                 result = "";
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };
@@ -685,8 +766,10 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob.getState();
+                minTimes = 0;
                 result = RoutineLoadJob.JobState.RUNNING;
                 routineLoadJob.getBeCurrentTasksNumMap();
+                minTimes = 0;
                 result = beIdToConcurrenTaskNum;
             }
         };
@@ -714,10 +797,13 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 routineLoadJob.getName();
+                minTimes = 0;
                 result = "";
                 routineLoadJob.getDbId();
+                minTimes = 0;
                 result = 1L;
                 operation.getId();
+                minTimes = 0;
                 result = 1L;
             }
         };
@@ -746,8 +832,10 @@ public class RoutineLoadManagerTest {
         new Expectations() {
             {
                 operation.getId();
+                minTimes = 0;
                 result = 1L;
                 operation.getJobState();
+                minTimes = 0;
                 result = RoutineLoadJob.JobState.PAUSED;
             }
         };

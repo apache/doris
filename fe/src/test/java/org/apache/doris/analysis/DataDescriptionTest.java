@@ -203,18 +203,25 @@ public class DataDescriptionTest {
         new Expectations() {
             {
                 columnMapping1.getChild(0);
+                minTimes = 0;
                 result = column1;
                 columnMapping2.getChild(0);
+                minTimes = 0;
                 result = column2;
                 columnMapping1.getChild(1);
+                minTimes = 0;
                 result = expr1;
                 expr1.getFnName();
+                minTimes = 0;
                 result = functionName;
                 functionName.getFunction();
+                minTimes = 0;
                 result = "test";
                 column1.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
                 column2.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
             }
         };

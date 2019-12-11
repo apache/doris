@@ -62,11 +62,15 @@ public class StreamLoadPlannerTest {
         new Expectations() {
             {
                 destTable.getBaseSchema();
+                minTimes = 0;
                 result = columns;
                 scanNode.init((Analyzer) any);
+                minTimes = 0;
                 scanNode.getChildren();
+                minTimes = 0;
                 result = Lists.newArrayList();
                 scanNode.getId();
+                minTimes = 0;
                 result = new PlanNodeId(5);
             }
         };

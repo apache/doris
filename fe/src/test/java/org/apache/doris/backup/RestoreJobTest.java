@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.util.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -77,9 +78,9 @@ public class RestoreJobTest {
 
     @Mocked
     private Catalog catalog;
-    @Mocked
+
     private BackupHandler backupHandler;
-    @Mocked
+
     private RepositoryMgr repoMgr;
     @Mocked
     private EditLog editLog;
@@ -95,25 +96,29 @@ public class RestoreJobTest {
     @Before
     public void setUp() throws AnalysisException {
         db = CatalogMocker.mockDb();
-        
+        backupHandler = new BackupHandler(catalog);
+        repoMgr = new RepositoryMgr();
+
         new Expectations() {
             {
-                catalog.getBackupHandler();
-                result = backupHandler;
-        
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = db;
         
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
         
                 catalog.getNextId();
+                minTimes = 0;
                 result = id.getAndIncrement();
         
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
         
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
             }
         };
@@ -121,6 +126,7 @@ public class RestoreJobTest {
         new Expectations() {
             {
                 systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
+                minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive,
                             boolean isCreate, String clusterName) {
@@ -136,22 +142,8 @@ public class RestoreJobTest {
         
         new Expectations() {
             {
-                backupHandler.getRepoMgr();
-                result = repoMgr;
-            }
-        };
-        
-        new Expectations() {
-            {
-                repoMgr.getRepo(anyInt);
-                result = repo;
-                minTimes = 0;
-            }
-        };
-        
-        new Expectations() {
-            {
                 editLog.logBackupJob((BackupJob) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logBackupJob(BackupJob job) {
                         System.out.println("log backup job: " + job);
@@ -168,6 +160,7 @@ public class RestoreJobTest {
 
                 List<BackupMeta> backupMetas = Lists.newArrayList();
                 repo.getSnapshotMetaFile(label, backupMetas, -1);
+                minTimes = 0;
                 result = new Delegate() {
                     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
                         backupMetas.add(backupMeta);
@@ -183,6 +176,13 @@ public class RestoreJobTest {
                 return true;
             }
         };
+
+        Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
+        repoIdMap.put(repoId, repo);
+
+        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+        Deencapsulation.setField(backupHandler, "repoMgr", repoMgr);
+        Deencapsulation.setField(repoMgr, "repoIdMap", repoIdMap);
         
         // gen BackupJobInfo
         jobInfo = new BackupJobInfo();

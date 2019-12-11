@@ -28,12 +28,15 @@ public class MockedAuth {
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 // auth.checkHasPriv((ConnectContext) any,, priv, levels)
@@ -45,18 +48,23 @@ public class MockedAuth {
         new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = user;
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = ip;
 
                 ctx.getState();
+                minTimes = 0;
                 result = new QueryState();
 
                 ctx.getCurrentUserIdentity();
+                minTimes = 0;
                 UserIdentity userIdentity = new UserIdentity(user, ip);
                 userIdentity.setIsAnalyzed();
                 result = userIdentity;
