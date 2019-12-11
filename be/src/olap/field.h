@@ -144,7 +144,7 @@ public:
 
     // Used to compare short key index. Because short key will truncate
     // a varchar column, this function will handle in this condition.
-    template<typename LhsCellType, typename RhsCellType> 
+    template<typename LhsCellType, typename RhsCellType>
     inline int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
 
     // Copy source cell's content to destination cell directly.
@@ -159,6 +159,19 @@ public:
             return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
+    }
+
+    // deep copy source cell' content to destination cell.
+    // For string type, this will allocate data form pool,
+    // and copy srouce's conetent.
+    template<typename DstCellType, typename SrcCellType>
+    void copy_object(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
+        _type_info->copy_object(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
 
     // deep copy source cell' content to destination cell.
@@ -238,7 +251,7 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
-    
+
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }

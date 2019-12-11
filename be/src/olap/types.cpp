@@ -27,6 +27,7 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _cmp(TypeTraitsClass::cmp),
         _shallow_copy(TypeTraitsClass::shallow_copy),
         _deep_copy(TypeTraitsClass::deep_copy),
+        _copy_object(TypeTraitsClass::copy_object),
         _direct_copy(TypeTraitsClass::direct_copy),
         _convert_from(TypeTraitsClass::convert_from),
         _from_string(TypeTraitsClass::from_string),
