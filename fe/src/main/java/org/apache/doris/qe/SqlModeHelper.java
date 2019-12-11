@@ -148,41 +148,29 @@ public class SqlModeHelper {
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
 
         // empty string parse to 0
-        long value = 0L;
+        long resultCode = 0L;
         for (String key : names) {
+            long code = 0L;
             if (StringUtils.isNumeric(key)) {
-                value |= expand(Long.valueOf(key));
-                LOG.debug("Set sql mode with numerical value " + key);
-                continue;
+                code |= expand(Long.valueOf(key));
+            } else {
+                code = getCodeFromString(key);
+                if (code == 0) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
+                }
             }
-            // the SQL MODE must be supported, set sql mode repeatedly is not allowed
-            if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
+            resultCode |= code;
+            if ((resultCode & ~MODE_ALLOWED_MASK) != 0) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
             }
-            if (isCombineMode(key)) {
-                value |= getCombineMode().get(key);
-            }
-            value |= getSupportedSqlMode().get(key);
         }
-
-        // ensure multi sql mode is not set
-        long combineModeValue = value & MODE_COMBINE_MASK;
-        if ((combineModeValue & (combineModeValue -1)) != 0) {
-            throw new DdlException("Set multi combine mode is not allowed");
-        }
-
-        return value;
+        return resultCode;
     }
 
     // expand the combine mode if exists
     public static long expand(long sqlMode) throws DdlException {
-        long value = sqlMode;
-        if ((value & ~MODE_ALLOWED_MASK) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
-        }
-        value &= MODE_COMBINE_MASK;
         for (String key : getCombineMode().keySet()) {
-            if ((value & getSupportedSqlMode().get(key)) != 0) {
+            if ((sqlMode & getSupportedSqlMode().get(key)) != 0) {
                 sqlMode |= getCombineMode().get(key);
             }
         }
@@ -191,11 +179,22 @@ public class SqlModeHelper {
 
     // check if this SQL MODE is supported
     public static boolean isSupportedSqlMode(String sqlMode) {
-        // empty string is valid and equals to 0L
         if (sqlMode == null || !getSupportedSqlMode().containsKey(sqlMode)) {
             return false;
         }
         return true;
+    }
+
+    // encode sqlMode from string to long
+    private static long getCodeFromString(String sqlMode) {
+        long code = 0L;
+        if (isSupportedSqlMode(sqlMode)) {
+            if (isCombineMode(sqlMode)) {
+                code |= getCombineMode().get(sqlMode);
+            }
+            code |= getSupportedSqlMode().get(sqlMode);
+        }
+        return code;
     }
 
     // check if this SQL MODE is combine mode
