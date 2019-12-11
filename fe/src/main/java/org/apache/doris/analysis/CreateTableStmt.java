@@ -219,15 +219,29 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc == null) {
                     List<String> keysColumnNames = Lists.newArrayList();
                     int keyLength = 0;
+                    boolean hasAggregate = false;
                     for (ColumnDef columnDef : columnDefs) {
-                        if (columnDef.getAggregateType() == null) {
+                        if (columnDef.getAggregateType() != null) {
+                            hasAggregate = true;
+                            break;
+                        }
+                    }
+                    if (hasAggregate) {
+                        for (ColumnDef columnDef : columnDefs) {
+                            if (columnDef.getAggregateType() == null) {
+                                keysColumnNames.add(columnDef.getName());
+                            }
+                        }
+                        keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
+                    } else {
+                        for (ColumnDef columnDef : columnDefs) {
                             keyLength += columnDef.getType().getStorageLayoutBytes();
                             if (keysColumnNames.size() < DEFAULT_DUP_KEYS_COUNT || keyLength < DEFAULT_DUP_KEYS_BYTES) {
                                 keysColumnNames.add(columnDef.getName());
                             }
                         }
+                        keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                     }
-                    keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
 
                 keysDesc.analyze(columnDefs);
