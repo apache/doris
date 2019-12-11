@@ -434,8 +434,8 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             it.second.erase(tablet_info);
         }
         if (it.second.empty()) {
-            _txn_tablet_map.erase(it.first);
             _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
+            _txn_tablet_map.erase(it.first);
         }
     }
 }
