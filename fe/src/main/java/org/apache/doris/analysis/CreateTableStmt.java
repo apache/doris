@@ -221,8 +221,7 @@ public class CreateTableStmt extends DdlStmt {
                     int keyLength = 0;
                     for (ColumnDef columnDef : columnDefs) {
                         if (columnDef.getAggregateType() == null) {
-                            keyLength += columnDef.getType().getColumnSize() == null ? 0:
-                                    columnDef.getType().getColumnSize();
+                            keyLength += columnDef.getType().getStorageLayoutBytes();
                             if (keysColumnNames.size() < DEFAULT_DUP_KEYS_COUNT || keyLength < DEFAULT_DUP_KEYS_BYTES) {
                                 keysColumnNames.add(columnDef.getName());
                             }
