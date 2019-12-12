@@ -32,7 +32,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class SetStmtTest {
     private Analyzer analyzer;
@@ -41,10 +40,6 @@ public class SetStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {

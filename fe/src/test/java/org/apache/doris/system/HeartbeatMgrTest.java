@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
@@ -39,7 +40,6 @@ import org.junit.Test;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class HeartbeatMgrTest {
 
@@ -48,15 +48,18 @@ public class HeartbeatMgrTest {
 
     @Before
     public void setUp() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getSelfNode();
+                minTimes = 0;
                 result = Pair.create("192.168.1.3", 9010); // not self
 
                 catalog.isReady();
+                minTimes = 0;
                 result = true;
 
                 Catalog.getInstance();
+                minTimes = 0;
                 result = catalog;
             }
         };
@@ -123,9 +126,10 @@ public class HeartbeatMgrTest {
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 client.ping((TBrokerPingBrokerRequest) any);
+                minTimes = 0;
                 result = status;
             }
         };
