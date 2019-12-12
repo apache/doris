@@ -38,6 +38,11 @@ public class DorisMetricRegistry {
         return Lists.newArrayList(paloMetrics);
     }
 
+    // the metrics by metric name
+    public synchronized List<Metric> getPaloMetricsByName(String name) {
+        return paloMetrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+    }
+
     public synchronized void removeMetrics(String name) {
         paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
     }
