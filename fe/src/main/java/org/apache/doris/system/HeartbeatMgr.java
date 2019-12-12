@@ -66,6 +66,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
+    private HeartbeatFlags heartbeatFlags;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<TMasterInfo>();
 
@@ -73,6 +74,7 @@ public class HeartbeatMgr extends MasterDaemon {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
         this.executor = Executors.newCachedThreadPool();
+        this.heartbeatFlags = new HeartbeatFlags();
     }
 
     public void setMaster(int clusterId, String token, long epoch) {
@@ -80,6 +82,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
         tMasterInfo.setHttp_port(Config.http_port);
+        long flags = heartbeatFlags.getHeartbeatFlags();
+        tMasterInfo.setHeartbeat_flags(flags);
         masterInfo.set(tMasterInfo);
     }
 
@@ -216,6 +220,8 @@ public class HeartbeatMgr extends MasterDaemon {
 
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackend_ip(backend.getHost());
+                long flags = heartbeatFlags.getHeartbeatFlags();
+                copiedMasterInfo.setHeartbeat_flags(flags);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;

@@ -61,6 +61,7 @@
 #include "gen_cpp/TPaloBrokerService.h"
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
@@ -121,7 +122,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _init_mem_tracker();
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
-
+    _heartbeat_flags = new HeartbeatFlags();
     return Status::OK();
 }
 
@@ -229,6 +230,7 @@ void ExecEnv::_destory() {
     delete _stream_load_executor;
     delete _routine_load_task_executor;
     delete _external_scan_context_mgr;
+    delete _heartbeat_flags;
     _metrics = nullptr;
 }
 
