@@ -24,14 +24,35 @@
 
 namespace doris {
 
+class ZipUtils {
+
+public:
+
 /**
  * extract .zip file to $(target path)/$(target directory)
+ * 
+ *  usage:
+ *      ZipUtils::zip_extract("/home/test/test.zip", "/home/test", "target_directory");
+ *      
+ *  /home/test/test.zip content:
+ *  --one/
+ *  ----test.txt
+ *  --two/
+ *  
+ *  The extract result:
+ *  /home/test/target_directory
+ *  --one/
+ *  ----test.txt
+ *  --two/
  * 
  * @param zip_path .zip file path
  * @param target_path target path
  * @param target_directory target directory name and prefix without '/' or '\\', like 'test' not '/test' 
  */
-Status zip_extract(const std::string& zip_path, const std::string& target_path, const std::string& target_directory);
+    static Status zip_extract(const std::string& zip_path, const std::string& target_path,
+                              const std::string& target_directory);
+
+};
 
 }
 
