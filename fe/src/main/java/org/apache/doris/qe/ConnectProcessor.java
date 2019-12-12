@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -351,8 +352,22 @@ public class ConnectProcessor {
         if (request.isSetEnableStrictMode()) {
             ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
-
+        if (request.isSetCurrent_user_ident()) {
+            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrent_user_ident());
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+        }
         ctx.setThreadLocalInfo();
+
+        if (ctx.getCurrentUserIdentity() == null) {
+            // if we upgrade Master FE first, the request from old FE does not set "current_user_ident".
+            // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
+            // return error directly.
+            TMasterOpResult result = new TMasterOpResult();
+            ctx.getState().setError("Palo process failed");
+            result.setMaxJournalId(Catalog.getInstance().getMaxJournalId().longValue());
+            result.setPacket(getResultPacket());
+            return result;
+        }
 
         StmtExecutor executor = null;
         try {
