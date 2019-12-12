@@ -419,6 +419,8 @@ struct TMasterOpRequest {
     11: optional i64 sqlMode
     12: optional i64 loadMemLimit
     13: optional bool enableStrictMode
+    // this can replace the "user" field
+    14: optional Types.TUserIdentity current_user_ident
 }
 
 struct TColumnDefinition {
