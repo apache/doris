@@ -1065,12 +1065,17 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     RETURN_NOT_OK(save_meta());
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store
-    for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
+    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
+        if(rs_meta->is_remove_from_rowset_meta()) {
+            continue;
+        }
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id())) {
             RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
             LOG(INFO) << "remove rowset id from meta store because it is already persistent with tablet meta"
                        << ", rowset_id=" << rs_meta->rowset_id();
         }
+        rs_meta->set_remove_from_rowset_meta();
     }
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();
