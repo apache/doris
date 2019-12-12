@@ -103,7 +103,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
     context.rowset_type = StorageEngine::instance()->compaction_rowset_type();
-    if (_tablet->tablet_meta()->is_beta_rowset_preferred()) {
+    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         context.rowset_type = BETA_ROWSET;
     }
     context.rowset_path_prefix = _tablet->tablet_path();

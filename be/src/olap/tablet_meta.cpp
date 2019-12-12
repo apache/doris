@@ -76,7 +76,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id, 
                        TabletUid tablet_uid) : _tablet_uid(0, 0),
-                       _has_preferred_rowset_type(false),
                        _preferred_rowset_type(ALPHA_ROWSET) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -369,7 +368,6 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     if (tablet_meta_pb.has_preferred_rowset_type()) {
-        _has_preferred_rowset_type = true;
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
     return OLAP_SUCCESS;
@@ -415,7 +413,8 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
-    if (_has_preferred_rowset_type) {
+    // to avoid modify tablet meta to the greatest extend
+    if (_preferred_rowset_type == BETA_ROWSET) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
     return OLAP_SUCCESS;

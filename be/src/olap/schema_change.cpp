@@ -958,7 +958,7 @@ bool SchemaChangeWithSorting::process(
     reset_filtered_rows();
 
     bool use_beta_rowset = false;
-    if (new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
+    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         use_beta_rowset = true;
     }
 
@@ -1382,7 +1382,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = delete_handler;
-        sc_params.alter_type = request.alter_type;
 
         res = _convert_historical_rowsets(sc_params);
         if (res != OLAP_SUCCESS) {
@@ -1490,7 +1489,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
-    if (new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
+    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
     }
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
@@ -1671,7 +1670,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     bool sc_sorting = false;
     bool sc_directly = false;
     SchemaChange* sc_procedure = nullptr;
-    bool use_beta_rowset = false;
 
     // a. 解析Alter请求，转换成内部的表示形式
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
@@ -1681,10 +1679,9 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    if (sc_params.new_tablet->tablet_meta()->is_beta_rowset_preferred()) {
+    if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         // if the tablet meta has preferred_rowset_type field set to BETA_ROWST, just use directly type
         sc_directly = true;
-        use_beta_rowset = true;
     }
 
     // b. 生成历史数据转换器
@@ -1726,7 +1723,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (use_beta_rowset) {
+        if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             // Use beta rowset to do schema change
             // And in this case, linked schema change will not be used.
             writer_context.rowset_type = BETA_ROWSET;

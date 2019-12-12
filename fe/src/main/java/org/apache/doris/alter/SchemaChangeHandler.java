@@ -842,25 +842,18 @@ public class SchemaChangeHandler extends AlterHandler {
         
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
-
-        // Parse storage_format property
-        // sql: alter table tablet_name set ("storage_format" = "v2")
-        // Use this sql to convert all tablets(base and rollup index) to segment v2.
-        // analyzeStorageFormat will parse the properties to decide whether storage format is set to v2.
-        // If true, fire a schema change job to achieve it.
-        boolean changeStorageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
-
+        TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
         // create job
         Catalog catalog = Catalog.getCurrentCatalog();
         long jobId = catalog.getNextId();
         SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
-        if (changeStorageFormat) {
-            // Set StorageFormat to TStorageFormat.V2
-            // which will create tablet with preferred_rowset_type set to BETA
-            // for base table and rollup index
-            schemaChangeJob.setStorageFormat(TStorageFormat.V2);
-        }
+
+        // If StorageFormat is set to TStorageFormat.V2
+        // which will create tablet with preferred_rowset_type set to BETA
+        // for both base table and rollup index
+        schemaChangeJob.setStorageFormat(storageFormat);
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop 
         long tableId = olapTable.getId();
@@ -917,7 +910,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         break;
                     }
                 }
-            } else if (changeStorageFormat) {
+            } else if (storageFormat == TStorageFormat.V2) {
                 needAlter = true;
             }
 

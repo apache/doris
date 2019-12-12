@@ -20,7 +20,6 @@ package org.apache.doris.task;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TAlterType;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -94,11 +93,6 @@ public class AlterReplicaTask extends AgentTask {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
-        if (this.jobType == AlterJobV2.JobType.ROLLUP) {
-            req.setAlter_type(TAlterType.ROLLUP);
-        } else {
-            req.setAlter_type(TAlterType.SCHEMA_CHANGE);
-        }
         return req;
     }
 }

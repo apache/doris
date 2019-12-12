@@ -183,20 +183,11 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
-    bool is_beta_rowset_preferred() const {
-        return has_preferred_rowset_type() && _preferred_rowset_type == BETA_ROWSET;
-    }
-
-    bool has_preferred_rowset_type() const {
-        return _has_preferred_rowset_type;
-    }
-
     RowsetTypePB preferred_rowset_type() const {
         return _preferred_rowset_type;
     }
 
     void set_preferred_rowset_type(RowsetTypePB preferred_rowset_type) {
-        _has_preferred_rowset_type = true;
         _preferred_rowset_type = preferred_rowset_type;
     }
 
@@ -220,7 +211,6 @@ private:
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
-    bool _has_preferred_rowset_type;
     RowsetTypePB _preferred_rowset_type;
 
     RWMutex _meta_lock;
