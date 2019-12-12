@@ -49,13 +49,6 @@ public class SqlModeHelperTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testMultiSqlMode() throws DdlException {
-        String sqlMode = "ANSI, TRADITIONAL";
-        SqlModeHelper.encode(sqlMode);
-        Assert.fail("No exception throws");
-    }
-
-    @Test(expected = DdlException.class)
     public void testInvalidDecode() throws DdlException {
         long sqlMode = SqlModeHelper.MODE_LAST;
         SqlModeHelper.decode(sqlMode);
