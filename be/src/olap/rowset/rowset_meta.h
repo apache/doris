@@ -296,6 +296,19 @@ public:
         return  has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
     }
 
+    // Some time, we may check if this rowset is in rowset meta manager's meta by using RowsetMetaManager::check_rowset_meta.
+    // But, this check behavior may cost a lot of time when it is frequent.
+    // If we explicitly remove this rowset from rowset meta manager's meta, we can set _is_removed_from_rowset_meta to true,
+    // And next time when we want to check if this rowset is in rowset mata manager's meta, we can
+    // check is_remove_from_rowset_meta() first.
+    void set_remove_from_rowset_meta() {
+        _is_removed_from_rowset_meta = true;
+    }
+
+    bool is_remove_from_rowset_meta() const {
+        return _is_removed_from_rowset_meta;
+    }
+
 private:
     friend class AlphaRowsetMeta;
     bool _deserialize_from_pb(const std::string& value) {
@@ -332,6 +345,7 @@ private:
 private:
     RowsetMetaPB _rowset_meta_pb;
     RowsetId _rowset_id;
+    bool _is_removed_from_rowset_meta = false;
 };
 
 } // namespace doris
