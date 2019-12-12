@@ -1036,7 +1036,7 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
 #endif
     LOG(INFO) << "try to start tablet meta checkpoint thread!";
     while (true) {
-        LOG(INFO) << "begin to do tablet meta checkpoint";
+        LOG(INFO) << "begin to do tablet meta checkpoint:" << ((DataDir*)arg)->path();
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
         int64_t used_time = (UnixMillis() - start_time) / 1000;
