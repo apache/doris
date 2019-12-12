@@ -83,16 +83,14 @@ public abstract class LoadScanNode extends ScanNode {
                 isCompatible = false;
             } else {
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)
-                        && !fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_EMPTY)) {
+                String fnName = fn.getFnName().getFunction();
+                if (!FunctionSet.BITMAP_LOAD_FNS.contains(fnName)) {
                     isCompatible = false;
                 }
             }
         }
         if (!isCompatible) {
-            throw new AnalysisException("bitmap column must use to_bitmap or empty_bitmap function, like "
-                    + slotDesc.getColumn().getName() + "=to_bitmap(xxx)"
-                    + slotDesc.getColumn().getName() + "=bitmap_empty()");
+            throw new AnalysisException("bitmap column must use to_bitmap, bitmap_hash or empty_bitmap function");
         }
     }
 

@@ -643,8 +643,8 @@ public class InsertStmt extends DdlStmt {
     private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
         boolean isCompatible = false;
         final String bitmapMismatchLog = "Column's type is BITMAP,"
-                + " SelectList must contains BITMAP column, to_bitmap or bitmap_union" +
-                " or bitmap_empty function's result, column=" + col.getName();
+                + " SelectList must contains BITMAP column, to_bitmap, bitmap_hash, bitmap_empty" +
+                " or bitmap_union function's result, column=" + col.getName();
         if (expr instanceof SlotRef) {
             final SlotRef slot = (SlotRef) expr;
             Column column = slot.getDesc().getColumn();
@@ -662,9 +662,10 @@ public class InsertStmt extends DdlStmt {
         } else if (expr instanceof FunctionCallExpr) {
             final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
             // select id, to_bitmap(id2) from table
-            // select id, bitmap_empty from table
-            if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)
-            || functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_EMPTY)) {
+            // select id, bitmap_hash(id) from table
+            // select id, bitmap_empty() from table
+            String fnName = functionExpr.getFnName().getFunction();
+            if (FunctionSet.BITMAP_LOAD_FNS.contains(fnName)) {
                 isCompatible = true;
             }
         }
