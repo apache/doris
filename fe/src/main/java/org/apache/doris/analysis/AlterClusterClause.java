@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorReport;
 
 import java.util.Map;
 
+@Deprecated
 public class AlterClusterClause extends AlterClause {
     private AlterClusterType type;
     private Map<String, String> properties;

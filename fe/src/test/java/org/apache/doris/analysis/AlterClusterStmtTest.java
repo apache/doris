@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -48,6 +49,7 @@ public class AlterClusterStmtTest {
 
     @Before()
     public void setUp() {
+        Config.disable_cluster_feature = false;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
