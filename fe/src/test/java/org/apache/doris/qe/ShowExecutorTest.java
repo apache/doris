@@ -214,12 +214,12 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowTableEmpty() throws AnalysisException {
+    public void testShowTableFromUnknownDatabase() throws AnalysisException {
         ShowTableStmt stmt = new ShowTableStmt("testCluster:emptyDb", false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertFalse(resultSet.next());
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
+        executor.execute();
     }
 
     @Test
