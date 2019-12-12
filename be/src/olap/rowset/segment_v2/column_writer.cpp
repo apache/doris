@@ -258,7 +258,10 @@ Status ColumnWriter::write_bitmap_index() {
 
 void ColumnWriter::write_meta(ColumnMetaPB* meta) {
     meta->set_type(_field->type());
-    meta->set_encoding(_opts.encoding_type);
+    meta->set_encoding(_encoding_info->encoding());
+    // should store more concrete encoding type instead of DEFAULT_ENCODING
+    // because the default encoding of a data type can be changed in the future
+    DCHECK_NE(meta->encoding(), DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(_is_nullable);
     _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
