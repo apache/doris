@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ArithmeticExpr;
@@ -517,9 +517,8 @@ public class FunctionSet {
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
     public static final String BITMAP_COUNT = "bitmap_count";
 
-    public static final Set<String> BITMAP_LOAD_FNS = ImmutableSet.of(
-new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-                    .add("to_bitmap").add("bitmap_hash").add("bitmap_empty").build();
+    public static final Set<String> BITMAP_LOAD_FNS = new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("to_bitmap", "bitmap_hash", "bitmap_empty").build();
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
