@@ -214,7 +214,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
 
-    // the flags passed to Backends
+    // the default rowset type flag which will be passed to Backends througth heartbeat
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
     public static String defaultRowsetType = "alpha";
 
@@ -382,14 +382,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getForwardToMaster() {
         return forwardToMaster;
-    }
-
-    public void setDefaultRowsetType(String defaultRowsetType) {
-        this.defaultRowsetType = defaultRowsetType;
-    }
-
-    public String getDefaultRowsetType() {
-        return defaultRowsetType;
     }
 
     // Serialize to thrift object
