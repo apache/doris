@@ -17,6 +17,9 @@
 
 package org.apache.doris.plugin;
 
+/**
+ * Describe the type of plugin
+ */
 public enum PluginType {
     IMPORT,
     STORAGE;
