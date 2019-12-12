@@ -54,6 +54,8 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public static final String REQUEST_PER_SECOND = "rps";
     public static final String QUERY_ERR_RATE = "query_err_rate";
 
+    public static final String MAX_TABLET_COMPACTION_SCORE = "max_tablet_compaction_score";
+
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
@@ -62,6 +64,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(QUERY_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(REQUEST_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(QUERY_ERR_RATE, TYPE_DOUBLE);
+        CORE_METRICS.put(MAX_TABLET_COMPACTION_SCORE, TYPE_LONG);
     }
 
     public SimpleCoreMetricVisitor(String prefix) {

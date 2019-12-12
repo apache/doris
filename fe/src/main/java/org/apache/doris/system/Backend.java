@@ -88,7 +88,10 @@ public class Backend implements Writable {
     // after init it, this variable is set to true.
     private boolean initPathInfo = false;
 
-    long lastMissingHeartbeatTime = -1;
+    private long lastMissingHeartbeatTime = -1;
+    // the max tablet compaction score of this backend.
+    // this field is set by tablet report, and just for metric monitor, no need to persist.
+    private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
 
     public Backend() {
         this.host = "";
@@ -614,6 +617,14 @@ public class Backend implements Writable {
         }
 
         return isChanged;
+    }
+
+    public void setTabletMaxCompactionScore(long compactionScore) {
+        tabletMaxCompactionScore.set(compactionScore);
+    }
+
+    public long getTabletMaxCompactionScore() {
+        return tabletMaxCompactionScore.get();
     }
 }
 
