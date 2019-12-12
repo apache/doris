@@ -363,7 +363,7 @@ public class ConnectProcessor {
             // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
             // return error directly.
             TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError("Palo process failed");
+            ctx.getState().setError("Missing current user identity. You need to upgrade this Frontend to the same version as Master Frontend.");
             result.setMaxJournalId(Catalog.getInstance().getMaxJournalId().longValue());
             result.setPacket(getResultPacket());
             return result;
@@ -376,7 +376,7 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Palo process failed");
+            ctx.getState().setError("Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
