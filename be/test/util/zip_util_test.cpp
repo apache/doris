@@ -38,7 +38,7 @@ TEST(ZipUtilTest, basic) {
 
     FileUtils::remove_all(path + "/test_data/target");
 
-    ASSERT_TRUE(zip_extract(path + "/test_data/zip_normal.zip", path + "/test_data", "target").ok());
+    ASSERT_TRUE(ZipUtils::zip_extract(path + "/test_data/zip_normal.zip", path + "/test_data", "target").ok());
     ASSERT_TRUE(FileUtils::check_exist(path + "/test_data/target/zip_normal_data"));
     ASSERT_FALSE(FileUtils::is_dir(path + "/test_data/target/zip_normal_data"));
 
@@ -62,7 +62,7 @@ TEST(ZipUtilTest, dir) {
 
     FileUtils::remove_all(path + "/test_data/target");
 
-    ASSERT_TRUE(zip_extract(path + "/test_data/zip_dir.zip", path + "/test_data", "target").ok());
+    ASSERT_TRUE(ZipUtils::zip_extract(path + "/test_data/zip_dir.zip", path + "/test_data", "target").ok());
     ASSERT_TRUE(FileUtils::check_exist(path + "/test_data/target/zip_test/one"));
     ASSERT_TRUE(FileUtils::is_dir(path + "/test_data/target/zip_test/one"));
 
@@ -91,7 +91,7 @@ TEST(ZipUtilTest, targetAlready) {
     char* dir_path = dirname(buf);
     std::string path(dir_path);
 
-    Status st = zip_extract(path + "/test_data/zip_normal.zip", path + "/test_data", "zip_test");
+    Status st = ZipUtils::zip_extract(path + "/test_data/zip_normal.zip", path + "/test_data", "zip_test");
     ASSERT_FALSE(st.ok());
     ASSERT_TRUE(HasPrefixString(st.to_string(), "Already exist"));
 }
@@ -103,7 +103,7 @@ TEST(ZipUtilTest, notzip) {
     char* dir_path = dirname(buf);
     std::string path(dir_path);
 
-    Status st = zip_extract(path + "/test_data/zip_normal_data", path + "/test_data", "target");
+    Status st = ZipUtils::zip_extract(path + "/test_data/zip_normal_data", path + "/test_data", "target");
     ASSERT_FALSE(st.ok());
     ASSERT_TRUE(HasPrefixString(st.to_string(), "Invalid argument"));
 }
