@@ -394,6 +394,9 @@ OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
     // find the number of bytes required for base.
     // The additional bit is used to store the sign of the base value
     uint32_t base_width = ser::find_closet_num_bits(_min) + 1;
+    if (base_width > 64) {
+        base_width = 64;
+    }
     uint32_t base_bytes = base_width % 8 == 0 ? base_width / 8 : (base_width / 8 + 1);
 
     if (is_negative) {
