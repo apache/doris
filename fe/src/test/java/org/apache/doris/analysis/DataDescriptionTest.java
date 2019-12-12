@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -31,11 +32,9 @@ import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class DataDescriptionTest {
 
@@ -43,10 +42,6 @@ public class DataDescriptionTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
@@ -208,18 +203,25 @@ public class DataDescriptionTest {
         new Expectations() {
             {
                 columnMapping1.getChild(0);
+                minTimes = 0;
                 result = column1;
                 columnMapping2.getChild(0);
+                minTimes = 0;
                 result = column2;
                 columnMapping1.getChild(1);
+                minTimes = 0;
                 result = expr1;
                 expr1.getFnName();
+                minTimes = 0;
                 result = functionName;
                 functionName.getFunction();
+                minTimes = 0;
                 result = "test";
                 column1.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
                 column2.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
             }
         };

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -37,7 +38,6 @@ import java.util.List;
 
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class StreamLoadPlannerTest {
     @Injectable
@@ -59,14 +59,18 @@ public class StreamLoadPlannerTest {
         columns.add(c1);
         Column c2 = new Column("c2", PrimitiveType.BIGINT, true);
         columns.add(c2);
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 destTable.getBaseSchema();
+                minTimes = 0;
                 result = columns;
                 scanNode.init((Analyzer) any);
+                minTimes = 0;
                 scanNode.getChildren();
+                minTimes = 0;
                 result = Lists.newArrayList();
                 scanNode.getId();
+                minTimes = 0;
                 result = new PlanNodeId(5);
             }
         };

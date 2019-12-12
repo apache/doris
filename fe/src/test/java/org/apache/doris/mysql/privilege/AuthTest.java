@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
@@ -51,8 +52,6 @@ import java.util.Set;
 
 import mockit.Delegate;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class AuthTest {
 
@@ -66,17 +65,36 @@ public class AuthTest {
     @Mocked
     private ConnectContext ctx;
 
-    private DomainResolver resolver;
+    private MockDomianResolver resolver;
 
-    static {
-        Startup.initializeIfPossible();
+    // Thread is not mockable in Jmockit, so use a subclass instead.
+    private static final class MockDomianResolver extends DomainResolver {
+        public MockDomianResolver(PaloAuth auth) {
+            super(auth);
+        }
+        @Override
+        public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
+            switch (domainName) {
+                case "palo.domain1":
+                    resolvedIPs.add("10.1.1.1");
+                    resolvedIPs.add("10.1.1.2");
+                    resolvedIPs.add("10.1.1.3");
+                    break;
+                case "palo.domain2":
+                    resolvedIPs.add("20.1.1.1");
+                    resolvedIPs.add("20.1.1.2");
+                    resolvedIPs.add("20.1.1.3");
+                    break;
+            }
+            return true;
+        }
     }
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
         auth = new PaloAuth();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 analyzer.getClusterName();
                 minTimes = 0;
@@ -119,31 +137,7 @@ public class AuthTest {
             }
         };
 
-        resolver = new DomainResolver(auth);
-
-        new NonStrictExpectations(resolver) {
-            {
-                resolver.resolveWithBNS("palo.domain1", (Set<String>) any);
-                result = new Delegate() {
-                    public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
-                        resolvedIPs.add("10.1.1.1");
-                        resolvedIPs.add("10.1.1.2");
-                        resolvedIPs.add("10.1.1.3");
-                        return true;
-                    }
-                };
-
-                resolver.resolveWithBNS("palo.domain2", (Set<String>) any);
-                result = new Delegate() {
-                    public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
-                        resolvedIPs.add("20.1.1.1");
-                        resolvedIPs.add("20.1.1.2");
-                        resolvedIPs.add("20.1.1.3");
-                        return true;
-                    }
-                };
-            }
-        };
+        resolver = new MockDomianResolver(auth);
     }
 
     @Test

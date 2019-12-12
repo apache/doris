@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
@@ -70,13 +71,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Delegate;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class BackupHandlerTest {
 
     private BackupHandler handler;
@@ -98,34 +92,36 @@ public class BackupHandlerTest {
 
     private TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
         rootDir.mkdirs();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getBrokerMgr();
+                minTimes = 0;
                 result = brokerMgr;
 
                 catalog.getNextId();
+                minTimes = 0;
                 result = idGen++;
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
 
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
 
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
             }
         };
@@ -137,9 +133,10 @@ public class BackupHandlerTest {
             Assert.fail();
         }
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
             }
         };
@@ -169,9 +166,10 @@ public class BackupHandlerTest {
 
     @Test
     public void testCreateAndDropRepository() {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logCreateRepository((Repository) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logCreateRepository(Repository repo) {
 
@@ -179,6 +177,7 @@ public class BackupHandlerTest {
                 };
 
                 editLog.logDropRepository(anyString);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logDropRepository(String repoName) {
 
@@ -224,9 +223,10 @@ public class BackupHandlerTest {
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 brokerMgr.contaisnBroker(anyString);
+                minTimes = 0;
                 result = true;
             }
         };
