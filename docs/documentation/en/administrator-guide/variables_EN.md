@@ -307,3 +307,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `wait_timeout`
 
     The length of the connection used to set up an idle connection. When an idle connection does not interact with Doris for that length of time, Doris will actively disconnect the link. The default is 8 hours, in seconds.
+
+* `default_rowset_type`
+
+    Used for setting the default storage format of Backends storage engine. Valid options: alpha/beta

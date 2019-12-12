@@ -48,6 +48,7 @@
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
@@ -198,9 +199,23 @@ public:
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
-    RowsetTypePB default_rowset_type() const { return _default_rowset_type; }
+    RowsetTypePB default_rowset_type() const {
+        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
+            return BETA_ROWSET;
+        }
+        return _default_rowset_type;
+    }
 
-    RowsetTypePB compaction_rowset_type() const { return _compaction_rowset_type; }
+    RowsetTypePB compaction_rowset_type() const {
+        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
+            return BETA_ROWSET;
+        }
+        return _compaction_rowset_type;
+    }
+
+    void set_heartbeat_flags(HeartbeatFlags* heartbeat_flags) {
+        _heartbeat_flags = heartbeat_flags;
+    }
 
 private:
 
@@ -362,6 +377,8 @@ private:
     // default rowset type for compaction.
     // used to control the the process of converting old data
     RowsetTypePB _compaction_rowset_type;
+
+    HeartbeatFlags* _heartbeat_flags;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

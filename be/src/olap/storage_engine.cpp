@@ -118,7 +118,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
         _memtable_flush_executor(nullptr),
         _default_rowset_type(ALPHA_ROWSET),
-        _compaction_rowset_type(ALPHA_ROWSET) {
+        _compaction_rowset_type(ALPHA_ROWSET),
+        _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }

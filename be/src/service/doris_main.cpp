@@ -57,6 +57,7 @@
 #include "common/resource_tls.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
+#include "runtime/heartbeat_flags.h"
 
 static void help(const char*);
 
@@ -166,6 +167,7 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
+    engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
     doris::ThriftRpcHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;
