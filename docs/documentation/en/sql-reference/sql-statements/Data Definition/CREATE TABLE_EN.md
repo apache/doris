@@ -160,6 +160,8 @@ under the License.
             DUPLICATE KEY:
 
                     All incoming rows will be saved.
+        the default key_type is DUPLICATE KEY, and key columns are first 36 bytes of the columns in define order.
+         If the number of columns in the first 36 is less than 3, the first 3 columns will be used.
                     
     NOTICE: 
         Except for AGGREGATE KEY, no need to specify aggregation type for value columns.
