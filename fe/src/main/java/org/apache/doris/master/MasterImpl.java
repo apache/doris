@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJob;
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.RollupJob;
@@ -77,6 +78,7 @@ import java.util.List;
 
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
+    private final int TASK_FINISH_MAX_RETRY = 3;
 
     ReportHandler reportHandler = new ReportHandler();
 
@@ -130,6 +132,21 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
+                if (taskType == TTaskType.ALTER && task.getFailedTimes() >= TASK_FINISH_MAX_RETRY) {
+                    String errMsg = "alter failed after try three times: " + taskType + ", backendId: " + backendId
+                            + ", signature: " + signature;
+                    LOG.warn(errMsg);
+                    tStatus.setStatus_code(TStatusCode.INTERNAL_ERROR);
+                    List<String> errorMsgs = new ArrayList<String>();
+                    errorMsgs.add(errMsg);
+                    tStatus.setError_msgs(errorMsgs);
+                    AlterReplicaTask alterTask = (AlterReplicaTask) task;
+                    AlterJobV2 alterJobV2 = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2().get(alterTask.getJobId());
+                    if (alterJobV2 != null) {
+                        alterJobV2.cancel(errMsg);
+                    }
+                    return result;
+                }
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
