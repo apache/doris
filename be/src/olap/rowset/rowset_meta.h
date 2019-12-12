@@ -305,7 +305,7 @@ public:
         _is_removed_from_rowset_meta = true;
     }
 
-    bool is_remove_from_rowset_meta() {
+    bool is_remove_from_rowset_meta() const {
         return _is_removed_from_rowset_meta;
     }
 
