@@ -65,7 +65,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir),
     _is_bad(false),
-    _last_compaction_failure_time(UnixMillis()) {
+    _last_compaction_failure_time(0) {
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
     _tablet_path.append("/");

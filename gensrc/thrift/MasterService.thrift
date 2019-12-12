@@ -80,6 +80,9 @@ struct TReportRequest {
     5: optional map<string, TDisk> disks // string root_path
     6: optional bool force_recovery
     7: optional list<TTablet> tablet_list
+    // the max compaction score of all tablets on a backend,
+    // this field should be set along with tablet report
+    8: optional i64 tablet_max_compaction_score
 }
 
 struct TMasterResult {

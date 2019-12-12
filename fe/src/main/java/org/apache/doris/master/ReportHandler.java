@@ -157,6 +157,10 @@ public class ReportHandler extends Daemon {
             forceRecovery = request.isForce_recovery();
         }
         
+        if (request.isSetTablet_max_compaction_score()) {
+            backend.setTabletMaxCompactionScore(request.getTablet_max_compaction_score());
+        }
+
         ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion, forceRecovery);
         try {
             putToQueue(reportTask);

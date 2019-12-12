@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+import java.util.List;
 import java.util.TimerTask;
 
 /*
@@ -65,5 +66,15 @@ public class MetricCalculator extends TimerTask {
         lastQueryErrCounter = currentErrCounter;
 
         lastTs = currentTs;
+
+        // max tabet compaction score of all backends
+        long maxCompactionScore = 0;
+        List<Metric> compactionScoreMetrics = MetricRepo.getMetricsByName(MetricRepo.TABLET_MAX_COMPACTION_SCORE);
+        for (Metric metric : compactionScoreMetrics) {
+            if (((GaugeMetric<Long>) metric).getValue() > maxCompactionScore) {
+                maxCompactionScore = ((GaugeMetric<Long>) metric).getValue();
+            }
+        }
+        MetricRepo.GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(maxCompactionScore);
     }
 }
