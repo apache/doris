@@ -306,3 +306,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `wait_timeout`
 
     用于设置空闲连接的连接时长。当一个空闲连接在该时长内与 Doris 没有任何交互，则 Doris 会主动断开这个链接。默认为 8 小时，单位为秒。
+
+* `default_rowset_type`
+
+    用于设置计算节点存储引擎默认的存储格式。当前支持的存储格式包括：alpha/beta。
