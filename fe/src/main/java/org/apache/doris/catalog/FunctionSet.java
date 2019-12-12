@@ -518,7 +518,8 @@ public class FunctionSet {
     public static final String BITMAP_COUNT = "bitmap_count";
 
     public static final Set<String> BITMAP_LOAD_FNS = ImmutableSet.of(
-            "to_bitmap", "bitmap_hash", "bitmap_empty");
+new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("to_bitmap").add("bitmap_hash").add("bitmap_empty").build();
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
