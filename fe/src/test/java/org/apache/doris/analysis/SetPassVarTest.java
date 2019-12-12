@@ -28,7 +28,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class SetPassVarTest {
     private Analyzer analyzer;
@@ -37,10 +36,6 @@ public class SetPassVarTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {

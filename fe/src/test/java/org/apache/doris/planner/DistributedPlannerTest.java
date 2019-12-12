@@ -22,13 +22,13 @@ import org.apache.doris.analysis.TupleId;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Set;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;

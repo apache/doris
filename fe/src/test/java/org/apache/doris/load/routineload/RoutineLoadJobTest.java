@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.transaction.TransactionException;
@@ -38,10 +39,8 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import java_cup.runtime.Symbol;
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -50,8 +49,6 @@ import mockit.Mocked;
 
 public class RoutineLoadJobTest {
 
-    @Mocked
-    Catalog catalog;
     @Mocked
     EditLog editLog;
     @Mocked
@@ -62,9 +59,9 @@ public class RoutineLoadJobTest {
     Symbol symbol;
 
     @Test
-    public void testAfterAbortedReasonOffsetOutOfRange(@Injectable TransactionState transactionState,
-                                                       @Injectable RoutineLoadTaskInfo routineLoadTaskInfo,
-                                                       @Injectable ReentrantReadWriteLock lock)
+    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Catalog catalog,
+                                                       @Injectable TransactionState transactionState,
+                                                       @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
             throws UserException {
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -74,16 +71,23 @@ public class RoutineLoadJobTest {
         new Expectations() {
             {
                 transactionState.getTransactionId();
+                minTimes = 0;
                 result = txnId;
                 routineLoadTaskInfo.getTxnId();
+                minTimes = 0;
                 result = txnId;
+            }
+        };
+
+        new MockUp<RoutineLoadJob>() {
+            @Mock
+            void writeUnlock() {
             }
         };
 
         String txnStatusChangeReasonString = TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString();
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
-        Deencapsulation.setField(routineLoadJob, "lock", lock);
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
@@ -92,8 +96,7 @@ public class RoutineLoadJobTest {
     @Test
     public void testAfterAborted(@Injectable TransactionState transactionState,
                                  @Injectable KafkaTaskInfo routineLoadTaskInfo,
-                                 @Injectable KafkaProgress progress,
-                                 @Injectable ReentrantReadWriteLock lock) throws UserException {
+                                 @Injectable KafkaProgress progress) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
@@ -101,13 +104,23 @@ public class RoutineLoadJobTest {
         new Expectations() {
             {
                 transactionState.getTransactionId();
+                minTimes = 0;
                 result = txnId;
                 routineLoadTaskInfo.getTxnId();
+                minTimes = 0;
                 result = txnId;
                 transactionState.getTxnCommitAttachment();
+                minTimes = 0;
                 result = new RLTaskTxnCommitAttachment();
                 routineLoadTaskInfo.getPartitions();
+                minTimes = 0;
                 result = Lists.newArrayList();
+            }
+        };
+
+        new MockUp<RoutineLoadJob>() {
+            @Mock
+            void writeUnlock() {
             }
         };
 
@@ -116,7 +129,6 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
-        Deencapsulation.setField(routineLoadJob, "lock", lock);
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
@@ -124,16 +136,23 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testAfterCommittedWhileTaskAborted(@Injectable TransactionState transactionState,
-                                                   @Injectable KafkaProgress progress,
-                                                   @Injectable ReentrantReadWriteLock lock) throws UserException {
+    public void testAfterCommittedWhileTaskAborted(@Mocked Catalog catalog,
+                                                   @Injectable TransactionState transactionState,
+                                                   @Injectable KafkaProgress progress) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         long txnId = 1L;
 
         new Expectations() {
             {
                 transactionState.getTransactionId();
+                minTimes = 0;
                 result = txnId;
+            }
+        };
+
+        new MockUp<RoutineLoadJob>() {
+            @Mock
+            void writeUnlock() {
             }
         };
 
@@ -142,7 +161,6 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
-        Deencapsulation.setField(routineLoadJob, "lock", lock);
         try {
             routineLoadJob.afterCommitted(transactionState, true);
             Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
@@ -165,10 +183,11 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileDbDeleted() throws UserException {
+    public void testUpdateWhileDbDeleted(@Mocked Catalog catalog) throws UserException {
         new Expectations() {
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -180,12 +199,15 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileTableDeleted(@Injectable Database database) throws UserException {
+    public void testUpdateWhileTableDeleted(@Mocked Catalog catalog,
+                                            @Injectable Database database) throws UserException {
         new Expectations() {
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -196,7 +218,8 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhilePartitionChanged(@Injectable Database database,
+    public void testUpdateWhilePartitionChanged(@Mocked Catalog catalog,
+                                                @Injectable Database database,
                                                 @Injectable Table table,
                                                 @Injectable PartitionInfo partitionInfo,
                                                 @Injectable KafkaProgress kafkaProgress) throws UserException {
@@ -206,8 +229,10 @@ public class RoutineLoadJobTest {
         new Expectations() {
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = table;
             }
         };
@@ -229,7 +254,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateNumOfDataErrorRowMoreThanMax() {
+    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Catalog catalog) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
@@ -267,8 +292,10 @@ public class RoutineLoadJobTest {
         new Expectations() {
             {
                 routineLoadTaskInfo.getBeId();
+                minTimes = 0;
                 result = 1L;
                 routineLoadTaskInfo1.getBeId();
+                minTimes = 0;
                 result = 1L;
             }
         };

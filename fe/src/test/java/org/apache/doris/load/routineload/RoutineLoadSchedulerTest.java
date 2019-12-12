@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -40,7 +41,6 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -58,7 +58,6 @@ public class RoutineLoadSchedulerTest {
                                       @Injectable SystemInfoService systemInfoService,
                                       @Injectable Database database,
                                       @Injectable RoutineLoadDesc routineLoadDesc,
-                                      @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
                                       @Mocked StreamLoadPlanner planner,
                                       @Injectable OlapTable olapTable)
             throws LoadException, MetaNotFoundException {
@@ -72,6 +71,9 @@ public class RoutineLoadSchedulerTest {
         partitions.add(200);
         partitions.add(300);
 
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
                                                                           "xxx", "test");
         Deencapsulation.setField(kafkaRoutineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
@@ -84,24 +86,26 @@ public class RoutineLoadSchedulerTest {
         new Expectations() {
             {
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
+                minTimes = 0;
                 result = routineLoadJobList;
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(1L);
+                minTimes = 0;
                 result = olapTable;
                 systemInfoService.getClusterBackendIds(clusterName, true);
+                minTimes = 0;
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
+                minTimes = 0;
                 result = 1;
-                minTimes = 0;
                 routineLoadManager.getTotalMaxConcurrentTaskNum();
+                minTimes = 0;
                 result = 10;
-                minTimes = 0;
-                catalog.getRoutineLoadTaskScheduler();
-                result = routineLoadTaskScheduler;
-                minTimes = 0;
             }
         };
 
@@ -128,6 +132,7 @@ public class RoutineLoadSchedulerTest {
         new Expectations(){
             {
                 connectContext.toResourceCtx();
+                minTimes = 0;
                 result = tResourceInfo;
             }
         };
@@ -143,10 +148,13 @@ public class RoutineLoadSchedulerTest {
         new Expectations(){
             {
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 systemInfoService.getBackendIds(true);
+                minTimes = 0;
                 result = backendIds;
             }
         };

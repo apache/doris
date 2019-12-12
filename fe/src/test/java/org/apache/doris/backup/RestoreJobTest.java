@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
@@ -33,6 +34,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -61,14 +63,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
 
-import mockit.Delegate;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class RestoreJobTest {
 
     private Database db;
@@ -84,10 +78,33 @@ public class RestoreJobTest {
 
     @Mocked
     private Catalog catalog;
-    @Mocked
-    private BackupHandler backupHandler;
-    @Mocked
-    private RepositoryMgr repoMgr;
+
+    private MockBackupHandler backupHandler;
+
+    private MockRepositoryMgr repoMgr;
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockBackupHandler extends BackupHandler {
+        public MockBackupHandler(Catalog catalog) {
+            super(catalog);
+        }
+        @Override
+        public RepositoryMgr getRepoMgr() {
+            return repoMgr;
+        }
+    }
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockRepositoryMgr extends RepositoryMgr {
+        public MockRepositoryMgr() {
+            super();
+        }
+        @Override
+        public Repository getRepo(long repoId) {
+            return repo;
+        }
+    }
+
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -99,39 +116,42 @@ public class RestoreJobTest {
 
     private BackupMeta backupMeta;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws AnalysisException {
         db = CatalogMocker.mockDb();
-        
-        new NonStrictExpectations() {
+        backupHandler = new MockBackupHandler(catalog);
+        repoMgr = new MockRepositoryMgr();
+
+        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+
+        new Expectations() {
             {
-                catalog.getBackupHandler();
-                result = backupHandler;
-        
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = db;
         
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
         
                 catalog.getNextId();
+                minTimes = 0;
                 result = id.getAndIncrement();
         
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
         
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
+                minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive,
                             boolean isCreate, String clusterName) {
@@ -145,24 +165,10 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
-            {
-                backupHandler.getRepoMgr();
-                result = repoMgr;
-            }
-        };
-        
-        new NonStrictExpectations() {
-            {
-                repoMgr.getRepo(anyInt);
-                result = repo;
-                minTimes = 0;
-            }
-        };
-        
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logBackupJob(BackupJob job) {
                         System.out.println("log backup job: " + job);
@@ -171,7 +177,7 @@ public class RestoreJobTest {
             }
         };
         
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 repo.upload(anyString, anyString);
                 result = Status.OK;
@@ -179,6 +185,7 @@ public class RestoreJobTest {
 
                 List<BackupMeta> backupMetas = Lists.newArrayList();
                 repo.getSnapshotMetaFile(label, backupMetas, -1);
+                minTimes = 0;
                 result = new Delegate() {
                     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
                         backupMetas.add(backupMeta);
@@ -194,7 +201,7 @@ public class RestoreJobTest {
                 return true;
             }
         };
-        
+
         // gen BackupJobInfo
         jobInfo = new BackupJobInfo();
         jobInfo.backupTime = System.currentTimeMillis();

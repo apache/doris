@@ -32,6 +32,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
@@ -57,7 +58,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -112,8 +112,10 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
                 systemInfoService.getClusterBackendIds(clusterName1, true);
+                minTimes = 0;
                 result = beIds1;
                 systemInfoService.getClusterBackendIds(clusterName2, true);
                 result = beIds2;
@@ -149,25 +151,26 @@ public class KafkaRoutineLoadJobTest {
 
 
     @Test
-    public void testDivideRoutineLoadJob(@Injectable GlobalTransactionMgr globalTransactionMgr,
-                                         @Mocked Catalog catalog,
-                                         @Injectable RoutineLoadManager routineLoadManager,
-                                         @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
+    public void testDivideRoutineLoadJob(@Injectable RoutineLoadManager routineLoadManager,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
             throws UserException {
+
+        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
                                         1L, "127.0.0.1:9020", "topic1");
 
-        new Expectations() {
+        new Expectations(catalog) {
             {
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
-                catalog.getRoutineLoadTaskScheduler();
-                result = routineLoadTaskScheduler;
             }
         };
+
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
 
@@ -192,11 +195,12 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
-                                        @Mocked Catalog catalog,
                                         @Injectable RoutineLoadManager routineLoadManager,
                                         @Mocked RoutineLoadDesc routineLoadDesc)
             throws AnalysisException, LabelAlreadyUsedException,
             BeginTransactionException {
+
+        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
@@ -206,6 +210,7 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
             }
         };
@@ -241,6 +246,7 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 database.getTable(tableNameString);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -276,12 +282,16 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 database.getTable(tableNameString);
+                minTimes = 0;
                 result = table;
                 database.getId();
+                minTimes = 0;
                 result = dbId;
                 table.getId();
+                minTimes = 0;
                 result = tableId;
                 table.getType();
+                minTimes = 0;
                 result = Table.TableType.OLAP;
             }
         };

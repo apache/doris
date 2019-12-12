@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
@@ -47,7 +48,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -74,16 +74,22 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 loadStmt.getLabel();
+                minTimes = 0;
                 result = labelName;
                 labelName.getDbName();
+                minTimes = 0;
                 result = databaseName;
                 catalog.getDb(databaseName);
+                minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
+                minTimes = 0;
                 result = dataDescriptionList;
                 dataDescription.getTableName();
+                minTimes = 0;
                 result = tableName;
                 database.getTable(tableName);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -116,22 +122,31 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 loadStmt.getLabel();
+                minTimes = 0;
                 result = labelName;
                 labelName.getDbName();
+                minTimes = 0;
                 result = databaseName;
                 labelName.getLabelName();
+                minTimes = 0;
                 result = label;
                 catalog.getDb(databaseName);
+                minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
+                minTimes = 0;
                 result = dataDescriptionList;
                 dataDescription.getTableName();
+                minTimes = 0;
                 result = tableName;
                 database.getTable(tableName);
+                minTimes = 0;
                 result = olapTable;
                 dataDescription.getPartitionNames();
+                minTimes = 0;
                 result = null;
                 database.getId();
+                minTimes = 0;
                 result = dbId;
             }
         };
@@ -172,12 +187,16 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 dataSourceInfo.getIdToFileGroups();
+                minTimes = 0;
                 result = idToFileGroups;
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(1L);
+                minTimes = 0;
                 result = table;
                 table.getName();
+                minTimes = 0;
                 result = tableName;
             }
         };
@@ -216,6 +235,7 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 attachment.getTaskId();
+                minTimes = 0;
                 result = taskId;
             }
         };
@@ -253,14 +273,19 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 attachment.getTaskId();
+                minTimes = 0;
                 result = taskId;
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 dataSourceInfo.getIdToFileGroups();
+                minTimes = 0;
                 result = idToFileGroups;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = olapTable;
                 catalog.getNextId();
+                minTimes = 0;
                 result = 1L;
                 result = 2L;
             }
@@ -287,10 +312,13 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 attachment.getCounter(BrokerLoadJob.DPP_NORMAL_ALL);
+                minTimes = 0;
                 result = 10;
                 attachment.getCounter(BrokerLoadJob.DPP_ABNORMAL_ALL);
+                minTimes = 0;
                 result = 1;
                 attachment.getTaskId();
+                minTimes = 0;
                 result = 1L;
             }
         };
@@ -320,16 +348,22 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 attachment1.getCounter(BrokerLoadJob.DPP_NORMAL_ALL);
+                minTimes = 0;
                 result = 10;
                 attachment2.getCounter(BrokerLoadJob.DPP_NORMAL_ALL);
+                minTimes = 0;
                 result = 20;
                 attachment1.getCounter(BrokerLoadJob.DPP_ABNORMAL_ALL);
+                minTimes = 0;
                 result = 1;
                 attachment2.getCounter(BrokerLoadJob.DPP_ABNORMAL_ALL);
+                minTimes = 0;
                 result = 2;
                 attachment1.getTaskId();
+                minTimes = 0;
                 result = 1L;
                 attachment2.getTaskId();
+                minTimes = 0;
                 result = 2L;
             }
         };
@@ -359,12 +393,16 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 attachment1.getCounter(BrokerLoadJob.DPP_NORMAL_ALL);
+                minTimes = 0;
                 result = 10;
                 attachment1.getCounter(BrokerLoadJob.DPP_ABNORMAL_ALL);
+                minTimes = 0;
                 result = 0;
                 attachment1.getTaskId();
+                minTimes = 0;
                 result = 1L;
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
             }
         };
@@ -387,14 +425,19 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 txnState.getTxnCommitAttachment();
+                minTimes = 0;
                 result = attachment;
                 attachment.getLoadingStatus();
+                minTimes = 0;
                 result = etlStatus;
                 attachment.getProgress();
+                minTimes = 0;
                 result = 99;
                 attachment.getFinishTimestamp();
+                minTimes = 0;
                 result = 1;
                 attachment.getJobState();
+                minTimes = 0;
                 result = JobState.CANCELLED;
             }
         };
@@ -413,14 +456,19 @@ public class BrokerLoadJobTest {
         new Expectations() {
             {
                 txnState.getTxnCommitAttachment();
+                minTimes = 0;
                 result = attachment;
                 attachment.getLoadingStatus();
+                minTimes = 0;
                 result = etlStatus;
                 attachment.getProgress();
+                minTimes = 0;
                 result = 99;
                 attachment.getFinishTimestamp();
+                minTimes = 0;
                 result = 1;
                 attachment.getJobState();
+                minTimes = 0;
                 result = JobState.LOADING;
             }
         };

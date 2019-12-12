@@ -29,7 +29,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class DropTableStmtTest {
     private TableName tbl;
@@ -41,10 +40,6 @@ public class DropTableStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
