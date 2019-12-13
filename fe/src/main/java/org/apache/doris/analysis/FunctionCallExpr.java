@@ -416,6 +416,12 @@ public class FunctionCallExpr extends Expr {
             } else {
                 throw new AnalysisException("intersect_count function first arg must be bitmap column");
             }
+
+            for(int i = 2; i < children.size(); i++) {
+                if (!getChild(i).isConstant()) {
+                    throw new AnalysisException("intersect_count function filter_values arg must be constant");
+                }
+            }
             return;
         }
 
