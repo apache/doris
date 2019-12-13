@@ -54,7 +54,7 @@ And then you could build Doris as following steps:
 #### Step1: Pull the docker image with Doris building environment
 
 ```
-$ docker pull apachedoris/doris-dev:build-env
+$ docker pull apachedoris/doris-dev:build-env-1.1
 ```
 
 You can check it by listing images, for example:
@@ -62,7 +62,7 @@ You can check it by listing images, for example:
 ```
 $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
+apachedoris/doris-dev   build-env-1.1       fed800438171        7 weeks ago         4.01GB
 ```
 > NOTE: You may have to use different images to compile from source.
 >
@@ -79,13 +79,13 @@ apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago    
 You can run the image directly:
 
 ```
-$ docker run -it apachedoris/doris-dev:build-env
+$ docker run -it apachedoris/doris-dev:build-env-1.1
 ```
 
 Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
 
 ```
-$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.1
 ```
 
 #### Step3: Download Doris source
