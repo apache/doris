@@ -131,6 +131,142 @@ TEST_F(BitMapTest, iterator) {
     ASSERT_EQ(2000 - 500 - 200, run);
 }
 
+TEST_F(BitMapTest, roaring_bitmap_union) {
+    RoaringBitmap empty;
+    RoaringBitmap single(1024);
+    RoaringBitmap bitmap;
+    bitmap.update(1024);
+    bitmap.update(1025);
+    bitmap.update(1026);
+
+    ASSERT_EQ(0, empty.cardinality());
+    ASSERT_EQ(1, single.cardinality());
+    ASSERT_EQ(3, bitmap.cardinality());
+
+    RoaringBitmap empty2;
+    empty2.merge(empty);
+    ASSERT_EQ(0, empty2.cardinality());
+    empty2.merge(single);
+    ASSERT_EQ(1, empty2.cardinality());
+    RoaringBitmap empty3;
+    empty3.merge(bitmap);
+    ASSERT_EQ(3, empty3.cardinality());
+
+    RoaringBitmap single2(1025);
+    single2.merge(empty);
+    ASSERT_EQ(1, single2.cardinality());
+    single2.merge(single);
+    ASSERT_EQ(2, single2.cardinality());
+    RoaringBitmap single3(1027);
+    single3.merge(bitmap);
+    ASSERT_EQ(4, single3.cardinality());
+
+    RoaringBitmap bitmap2;
+    bitmap2.update(1024);
+    bitmap2.update(2048);
+    bitmap2.update(4096);
+    bitmap2.merge(empty);
+    ASSERT_EQ(3, bitmap2.cardinality());
+    bitmap2.merge(single);
+    ASSERT_EQ(3, bitmap2.cardinality());
+    bitmap2.merge(bitmap);
+    ASSERT_EQ(5, bitmap2.cardinality());
+}
+
+TEST_F(BitMapTest, roaring_bitmap_intersect) {
+    RoaringBitmap empty;
+    RoaringBitmap single(1024);
+    RoaringBitmap bitmap;
+    bitmap.update(1024);
+    bitmap.update(1025);
+    bitmap.update(1026);
+
+    RoaringBitmap empty2;
+    empty2.intersect(empty);
+    ASSERT_EQ(0, empty2.cardinality());
+    empty2.intersect(single);
+    ASSERT_EQ(0, empty2.cardinality());
+    empty2.intersect(bitmap);
+    ASSERT_EQ(0, empty2.cardinality());
+
+    RoaringBitmap single2(1025);
+    single2.intersect(empty);
+    ASSERT_EQ(0, single2.cardinality());
+
+    RoaringBitmap single4(1025);
+    single4.intersect(single);
+    ASSERT_EQ(0, single4.cardinality());
+
+    RoaringBitmap single3(1024);
+    single3.intersect(single);
+    ASSERT_EQ(1, single3.cardinality());
+
+    single3.intersect(bitmap);
+    ASSERT_EQ(1, single3.cardinality());
+
+    RoaringBitmap single5(2048);
+    single5.intersect(bitmap);
+    ASSERT_EQ(0, single5.cardinality());
+
+    RoaringBitmap bitmap2;
+    bitmap2.update(1024);
+    bitmap2.update(2048);
+    bitmap2.intersect(empty);
+    ASSERT_EQ(0, bitmap2.cardinality());
+
+    RoaringBitmap bitmap3;
+    bitmap3.update(1024);
+    bitmap3.update(2048);
+    bitmap3.intersect(single);
+    ASSERT_EQ(1, bitmap3.cardinality());
+
+    RoaringBitmap bitmap4;
+    bitmap4.update(2049);
+    bitmap4.update(2048);
+    bitmap4.intersect(single);
+    ASSERT_EQ(0, bitmap4.cardinality());
+
+    RoaringBitmap bitmap5;
+    bitmap5.update(2049);
+    bitmap5.update(2048);
+    bitmap5.intersect(bitmap);
+    ASSERT_EQ(0, bitmap5.cardinality());
+
+    RoaringBitmap bitmap6;
+    bitmap6.update(1024);
+    bitmap6.update(1025);
+    bitmap6.intersect(bitmap);
+    ASSERT_EQ(2, bitmap6.cardinality());
+}
+
+std::string convert_bitmap_to_string(RoaringBitmap& bitmap) {
+    std::string buf;
+    buf.resize(bitmap.size());
+    bitmap.serialize((char*)buf.c_str());
+    return buf;
+}
+
+TEST_F(BitMapTest, roaring_bitmap_serde) {
+    RoaringBitmap empty;
+    RoaringBitmap single(1024);
+    RoaringBitmap bitmap;
+    bitmap.update(1024);
+    bitmap.update(1025);
+    bitmap.update(1026);
+
+    std::string buffer = convert_bitmap_to_string(empty);
+    RoaringBitmap empty_serde((char*)buffer.c_str());
+    ASSERT_EQ(0, empty_serde.cardinality());
+
+    buffer = convert_bitmap_to_string(single);
+    RoaringBitmap single_serde((char*)buffer.c_str());
+    ASSERT_EQ(1, single_serde.cardinality());
+
+    buffer = convert_bitmap_to_string(bitmap);
+    RoaringBitmap bitmap_serde((char*)buffer.c_str());
+    ASSERT_EQ(3, bitmap_serde.cardinality());
+}
+
 }
 
 int main(int argc, char** argv) {

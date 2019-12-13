@@ -116,6 +116,27 @@ public class AggregateFunction extends Function {
         returnsNonNullOnEmpty = false;
     }
 
+    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
+                             Type retType, Type intermediateType, boolean hasVarArgs,
+                             HdfsURI location, String updateFnSymbol, String initFnSymbol,
+                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+                             String removeFnSymbol, String finalizeFnSymbol) {
+        super(fnName, argTypes, retType, hasVarArgs);
+        setLocation(location);
+        this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
+        this.updateFnSymbol = updateFnSymbol;
+        this.initFnSymbol = initFnSymbol;
+        this.serializeFnSymbol = serializeFnSymbol;
+        this.mergeFnSymbol = mergeFnSymbol;
+        this.getValueFnSymbol = getValueFnSymbol;
+        this.removeFnSymbol = removeFnSymbol;
+        this.finalizeFnSymbol = finalizeFnSymbol;
+        ignoresDistinct = false;
+        isAnalyticFn = false;
+        isAggregateFn = true;
+        returnsNonNullOnEmpty = false;
+    }
+
     public static AggregateFunction createBuiltin(String name,
             List<Type> argTypes, Type retType, Type intermediateType,
             String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
@@ -132,8 +153,20 @@ public class AggregateFunction extends Function {
             String serializeFnSymbol, String getValueFnSymbol, String removeFnSymbol,
             String finalizeFnSymbol, boolean ignoresDistinct, boolean isAnalyticFn,
             boolean returnsNonNullOnEmpty) {
+        return createBuiltin(name, argTypes, retType, intermediateType, false,
+                initFnSymbol, updateFnSymbol, mergeFnSymbol,
+                serializeFnSymbol, getValueFnSymbol, removeFnSymbol,
+                finalizeFnSymbol, ignoresDistinct, isAnalyticFn,returnsNonNullOnEmpty);
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType, boolean hasVarArgs,
+                                                  String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
+                                                  String serializeFnSymbol, String getValueFnSymbol, String removeFnSymbol,
+                                                  String finalizeFnSymbol, boolean ignoresDistinct, boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
         AggregateFunction fn = new AggregateFunction(new FunctionName(name),
-                argTypes, retType, intermediateType, null, updateFnSymbol, initFnSymbol,
+                argTypes, retType, intermediateType, hasVarArgs, null, updateFnSymbol, initFnSymbol,
                 serializeFnSymbol, mergeFnSymbol, getValueFnSymbol, removeFnSymbol,
                 finalizeFnSymbol);
         fn.setBinaryType(TFunctionBinaryType.BUILTIN);
