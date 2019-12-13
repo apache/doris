@@ -309,6 +309,8 @@ public abstract class BaseAction implements IAction {
             throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
+            LOG.info("parse auth info failed, Authorization header {}, url {}",
+                    request.getAuthorizationHeader(), request.getRequest().uri());
             throw new UnauthorizedException("Need auth information.");
         }
         LOG.debug("get auth info: {}", authInfo);
