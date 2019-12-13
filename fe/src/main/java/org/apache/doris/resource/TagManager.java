@@ -186,7 +186,12 @@ public class TagManager implements Writable {
 
     // when replayed from edit log, tagIndex need to be built based on resourceIndex
     private void rebuildTagIndex() {
-
+        for (Map.Entry<Long, TagSet> entry : resourceIndex.entrySet()) {
+            long resourceId = entry.getKey();
+            for (Tag tag : entry.getValue().getAllTags()) {
+                tagIndex.put(tag, resourceId);
+            }
+        }
     }
 
     @Override

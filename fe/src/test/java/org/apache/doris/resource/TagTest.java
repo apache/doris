@@ -38,7 +38,7 @@ public class TagTest {
         Tag.create("location", "asdlajwdjdawhkjldjawlkdjawldjlkwasdasdsadasdd");
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTagName3() throws AnalysisException {
         Tag.create("unknown", "test1");
     }
@@ -49,7 +49,7 @@ public class TagTest {
         Assert.assertEquals("{\"location\" : \"zone1\"}", tag.toString());
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTagSet1() throws AnalysisException {
         Map<String, String> map = Maps.newHashMap();
         map.put("location", "zone1, zone2");

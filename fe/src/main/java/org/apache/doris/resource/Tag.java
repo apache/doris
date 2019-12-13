@@ -49,10 +49,24 @@ import java.util.Objects;
  * A Tag is immutable once it being created.
  */
 public class Tag implements Writable {
+
+    public static final String TYPE_ROLE = "role";
+    public static final String TYPE_FUNCATION = "function";
+    public static final String TYPE_LOCATION = "location";
+
+    public static final String VALUE_FRONTEND = "frontend";
+    public static final String VALUE_BACKEND = "backend";
+    public static final String VALUE_BROKER = "broker";
+    public static final String VALUE_REMOTE_STORAGE = "remote_storage";
+    public static final String VALUE_STORE = "store";
+    public static final String VALUE_COMPUTATION = "computation";
+    public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
+
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
-            "role", "function", "location");
+            TYPE_ROLE, TYPE_FUNCATION, TYPE_LOCATION);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
-            "frontend", "backend", "broker", "remote_storage", "store", "computation", "default_cluster");
+            VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
+            VALUE_DEFAULT_CLUSTER);
     private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
 
     @SerializedName(value = "type")

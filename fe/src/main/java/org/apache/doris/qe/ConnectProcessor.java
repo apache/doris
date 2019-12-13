@@ -379,12 +379,12 @@ public class ConnectProcessor {
             ctx.getState().setError("Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
-            // If reach here, maybe palo bug.
+            // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError("Unexpected exception: " + e.getMessage());
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
-        // and tell the follwer the current jounalID.
+        // and tell the follower the current jounalID.
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(Catalog.getInstance().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());

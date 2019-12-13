@@ -17,11 +17,7 @@
 
 package org.apache.doris.resource;
 
-import org.apache.doris.common.io.Writable;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.gson.annotations.SerializedName;
 
 /*
  * Resource is the collective name of the nodes that provide various service capabilities in Doris cluster.
@@ -30,8 +26,10 @@ import java.io.IOException;
  * eg:
  *      Backend, Frontend, Broker, RemoteStorage
  */
-public abstract class Resource implements Writable {
+public abstract class Resource {
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "tagSet")
     protected TagSet tagSet;
 
     public Resource(long id, TagSet tagSet) {
@@ -46,28 +44,16 @@ public abstract class Resource implements Writable {
         return tagSet;
     }
 
-    public void addTag(Tag.Type type, String tagName) {
-        Tag tag = Tag.create(type, tagName);
+    public void addTag(Tag tag) {
         tagSet.addTag(tag);
     }
 
-    public void setTag(Tag.Type type, String tagName) {
-        TagSet newTagSet = TagSet.create(Tag.create(type, tagName));
+    public void setTag(Tag tag) {
+        TagSet newTagSet = TagSet.create(tag);
         tagSet.substituteMerge(newTagSet);
     }
 
     public void setTagSet(TagSet tagSet) {
         this.tagSet = tagSet;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        tagSet.write(out);
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        tagSet = TagSet.read(in);
     }
 }
