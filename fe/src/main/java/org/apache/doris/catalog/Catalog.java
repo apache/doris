@@ -5328,7 +5328,7 @@ public class Catalog {
      * @param stmt
      * @throws DdlException
      */
-    public void processModifyCluster(AlterClusterStmt stmt) throws DdlException {
+    public void processModifyCluster(AlterClusterStmt stmt) throws UserException {
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
         if (!tryLock(false)) {
