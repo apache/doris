@@ -115,6 +115,9 @@ IntGaugeMetricsMap DorisMetrics::disks_avail_capacity;
 IntGaugeMetricsMap DorisMetrics::disks_data_used_capacity;
 IntGaugeMetricsMap DorisMetrics::disks_state;
 
+IntGauge DorisMetrics::tablet_cumulative_max_compaction_score;
+IntGauge DorisMetrics::tablet_base_max_compaction_score;
+
 IntGauge DorisMetrics::push_request_write_bytes_per_second;
 IntGauge DorisMetrics::query_scan_bytes_per_second;
 IntGauge DorisMetrics::max_disk_io_util_percent;
@@ -265,6 +268,9 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(process_fd_num_used);
     REGISTER_DORIS_METRIC(process_fd_num_limit_soft);
     REGISTER_DORIS_METRIC(process_fd_num_limit_hard);
+
+    REGISTER_DORIS_METRIC(tablet_cumulative_max_compaction_score);
+    REGISTER_DORIS_METRIC(tablet_base_max_compaction_score);
 
     // disk usage
     for (auto& path : paths) {

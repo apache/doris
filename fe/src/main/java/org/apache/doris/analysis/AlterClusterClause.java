@@ -18,11 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
 import java.util.Map;
 
+@Deprecated
 public class AlterClusterClause extends AlterClause {
     private AlterClusterType type;
     private Map<String, String> properties;
@@ -38,6 +40,9 @@ public class AlterClusterClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.disable_cluster_feature) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ALTER CLUSTER");
+        }
 
         if (properties == null || properties.size() == 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);

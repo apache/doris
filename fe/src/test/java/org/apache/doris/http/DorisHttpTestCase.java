@@ -224,10 +224,6 @@ abstract public class DorisHttpTestCase {
         }
     }
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     private static void assignBackends() {
         Backend backend1 = new Backend(testBackendId1, "node-1", 9308);
         backend1.setBePort(9300);

@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
 #define DORIS_BE_SRC_OLAP_MEMTABLE_H
 
+#include <ostream>
+
 #include "common/object_pool.h"
 #include "olap/skiplist.h"
 #include "olap/olap_define.h"
@@ -40,10 +42,8 @@ public:
              KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker);
     ~MemTable();
 
-    int64_t tablet_id() { return _tablet_id; }
-    size_t memory_usage() {
-        return _mem_tracker->consumption();
-    }
+    int64_t tablet_id() const { return _tablet_id; }
+    size_t memory_usage() const { return _mem_tracker->consumption(); }
     void insert(const Tuple* tuple);
     OLAPStatus flush();
     OLAPStatus close();
@@ -89,6 +89,11 @@ private:
     RowsetWriter* _rowset_writer;
 
 }; // class MemTable
+
+inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
+    os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id() << ", mem=" << table.memory_usage();
+    return os;
+}
 
 } // namespace doris
 

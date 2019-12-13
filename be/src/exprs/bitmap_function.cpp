@@ -97,6 +97,18 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
+StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
+    RoaringBitmap bitmap;
+    if (!src.is_null) {
+        uint32_t hash_value = HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
+        bitmap.update(hash_value);
+    }
+    std::string buf;
+    buf.resize(bitmap.size());
+    bitmap.serialize((char*)buf.c_str());
+    return AnyValUtil::from_string_temp(ctx, buf);
+}
+
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
     StringVal result(ctx, src_bitmap->size());

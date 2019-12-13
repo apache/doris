@@ -27,7 +27,7 @@ under the License.
 
 其中 http 接口仅用于在线的查看 tablet 的元数据，可以在 BE 进程运行的状态下使用。
 
-而 meta\_tool 工具则仅用于离线的各类元数据管理操作，必须先停止BE进城后，才可使用。
+而 meta\_tool 工具则仅用于离线的各类元数据管理操作，必须先停止BE进程后，才可使用。
 
 meta\_tool 工具存放在 BE 的 lib/ 目录下。
 

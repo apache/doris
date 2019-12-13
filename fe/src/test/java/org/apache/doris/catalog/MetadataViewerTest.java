@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
@@ -35,7 +36,6 @@ import java.lang.reflect.Method;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class MetadataViewerTest {
     
@@ -67,24 +67,26 @@ public class MetadataViewerTest {
     @Before
     public void before() {
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentSystemInfo();
                 minTimes = 0;
                 result = infoService;
 
                 infoService.getBackendIds(anyBoolean);
+                minTimes = 0;
                 result = Lists.newArrayList(10000L, 10001L, 10002L);
             }
         };

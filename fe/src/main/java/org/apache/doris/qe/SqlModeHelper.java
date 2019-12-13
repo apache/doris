@@ -21,9 +21,13 @@ package org.apache.doris.qe;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
-import org.apache.doris.common.AnalysisException;
+import org.apache.commons.lang.StringUtils;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -119,13 +123,13 @@ public class SqlModeHelper {
     }
 
     // convert long type SQL MODE to string type that user can read
-    public static String decode(Long sqlMode) throws AnalysisException {
+    public static String decode(Long sqlMode) throws DdlException {
         // 0 parse to empty string
         if (sqlMode == 0) {
             return "";
         }
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {
-            throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + sqlMode);
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, sqlMode);
         }
 
         List<String> names = new ArrayList<String>();
@@ -139,37 +143,58 @@ public class SqlModeHelper {
     }
 
     // convert string type SQL MODE to long type that session can store
-    public static Long encode(String sqlMode) throws AnalysisException {
+    public static Long encode(String sqlMode) throws DdlException {
         List<String> names =
                 Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
 
         // empty string parse to 0
-        long value = 0L;
+        long resultCode = 0L;
         for (String key : names) {
-            // the SQL MODE must be supported, set sql mode repeatedly is not allowed
-            if (!isSupportedSqlMode(key) || (value & getSupportedSqlMode().get(key)) != 0) {
-                throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
-            }
-            if (isCombineMode(key)) {
-                // set multiple combine mode is not allowed
-                if ((value & MODE_COMBINE_MASK) != 0) {
-                    throw new AnalysisException("Variable 'sql_mode' can't be set to the value of: " + key);
+            long code = 0L;
+            if (StringUtils.isNumeric(key)) {
+                code |= expand(Long.valueOf(key));
+            } else {
+                code = getCodeFromString(key);
+                if (code == 0) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
                 }
-                value |= getCombineMode().get(key);
             }
-            value |= getSupportedSqlMode().get(key);
+            resultCode |= code;
+            if ((resultCode & ~MODE_ALLOWED_MASK) != 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.SQL_MODE, key);
+            }
         }
+        return resultCode;
+    }
 
-        return value;
+    // expand the combine mode if exists
+    public static long expand(long sqlMode) throws DdlException {
+        for (String key : getCombineMode().keySet()) {
+            if ((sqlMode & getSupportedSqlMode().get(key)) != 0) {
+                sqlMode |= getCombineMode().get(key);
+            }
+        }
+        return sqlMode;
     }
 
     // check if this SQL MODE is supported
     public static boolean isSupportedSqlMode(String sqlMode) {
-        // empty string is valid and equals to 0L
         if (sqlMode == null || !getSupportedSqlMode().containsKey(sqlMode)) {
             return false;
         }
         return true;
+    }
+
+    // encode sqlMode from string to long
+    private static long getCodeFromString(String sqlMode) {
+        long code = 0L;
+        if (isSupportedSqlMode(sqlMode)) {
+            if (isCombineMode(sqlMode)) {
+                code |= getCombineMode().get(sqlMode);
+            }
+            code |= getSupportedSqlMode().get(sqlMode);
+        }
+        return code;
     }
 
     // check if this SQL MODE is combine mode

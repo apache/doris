@@ -88,6 +88,7 @@ public class SessionVariable implements Serializable, Writable {
      * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
      */
     public static final String LOAD_MEM_LIMIT = "load_mem_limit";
+    public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -212,6 +213,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
+
+    // the default rowset type flag which will be passed to Backends througth heartbeat
+    @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
+    public static String defaultRowsetType = "alpha";
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;

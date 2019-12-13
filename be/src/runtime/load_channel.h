@@ -19,6 +19,7 @@
 
 #include <unordered_map>
 #include <mutex>
+#include <ostream>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -92,5 +93,12 @@ private:
     // if channel is timeout, it will be removed by load channel manager.
     int64_t _timeout_s;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
+    os << "LoadChannel(id=" << load_channel.load_id()
+       << ", mem=" << load_channel.mem_consumption()
+       << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time()) << ")";
+    return os;
+}
 
 }

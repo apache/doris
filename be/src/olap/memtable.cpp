@@ -87,7 +87,7 @@ void MemTable::insert(const Tuple* tuple) {
     } else {
         _tuple_buf = _table_mem_pool->allocate(_schema_size);
         ContiguousRow dst_row(_schema, _tuple_buf);
-        copy_row(&dst_row, src_row, _table_mem_pool.get());
+        copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
         _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
     }
 

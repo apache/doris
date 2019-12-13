@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
@@ -56,10 +55,6 @@ public class CreateTableStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     // set default db is 'db1'
     // table name is table1

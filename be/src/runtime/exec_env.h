@@ -60,6 +60,7 @@ class FrontendServiceClient;
 class TPaloBrokerServiceClient;
 class TExtDataSourceServiceClient; 
 template<class T> class ClientCache;
+class HeartbeatFlags;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -129,6 +130,7 @@ public:
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
+    HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -178,6 +180,7 @@ private:
     StreamLoadExecutor* _stream_load_executor = nullptr;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 };
 
 

@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -28,13 +27,10 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.SqlModeHelper;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.system.HeartbeatFlags;
 
 // change one variable.
 public class SetVar {
-    private static final Logger LOG = LogManager.getLogger(SetVar.class);
 
     private String variable;
     private Expr value;
@@ -116,23 +112,18 @@ public class SetVar {
 
         result = (LiteralExpr)literalExpr;
 
-        if (variable.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            // For the case like "set sql_mode = PIPES_AS_CONCAT"
-            if (result instanceof StringLiteral) {
-                String sqlMode = result.getStringValue();
-                result = new StringLiteral(SqlModeHelper.encode(sqlMode).toString());
-            }
-            // For the case like "set sql_mode = 3"
-            else if (result instanceof IntLiteral) {
-                String sqlMode = SqlModeHelper.decode(result.getLongValue());
-                result = new IntLiteral(SqlModeHelper.encode(sqlMode).toString(), Type.BIGINT);
-            }
-        }
-
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
             if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
                 throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
+            }
+        }
+        if (variable.equalsIgnoreCase(SessionVariable.DEFAULT_ROWSET_TYPE)) {
+            if (type != SetType.GLOBAL) {
+                throw new AnalysisException("default_rowset_type must be global. use set global");
+            }
+            if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
+                throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
             }
         }
     }

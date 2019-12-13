@@ -29,7 +29,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class SetVarTest {
     private Analyzer analyzer;
@@ -38,10 +37,6 @@ public class SetVarTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
@@ -73,19 +68,5 @@ public class SetVarTest {
         SetVar var = new SetVar(SetType.DEFAULT, "", new StringLiteral("utf-8"));
         var.analyze(analyzer);
         Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlModeValue() throws UserException, AnalysisException {
-        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new IntLiteral(SqlModeHelper.MODE_LAST));
-        var.analyze(analyzer);
-        Assert.fail("No exception throws");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testInvalidSqlMode() throws UserException, AnalysisException {
-        SetVar var = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral("WRONG_MODE"));
-        var.analyze(analyzer);
-        Assert.fail("No exception throws");
     }
 }

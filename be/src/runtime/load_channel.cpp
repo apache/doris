@@ -113,8 +113,12 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
         return;
     }
 
-    VLOG(1) << "mem consumption: " << _mem_tracker->consumption()
-        << " may exceed limit. force: " << force << ", load id: " << _load_id;
+    if (!force) {
+        LOG(INFO) << "reducing memory of " << *this
+                  << " because its mem consumption " << _mem_tracker->consumption()
+                  << " has exceeded limit " << _mem_tracker->limit();
+    }
+
     std::shared_ptr<TabletsChannel> channel;
     if (_find_largest_max_consumption_tablets_channel(&channel)) {
         channel->reduce_mem_usage();

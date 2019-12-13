@@ -727,30 +727,26 @@ public class ScalarType extends Type {
     public int getStorageLayoutBytes() {
         switch (type) {
             case BOOLEAN:
-                return 0;
             case TINYINT:
                 return 1;
             case SMALLINT:
                 return 2;
             case INT:
+            case FLOAT:
                 return 4;
             case BIGINT:
             case TIME:
+            case DATETIME:
                 return 8;
             case LARGEINT:
+            case DECIMALV2:
                 return 16;
-            case FLOAT:
-                return 4;
             case DOUBLE:
                 return 12;
             case DATE:
                 return 3;
-            case DATETIME:
-                return 8;
             case DECIMAL:
                 return 40;
-            case DECIMALV2:
-                return 16;
             case CHAR:
             case VARCHAR:
                 return len;

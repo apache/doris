@@ -305,7 +305,7 @@ public class Config extends ConfigBase {
     /*
      * minimal intervals between two publish version action
      */
-    @ConfField public static int publish_version_interval_ms = 100;
+    @ConfField public static int publish_version_interval_ms = 10;
 
     /*
      * Maximal wait seconds for straggler node in load
@@ -934,5 +934,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean force_do_metadata_checkpoint = false;
+
+    /*
+     * The multi cluster feature will be deprecated in version 0.12
+     * set this config to true will disable all operations related to cluster feature, include:
+     *   create/drop cluster
+     *   add free backend/add backend to cluster/decommission cluster balance
+     *   change the backends num of cluster
+     *   link/migration db
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_cluster_feature = true;
 }
 
