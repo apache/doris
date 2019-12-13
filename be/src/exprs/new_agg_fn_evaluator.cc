@@ -282,7 +282,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
                     *reinterpret_cast<const DecimalVal*>(src));
         return;
     case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(slot) = 
+        *reinterpret_cast<PackedInt128*>(slot) =
             reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
     default:
@@ -388,7 +388,7 @@ inline void NewAggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMALV2:
-        reinterpret_cast<DecimalV2Val*>(dst)->val = 
+        reinterpret_cast<DecimalV2Val*>(dst)->val =
             reinterpret_cast<const PackedInt128*>(slot)->value;
         return;
 
