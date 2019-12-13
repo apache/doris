@@ -223,7 +223,7 @@ public class Alter {
         }
     }
 
-    public void processAlterCluster(AlterSystemStmt stmt) throws DdlException {
+    public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
         clusterHandler.process(Arrays.asList(stmt.getAlterClause()), stmt.getClusterName(), null, null);
     }
 
