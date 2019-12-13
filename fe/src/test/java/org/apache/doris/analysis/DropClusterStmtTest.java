@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -39,6 +40,7 @@ public class DropClusterStmtTest {
 
     @Before
     public void setUp() {
+        Config.disable_cluster_feature = false;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
         new Expectations() {
