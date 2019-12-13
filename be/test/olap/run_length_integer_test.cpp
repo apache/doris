@@ -355,7 +355,7 @@ virtual void SetUp() {
         system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
-        _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
+        _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, true);
         ASSERT_TRUE(_writer != NULL);
     }   
     
@@ -390,7 +390,7 @@ virtual void SetUp() {
                 &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
-        _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
+        _reader = new (std::nothrow) RunLengthIntegerReader(_stream, true);
         ASSERT_TRUE(_reader != NULL);
     }
 
