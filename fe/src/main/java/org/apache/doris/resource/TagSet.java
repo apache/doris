@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.GsonUtils;
-import org.apache.doris.resource.Tag.Type;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -39,7 +38,7 @@ import java.util.stream.Collectors;
 
 /*
  * TagSet represents a set of tags.
- * TagSet is printed as { "type1" : "tag1,tag2", "type2" : "tag1" }
+ * TagSet is printed as { "type1" : "value1,value2", "type2" : "value1" }
  * TagSet is mutable and not thread safe
  */
 public class TagSet implements Writable {
@@ -108,10 +107,11 @@ public class TagSet implements Writable {
     }
 
     // get a set of tags by tag type
-    public TagSet getTagsByType(Tag.Type type) {
+    public TagSet getTagsByType(String type) {
+        type = type.toLowerCase();
         TagSet tagSet = new TagSet();
         for (Tag tag : tags) {
-            if (tag.type == type) {
+            if (tag.type.equals(type)) {
                 tagSet.addTag(tag);
             }
         }
@@ -130,8 +130,8 @@ public class TagSet implements Writable {
     }
 
     // return all types in this tag set
-    public Set<Tag.Type> getTypes() {
-        Set<Tag.Type> set = Sets.newHashSet();
+    public Set<String> getTypes() {
+        Set<String> set = Sets.newHashSet();
         for (Tag tag : tags) {
             set.add(tag.type);
         }
@@ -139,18 +139,19 @@ public class TagSet implements Writable {
     }
 
     // delete all tags of specified type
-    private void deleteType(Type type) {
-        tags = tags.stream().filter(t -> t.type != type).collect(Collectors.toSet());
+    private void deleteType(String type) {
+        final String lowerType = type.toLowerCase();
+        tags = tags.stream().filter(t -> !t.type.equals(lowerType)).collect(Collectors.toSet());
     }
 
     // merge 2 tag sets, but all types of tag in target tag set will be substituted by type in 'other' tagset
     // eg:
-    // tagset A: { "type1" : "tag1,tag2", "type2" : "tag1" }
-    // tagset B: { "type1" : "tag3", "type3" : "tag4" }
-    // result of A.substituteMerge(B): { "type1" : "tag3", "type2" : "tag1", "type3" : "tag4" }
+    // tagset A: { "type1" : "val1,val2", "type2" : "val1" }
+    // tagset B: { "type1" : "val3", "type3" : "val4" }
+    // result of A.substituteMerge(B): { "type1" : "val3", "type2" : "val1", "type3" : "val4" }
     public void substituteMerge(TagSet other) {
-        Set<Tag.Type> types = other.getTypes();
-        for (Tag.Type type : types) {
+        Set<String> types = other.getTypes();
+        for (String type : types) {
             deleteType(type);
             union(other.getTagsByType(type));
         }
@@ -169,10 +170,11 @@ public class TagSet implements Writable {
     public String toString() {
         Map<String, String> map = Maps.newHashMap();
         Gson gson = new Gson();
-        for (Tag.Type type : Tag.Type.values()) {
+        for (String type : getTypes()) {
             TagSet tagSet = getTagsByType(type);
             if (!tagSet.isEmpty()) {
-                map.put(type.toString(), Joiner.on(",").join(tagSet.getAllTags().stream().map(t -> t.tag).collect(Collectors.toList())));
+                map.put(type, Joiner.on(",").join(
+                        tagSet.getAllTags().stream().map(t -> t.value).collect(Collectors.toList())));
             }
         }
         return gson.toJson(map);

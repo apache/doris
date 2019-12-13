@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.GsonUtils;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
@@ -32,58 +31,50 @@ import java.io.IOException;
 import java.util.Objects;
 
 /*
- * A Tag consists of type and name.
- * Tag type and name are both case insensitive, and represented in lower case.
- * Tag is printed as { "type": "name" }
+ * A Tag consists of type and value.
+ * Tag type and value are both case insensitive, and represented in lower case.
+ * Tag is printed as { "type": "value" }
+ * 
+ * Type is mainly used to categorize a tag. For example, users can customize a certain type of tag. 
+ * And these tags all use the same type. So user can quickly find this type of tags by the type.
+ * Doris reserves several built-in types:
+ *     ROLE: the role of resource, such as FRONTEND, BACKEND, BROKER
+ *     FUNCTION: the function of a tag, such as STORAGE, COMPUTATION
+ *     LOCATION: A type of tags representing location information.
+ *     
+ * Value is customized. And Doris also reserves several built-in values for built-in types:
+ *     FRONTEND, BACKEND, BROKER of type ROLE.
+ *     REMOTE_STORAGE, STORAGE, COMPUTATION for type FUNCTION.
  * 
  * A Tag is immutable once it being created.
  */
 public class Tag implements Writable {
-    // Classification of tag
-    public enum Type {
-        TYPE, FUNCTION, LOCATION, CUSTOM;
-
-        @Override
-        public String toString() {
-            return name().toLowerCase();
-        }
-    }
-    
-    public static final ImmutableSet<String> RESERVED_TAG_NAMES = ImmutableSet.of(
+    public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
+            "role", "function", "location");
+    public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             "frontend", "backend", "broker", "remote_storage", "store", "computation", "default_cluster");
-    private static final String TAG_NAME_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+    private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
 
     @SerializedName(value = "type")
-    public Type type;
-    @SerializedName(value = "tag")
-    public String tag;
+    public String type;
+    @SerializedName(value = "value")
+    public String value;
 
-    private Tag(Type type, String tag) {
-        this.type = type;
-        this.tag = tag.toLowerCase();
+    private Tag(String type, String val) {
+        this.type = type.toLowerCase();
+        this.value = val.toLowerCase();
     }
 
-    public static Tag create(String typeName, String tagName) throws AnalysisException {
-        try {
-            Type tagType = Type.valueOf(typeName.toUpperCase());
-            tagName = tagName.toLowerCase();
-            if (Strings.isNullOrEmpty(tagName) || !tagName.matches(TAG_NAME_REGEX)) {
-                throw new AnalysisException("Invalid tag name: " + tagName);
-            }
-
-            return create(tagType, tagName);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Invalid tag type: " + typeName);
+    public static Tag create(String type, String value) throws AnalysisException {
+        if (!type.matches(TAG_REGEX) || !value.matches(TAG_REGEX)) {
+            throw new AnalysisException("Invalid tag format: " + type + ":" + value);
         }
+        return new Tag(type, value);
     }
 
-    public static Tag create(Type type, String tagName) {
-        return new Tag(type, tagName);
-    }
-    
     @Override
     public int hashCode() {
-        return Objects.hash(type, tag);
+        return Objects.hash(type, value);
     }
     
     @Override
@@ -93,12 +84,12 @@ public class Tag implements Writable {
             return false;
         }
         Tag otherTag = (Tag) other;
-        return type == otherTag.type && Objects.equals(tag, otherTag.tag);
+        return type.equalsIgnoreCase(otherTag.type) && value.equalsIgnoreCase(otherTag.value);
     }
 
     @Override
     public String toString() {
-        return "{\"" + type.toString() + "\" : \"" + tag + "\"}";
+        return "{\"" + type.toString() + "\" : \"" + value + "\"}";
     }
 
     @Override

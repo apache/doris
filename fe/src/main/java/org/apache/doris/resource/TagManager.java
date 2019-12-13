@@ -20,7 +20,6 @@ package org.apache.doris.resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.GsonUtils;
-import org.apache.doris.resource.Tag.Type;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Maps;
@@ -41,9 +40,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The caller can get a set of resources based on a given set of Tags
  */
 public class TagManager implements Writable {
-    @SerializedName(value = "tagIndex")
     // tag -> set of resource id
     private HashMultimap<Tag, Long> tagIndex = HashMultimap.create();
+
     @SerializedName(value = "resourceIndex")
     // resource id -> tag set
     private Map<Long, TagSet> resourceIndex = Maps.newHashMap();
@@ -185,17 +184,21 @@ public class TagManager implements Writable {
         }
     }
 
+    // when replayed from edit log, tagIndex need to be built based on resourceIndex
+    private void rebuildTagIndex() {
+
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
-        Tag.create(Type.LOCATION, "rack1");
         Text.writeString(out, json);
     }
 
     public static TagManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        System.out.println(json);
         TagManager tagManager = GsonUtils.GSON.fromJson(json, TagManager.class);
+        tagManager.rebuildTagIndex();
         return tagManager;
     }
 }

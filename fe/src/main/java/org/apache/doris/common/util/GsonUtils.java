@@ -97,11 +97,11 @@ public class GsonUtils {
          * serialize Table<R, C, V> as:
          * {
          *      "rowKeys": [ "rowKey1", "rowKey2", ...],
-         *      "rowKeys": [ "colKey1", "colKey2", ...],
+         *      "columnKeys": [ "colKey1", "colKey2", ...],
          *      "cells" : [[0, 0, value1], [0, 1, value2], ...]
          * }
          * 
-         * the [0, 0] .. in cells are the indexes of rowKeys array and rowKeys array
+         * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array
          */
         @Override
         public JsonElement serialize(Table<R, C, V> src, Type typeOfSrc, JsonSerializationContext context) {
