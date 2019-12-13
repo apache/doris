@@ -17,7 +17,7 @@
 
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "exprs/bitmap_function.h"
+#include "exprs/bitmap_function.cpp"
 #include <iostream>
 #include <string>
 #include "testutil/function_utils.h"
@@ -32,6 +32,14 @@ StringVal convert_bitmap_to_string(FunctionContext* ctx, RoaringBitmap& bitmap) 
     std::string buf;
     buf.resize(bitmap.size());
     bitmap.serialize((char*)buf.c_str());
+    return AnyValUtil::from_string_temp(ctx, buf);
+}
+
+template<typename T>
+StringVal convert_bitmap_intersect_to_string(FunctionContext* ctx, BitmapIntersect<T>& intersect) {
+    std::string buf;
+    buf.resize(intersect.size());
+    intersect.serialize((char*)buf.c_str());
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
@@ -149,6 +157,96 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     BigIntVal expected(3);
     ASSERT_EQ(expected, result);
 }
+
+template<typename ValType, typename ValueType>
+void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
+    StringVal bitmap_column("placeholder");
+    StringVal filter_column("placeholder");
+    std::vector<doris_udf::AnyVal*> const_vals;
+    const_vals.push_back(&bitmap_column);
+    const_vals.push_back(&filter_column);
+    const_vals.push_back(&key1);
+    const_vals.push_back(&key2);
+    ctx->impl()->set_constant_args(const_vals);
+
+    StringVal dst;
+    BitmapFunctions::bitmap_intersect_init<ValueType, ValType>(ctx, &dst);
+
+    RoaringBitmap bitmap1(1024);
+    bitmap1.update(1025);
+    bitmap1.update(1026);
+    StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
+    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
+        ctx, src1, key1, 1, nullptr, &dst);
+
+    RoaringBitmap bitmap2(1024);
+    bitmap2.update(1023);
+    bitmap2.update(1022);
+    StringVal src2 = convert_bitmap_to_string(ctx, bitmap2);
+    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
+        ctx, src2, key2, 2, nullptr, &dst);
+
+    StringVal intersect1 = BitmapFunctions::bitmap_intersect_serialize<ValueType>(ctx, dst);
+
+    BitmapIntersect<ValueType> intersect2;
+    for(size_t i = 2; i < const_vals.size(); i++) {
+        ValType* arg = reinterpret_cast<ValType*>(const_vals[i]);
+        intersect2.add_key(detail::get_val<ValType, ValueType>(*arg));
+    }
+    intersect2.update(detail::get_val<ValType, ValueType>(key1), bitmap1);
+    intersect2.update(detail::get_val<ValType, ValueType>(key2), bitmap2);
+    StringVal expected = convert_bitmap_intersect_to_string(ctx, intersect2);
+    ASSERT_EQ(expected, intersect1);
+
+    BitmapIntersect<ValueType> intersect2_serde((char *)expected.ptr);
+    ASSERT_EQ(1, intersect2_serde.intersect_count());
+
+    StringVal dst2;
+    BitmapFunctions::bitmap_intersect_init<ValueType, ValType>(ctx, &dst2);
+    BitmapFunctions::bitmap_intersect_merge<ValueType>(ctx, intersect1, &dst2);
+    BigIntVal result = BitmapFunctions::bitmap_intersect_finalize<ValueType>(ctx, dst2);
+    BigIntVal expected_count(1);
+
+    ASSERT_EQ(expected_count, result);
+}
+
+TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
+    test_bitmap_intersect<TinyIntVal, int8_t>(
+        ctx, TinyIntVal(101), TinyIntVal(102));
+    test_bitmap_intersect<SmallIntVal, int16_t>(
+        ctx, SmallIntVal((int16_t)65535), SmallIntVal((int16_t)65534));
+    test_bitmap_intersect<IntVal, int32_t>(
+        ctx, IntVal(20191211), IntVal(20191212));
+    test_bitmap_intersect<BigIntVal, int64_t>(
+        ctx, BigIntVal(20191211), BigIntVal(20191212));
+    test_bitmap_intersect<LargeIntVal, __int128>(
+        ctx, LargeIntVal(20191211), LargeIntVal(20191212));
+    test_bitmap_intersect<FloatVal, float>(
+        ctx, FloatVal(1.01), FloatVal(1.02));
+    test_bitmap_intersect<DoubleVal, double>(
+        ctx, DoubleVal(1.01), DoubleVal(1.02));
+
+    DecimalV2Val v1;
+    DecimalV2Value("1.01").to_decimal_val(&v1);
+    DecimalV2Val v2;
+    DecimalV2Value("1.02").to_decimal_val(&v2);
+    test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(
+        ctx, v1, v2);
+
+    DateTimeVal datatime1;
+    DateTimeValue date_time_value;
+    date_time_value.from_date_int64(19880201);
+    date_time_value.to_datetime_val(&datatime1);
+    DateTimeVal datatime2;
+    date_time_value.from_date_int64(19880202);
+    date_time_value.to_datetime_val(&datatime2);
+    test_bitmap_intersect<DateTimeVal, DateTimeValue>(
+        ctx, datatime1, datatime2);
+
+    test_bitmap_intersect<StringVal, StringValue>(
+        ctx, StringVal("20191211"), StringVal("20191212"));
+}
+
 
 }
 
