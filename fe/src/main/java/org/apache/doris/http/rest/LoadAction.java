@@ -88,7 +88,7 @@ public class LoadAction extends RestBaseAction {
         }
 
         String tableName = request.getSingleParameter(TABLE_KEY);
-        if (Strings.isNullOrEmpty(dbName)) {
+        if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
         }
         
