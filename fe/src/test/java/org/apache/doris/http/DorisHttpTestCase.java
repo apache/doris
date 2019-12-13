@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+
 import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
@@ -47,31 +48,31 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-
+import mockit.internal.startup.Startup;
+import okhttp3.Credentials;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
 import org.easymock.EasyMock;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-
 import junit.framework.AssertionFailedError;
-import okhttp3.Credentials;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*", "javax.net.ssl.*"})
-@PrepareForTest({ Catalog.class })
+@PowerMockIgnore({"org.apache.log4j.*", "javax.management.*", "javax.net.ssl.*"})
+@PrepareForTest({Catalog.class})
 abstract public class DorisHttpTestCase {
 
     public OkHttpClient networkClient = new OkHttpClient.Builder()
@@ -107,6 +108,7 @@ abstract public class DorisHttpTestCase {
     public static long testPartitionNextVersionHash = 123123123;
 
     public static final int HTTP_PORT;
+
     static {
         Random r = new Random(System.currentTimeMillis());
         HTTP_PORT = 20000 + r.nextInt(10000);
@@ -234,8 +236,21 @@ abstract public class DorisHttpTestCase {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
     }
 
+    @BeforeClass
+    public static void initHttpServer() throws IllegalArgException, InterruptedException {
+        httpServer = new HttpServer(HTTP_PORT);
+        httpServer.setup();
+        httpServer.start();
+        // must ensure the http server started before any unit test
+        while (!httpServer.isStarted()) {
+            Thread.sleep(500);
+        }
+    }
+
+
+
     @Before
-    public void setUp() throws IllegalArgumentException, SecurityException, IllegalArgException, InterruptedException {
+    public void setUp() {
         Catalog catalog = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
@@ -246,18 +261,15 @@ abstract public class DorisHttpTestCase {
         EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(tabletInvertedIndex).anyTimes();
         PowerMock.replay(Catalog.class);
         assignBackends();
-        httpServer = new HttpServer(HTTP_PORT);
-        httpServer.setup();
-        httpServer.start();
-        // must ensure the http server started before any unit test
-        while (!httpServer.isStarted()) {
-            Thread.sleep(500);
-        }
         doSetUp();
     }
 
     @After
     public void tearDown() {
+    }
+
+    @AfterClass
+    public static void closeHttpServer() {
         httpServer.shutDown();
     }
 
