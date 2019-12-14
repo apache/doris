@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.persist.gson;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.GsonSerializationTest.Key.MyEnum;
+import org.apache.doris.persist.gson.GsonSerializationTest.Key.MyEnum;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
@@ -49,22 +49,19 @@ import java.util.Objects;
 import java.util.Set;
 
 /*
- * This unit test case also provide examples about how to
- * make a class serializable.
+ * This unit test provides examples about how to make a class serializable.
  * 
- * 1. OrigClassA
- * 
- *    OrigClassA is a class includes user-defined class InnerClassA.
- *    And InnerClassA includes some collections which contain another user-defined class InnerClassB.
+ *    "OrigClassA" is a class includes user-defined class "InnerClassA".
+ *    And "InnerClassA" includes some collections which contain another user-defined class "InnerClassB".
  *    
- *    And there are 2 other class OriginClassADifferentMembers and OriginClassADifferentMemberName.
- *    OriginClassADifferentMembers shows how to add/remove members of a serializable class.
- *    OriginClassADifferentMemberName shows how to modify members' name of a serializable class.
+ *    And there are 2 other classes "OriginClassADifferentMembers" and "OriginClassADifferentMemberName".
+ *    "OriginClassADifferentMembers" shows how to add/remove members of a serializable class.
+ *    "OriginClassADifferentMemberName" shows how to modify members' name of a serializable class.
  *    
  *    Every fields which need to be serialized should be with annotation @SerializedName.
  *    @SerializedName has 2 attributes:
- *    1. value(required): the name of this field in Json string.
- *    2. alternate(optional): if we want to use new name for a field and its value in annotation, use alternate.
+ *      1. value(required): the name of this field in Json string.
+ *      2. alternate(optional): if we want to use new name for a field and its value in annotation, use alternate.
  *    
  */
 public class GsonSerializationTest {

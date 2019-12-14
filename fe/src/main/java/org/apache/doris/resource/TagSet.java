@@ -20,7 +20,7 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;

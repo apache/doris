@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.persist.gson;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -49,7 +49,7 @@ import java.util.Map;
 
 /*
  * Some utilities about Gson.
- * User should get GSON instance inside this class to do the serialization.
+ * User should get GSON instance from this class to do the serialization.
  * 
  *      GsonUtils.GSON.toJson(...)
  *      GsonUtils.GSON.fromJson(...)

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.apache.doris.common.util;
+package org.apache.doris.persist.gson;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;

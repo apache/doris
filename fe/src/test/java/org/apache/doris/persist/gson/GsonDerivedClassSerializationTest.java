@@ -1,8 +1,8 @@
-package org.apache.doris.common.util;
+package org.apache.doris.persist.gson;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.GsonUtils.HiddenAnnotationExclusionStrategy;
+import org.apache.doris.persist.gson.GsonUtils.HiddenAnnotationExclusionStrategy;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -30,7 +30,7 @@ import java.util.Map;
  *      ChildClassA
  *      ChildClassB
  *      
- * User need to create a new RuntimeTypeAdapterFactory of ParentClass and
+ * User need to create a RuntimeTypeAdapterFactory for ParentClass and
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
  * 
