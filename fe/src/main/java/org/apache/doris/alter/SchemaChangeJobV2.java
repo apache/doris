@@ -396,6 +396,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
+            List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
+            for (AgentTask task : tasks) {
+                if (task.getFailedTimes() >= 3) {
+                    throw new AlterCancelException("schema change task failed after try three times.");
+                }
+            }
             return;
         }
 
