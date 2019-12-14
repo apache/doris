@@ -64,6 +64,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.thrift.TStorageMedium;
 
