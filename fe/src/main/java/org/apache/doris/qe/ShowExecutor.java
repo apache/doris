@@ -1452,16 +1452,18 @@ public class ShowExecutor {
                     }
                     DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
                     DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
-                    rows.add(Lists.newArrayList(tbl.getName(),
-                                                dynamicPartitionProperty.getEnable().toUpperCase(),
-                                                dynamicPartitionProperty.getTimeUnit().toUpperCase(),
-                                                dynamicPartitionProperty.getEnd().toUpperCase(),
-                                                dynamicPartitionProperty.getPrefix(),
-                                                dynamicPartitionProperty.getBuckets().toUpperCase(),
-                                                dynamicPartitionScheduler.lastUpdateTime,
-                                                dynamicPartitionScheduler.lastSchedulerTime,
-                                                dynamicPartitionScheduler.dynamicPartitionState.toString(),
-                                                dynamicPartitionScheduler.msg));
+                    String tableName = tbl.getName();
+                    rows.add(Lists.newArrayList(
+                            tableName,
+                            dynamicPartitionProperty.getEnable().toUpperCase(),
+                            dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                            dynamicPartitionProperty.getEnd().toUpperCase(),
+                            dynamicPartitionProperty.getPrefix(),
+                            dynamicPartitionProperty.getBuckets().toUpperCase(),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.MSG)));
                 }
             } finally {
                 db.readUnlock();

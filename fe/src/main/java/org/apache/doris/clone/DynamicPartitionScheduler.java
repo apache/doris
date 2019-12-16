@@ -51,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,12 +61,14 @@ import java.util.Set;
  */
 public class DynamicPartitionScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionScheduler.class);
+    public static final String LAST_SCHEDULER_TIME = "lastSchedulerTime";
+    public static final String LAST_UPDATE_TIME = "lastUpdateTime";
+    public static final String DYNAMIC_PARTITION_STATE = "dynamicPartitionState";
+    public static final String MSG = "msg";
 
-    private final String defaultValue = "N/A";
-    public String lastSchedulerTime = defaultValue;
-    public String lastUpdateTime = defaultValue;
-    public State dynamicPartitionState = State.NORMAL;
-    public String msg = defaultValue;
+    private final String DEFAULT_RUNTIME_VALUE = "N/A";
+
+    private Map<String, Map<String, String>> runtimeInfos = new HashMap<>();
 
     public enum State {
         NORMAL,
@@ -79,6 +82,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         super(name, intervalMs);
         this.initialize = false;
     }
+
     public synchronized void registerDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
     }
@@ -87,8 +91,32 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
+    public String getRuntimeInfo(String tableName, String key) {
+        Map<String, String> tableRuntimeInfo = runtimeInfos.getOrDefault(tableName, createDefaultRuntimeInfo());
+        return tableRuntimeInfo.getOrDefault(key, DEFAULT_RUNTIME_VALUE);
+    }
+
+    public synchronized void createOrUpdateRuntimeInfo(String tableName, String key, String value) {
+        Map<String, String> runtimeInfo = runtimeInfos.get(tableName);
+        if (runtimeInfo == null) {
+            runtimeInfo = createDefaultRuntimeInfo();
+            runtimeInfo.put(key, value);
+            runtimeInfos.put(tableName, runtimeInfo);
+        } else {
+            runtimeInfo.put(key, value);
+        }
+    }
+
+    private synchronized Map<String, String> createDefaultRuntimeInfo() {
+        HashMap<String, String> defaultRuntimeInfo = new HashMap<>(4);
+        defaultRuntimeInfo.put(LAST_UPDATE_TIME, DEFAULT_RUNTIME_VALUE);
+        defaultRuntimeInfo.put(LAST_SCHEDULER_TIME, DEFAULT_RUNTIME_VALUE);
+        defaultRuntimeInfo.put(DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
+        defaultRuntimeInfo.put(MSG, DEFAULT_RUNTIME_VALUE);
+        return defaultRuntimeInfo;
+    }
+
     private void dynamicAddPartition() {
-        lastSchedulerTime = TimeUtils.getCurrentFormatTime();
         Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfo.iterator();
         while (iterator.hasNext()) {
             Pair<Long, Long> tableInfo = iterator.next();
@@ -115,6 +143,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // if column type is Date, format partition name as yyyyMMdd
             // if column type is DateTime, format partition name as yyyyMMddHHssmm
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            // scheduler time should be record even no partition added
+            createOrUpdateRuntimeInfo(olapTable.getName(), LAST_SCHEDULER_TIME, TimeUtils.getCurrentFormatTime());
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
             Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
             String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
@@ -171,12 +201,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 AddPartitionClause addPartitionClause = new AddPartitionClause(rangePartitionDesc, distributionDesc, null);
                 try {
                     Catalog.getInstance().addPartition(db, olapTable.getName(), addPartitionClause);
-                    dynamicPartitionState = State.NORMAL;
-                    msg = defaultValue;
+                    createOrUpdateRuntimeInfo(olapTable.getName(), DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
+                    createOrUpdateRuntimeInfo(olapTable.getName(), MSG, DEFAULT_RUNTIME_VALUE);
                 } catch (DdlException e) {
                     LOG.info("dynamic add partition failed: " + e.getMessage());
-                    dynamicPartitionState = State.ERROR;
-                    msg = e.getMessage();
+                    createOrUpdateRuntimeInfo(olapTable.getName(), DYNAMIC_PARTITION_STATE, State.ERROR.toString());
+                    createOrUpdateRuntimeInfo(olapTable.getName(), MSG, e.getMessage());
                 }
             }
         }

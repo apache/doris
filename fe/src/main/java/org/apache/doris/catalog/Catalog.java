@@ -3581,7 +3581,8 @@ public class Catalog {
                         Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
                         TableProperty tableProperty = new TableProperty();
                         tableProperty.modifyTableProperties(dynamicPartitionProperties);
-                        dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
+                        dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                                tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
                         olapTable.setTableProperty(tableProperty);
                     }
 
@@ -3626,8 +3627,8 @@ public class Catalog {
                 editLog.logColocateAddTable(info);
             }
             LOG.info("successfully create table[{};{}]", tableName, tableId);
-            // register table to DynamicPartition if needed after table created
-            DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), olapTable);
+            // register or remove table from DynamicPartition after table created
+            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable);
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
@@ -5085,8 +5086,9 @@ public class Catalog {
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
-            DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), table);
-            dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
+            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
+            dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                    table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
             // here all modified properties is DynamicPartitionProperty
             ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
             editLog.logDynamicPartition(info);

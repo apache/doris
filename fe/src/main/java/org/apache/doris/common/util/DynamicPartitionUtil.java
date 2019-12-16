@@ -141,11 +141,14 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static void registerDynamicPartitionTableIfEnable(long dbId, OlapTable olapTable) {
+    public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable) {
         if (olapTable.getTableProperty() != null
-                && olapTable.getTableProperty().getDynamicPartitionProperty() != null
-                && Boolean.parseBoolean(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())) {
-            Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(dbId, olapTable.getId());
+                && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
+            if (Boolean.parseBoolean(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())) {
+                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(dbId, olapTable.getId());
+            } else {
+                Catalog.getCurrentCatalog().getDynamicPartitionScheduler().removeDynamicPartitionTable(dbId, olapTable.getId());
+            }
         }
     }
 
