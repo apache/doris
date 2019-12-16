@@ -106,13 +106,6 @@ public:
         return strings::Substitute("[$0-$1)", _from, _to);
     }
 
-    // Comparator struct, useful for ordered collections (like STL maps).
-    struct Comparator {
-        bool operator()(const RowRange& a, const RowRange& b) const {
-            return a.from() < b.from() || (a.from() == b.from() && a.to() < b.to());
-        }
-    };
-
 private:
     int64_t _from;
     int64_t _to;

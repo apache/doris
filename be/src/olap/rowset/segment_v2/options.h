@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include "gen_cpp/segment_v2.pb.h"
-
 namespace doris {
 namespace segment_v2 {
 

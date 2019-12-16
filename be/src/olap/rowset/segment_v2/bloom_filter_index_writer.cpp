@@ -95,8 +95,6 @@ public:
                 bf->add_bytes((char*)&v, sizeof(CppType));
             }
         }
-        LOG(INFO) << "add one bf page, index:" << _bfs.size() << ", value size:" << _values.size() << ", num_bytes:" << num_bytes
-                << ", has null:" << bf->has_null();
         _bfs.push_back(std::move(bf));
         _values.clear();
         return Status::OK();

@@ -151,10 +151,6 @@ public:
     const PagePointer& current_page_pointer() const {
         return _reader->get_value(_pos);
     }
-
-    size_t current_page_index() const {
-        return _pos;
-    }
 private:
     const IndexPageReader* _reader;
 

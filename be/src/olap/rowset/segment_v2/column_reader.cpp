@@ -17,8 +17,6 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include <fstream>
-
 #include "common/logging.h"
 #include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
@@ -37,7 +35,6 @@
 #include "util/block_compression.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
-#include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -253,11 +250,6 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
         if (cond_column->eval(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_row_id(pid),
                     _ordinal_index->get_last_row_id(pid) + 1));
-            LOG(INFO) << "page:" << pid << " pass bloom filter.";
-            std::ofstream ofile("page_" + std::to_string(pid) + "_bloom_filter");
-            ofile << hexdump(bf->data(), bf->size());
-        } else {
-            LOG(INFO) << "page:" << pid << " is filtered by bloom filter";
         }
     }
     size_t original_size = row_ranges->count();

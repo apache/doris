@@ -105,17 +105,17 @@ public:
     void write_meta(ColumnMetaPB* meta);
 
 private:
-    struct Page {	
-        int32_t first_rowid;	
-        int32_t num_rows;	
-        OwnedSlice null_bitmap;	
-        OwnedSlice data;	
-        Page* next = nullptr;	
-    };	
+    struct Page {
+        int32_t first_rowid;
+        int32_t num_rows;
+        OwnedSlice null_bitmap;
+        OwnedSlice data;
+        Page* next = nullptr;
+    };
 
-    struct PageHead {	
-        Page* head = nullptr;	
-        Page* tail = nullptr;	
+    struct PageHead {
+        Page* head = nullptr;
+        Page* tail = nullptr;
     };
 
     void _push_back_page(Page* page) {

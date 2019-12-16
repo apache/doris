@@ -49,7 +49,6 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal, std::unique_
     DCHECK(num_to_read == num_read);
     // construct bloom filter
     BloomFilter::create(_reader->_bloom_filter_index_meta.algorithm(), bf);
-    LOG(INFO) << "read slice data:" << value.data << ", size:" << value.size;
     auto ret = (*bf)->init(value.data, value.size, _reader->_bloom_filter_index_meta.hash_strategy());
     if (!ret) {
         return Status::InternalError("init bloom filter failed");
