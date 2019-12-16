@@ -3625,7 +3625,6 @@ public class Catalog {
                 ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
                 editLog.logColocateAddTable(info);
             }
-            
             LOG.info("successfully create table[{};{}]", tableName, tableId);
             // register table to DynamicPartition if needed after table created
             DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), olapTable);

@@ -497,6 +497,11 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
+            case OperationType.OP_DYNAMIC_PARTITION: {
+                data = ModifyDynamicPartitionInfo.read(in);
+                needRead = false;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
