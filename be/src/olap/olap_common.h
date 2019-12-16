@@ -199,6 +199,13 @@ struct Version {
     bool operator==(const Version& rhs) const {
         return first == rhs.first && second == rhs.second;
     }
+
+    // compared by start version, than end version
+    bool operator< (const Version& other) const {
+        if (first < other.first) return true;
+        if (first == other.first) return second < other.second;
+        return false;
+    }
 };
 
 typedef std::vector<Version> Versions;

@@ -40,10 +40,10 @@ const static std::string HEADER_JSON = "application/json";
 Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* json_result) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
-    if (req_tablet_id == "" && req_schema_hash = "") {
+    if (req_tablet_id == "" && req_schema_hash == "") {
         // TODO(cmy): View the overall compaction status
         return Status::NotSupported("The overall compaction status is not supported yet");
-    } else if (req_tablet_id == "" || req_schema_hash = "") {
+    } else if (req_tablet_id == "" || req_schema_hash == "") {
         return Status::InvalidArgument("Missing tablet id or schema hash");
     }
 
@@ -65,10 +65,10 @@ Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* 
 void CompactionAction::handle(HttpRequest *req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
-    if (_type == CompactionActionType.SHOW) {
+    if (_type == CompactionActionType::SHOW_INFO) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
-        if (!st.ok) {
+        if (!st.ok()) {
             HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);

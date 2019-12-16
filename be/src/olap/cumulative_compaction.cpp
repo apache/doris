@@ -76,19 +76,22 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 
     std::vector<RowsetSharedPtr> transient_rowsets;
     size_t num_overlapping_segments = 0;
-    bool break_for_delete = false;
+    // the last delete version we meet when traversing candidate_rowsets
+    Version last_delete_version { -1, -1 };
+
+    // traverse rowsets from begin to penultimate rowset.
+    // Becuse VersionHash will calculated from chosen rowsets.
+    // If ultimate singleton rowset is chosen, VersionHash
+    // will be different from the value recorded in FE.
+    // So the ultimate singleton rowset is revserved.
     for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
-        // VersionHash will calculated from chosen rowsets.
-        // If ultimate singleton rowset is chosen, VersionHash
-        // will be different from the value recorded in FE.
-        // So the ultimate singleton rowset is revserved.
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
             if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
                 _input_rowsets = transient_rowsets;
-                break_for_delete = true;
                 break;
             }
+            last_delete_version = rowset->version();
             transient_rowsets.clear();
             num_overlapping_segments = 0;
             continue;
@@ -111,37 +114,35 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         _input_rowsets = transient_rowsets;
     }
 
-    // There are 3 cases which we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
-    // Case 1: _input_rowsets is empty, which means num_overlapping_segments is not enough to do cumulative compaction.
-    // Case 2: _input_rowsets has only 1 rowset:
-    //      A: only 1 rowset because we meet a delete version.
-    //      B: only 1 rowset because num_overlapping_segments is not enough(same as Case 1)
-    // 
-    // For Case 1 and Case 2B:
-    //      We should wait until there are more rowsets to come, and keep the cumulative point unchanged.
-    //      But in order to avoid the stall of compaction because no new rowset arrives later, we should increase
-    //      the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
-    // For Case 2A:
-    //      We should increase the cumulative point to let base compaction handle the delete version.
-    if (_input_rowsets.empty() || (_input_rowsets.size() == 1 && !break_for_delete)) {
-        // Case 1 and Case 2B
+    // Cumulative compaction will process with at least 2 rowsets.
+    // So when there is no rowset or only 1 rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
+    if (_input_rowsets.size() <= 1) {
+        if (last_delete_version.first != -1) {
+            // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
+            // plus 1 to skip the delete version.
+            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doen't matter.
+            _tablet->set_cumulative_layer_point(last_delete_version.first + 1);
+            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+        }
+
+        // we did not meet any delete version. which means num_overlapping_segments is not enough to do cumulative compaction.
+        // We should wait until there are more rowsets to come, and keep the cumulative point unchanged.
+        // But in order to avoid the stall of compaction because no new rowset arrives later, we should increase
+        // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
+
+        // get the first rowset's create time as the last base compaction time
         int64_t base_creation_time = _tablet->get_first_rowset_create_time();
         if (base_creation_time == -1L) {
             // not found rowset with version start from 0. this tablet may be broken. return error
             return OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE;
         }
+        
         int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
         int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
         if (interval_since_last_base_compaction > interval_threshold) {
             _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
         }
 
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
-    }
-
-    if (_input_rowsets.size() == 1) {
-        // Case 2A
-        _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 

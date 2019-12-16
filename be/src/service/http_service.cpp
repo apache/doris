@@ -114,7 +114,7 @@ Status HttpService::start() {
 #endif
 
     // 2 compaction actions
-    CompactionAction* show_compaction_action = new CompactionAction(CompactionActionType::SHOW);
+    CompactionAction* show_compaction_action = new CompactionAction(CompactionActionType::SHOW_INFO);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
     CompactionAction* do_compaction_action = new CompactionAction(CompactionActionType::DO_COMPACTION);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/do_compact", do_compaction_action);
