@@ -124,24 +124,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
     */
 
-    // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> IS_BUILTIN_AGG_FN =
-            new com.google.common.base.Predicate<Expr>() {
-                @Override
-                public boolean apply(Expr arg) {
-                    if (arg instanceof FunctionCallExpr) {
-                        String fnName = ((FunctionCallExpr)arg).getFnName().getFunction();
-                        return  (fnName.equalsIgnoreCase("sum")
-                                || fnName.equalsIgnoreCase("max")
-                                || fnName.equalsIgnoreCase("min")
-                                || fnName.equalsIgnoreCase("avg")
-                                || fnName.equalsIgnoreCase("count"));
-                    } else {
-                        return false;
-                    }
-                }
-            };
-
     public final static com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
