@@ -32,14 +32,14 @@ import com.google.common.collect.Maps;
 public class PluginMgr {
     private final List<Map<String, PluginRef>> plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
 
-    private PluginLoader pluginDynamicUtil;
+    private PluginLoader pluginLoader;
 
     public PluginMgr(String pluginDir) {
         for (int i = 0; i < plugins.size(); i++) {
             plugins.add(Maps.newConcurrentMap());
         }
 
-        pluginDynamicUtil = new PluginLoader(pluginDir);
+        pluginLoader = new PluginLoader(pluginDir);
     }
 
     public void execute() {
@@ -50,7 +50,7 @@ public class PluginMgr {
      * Dynamic install plugin thought install statement
      */
     public void installPlugin(String pluginPath) throws IOException, UserException {
-        PluginInfo info = pluginDynamicUtil.getPluginInfo(pluginPath);
+        PluginInfo info = pluginLoader.getPluginInfo(pluginPath);
 
         {
             // already install
@@ -67,7 +67,7 @@ public class PluginMgr {
         }
 
         // install plugin
-        Plugin plugin = pluginDynamicUtil.installPlugin(info);
+        Plugin plugin = pluginLoader.installPlugin(info);
 
         PluginRef pluginRef = new PluginRef(plugin, info);
 
@@ -75,7 +75,7 @@ public class PluginMgr {
             PluginRef checkRef = plugins.get(info.getType().ordinal()).putIfAbsent(info.getName(), pluginRef);
 
             if (!pluginRef.equals(checkRef)) {
-                pluginDynamicUtil.uninstallPlugin(info, plugin);
+                pluginLoader.uninstallPlugin(info, plugin);
                 throw new UserException(
                         "plugin " + info.getName() + " has install version " + checkRef.getPluginInfo().getVersion());
             }
@@ -96,7 +96,7 @@ public class PluginMgr {
                 }
 
                 // uninstall plugin
-                pluginDynamicUtil.uninstallPlugin(ref.pluginInfo, ref.plugin);
+                pluginLoader.uninstallPlugin(ref.pluginInfo, ref.plugin);
                 return;
             }
         }
