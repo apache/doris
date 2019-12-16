@@ -588,7 +588,7 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_compaction_failure_time(UnixMillis());
-        if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+        if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::base_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to init base compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
