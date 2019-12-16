@@ -210,6 +210,19 @@ struct Version {
 
 typedef std::vector<Version> Versions;
 
+// A simple comparator for Version
+// compared by start version, than end version
+struct SimpleVersionComparator {
+public:
+    SimpleVersionComparator() {}
+
+    bool operator()(const Version& lhs, const Version& rhs) const {
+        if (lhs.first < rhs.first) return true;
+        if (lhs.first == rhs.first) return lhs.second < rhs.second;
+        return false;
+    }
+};
+
 
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {

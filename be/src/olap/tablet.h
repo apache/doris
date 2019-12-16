@@ -218,6 +218,12 @@ public:
     int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_time; }
     void set_last_base_compaction_failure_time(int64_t time) { _last_base_compaction_failure_time = time; }
 
+    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_time; }
+    void set_last_cumu_compaction_success_time(int64_t time) { _last_cumu_compaction_success_time = time; }
+
+    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_time; }
+    void set_last_base_compaction_success_time(int64_t time) { _last_base_compaction_success_time = time; }
+
     void delete_all_files();
 
     bool check_path(const std::string& check_path);
@@ -229,11 +235,6 @@ public:
 
     void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
-
-    // return the create time of first rowset.
-    // first rowset is rowset with version start from 0.
-    // return -1 if there is no rowset start with version 0.
-    int64_t get_first_rowset_create_time();
 
     OLAPStatus calculate_cumulative_point();
     // TODO(ygl): 
@@ -287,6 +288,8 @@ private:
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_cumu_compaction_failure_time; // timestamp of last cumulative compaction failure
     std::atomic<int64_t> _last_base_compaction_failure_time; // timestamp of last base compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_success_time; // timestamp of last cumu compaction success
+    std::atomic<int64_t> _last_base_compaction_success_time; // timestamp of last base compaction success
 
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;

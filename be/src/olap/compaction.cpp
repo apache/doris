@@ -76,6 +76,18 @@ OLAPStatus Compaction::do_compaction() {
     // 4. modify rowsets in memory
     RETURN_NOT_OK(modify_rowsets());
 
+    // 5. update last success compaction time
+    int64_t now = time(NULL);
+    if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        _tablet->update_last_cumu_compaction_time(now);
+    } else {
+        _tablet->update_last_base_compaction_time(now);
+    } 
+    ReaderType compaction_type() const override {
+        return ReaderType::READER_CUMULATIVE_COMPACTION;
+    }
+    
+
     LOG(INFO) << "succeed to do " << compaction_name()
               << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version.first

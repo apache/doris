@@ -80,18 +80,18 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     Version last_delete_version { -1, -1 };
 
     // traverse rowsets from begin to penultimate rowset.
-    // Becuse VersionHash will calculated from chosen rowsets.
+    // Because VersionHash will calculated from chosen rowsets.
     // If ultimate singleton rowset is chosen, VersionHash
     // will be different from the value recorded in FE.
     // So the ultimate singleton rowset is revserved.
     for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
+            last_delete_version = rowset->version();
             if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
                 _input_rowsets = transient_rowsets;
                 break;
             }
-            last_delete_version = rowset->version();
             transient_rowsets.clear();
             num_overlapping_segments = 0;
             continue;
@@ -130,16 +130,15 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // But in order to avoid the stall of compaction because no new rowset arrives later, we should increase
         // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
 
-        // get the first rowset's create time as the last base compaction time
-        int64_t base_creation_time = _tablet->get_first_rowset_create_time();
-        if (base_creation_time == -1L) {
-            // not found rowset with version start from 0. this tablet may be broken. return error
-            return OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE;
-        }
+        // check both last success time of base and cumulative compaction
+        int64_t last_cumu_compaction_success_time = _tablet->last_cumu_compaction_success_time();
+        int64_t last_base_compaction_success_time = _tablet->last_base_compaction_success_time();
         
         int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
-        int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
-        if (interval_since_last_base_compaction > interval_threshold) {
+        int64_t now = time(NULL);
+        int64_t cumu_interval = now - last_cumu_compaction_success_time;
+        int64_t base_interval = now - last_base_compaction_success_time;
+        if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
             _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
         }
 

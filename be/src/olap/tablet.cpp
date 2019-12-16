@@ -68,7 +68,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _data_dir(data_dir),
     _is_bad(false),
     _last_cumu_compaction_failure_time(0),
-    _last_base_compaction_failure_time(0) {
+    _last_base_compaction_failure_time(0),
+    _last_cumu_compaction_success_time(0),
+    _last_base_compaction_success_time(0) {
 
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
@@ -1038,21 +1040,11 @@ void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedP
     }
 }
 
-int64_t Tablet::get_first_rowset_create_time() {
-    ReadLock rdlock(&_meta_lock);
-    for (auto& it : _rs_version_map) {
-        if (it.first.first == 0) {
-            return it.second->creation_time();
-        }
-    }
-    return -1L;
-}
-
 OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
     root.SetObject();
 
-    std::map<Version, bool> rowset_version_map;
+    std::map<Version, bool, SimpleVersionComparator> rowset_version_map(SimpleVersionComparator());
     {
         ReadLock rdlock(&_meta_lock);
         for (auto& it : _rs_version_map) {
@@ -1060,13 +1052,21 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
         }
         root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
         rapidjson::Value cumu_value;
-        std::string last_failure_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
-        cumu_value.SetString(last_failure_str.c_str(), last_failure_str.length(), root.GetAllocator());
+        std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
+        cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
         root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
         rapidjson::Value base_value;
-        last_failure_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
-        base_value.SetString(last_failure_str.c_str(), last_failure_str.length(), root.GetAllocator());
+        format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
+        base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
         root.AddMember("last base failure time", base_value, root.GetAllocator());
+        rapidjson::Value cumu_success_value;
+        std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+        cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+        rapidjson::Value base_success_value;
+        std::string format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+        base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last base success time", base_success_value, root.GetAllocator());
     }
     // std::sort(all_rowsets.begin(), all_rowsets.end(), Rowset::comparator);
 

@@ -49,6 +49,8 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
     "cumulative point": 50,
     "last cumulative failure time": "2019-12-16 18:13:43.224",
     "last base failure time": "2019-12-16 18:13:23.320",
+    "last cumu success time": "2019-12-16 18:12:15.110",
+    "last base success time": "2019-12-16 18:11:50.780",
     "versions": [
         "[0-48] ",
         "[49-49] ",
