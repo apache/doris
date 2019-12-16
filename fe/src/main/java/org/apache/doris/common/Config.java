@@ -340,6 +340,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_layout_length_per_row = 100000; // 100k
 
+    /*
+     * The default number of keys in duplicate table.
+     * If user does not specify key of duplicate table in create table stmt,
+     * the default keys will be supplemented by Doris.
+     * The default key columns are first 36 bytes(DEFAULT_DUP_KEYS_BYTES) of the columns in define order.
+     * If the number of columns in the first 36 is less than 3(DEFAULT_DUP_KEYS_COUNT),
+     * the first 3 columns will be used.
+     */
     public static final int DEFAULT_DUP_KEYS_COUNT = 3;
     public static final int DEFAULT_DUP_KEYS_BYTES = 36;
 
