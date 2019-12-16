@@ -1044,7 +1044,14 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
     root.SetObject();
 
-    std::map<Version, bool, SimpleVersionComparator> rowset_version_map(SimpleVersionComparator());
+    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
+        [](const Version& lhs, const Version& rhs)
+        {
+            if (lhs.first < rhs.first) return true;
+            if (lhs.first == rhs.first) return lhs.second < rhs.second;
+            return false;
+        }
+    };
     {
         ReadLock rdlock(&_meta_lock);
         for (auto& it : _rs_version_map) {
@@ -1060,11 +1067,11 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
         base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
         root.AddMember("last base failure time", base_value, root.GetAllocator());
         rapidjson::Value cumu_success_value;
-        std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+        format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
         cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
         root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
         rapidjson::Value base_success_value;
-        std::string format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+        format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
         base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
         root.AddMember("last base success time", base_success_value, root.GetAllocator());
     }
