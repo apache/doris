@@ -37,6 +37,7 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
+// for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* json_result) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);

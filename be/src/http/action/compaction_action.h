@@ -22,12 +22,14 @@
 
 namespace doris {
 
+
 enum CompactionActionType {
     SHOW_INFO = 1,
     DO_COMPACTION = 2
 };
 
-// Get Meta Info
+// This action is used for viewing the compaction status.
+// See compaction-action.md for details.
 class CompactionAction : public HttpHandler {
 public:
     CompactionAction(CompactionActionType type) : _type(type) {}
