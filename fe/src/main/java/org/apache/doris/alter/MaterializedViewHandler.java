@@ -18,7 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJob.JobState;
-import org.apache.doris.analysis.AddMaterializedViewClause;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -96,7 +96,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @param olapTable
      * @throws DdlException
      */
-    private void processAddMaterializedView(AddMaterializedViewClause addMVClause, Database db, OlapTable olapTable)
+    public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
         // Step1.1: semantic analysis
         // TODO(ML): support the materialized view as base index
@@ -245,7 +245,7 @@ public class MaterializedViewHandler extends AlterHandler {
         LOG.info("finished to create materialized view job: {}", mvJob.getJobId());
     }
 
-    private List<Column> checkAndPrepareMaterializedView(AddMaterializedViewClause addMVClause, OlapTable olapTable)
+    private List<Column> checkAndPrepareMaterializedView(CreateMaterializedViewStmt addMVClause, OlapTable olapTable)
             throws DdlException {
         // check if mv index already exists
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
@@ -760,9 +760,6 @@ public class MaterializedViewHandler extends AlterHandler {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof AddRollupClause) {
                 processAddRollup((AddRollupClause) alterClause, db, olapTable);
-            } else if (alterClause instanceof AddMaterializedViewClause) {
-                // TODO(ml): remove it
-                throw new AnalysisException("The materialized view is coming soon");
             } else if (alterClause instanceof DropRollupClause) {
                 processDropRollup((DropRollupClause) alterClause, db, olapTable);
             } else {

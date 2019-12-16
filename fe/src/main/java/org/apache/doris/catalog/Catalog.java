@@ -40,6 +40,7 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -4731,6 +4732,12 @@ public class Catalog {
      */
     public void alterTable(AlterTableStmt stmt) throws DdlException, UserException {
         this.alter.processAlterTable(stmt);
+    }
+
+    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+        // TODO(ml): remove it
+//        throw new AnalysisException("The materialized view is coming soon");
+        this.alter.processCreateMaterializedView(stmt);
     }
 
     /*

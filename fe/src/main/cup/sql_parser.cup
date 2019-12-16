@@ -652,6 +652,7 @@ opt_user ::=
 
     :}
     ;
+
 alter_table_clause_list ::=
     alter_table_clause:clause
     {:
@@ -724,10 +725,6 @@ alter_table_clause ::=
     | KW_ADD KW_ROLLUP ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
     {:
         RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
-    :}
-    | KW_ADD KW_MATERIALIZED KW_VIEW ident:mvName LPAREN select_stmt:selectStmt RPAREN opt_properties:properties
-    {:
-        RESULT = new AddMaterializedViewClause(mvName, selectStmt, properties);
     :}
     | KW_DROP KW_COLUMN ident:col opt_from_rollup:rollup opt_properties:properties
     {:
@@ -923,6 +920,10 @@ create_stmt ::=
     | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new CreateFileStmt(fileName, db, properties);
+    :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
+    {:
+        RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
     ;
 

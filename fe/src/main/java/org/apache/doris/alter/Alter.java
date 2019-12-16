@@ -19,13 +19,13 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
-import org.apache.doris.analysis.AddMaterializedViewClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropRollupClause;
@@ -43,6 +43,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -73,6 +74,45 @@ public class Alter {
         schemaChangeHandler.start();
         materializedViewHandler.start();
         clusterHandler.start();
+    }
+
+    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt) throws DdlException, AnalysisException {
+        String tableName = stmt.getBaseIndexName();
+        Database db = Catalog.getInstance().getDb(stmt.getDBName());
+        // check cluster capacity
+        Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        // check db quota
+        db.checkQuota();
+
+        db.writeLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
+            }
+            OlapTable olapTable = (OlapTable) table;
+
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
+                                               + "Do not allow doing materialized view");
+            }
+            // check if all tablets are healthy, and no tablet is in tablet scheduler
+            boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
+                                                  Catalog.getCurrentCatalog().getTabletScheduler(),
+                                                  db.getClusterName());
+            if (!isStable) {
+                throw new DdlException("table [" + olapTable.getName() + "] is not stable."
+                                               + " Some tablets of this table may not be healthy or are being "
+                                               + "scheduled."
+                                               + " You need to repair the table first"
+                                               + " or stop cluster balance. See 'help admin;'.");
+            }
+
+            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
+        } finally {
+            db.writeUnlock();
+        }
+
     }
 
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
@@ -127,7 +167,7 @@ public class Alter {
                     || alterClause instanceof ReorderColumnsClause)
                     && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
-            } else if ((alterClause instanceof AddRollupClause || alterClause instanceof AddMaterializedViewClause)
+            } else if ((alterClause instanceof AddRollupClause)
                     && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasAddMaterializedView = true;

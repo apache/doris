@@ -39,31 +39,33 @@ import java.util.Set;
  * through a specified query stmt.
  * <p>
  * Syntax:
- * ALTER TABLE [Table name] ADD Materialized View [MV name] (
+ * CREATE MATERIALIZED VIEW [MV name] (
  *     SELECT select_expr[, select_expr ...]
  *     FROM [Base view name]
  *     GROUP BY column_name[, column_name ...]
  *     ORDER BY column_name[, column_name ...])
  * [PROPERTIES ("key": "value")]
  */
-public class AddMaterializedViewClause extends AlterClause {
+public class CreateMaterializedViewStmt extends DdlStmt {
     private String mvName;
     private SelectStmt selectStmt;
     private Map<String, String> properties;
 
+    private int beginIndexOfAggregation = -1;
     /**
-     * origin stmt: select k1, k2, v1, sum(v2) from base_table group by k1, k2, v1 order by k1, k2
+     * origin stmt: select k1, k2, v1, sum(v2) from base_table group by k1, k2, v1
      * mvColumnItemList: [k1: {name: k1, isKey: true, aggType: null, isAggregationTypeImplicit: false},
      *                    k2: {name: k2, isKey: true, aggType: null, isAggregationTypeImplicit: false},
-     *                    v1: {name: v1, isKey: false, aggType: none, isAggregationTypeImplicit: true},
+     *                    v1: {name: v1, isKey: true, aggType: null, isAggregationTypeImplicit: false},
      *                    v2: {name: v2, isKey: false, aggType: sum, isAggregationTypeImplicit: false}]
      * This order of mvColumnItemList is meaningful.
      */
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
     private String baseIndexName;
+    private String dbName;
 
-    public AddMaterializedViewClause(String mvName, SelectStmt selectStmt,
-                                     Map<String, String> properties) {
+    public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt,
+                                      Map<String, String> properties) {
         this.mvName = mvName;
         this.selectStmt = selectStmt;
         this.properties = properties;
@@ -81,8 +83,17 @@ public class AddMaterializedViewClause extends AlterClause {
         return baseIndexName;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public String getDBName() {
+        return dbName;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
         // TODO(ml): the mv name in from clause should pass the analyze without error.
         selectStmt.analyze(analyzer);
@@ -119,7 +130,8 @@ public class AddMaterializedViewClause extends AlterClause {
          * 2. The SUM, MIN, MAX function is supported. The other function will be supported in the future.
          * 3. The aggregate column must be declared after the single column.
          */
-        for (SelectListItem selectListItem : selectList.getItems()) {
+        for (int i = 0; i < selectList.getItems().size(); i++) {
+            SelectListItem selectListItem = selectList.getItems().get(i);
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
@@ -164,6 +176,10 @@ public class AddMaterializedViewClause extends AlterClause {
                 if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
+                if (beginIndexOfAggregation == -1) {
+                    beginIndexOfAggregation = i;
+                }
+                // TODO(ml): support different type of column, int -> bigint(sum)
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
                 mvColumnItemList.add(mvColumnItem);
@@ -177,27 +193,40 @@ public class AddMaterializedViewClause extends AlterClause {
         if (tableRefList.size() != 1) {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
-        baseIndexName = tableRefList.get(0).getName().getTbl();
+        TableName tableName = tableRefList.get(0).getName();
+        baseIndexName = tableName.getTbl();
+        dbName = tableName.getDb();
     }
 
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
             /**
-             * Supplement keys of MV columns
-             * For example: select k1, k2 ... kn , sum(v1), sum(v2) from t1
+             * Materialized view includes the aggregation functions.
+             * All of group by columns are keys of materialized view.
+             */
+            if (beginIndexOfAggregation != -1) {
+                for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                    if (mvColumnItem.getAggregationType() != null) {
+                        break;
+                    }
+                    mvColumnItem.setIsKey(true);
+                }
+                return;
+            }
+            /**
+             * There is no aggregation function in materialized view.
+             * Supplement key of MV columns
+             * For example: select k1, k2 ... kn from t1
              * The default key columns are first 36 bytes of the columns in define order.
              * If the number of columns in the first 36 is less than 3, the first 3 columns will be used.
              * column: k1, k2, k3... km. The key is true.
-             * Supplement non-key and non-value of MV columns
+             * Supplement non-key of MV columns
              * column: km... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
              */
             int keyStorageLayoutBytes = 0;
             for (int i = 0; i < selectStmt.getResultExprs().size(); i++) {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(i);
                 Expr resultColumn = selectStmt.getResultExprs().get(i);
-                if (mvColumnItem.getAggregationType() != null) {
-                    break;
-                }
                 keyStorageLayoutBytes += resultColumn.getType().getStorageLayoutBytes();
                 if ((i + 1) <= Config.DEFAULT_DUP_KEYS_COUNT || keyStorageLayoutBytes < Config.DEFAULT_DUP_KEYS_BYTES) {
                     mvColumnItem.setIsKey(true);
@@ -212,6 +241,9 @@ public class AddMaterializedViewClause extends AlterClause {
         if (orderByElements.size() > mvColumnItemList.size()) {
             throw new AnalysisException("The number of columns in order clause must be less then "
                                                 + "the number of columns in select clause");
+        }
+        if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {
+            throw new AnalysisException("The key of columns in mv must be all of group by columns");
         }
         for (int i = 0; i < orderByElements.size(); i++) {
             Expr orderByElement = orderByElements.get(i).getExpr();
@@ -239,11 +271,6 @@ public class AddMaterializedViewClause extends AlterClause {
             }
             mvColumnItem.setAggregationType(AggregateType.NONE, true);
         }
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     @Override
