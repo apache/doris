@@ -907,10 +907,6 @@ public class StmtRewriter {
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         SelectListItem item =
                 ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
-        if (isCorrelated && !item.getExpr().contains(Expr.IS_BUILTIN_AGG_FN)) {
-            throw new AnalysisException("UDAs are not supported in the select list of "
-                    + "correlated subqueries: " + subquery.toSql());
-        }
         if (isCorrelated && item.getExpr().contains(Expr.NON_NULL_EMPTY_AGG)) {
             // TODO: Add support for multiple agg functions that return non-null on an
             // empty input, by wrapping them with zeroifnull functions before the inline
