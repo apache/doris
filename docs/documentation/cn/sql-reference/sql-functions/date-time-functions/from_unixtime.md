@@ -24,7 +24,7 @@ under the License.
 `DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
 
 
-将 unix 时间戳转化位对应的 time 格式，返回的格式由 `string_format` 指定
+将 unix 时间戳转化为对应的 time 格式，返回的格式由 `string_format` 指定
 
 默认为 yyyy-MM-dd HH:mm:ss ,也支持date_format中的format格式
 
