@@ -431,8 +431,9 @@ precedence left KW_LIKE, KW_REGEXP;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
+precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
-precedence left BITAND, BITOR, BITXOR, BITNOT;
+precedence left BITNOT;
 precedence left KW_ORDER, KW_BY, KW_LIMIT;
 precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
