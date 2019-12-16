@@ -188,8 +188,9 @@ public class PluginLoader {
 
         Path tempPath = FileSystems.getDefault().getPath(pluginInfo.getInstallPath());
 
-        if (Files.exists(tempPath) && Files.isDirectory(tempPath)) {
-            throw new UserException("Install plugin " + pluginInfo.getName() + " failed.");
+        if (!Files.exists(tempPath) || !Files.isDirectory(tempPath)) {
+            throw new UserException("Install plugin " + pluginInfo.getName() + " failed. cause " + tempPath.toString()
+                    + " exists");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
@@ -278,7 +279,7 @@ public class PluginLoader {
         Path sourceZip = FileSystems.getDefault().getPath(path);
         Path targetZip = Files.createTempFile(pluginDir, ".plugin_", ".zip");
 
-        return Files.copy(sourceZip, targetZip);
+        return Files.copy(sourceZip, targetZip, StandardCopyOption.REPLACE_EXISTING);
     }
 
     /**

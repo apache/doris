@@ -36,6 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Expectations;
+import mockit.Mocked;
 
 public class PluginLoaderTest {
 
@@ -76,9 +77,9 @@ public class PluginLoaderTest {
             new Expectations(util) {
                 {
                     util.getRemoteInputStream("test/test");
-                    result = PluginTestUtil.openTestFile("source/test.test.zip");
+                    result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    util.getRemoteInputStream("test.test.md5");
+                    util.getRemoteInputStream("test/test.md5");
                     result = new ByteArrayInputStream(new String("7529db41471ec72e165f96fe9fb92742").getBytes());
                 }
             };
@@ -98,10 +99,10 @@ public class PluginLoaderTest {
         try {
             new Expectations(util) {
                 {
-                    util.getRemoteInputStream("test/test");
-                    result = PluginTestUtil.openTestFile("source/test.test.zip");
+                    util.getRemoteInputStream(anyString);
+                    result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    util.getRemoteInputStream("test.test.md5");
+                    util.getRemoteInputStream(anyString);
                     result = new ByteArrayInputStream(new String("asdfas").getBytes());
                 }
             };
@@ -133,10 +134,9 @@ public class PluginLoaderTest {
                     util.downloadAndValidateZip(anyString);
                     result = null;
                 }
-
             };
 
-            Path p = util.download(PluginTestUtil.getTestPathString("source/test.test.zip"));
+            Path p = util.download(PluginTestUtil.getTestPathString("source/test.zip"));
             assertTrue(Files.exists(p));
 
             p = util.download("https://hello:12313/test.zip");
@@ -155,31 +155,26 @@ public class PluginLoaderTest {
     @Test
     public void testUnzip() {
         try {
-            new Expectations(Files.class) {
-                {
-                    Files.newInputStream((Path) any);
-                    result = PluginTestUtil.openTestFile("source/test.test.zip");
-                }
-            };
-
             PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
 
-            Path actualPath = util.unzip(null);
+            Files.copy(PluginTestUtil.getTestPath("source/test.zip"), PluginTestUtil.getTestPath("source/test-a.zip"));
+            Path actualPath = util.unzip(PluginTestUtil.getTestPath("source/test-a.zip"));
             assertTrue(Files.isDirectory(actualPath));
 
-            Path txtPath = FileSystems.getDefault().getPath(actualPath.toString(), "test.test.txt");
+            Path txtPath = FileSystems.getDefault().getPath(actualPath.toString(), "test.txt");
             assertTrue(Files.exists(txtPath));
 
             assertTrue(FileUtils.deleteQuietly(actualPath.toFile()));
         } catch (Exception e) {
             e.printStackTrace();
+            assert false;
         }
     }
 
     @Test
     public void testMovePlugin() {
         PluginInfo pf =
-                new PluginInfo("test.test-plugin", PluginType.STORAGE, "test/test", Version.CURRENT_DORIS_VERSION,
+                new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", Version.CURRENT_DORIS_VERSION,
                         Version.JDK_1_8_0, "test/test", "libtest.so", "test/test");
 
         pf.setInstallPath(PluginTestUtil.getTestPathString("target"));
@@ -187,8 +182,8 @@ public class PluginLoaderTest {
         try {
             PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("source"));
             util.movePlugin(pf);
-            assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test.test-plugin")));
-            assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test.test-plugin")));
+            assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
+            assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));
         } catch (IOException | UserException e) {
             e.printStackTrace();
         }
@@ -207,7 +202,7 @@ public class PluginLoaderTest {
 
             p.init();
             p.close();
-            p.flags();
+            assertEquals(2, p.flags());
 
             p.setVariable("test", "value");
 
