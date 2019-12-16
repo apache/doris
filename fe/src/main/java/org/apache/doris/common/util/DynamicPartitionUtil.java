@@ -91,9 +91,8 @@ public class DynamicPartitionUtil {
     }
 
     private static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
-        if (Strings.isNullOrEmpty(enable) ||
-                !Boolean.TRUE.toString().equalsIgnoreCase(enable) ||
-                !Boolean.FALSE.toString().equalsIgnoreCase(enable)) {
+        if (Strings.isNullOrEmpty(enable)
+                || (!Boolean.TRUE.toString().equalsIgnoreCase(enable) && !Boolean.FALSE.toString().equalsIgnoreCase(enable))) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
         }
     }
