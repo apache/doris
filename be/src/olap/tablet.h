@@ -230,6 +230,11 @@ public:
     void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
+    // return the create time of first rowset.
+    // first rowset is rowset with version start from 0.
+    // return -1 if there is no rowset start with version 0.
+    int64_t get_first_rowset_create_time();
+
     OLAPStatus calculate_cumulative_point();
     // TODO(ygl): 
     inline bool is_primary_replica() { return false; }
@@ -248,6 +253,9 @@ public:
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
     OLAPStatus generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
+
+    // return a json string to show the compaction status of this tablet
+    OLAPStatus get_compaction_status(std::string* json_result);
 
 private:
     OLAPStatus _init_once_action();

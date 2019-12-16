@@ -18,6 +18,7 @@
 #include "service/http_service.h"
 
 #include "http/action/checksum_action.h"
+#include "http/action/compaction_action.h"
 #include "http/action/health_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -111,6 +112,12 @@ Status HttpService::start() {
     SnapshotAction* snapshot_action = new SnapshotAction(_env);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
+
+    // 2 compaction actions
+    CompactionAction* show_compaction_action = new CompactionAction(CompactionActionType::SHOW);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
+    CompactionAction* do_compaction_action = new CompactionAction(CompactionActionType::DO_COMPACTION);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/do_compact", do_compaction_action);
 
     RETURN_IF_ERROR(_ev_http_server->start());
     return Status::OK();

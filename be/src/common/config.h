@@ -238,7 +238,7 @@ namespace config {
     CONF_Int32(base_compaction_num_threads, "1");
     CONF_Int32(base_compaction_num_threads_per_disk, "1");
     CONF_Double(base_cumulative_delta_ratio, "0.3");
-    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "604800");
+    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_Int32(base_compaction_write_mbytes_per_sec, "5");
 
     // cumulative compaction policy: max delta file's size unit:B

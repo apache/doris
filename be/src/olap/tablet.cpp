@@ -1035,6 +1035,51 @@ void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedP
     }
 }
 
+int64_t Tablet::get_first_rowset_create_time() {
+    ReadLock rdlock(&_meta_lock);
+    for (auto& it : _rs_version_map) {
+        if (it.first.first == 0) {
+            return it.second.creation_time();
+        }
+    }
+    return -1L;
+}
+
+OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    std::vector<RowsetSharedPtr> all_rowsets;
+    {
+        ReadLock rdlock(&_meta_lock);
+        for (auto& it : _rs_version_map) {
+            all_rowsets->push_back(it.second);
+        }
+        root.AddMember("cumulative point", _cumulative_point);
+        root.AddMember("last failure time", _last_compaction_failure_time);
+    }
+    std::sort(all_rowsets.begin(), all_rowsets.end(), Rowset::comparator);
+
+    // print all rowsets' version as an array
+    rapidjson::Document versions_arr;
+    versions_arr.SetArray();
+    for (auto& rowset : all_rowsets) {
+        rapidjson::Value value;
+        std::string version_str = strings::Substitute("[$0-$1]", rowset->version().first, rowset->version().second);
+        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator()); 
+        versions_arr.PushBack(value, versions_arr.GetAllocator());
+    }
+    root.AddMember("versions", versions_arr, root.GetAllocator());
+
+    // to json string
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    d.Accept(writer);
+    *json_result = std::string(buffer.GetString());
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     WriteLock store_lock(&_meta_store_lock);
     if (_newly_created_rowset_num == 0) {
