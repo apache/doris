@@ -367,7 +367,7 @@ public class RollupJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("rollup task failed after try three times.");
+                    throw new AlterCancelException("rollup task failed after try three times: " + task.getErrorMsg());
                 }
             }
             return;
