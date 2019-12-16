@@ -88,6 +88,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void dynamicAddPartition() {
+        lastSchedulerTime = TimeUtils.getCurrentFormatTime();
         Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfo.iterator();
         while (iterator.hasNext()) {
             Pair<Long, Long> tableInfo = iterator.next();
@@ -173,11 +174,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     dynamicPartitionState = State.NORMAL;
                     msg = defaultValue;
                 } catch (DdlException e) {
-                    LOG.info("Dynamic add partition failed: " + e.getMessage());
+                    LOG.info("dynamic add partition failed: " + e.getMessage());
                     dynamicPartitionState = State.ERROR;
                     msg = e.getMessage();
-                } finally {
-                    lastSchedulerTime = TimeUtils.getCurrentFormatTime();
                 }
             }
         }
