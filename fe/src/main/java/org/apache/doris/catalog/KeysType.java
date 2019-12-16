@@ -25,8 +25,8 @@ public enum KeysType {
     UNIQUE_KEYS,
     AGG_KEYS;
 
-    public boolean isAggregationFamily(){
-        switch (this){
+    public boolean isAggregationFamily() {
+        switch (this) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
                 return true;

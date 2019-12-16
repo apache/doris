@@ -123,8 +123,8 @@ public enum AggregateType {
         return checkCompatibility(this, priType);
     }
 
-    public boolean isReplaceFamily(){
-        switch (this){
+    public boolean isReplaceFamily() {
+        switch (this) {
             case REPLACE:
             case REPLACE_IF_NOT_NULL:
                 return true;
