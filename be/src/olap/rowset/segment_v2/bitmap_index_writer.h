@@ -44,7 +44,7 @@ public:
 
     virtual Status finish(WritableFile* file, BitmapIndexColumnPB* meta) = 0;
 
-    virtual uint64_t size() = 0;
+    virtual uint64_t size() const = 0;
 private:
     DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
 };

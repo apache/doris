@@ -69,7 +69,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         if (column.is_bf_column()) {
             opts.need_bloom_filter = true;
             if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
-                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) && !_opts.is_base) {
+                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
+                    && !_opts.has_bf_for_unique_agg_column) {
                 // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or 
                 // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
                 // do not write the bloom filter index because it is useless

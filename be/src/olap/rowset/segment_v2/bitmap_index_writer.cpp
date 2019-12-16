@@ -159,7 +159,7 @@ public:
         return Status::OK();
     }
 
-    uint64_t size() override {
+    uint64_t size() const override {
         uint64_t size = 0;
         size += _null_bitmap.getSizeInBytes(false);
         for (auto& index : _mem_index) {
