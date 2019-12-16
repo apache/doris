@@ -494,12 +494,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DYNAMIC_PARTITION: {
                 data = ModifyDynamicPartitionInfo.read(in);
-                needRead = false;
-                break;
-            }
-            case OperationType.OP_DYNAMIC_PARTITION: {
-                data = ModifyDynamicPartitionInfo.read(in);
-                needRead = false;
+                isRead = true;
                 break;
             }
             default: {

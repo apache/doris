@@ -28,6 +28,19 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowDynamicPartitionStmt extends ShowStmt {
     private String db;
+    private static final ShowResultSetMetaData SHOW_DYNAMIC_PARTITION_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Enable", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TimeUnit", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("End", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Prefix", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Buckets", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("State", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Msg", ScalarType.createVarchar(20)))
+                    .build();
 
     ShowDynamicPartitionStmt(String db) {
         this.db = db;
@@ -69,17 +82,6 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        builder.addColumn(new Column("TableName", ScalarType.createVarchar(20))).
-                addColumn(new Column("Enable", ScalarType.createVarchar(20))).
-                addColumn(new Column("TimeUnit", ScalarType.createVarchar(20))).
-                addColumn(new Column("End", ScalarType.createVarchar(20))).
-                addColumn(new Column("Prefix", ScalarType.createVarchar(20))).
-                addColumn(new Column("Buckets", ScalarType.createVarchar(20))).
-                addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20))).
-                addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20))).
-                addColumn(new Column("State", ScalarType.createVarchar(20))).
-                addColumn(new Column("Msg", ScalarType.createVarchar(20)));
-        return builder.build();
+        return SHOW_DYNAMIC_PARTITION_META_DATA;
     }
 }

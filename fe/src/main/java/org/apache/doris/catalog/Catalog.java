@@ -5087,6 +5087,7 @@ public class Catalog {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             DynamicPartitionUtil.registerDynamicPartitionTableIfEnable(db.getId(), table);
             dynamicPartitionScheduler.lastUpdateTime = TimeUtils.getCurrentFormatTime();
+            // here all modified properties is DynamicPartitionProperty
             ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
             editLog.logDynamicPartition(info);
         }

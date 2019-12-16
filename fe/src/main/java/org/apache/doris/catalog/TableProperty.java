@@ -17,27 +17,33 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.json.JSONObject;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 public class TableProperty implements Writable {
+    private static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
+
+    @SerializedName(value = "properties")
     private Map<String, String> properties = new HashMap<>();
 
-    private static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
+    @SerializedName(value = "dynamicPartitionProperty")
     private DynamicPartitionProperty dynamicPartitionProperty;
 
-    public TableProperty() {}
+    TableProperty() {
+        dynamicPartitionProperty = new DynamicPartitionProperty(properties);
+    }
 
-    public TableProperty(Map<String, String> properties) {
+    TableProperty(Map<String, String> properties) {
         this.properties = properties;
+        dynamicPartitionProperty = new DynamicPartitionProperty(properties);
     }
 
     public Map<String, String> getProperties() {
@@ -46,11 +52,6 @@ public class TableProperty implements Writable {
 
     public DynamicPartitionProperty getDynamicPartitionProperty() {
         return dynamicPartitionProperty;
-    }
-
-    public void modifyTableProperties(Map<String, String> modifyProperties) {
-        properties.putAll(modifyProperties);
-        this.dynamicPartitionProperty = buildDynamicProperty(properties);
     }
 
     private DynamicPartitionProperty buildDynamicProperty(Map<String, String> properties) {
@@ -63,26 +64,17 @@ public class TableProperty implements Writable {
         return new DynamicPartitionProperty(dynamicPartitionProperties);
     }
 
-    public static TableProperty read(DataInput in) throws IOException {
-        TableProperty info = new TableProperty();
-        info.readFields(in);
-        return info;
+    void modifyTableProperties(Map<String, String> modifyProperties) {
+        properties.putAll(modifyProperties);
+        this.dynamicPartitionProperty = buildDynamicProperty(properties);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        JSONObject jsonObject = new JSONObject(properties);
-        Text.writeString(out, jsonObject.toString());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        JSONObject jsonObject = new JSONObject(Text.readString(in));
-        Iterator<String> iterator = jsonObject.keys();
-        while (iterator.hasNext()) {
-            String key = iterator.next();
-            properties.put(key, jsonObject.getString(key));
-        }
-        this.dynamicPartitionProperty = buildDynamicProperty(properties);
+    public static TableProperty read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class);
     }
 }

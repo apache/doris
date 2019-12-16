@@ -17,8 +17,10 @@
 
 package org.apache.doris.persist;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.json.JSONObject;
 
 import java.io.DataInput;
@@ -30,13 +32,12 @@ import java.util.Map;
 
 public class ModifyDynamicPartitionInfo implements Writable {
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "properties")
     private Map<String, String> properties = new HashMap<>();
-
-    public ModifyDynamicPartitionInfo() {
-
-    }
 
     public ModifyDynamicPartitionInfo(long dbId, long tableId, Map<String, String> properties) {
         this.dbId = dbId;
@@ -56,29 +57,12 @@ public class ModifyDynamicPartitionInfo implements Writable {
         return properties;
     }
 
-    public static ModifyDynamicPartitionInfo read(DataInput in) throws IOException {
-        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo();
-        info.readFields(in);
-        return info;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        JSONObject jsonObject = new JSONObject(properties);
-        Text.writeString(out, jsonObject.toString());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        JSONObject jsonObject = new JSONObject(Text.readString(in));
-        Iterator<String> iterator = jsonObject.keys();
-        while (iterator.hasNext()) {
-            String key = iterator.next();
-            properties.put(key, jsonObject.getString(key));
-        }
+    public static ModifyDynamicPartitionInfo read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), ModifyDynamicPartitionInfo.class);
     }
 }
