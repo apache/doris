@@ -100,13 +100,13 @@ public class RollupJobV2Test {
     @Test
     public void testAddSchemaChange() throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
-        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
-        Map<Long, AlterJobV2> alterJobsV2 = rollupHandler.getAlterJobsV2();
+        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
     }
@@ -115,7 +115,7 @@ public class RollupJobV2Test {
     @Test
     public void testSchemaChange1() throws Exception {
         FakeCatalog.setCatalog(masterCatalog);
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
 
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -123,24 +123,24 @@ public class RollupJobV2Test {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
-        Map<Long, AlterJobV2> alterJobsV2 = rollupHandler.getAlterJobsV2();
+        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
 
         // runPendingJob
-        rollupHandler.runAfterCatalogReady();
+        materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
         Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
 
         // runWaitingTxnJob
-        rollupHandler.runAfterCatalogReady();
+        materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
 
         // runWaitingTxnJob, task not finished
-        rollupHandler.runAfterCatalogReady();
+        materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
 
         // finish all tasks
@@ -158,7 +158,7 @@ public class RollupJobV2Test {
             }
         }
 
-        rollupHandler.runAfterCatalogReady();
+        materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, rollupJob.getJobState());
 
         /*

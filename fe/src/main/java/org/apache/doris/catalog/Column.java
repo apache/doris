@@ -42,9 +42,14 @@ public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     private String name;
     private Type type;
+    // column is key: aggregate type is null
+    // column is not key and has no aggregate type: aggregate type is none
+    // column is not key and has aggregate type: aggregate type is name of aggregate function.
     private AggregateType aggregationType;
 
     // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
+    // the key type of table is duplicate or unique: the isAggregationTypeImplicit of value columns are true
+    // other cases: the isAggregationTypeImplicit is false
     private boolean isAggregationTypeImplicit;
     private boolean isKey;
     private boolean isAllowNull;

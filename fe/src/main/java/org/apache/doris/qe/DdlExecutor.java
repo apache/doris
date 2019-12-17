@@ -34,6 +34,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
@@ -96,6 +97,8 @@ public class DdlExecutor {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
             catalog.dropTable((DropTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
+            catalog.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             catalog.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelAlterTableStmt) {
