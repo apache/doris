@@ -25,7 +25,7 @@ namespace doris {
 
 enum CompactionActionType {
     SHOW_INFO = 1,
-    DO_COMPACTION = 2
+    RUN_COMPACTION = 2
 };
 
 // This action is used for viewing the compaction status.

@@ -116,8 +116,8 @@ Status HttpService::start() {
     // 2 compaction actions
     CompactionAction* show_compaction_action = new CompactionAction(CompactionActionType::SHOW_INFO);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
-    CompactionAction* do_compaction_action = new CompactionAction(CompactionActionType::DO_COMPACTION);
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/do_compact", do_compaction_action);
+    CompactionAction* run_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION);
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run", run_compaction_action);
 
     RETURN_IF_ERROR(_ev_http_server->start());
     return Status::OK();

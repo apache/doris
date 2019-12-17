@@ -70,8 +70,6 @@ void MetaAction::handle(HttpRequest *req) {
         std::string status_result = to_json(status);
         LOG(INFO) << "handle request result:" << status_result;
         if (status.ok()) {
-            Status st;
-            
             HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
         } else {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
