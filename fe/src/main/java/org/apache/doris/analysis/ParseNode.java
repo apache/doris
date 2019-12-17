@@ -29,11 +29,11 @@ public interface ParseNode {
      * @param analyzer
      * @throws AnalysisException, InternalException
      */
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException;
+    void analyze(Analyzer analyzer) throws UserException;
 
     /**
      * @return SQL syntax corresponding to this node.
      */
-    public String toSql();
+    String toSql();
 
 }

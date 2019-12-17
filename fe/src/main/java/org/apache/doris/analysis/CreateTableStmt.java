@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
@@ -54,9 +55,6 @@ public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     private static final String DEFAULT_ENGINE_NAME = "olap";
-
-    private static final int DEFAULT_DUP_KEYS_COUNT = 3;
-    private static final int DEFAULT_DUP_KEYS_BYTES = 36;
 
     private boolean ifNotExists;
     private boolean isExternal;
@@ -236,7 +234,8 @@ public class CreateTableStmt extends DdlStmt {
                     } else {
                         for (ColumnDef columnDef : columnDefs) {
                             keyLength += columnDef.getType().getStorageLayoutBytes();
-                            if (keysColumnNames.size() < DEFAULT_DUP_KEYS_COUNT || keyLength < DEFAULT_DUP_KEYS_BYTES) {
+                            if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
+                                    || keyLength < FeConstants.shortkey_maxsize_bytes) {
                                 keysColumnNames.add(columnDef.getName());
                             }
                         }
