@@ -2363,18 +2363,10 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, T* dst) {
     DCHECK(ctx->is_arg_constant(1));
     DCHECK(ctx->is_arg_constant(2));
     DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
-    *dst = *static_cast<T*>(ctx->get_constant_arg(2));
-}
-
-template <>
-void AggregateFunctions::offset_fn_init(FunctionContext* ctx, DateTimeVal* dst) {
-    DCHECK_EQ(ctx->get_num_args(), 3);
-    DCHECK(ctx->is_arg_constant(1));
-    DCHECK(ctx->is_arg_constant(2));
-    DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
-    DateTimeVal src = *static_cast<DateTimeVal*>(ctx->get_constant_arg(2));
+    T src = *static_cast<T*>(ctx->get_constant_arg(2));
+    // The literal null is sometimes incorrectly converted to int, so *dst = src may cause SEGV
     if (src.is_null) {
-        *dst = DateTimeVal::null();
+        dst->is_null = src.is_null;
     } else {
         *dst = src;
     }
@@ -2809,8 +2801,6 @@ template void AggregateFunctions::offset_fn_init<FloatVal>(
     FunctionContext*, FloatVal*);
 template void AggregateFunctions::offset_fn_init<DoubleVal>(
     FunctionContext*, DoubleVal*);
-template void AggregateFunctions::offset_fn_init<StringVal>(
-    FunctionContext*, StringVal*);
 template void AggregateFunctions::offset_fn_init<DateTimeVal>(
     FunctionContext*, DateTimeVal*);
 template void AggregateFunctions::offset_fn_init<DecimalVal>(
