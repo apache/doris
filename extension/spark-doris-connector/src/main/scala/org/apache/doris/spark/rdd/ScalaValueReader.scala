@@ -64,7 +64,15 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         DORIS_BATCH_SIZE_DEFAULT
     }
 
+    val queryDorisTimeout = Try {
+      settings.getProperty(DORIS_REQUEST_QUERY_TIMEOUT_S, DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT.toString).toInt
+    } getOrElse {
+      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_REQUEST_QUERY_TIMEOUT_S, settings.getProperty(DORIS_REQUEST_QUERY_TIMEOUT_S))
+      DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT
+    }
+
     params.setBatch_size(batchSize)
+    params.setQuery_timeout(queryDorisTimeout)
     params.setUser(settings.getProperty(DORIS_REQUEST_AUTH_USER, ""))
     params.setPasswd(settings.getProperty(DORIS_REQUEST_AUTH_PASSWORD, ""))
 
@@ -74,6 +82,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         s"table: ${params.getTable}, " +
         s"tabletId: ${params.getTablet_ids}, " +
         s"batch size: $batchSize, " +
+        s"query timeout: $queryDorisTimeout, " +
         s"user: ${params.getUser}, " +
         s"query plan: ${params.opaqued_query_plan}")
 
