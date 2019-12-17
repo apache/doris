@@ -15,39 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
-#define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
+#pragma once
 
-#include <string>
-
-#include "olap/compaction.h"
+#include "http/http_handler.h"
+#include "common/status.h"
 
 namespace doris {
 
-class CumulativeCompaction : public Compaction {
-public:
-    CumulativeCompaction(TabletSharedPtr tablet);
-    ~CumulativeCompaction() override;
 
-    OLAPStatus compact() override;
-
-protected:
-    OLAPStatus pick_rowsets_to_compact() override;
-
-    std::string compaction_name() const override {
-        return "cumulative compaction";
-    }
-
-    ReaderType compaction_type() const override {
-        return ReaderType::READER_CUMULATIVE_COMPACTION;
-    }
-
-private:
-    int64_t _cumulative_rowset_size_threshold;
-
-    DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
+enum CompactionActionType {
+    SHOW_INFO = 1,
+    RUN_COMPACTION = 2
 };
 
-}  // namespace doris
+// This action is used for viewing the compaction status.
+// See compaction-action.md for details.
+class CompactionAction : public HttpHandler {
+public:
+    CompactionAction(CompactionActionType type) : _type(type) {}
 
-#endif // DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
+    virtual ~CompactionAction() {}
+
+    void handle(HttpRequest *req) override;
+
+private:
+    Status _handle_show_compaction(HttpRequest *req, std::string* json_result);
+
+private:
+    CompactionActionType _type;
+};
+
+} // end namespace doris
+

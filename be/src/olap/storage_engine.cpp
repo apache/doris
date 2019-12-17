@@ -565,7 +565,7 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_compaction_failure_time(UnixMillis());
+        best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
             DorisMetrics::cumulative_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
@@ -574,7 +574,7 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
         }
         return;
     }
-    best_tablet->set_last_compaction_failure_time(0);
+    best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
 void StorageEngine::perform_base_compaction(DataDir* data_dir) {
@@ -587,7 +587,7 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     BaseCompaction base_compaction(best_tablet);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_compaction_failure_time(UnixMillis());
+        best_tablet->set_last_base_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::base_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to init base compaction. res=" << res
@@ -595,7 +595,7 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
         }
         return;
     }
-    best_tablet->set_last_compaction_failure_time(0);
+    best_tablet->set_last_base_compaction_failure_time(0);
 }
 
 void StorageEngine::get_cache_status(rapidjson::Document* document) const {
