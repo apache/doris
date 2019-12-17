@@ -55,7 +55,7 @@ public:
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);
 
-    const TypeInfo* type_info() {
+    const TypeInfo* type_info() const {
         return _typeinfo;
     }
 

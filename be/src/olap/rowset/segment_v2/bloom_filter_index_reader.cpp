@@ -38,7 +38,7 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
 
 Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal, std::unique_ptr<BloomFilter>* bf) {
     Slice value;
-    uint8_t nullmap;
+    uint8_t nullmap = 0;
     size_t num_to_read = 1;
     ColumnBlock block(_reader->type_info(), (uint8_t*)&value, &nullmap, num_to_read, _pool.get());
     ColumnBlockView column_block_view(&block);

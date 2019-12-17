@@ -120,7 +120,6 @@ void test_bloom_filter_index_reader_writer_template(const std::string file_name,
                 ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
-        // ASSERT_EQ(0, iter->current_bloom_filter_index());
 
         // page 1
         st = iter->read_bloom_filter(1, &bf);
@@ -133,7 +132,6 @@ void test_bloom_filter_index_reader_writer_template(const std::string file_name,
                 ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
-        // ASSERT_EQ(1, iter->current_bloom_filter_index());
 
         // page 2
         st = iter->read_bloom_filter(2, &bf);
@@ -148,14 +146,6 @@ void test_bloom_filter_index_reader_writer_template(const std::string file_name,
         }
         // test nullptr
         ASSERT_TRUE(bf->test_bytes(nullptr, 1));
-        // ASSERT_EQ(2, iter->current_bloom_filter_index());
-
-        if (is_slice_type) {
-            Slice* value = (Slice*)not_exist_value;
-            ASSERT_FALSE(bf->test_bytes(value->data, value->size));
-        } else {
-            ASSERT_FALSE(bf->test_bytes((char*)not_exist_value, sizeof(CppType)));
-        }
 
         delete reader;
     }
@@ -221,7 +211,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
         slices[i] = Slice(val[i].c_str(), val[i].size());
     }
     std::string file_name = "bloom_filter_char";
-    Slice not_exist_value("value_not_exist");
+    Slice not_exist_value("char_value_not_exist");
     test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_CHAR>(file_name, slices, num, 1, &not_exist_value, true);
     delete[] val;
     delete[] slices;

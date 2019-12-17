@@ -69,9 +69,13 @@ public:
         const CppType* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
-                CppType new_value;
-                _typeinfo->deep_copy(&new_value, v, &_pool);
-                _values.insert(new_value);
+                if (_is_slice_type()) {
+                    CppType new_value;
+                    _typeinfo->deep_copy(&new_value, v, &_pool);
+                    _values.insert(new_value);
+                } else {
+                    _values.insert(*v);
+                }
             }
             ++v;
         }
@@ -84,8 +88,7 @@ public:
     Status flush() override {   
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(BloomFilter::create(BLOCK_BLOOM_FILTER, &bf));
-        uint32_t num_bytes = BloomFilter::optimal_bit_num(_values.size(), _bf_options.fpp) / 8;
-        bf->init(num_bytes, _bf_options.strategy);
+        bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy);
         bf->set_has_null(_has_null);
         for (auto& v : _values) {
             if (_is_slice_type()) {

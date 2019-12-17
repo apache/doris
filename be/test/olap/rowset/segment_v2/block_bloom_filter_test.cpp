@@ -31,14 +31,9 @@ private:
     double _fpp = 0.05;
 };
 
-uint32_t optimal_bit_num(int64_t n, double fpp) {
-    return (uint32_t) (-n * log(fpp) / (log(2) * log(2)));
-}
-
 // Test for int
 TEST_F(BlockBloomFilterTest, Normal) {
     // test write
-    uint32_t bits_num = BloomFilter::optimal_bit_num(_expected_num, _fpp);
     std::unique_ptr<BloomFilter> bf;
     // now CLASSIC_BLOOM_FILTER is not supported
     auto st = BloomFilter::create(CLASSIC_BLOOM_FILTER, &bf);
@@ -47,7 +42,7 @@ TEST_F(BlockBloomFilterTest, Normal) {
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf);
-    auto ret = bf->init(bits_num / 8, HASH_MURMUR3_X64_64);
+    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
     ASSERT_TRUE(ret);
     ASSERT_TRUE(bf->size() > 0);
     int num = 1000;
@@ -92,12 +87,11 @@ TEST_F(BlockBloomFilterTest, Normal) {
 // Test for int
 TEST_F(BlockBloomFilterTest, SP) {
     // test write
-    uint32_t bits_num = BloomFilter::optimal_bit_num(_expected_num, _fpp);
     std::unique_ptr<BloomFilter> bf;
     auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf);
-    auto ret = bf->init(bits_num / 8, HASH_MURMUR3_X64_64);
+    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
     ASSERT_TRUE(ret);
     ASSERT_TRUE(bf->size() > 0);
 
@@ -105,7 +99,7 @@ TEST_F(BlockBloomFilterTest, SP) {
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf2);
-    ret = bf2->init(bits_num / 8, HASH_MURMUR3_X64_64);
+    ret = bf2->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
     ASSERT_TRUE(ret);
     ASSERT_TRUE(bf2->size() > 0);
 
@@ -130,6 +124,36 @@ TEST_F(BlockBloomFilterTest, SP) {
     int32_t to_check = 101;
     ASSERT_TRUE(bf->test_bytes((char*)&to_check, 4));
     ASSERT_FALSE(bf2->test_bytes((char*)&to_check, 4));
+}
+
+// Test for slice
+TEST_F(BlockBloomFilterTest, slice) {
+    // test write
+    std::unique_ptr<BloomFilter> bf;
+    auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
+    ASSERT_TRUE(st.ok());
+    ASSERT_NE(nullptr, bf);
+    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(ret);
+    ASSERT_TRUE(bf->size() > 0);
+
+    int num = 1024;
+    std::string values[1024];
+    for (int32_t i = 0; i < 1024; ++i) {
+        values[i] = "prefix_" + std::to_string(10000 + i);
+    }
+    Slice slices[1024];
+    for (int32_t i = 0; i < 1024; ++i) {
+        slices[i] = Slice(values[i]);
+    }
+
+    for (int i = 0; i < num; ++i) {
+        bf->add_bytes(slices[i].data, slices[i].size);
+    }
+
+    std::string value_not_exist = "char_value_not_exist";
+    Slice s = Slice(value_not_exist);
+    ASSERT_FALSE(bf->test_bytes(s.data, s.size));
 }
 
 }

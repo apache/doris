@@ -52,13 +52,6 @@ public:
     // Factory function for BloomFilter
     static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf);
 
-    // Compute the optimal bit number according to the following rule:
-    //     m = -n * ln(fpp) / (ln(2) ^ 2)
-    // n: expected distinct record number
-    // fpp: false positive probablity
-    // the result will be power of 2
-    static uint32_t optimal_bit_num(uint64_t n, double fpp);
-
     BloomFilter() = default;
 
     virtual ~BloomFilter() {
@@ -66,14 +59,14 @@ public:
     }
 
     // for write
-    bool init(int num_bytes, HashStrategyPB strategy) {
+    bool init(uint64_t n, double fpp, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
             return false;
         }
-        _num_bytes = num_bytes;
-        _size = num_bytes + 1;
+        _num_bytes = _optimal_bit_num(n, fpp) / 8;
+        _size = _num_bytes + 1;
         // reserve last byte for null flag
         _data = new char[_size];
         _has_null = (bool*)(_data + _num_bytes);
@@ -102,14 +95,7 @@ public:
     }
 
     void reset() {
-        // use SIMD to set memory to 0
-        char* cur = _data;
-        char* end = _data + _size;
-        while (cur + 8 < end) {
-            *(uint64*)cur = 0;
-            cur += 8;
-        }
-        memset(cur, 0, end - cur);
+        memset(_data, 0, _size);
     }
 
     uint64_t hash(char* buf, uint32_t size) const {
@@ -151,6 +137,14 @@ public:
 
     virtual void add_hash(uint64_t hash) = 0;
     virtual bool test_hash(uint64_t hash) const = 0;
+
+private:
+    // Compute the optimal bit number according to the following rule:
+    //     m = -n * ln(fpp) / (ln(2) ^ 2)
+    // n: expected distinct record number
+    // fpp: false positive probablity
+    // the result will be power of 2
+    uint32_t _optimal_bit_num(uint64_t n, double fpp);
 
 protected:
     // bloom filter data
