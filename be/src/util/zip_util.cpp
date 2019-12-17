@@ -17,7 +17,6 @@
 
 
 #include "util/zip_util.h"
-#include "util/minizip/unzip.h"
 #include "util/file_utils.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/strings/util.h"
@@ -37,14 +36,76 @@ namespace doris {
 
 using namespace strings;
         
-Status extract_file(unzFile zfile, const std::string& target_path) {
+Status ZipFile::open() {
+    _zip_file = unzOpen64(_zip_path.c_str());
+    if (_zip_file == nullptr) {
+        return Status::InvalidArgument("open zip file: " + _zip_path + " error");
+    }
+
+    return Status::OK();
+}
+
+Status ZipFile::close() {
+    if (!_close) {
+        unzClose(_zip_file);
+        _close = true;
+    }
+    
+    return Status::OK();
+}
+
+Status ZipFile::extract(const std::string& target_path, const std::string& dir_name) {
+    // check zip file
+    if (_zip_file == nullptr) {
+        return Status::IOError("zip file is not open");
+    }
+    
+    unz_global_info64 global_info;
+    int err = unzGetGlobalInfo64(_zip_file, &global_info);
+
+    if (err != UNZ_OK) {
+        return Status::IOError(strings::Substitute("read zip file info $0 error, code: $1", _zip_path, err));
+    }
+
+    // 0.check target path
+    std::string target = target_path + "/" + dir_name;
+    if (FileUtils::check_exist(target)) {
+        return Status::AlreadyExist("path already exists: " + target);
+    }
+
+    // 1.create temp directory
+    std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros())  + "_" + dir_name;
+    RETURN_IF_ERROR(FileUtils::create_dir(temp));
+
+    // 2.unzip to temp directory
+    Status st;
+    for (int i = 0; i < global_info.number_entry; ++i) {
+        st = extract_file(_zip_file, temp);
+        if (!st.ok()) {
+            FileUtils::remove_all(temp);
+            return st;
+        }
+        unzGoToNextFile(_zip_file);
+    }
+
+    // 3.move to target directory
+    st = Env::Default()->rename_file(temp, target);
+    if (!st.ok()) {
+        FileUtils::remove_all(temp);
+        return st;
+    }
+    return Status::OK();
+
+}
+
+Status ZipFile::extract_file(unzFile zfile, const std::string& target_path) {
     int err;
     char file_name[DEFAULT_FILE_NAME_SIZE];
 
     unz_file_info64 file_info_inzip;
 
-    err = unzGetCurrentFileInfo64(zfile, &file_info_inzip, file_name, DEFAULT_FILE_NAME_SIZE, 
-            nullptr, 0, nullptr, 0);
+    err = unzGetCurrentFileInfo64(zfile, &file_info_inzip, file_name, DEFAULT_FILE_NAME_SIZE,
+                                  nullptr, 0, nullptr, 0);
 
     if (err != UNZ_OK) {
         return Status::IOError(strings::Substitute("read zip file info error, code: $0", err));
@@ -85,14 +146,14 @@ Status extract_file(unzFile zfile, const std::string& target_path) {
         }
 
         std::unique_ptr<WritableFile> wfile;
-        
+
         BREAK_IF_STATUS_ERROR(Env::Default()->new_writable_file(path, &wfile));
         BREAK_IF_STATUS_ERROR(wfile->append(file_data));
         BREAK_IF_STATUS_ERROR(wfile->flush(WritableFile::FLUSH_ASYNC));
         BREAK_IF_STATUS_ERROR(wfile->sync());
         BREAK_IF_STATUS_ERROR(wfile->close());
     } while (0);
-    
+
     unzCloseCurrentFile(zfile);
 
     if (file_data != nullptr) {
@@ -100,57 +161,6 @@ Status extract_file(unzFile zfile, const std::string& target_path) {
     }
 
     return st;
-}
-
-Status ZipUtils::zip_extract(const std::string& zip_path, const std::string& target_path, const std::string& dir_name) {
-    // 0.check target path
-    std::string target = target_path + "/" + dir_name;
-    if (FileUtils::check_exist(target)) {
-        return Status::AlreadyExist("path already exists: " + target);
-    }
-
-    // 1.read .zip info
-    unzFile zip_file = unzOpen64(zip_path.c_str());
-    if (zip_file == nullptr) {
-        return Status::InvalidArgument("open zip file: " + zip_path + " error");
-    }
-
-    unz_global_info64 global_info;
-    int err = unzGetGlobalInfo64(zip_file, &global_info);
-
-    if (err != UNZ_OK) {
-        unzClose(zip_file);
-        return Status::IOError(strings::Substitute("read zip file info $0 error, code: $1", zip_path, err));
-    }
-
-    // 2.create temp directory
-    std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros())  + "_" + dir_name;
-    Status st = FileUtils::create_dir(temp);
-    if (!st.ok()) {
-        unzClose(zip_file);
-        return st;
-    }
-
-    // 3.unzip to temp directory
-    for (int i = 0; i < global_info.number_entry; ++i) {
-        st = extract_file(zip_file, temp);
-        if (!st.ok()) {
-            unzClose(zip_file);
-            FileUtils::remove_all(temp);
-            return st;
-        }
-        unzGoToNextFile(zip_file);
-    }
-
-    unzClose(zip_file);
-
-    // 4.move to target directory
-    st = Env::Default()->rename_file(temp, target);
-    if (!st.ok()) {
-        FileUtils::remove_all(temp);
-        return st;
-    }
-    return Status::OK();
 }
 
 }
