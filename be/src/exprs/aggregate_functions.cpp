@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
+#include "runtime/runtime_state.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybird_set.h"
 #include "util/tdigest.h"
@@ -2364,6 +2365,43 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, T* dst) {
     DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
     *dst = *static_cast<T*>(ctx->get_constant_arg(2));
 }
+
+template <>
+void AggregateFunctions::offset_fn_init(FunctionContext* ctx, DateTimeVal* dst) {
+    DCHECK_EQ(ctx->get_num_args(), 3);
+    DCHECK(ctx->is_arg_constant(1));
+    DCHECK(ctx->is_arg_constant(2));
+    DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
+    DateTimeVal src = *static_cast<DateTimeVal*>(ctx->get_constant_arg(2));
+    if (src.is_null) {
+        *dst = DateTimeVal::null();
+    } else {
+        *dst = src;
+    }
+}
+
+template <>
+void AggregateFunctions::offset_fn_init(FunctionContext* ctx, StringVal* dst) {
+    DCHECK_EQ(ctx->get_num_args(), 3);
+    DCHECK(ctx->is_arg_constant(1));
+    DCHECK(ctx->is_arg_constant(2));
+    DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
+    StringVal src = *static_cast<StringVal*>(ctx->get_constant_arg(2));
+    if (src.is_null) {
+        *dst = StringVal::null();
+    } else {
+        uint8_t* copy = ctx->allocate(src.len);
+        if (UNLIKELY(copy == NULL)) {
+            // Zero-length allocation always returns a hard-coded pointer.
+            DCHECK(src.len != 0 && !ctx->impl()->state()->query_status().ok());
+            *dst = StringVal::null();
+        } else {
+            *dst = StringVal(copy, src.len);
+            memcpy(dst->ptr, src.ptr, src.len);
+        }
+    }
+}
+
 /*
 template <>
 void AggregateFunctions::offset_fn_init(FunctionContext* ctx, IntVal* dst) {
