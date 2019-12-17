@@ -1,0 +1,9 @@
+59,62c59,61
+< set (PROTOBUF_INCLUDE_DIRS
+<      "${CMAKE_SOURCE_DIR}/c++/libs/protobuf-${PROTOBUF_VERSION}/src")
+< set (PROTOBUF_LIBRARIES protobuf)
+< set (PROTOBUF_EXECUTABLE "${CMAKE_BINARY_DIR}/c++/libs/protobuf-${PROTOBUF_VERSION}/protoc")
+---
+> set (PROTOBUF_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/../protobuf-3.5.1/src")
+> set (PROTOBUF_LIBRARIES "${CMAKE_SOURCE_DIR}/../../installed/lib/libprotobuf.a")
+> set (PROTOBUF_EXECUTABLE "${CMAKE_SOURCE_DIR}/../../installed/bin/protoc")
