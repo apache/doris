@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 
@@ -228,7 +229,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(i);
                 Expr resultColumn = selectStmt.getResultExprs().get(i);
                 keyStorageLayoutBytes += resultColumn.getType().getStorageLayoutBytes();
-                if ((i + 1) <= Config.DEFAULT_DUP_KEYS_COUNT || keyStorageLayoutBytes < Config.DEFAULT_DUP_KEYS_BYTES) {
+                if ((i + 1) <= FeConstants.shortkey_max_column_count
+                        || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
                     mvColumnItem.setIsKey(true);
                 } else {
                     mvColumnItem.setAggregationType(AggregateType.NONE, true);

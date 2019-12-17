@@ -341,17 +341,6 @@ public class Config extends ConfigBase {
     public static int max_layout_length_per_row = 100000; // 100k
 
     /*
-     * Those two fields is responsible for determining the default key columns in duplicate table.
-     * If user does not specify key of duplicate table in create table stmt,
-     * the default key columns will be supplemented by Doris.
-     * The default key columns are first 36 bytes(DEFAULT_DUP_KEYS_BYTES) of the columns in define order.
-     * If the number of key columns in the first 36 is less than 3(DEFAULT_DUP_KEYS_COUNT),
-     * the first 3 columns will be used.
-     */
-    public static final int DEFAULT_DUP_KEYS_COUNT = 3;
-    public static final int DEFAULT_DUP_KEYS_BYTES = 36;
-
-    /*
      * Load checker's running interval.
      * A load job will transfer its state from PENDING to ETL to LOADING to FINISHED.
      * So a load job will cost at least 3 check intervals to finish.
