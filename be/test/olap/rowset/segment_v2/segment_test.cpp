@@ -1146,7 +1146,7 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     // for not base segment
     SegmentWriterOptions opts2;
     opts2.num_rows_per_block = num_rows_per_block;
-    opts2.is_base = true;
+    opts2.whether_to_filter_value = true;
 
     std::string fname2 = dname + "/bf_in_unique_model_base";
     SegmentWriter writer2(fname, 0, tablet_schema.get(), opts2);
