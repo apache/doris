@@ -2365,7 +2365,7 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, T* dst) {
     DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
     T src = *static_cast<T*>(ctx->get_constant_arg(2));
     // The literal null is sometimes incorrectly converted to int, so *dst = src may cause SEGV
-    if (src.is_null) {
+    if (UNLIKELY(src.is_null)) {
         dst->is_null = src.is_null;
     } else {
         *dst = src;
