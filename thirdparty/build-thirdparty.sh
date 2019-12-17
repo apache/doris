@@ -645,6 +645,7 @@ build_orc() {
     make -j$PARALLEL
     cp $TP_SOURCE_DIR/$ORC_SOURCE/build/c++/src/liborc.a $TP_INSTALL_DIR/lib
     cp -r $TP_SOURCE_DIR/$ORC_SOURCE/c++/include/orc $TP_INSTALL_DIR/include
+    cp $TP_SOURCE_DIR/$ORC_SOURCE/build/c++/include/orc/orc-config.hh $TP_INSTALL_DIR/include/orc
 }
 
 build_llvm
