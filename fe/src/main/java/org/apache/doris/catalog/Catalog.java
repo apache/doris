@@ -4736,8 +4736,8 @@ public class Catalog {
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
         // TODO(ml): remove it
-//        throw new AnalysisException("The materialized view is coming soon");
-        this.alter.processCreateMaterializedView(stmt);
+        throw new AnalysisException("The materialized view is coming soon");
+//        this.alter.processCreateMaterializedView(stmt);
     }
 
     /*
