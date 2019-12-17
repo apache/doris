@@ -26,6 +26,8 @@
 #include <set>
 
 #include <boost/filesystem.hpp>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -65,7 +67,11 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir),
     _is_bad(false),
-    _last_compaction_failure_time(UnixMillis()) {
+    _last_cumu_compaction_failure_time(0),
+    _last_base_compaction_failure_time(0),
+    _last_cumu_compaction_success_time(0),
+    _last_base_compaction_success_time(0) {
+
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
     _tablet_path.append("/");
@@ -699,7 +705,6 @@ const uint32_t Tablet::calc_base_compaction_score() const {
             base_rowset_exist = true;
         }
     }
-    score = score < config::base_compaction_num_cumulative_deltas ? 0 : score;
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
     return base_rowset_exist ? score : 0;
@@ -1035,6 +1040,64 @@ void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedP
     }
 }
 
+OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
+        [](const Version& lhs, const Version& rhs)
+        {
+            if (lhs.first < rhs.first) return true;
+            if (lhs.first == rhs.first) return lhs.second < rhs.second;
+            return false;
+        }
+    };
+    {
+        ReadLock rdlock(&_meta_lock);
+        for (auto& it : _rs_version_map) {
+            rowset_version_map[it.first] = version_for_delete_predicate(it.first);
+        }
+        root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+        rapidjson::Value cumu_value;
+        std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
+        cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+        rapidjson::Value base_value;
+        format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
+        base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last base failure time", base_value, root.GetAllocator());
+        rapidjson::Value cumu_success_value;
+        format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+        cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+        rapidjson::Value base_success_value;
+        format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+        base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+        root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    }
+    // std::sort(all_rowsets.begin(), all_rowsets.end(), Rowset::comparator);
+
+    // print all rowsets' version as an array
+    rapidjson::Document versions_arr;
+    versions_arr.SetArray();
+    for (auto& it : rowset_version_map) {
+        rapidjson::Value value;
+        std::string version_str = strings::Substitute("[$0-$1] $2",
+            it.first.first, it.first.second, (it.second ? "DELETE" : ""));
+        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator()); 
+        versions_arr.PushBack(value, versions_arr.GetAllocator());
+    }
+    root.AddMember("versions", versions_arr, root.GetAllocator());
+
+    // to json string
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *json_result = std::string(strbuf.GetString());
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     WriteLock store_lock(&_meta_store_lock);
     if (_newly_created_rowset_num == 0) {
@@ -1056,12 +1119,17 @@ OLAPStatus Tablet::do_tablet_meta_checkpoint() {
     RETURN_NOT_OK(save_meta());
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store
-    for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
+    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
+        if(rs_meta->is_remove_from_rowset_meta()) {
+            continue;
+        }
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id())) {
             RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
             LOG(INFO) << "remove rowset id from meta store because it is already persistent with tablet meta"
                        << ", rowset_id=" << rs_meta->rowset_id();
         }
+        rs_meta->set_remove_from_rowset_meta();
     }
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();

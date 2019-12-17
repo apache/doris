@@ -118,7 +118,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
         _memtable_flush_executor(nullptr),
         _default_rowset_type(ALPHA_ROWSET),
-        _compaction_rowset_type(ALPHA_ROWSET) {
+        _compaction_rowset_type(ALPHA_ROWSET),
+        _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -543,7 +544,7 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_compaction_failure_time(UnixMillis());
+        best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
             DorisMetrics::cumulative_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
@@ -552,7 +553,7 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
         }
         return;
     }
-    best_tablet->set_last_compaction_failure_time(0);
+    best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
 void StorageEngine::perform_base_compaction(DataDir* data_dir) {
@@ -565,15 +566,15 @@ void StorageEngine::perform_base_compaction(DataDir* data_dir) {
     BaseCompaction base_compaction(best_tablet);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_compaction_failure_time(UnixMillis());
-        if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+        best_tablet->set_last_base_compaction_failure_time(UnixMillis());
+        if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::base_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to init base compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
         }
         return;
     }
-    best_tablet->set_last_compaction_failure_time(0);
+    best_tablet->set_last_base_compaction_failure_time(0);
 }
 
 void StorageEngine::get_cache_status(rapidjson::Document* document) const {
@@ -1035,7 +1036,7 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
 #endif
     LOG(INFO) << "try to start tablet meta checkpoint thread!";
     while (true) {
-        LOG(INFO) << "begin to do tablet meta checkpoint";
+        LOG(INFO) << "begin to do tablet meta checkpoint:" << ((DataDir*)arg)->path();
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
         int64_t used_time = (UnixMillis() - start_time) / 1000;

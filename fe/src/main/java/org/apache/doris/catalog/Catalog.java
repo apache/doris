@@ -22,7 +22,7 @@ import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -40,6 +40,7 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -4505,8 +4506,8 @@ public class Catalog {
         return (SchemaChangeHandler) this.alter.getSchemaChangeHandler();
     }
 
-    public RollupHandler getRollupHandler() {
-        return (RollupHandler) this.alter.getRollupHandler();
+    public MaterializedViewHandler getRollupHandler() {
+        return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
     public SystemHandler getClusterHandler() {
@@ -4731,6 +4732,12 @@ public class Catalog {
      */
     public void alterTable(AlterTableStmt stmt) throws DdlException, UserException {
         this.alter.processAlterTable(stmt);
+    }
+
+    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+        // TODO(ml): remove it
+        throw new AnalysisException("The materialized view is coming soon");
+//        this.alter.processCreateMaterializedView(stmt);
     }
 
     /*
@@ -5328,7 +5335,7 @@ public class Catalog {
      * @param stmt
      * @throws DdlException
      */
-    public void processModifyCluster(AlterClusterStmt stmt) throws DdlException {
+    public void processModifyCluster(AlterClusterStmt stmt) throws UserException {
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
         if (!tryLock(false)) {

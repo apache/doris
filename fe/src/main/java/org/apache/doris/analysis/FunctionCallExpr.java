@@ -384,6 +384,47 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
         }
 
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT))) {
+            if (children.size() != 1) {
+                throw new AnalysisException("BITMAP_UNION_COUNT function could only have one child");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                Column column = slotRef.getDesc().getColumn();
+                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
+                }
+            } else {
+                throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
+            }
+            return;
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT)) {
+            if (children.size() <= 2) {
+                throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) " +
+                        "function requires at least three parameters");
+            }
+
+            if (getChild(0) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) getChild(0);
+                Column column = slotRef.getDesc().getColumn();
+                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
+                    throw new AnalysisException("intersect_count function first arg must be bitmap column");
+                }
+            } else {
+                throw new AnalysisException("intersect_count function first arg must be bitmap column");
+            }
+
+            for(int i = 2; i < children.size(); i++) {
+                if (!getChild(i).isConstant()) {
+                    throw new AnalysisException("intersect_count function filter_values arg must be constant");
+                }
+            }
+            return;
+        }
+
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT))) {
             if (children.size() != 1) {
                 throw new AnalysisException("BITMAP_COUNT function could only have one child");
@@ -411,6 +452,7 @@ public class FunctionCallExpr extends Expr {
             } else {
                 throw new AnalysisException("BITMAP_COUNT only support BITMAP_UNION(column) or BITMAP_COUNT(BITMAP_UNION(column))");
             }
+            return;
         }
 
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION))) {
@@ -425,12 +467,15 @@ public class FunctionCallExpr extends Expr {
                 }
             } else if (getChild(0) instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
-                if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
-                    throw new AnalysisException("BITMAP_UNION function only support TO_BITMAP function as it's child");
+                String fnName = functionCallExpr.getFnName().getFunction();
+                if (!FunctionSet.BITMAP_LOAD_FNS.contains(fnName)) {
+                    throw new AnalysisException("BITMAP_UNION function only support " +
+                            "to_bitmap, bitmap_hash or bitmap_union function as it's child");
                 }
             } else {
                 throw new AnalysisException("BITMAP_UNION only support BITMAP_UNION(column) or BITMAP_UNION(TO_BITMAP(column))");
             }
+            return;
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
@@ -465,8 +510,8 @@ public class FunctionCallExpr extends Expr {
                             + this.toSql());
                 }
             }
+            return;
         }
-        return;
     }
 
     // Provide better error message for some aggregate builtins. These can be

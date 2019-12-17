@@ -157,6 +157,10 @@ public class ReportHandler extends Daemon {
             forceRecovery = request.isForce_recovery();
         }
         
+        if (request.isSetTablet_max_compaction_score()) {
+            backend.setTabletMaxCompactionScore(request.getTablet_max_compaction_score());
+        }
+
         ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion, forceRecovery);
         try {
             putToQueue(reportTask);
@@ -256,7 +260,7 @@ public class ReportHandler extends Daemon {
         Map<Long, TTabletInfo> foundTabletsWithInvalidSchema = new HashMap<Long, TTabletInfo>();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
-        
+
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();

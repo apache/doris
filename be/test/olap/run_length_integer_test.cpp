@@ -340,9 +340,7 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) {
     }
     
     ASSERT_FALSE(_reader->has_next());
-    
 }
-
 
 class TestRunLengthSignInteger : public testing::Test {
 public:
@@ -357,7 +355,7 @@ virtual void SetUp() {
         system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
-        _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
+        _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, true);
         ASSERT_TRUE(_writer != NULL);
     }   
     
@@ -392,7 +390,7 @@ virtual void SetUp() {
                 &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
-        _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
+        _reader = new (std::nothrow) RunLengthIntegerReader(_stream, true);
         ASSERT_TRUE(_reader != NULL);
     }
 
@@ -738,6 +736,46 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
     
     ASSERT_FALSE(_reader->has_next());
     
+}
+
+// this case use to test large negative number.
+// The minimum of data sequence is -84742859065569280,
+// the positive form is 84742859065569280.
+// It is a 57 bit width integer and used 8 byte to encoding it.
+// The byte number is encoding as (8-1) = 7, in 111 binary form.
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
+    // write data
+    int64_t write_data[] = {-17887939293638656, -15605417571528704,
+                            -15605417571528704, -13322895849418752,
+                            -13322895849418752, -84742859065569280,
+                            -15605417571528704, -13322895849418752,
+                            -13322895849418752, -15605417571528704,
+                            -13322895849418752, -13322895849418752,
+                            -15605417571528704, -15605417571528704,
+                            -13322895849418752, -13322895849418752,
+                            -15605417571528704, -15605417571528704,
+                            -13322895849418752, -13322895849418752,
+                            -11040374127308800, -15605417571528704,
+                            -13322895849418752, -13322895849418752,
+                            -15605417571528704, -15605417571528704,
+                            -13322895849418752, -13322895849418752,
+                            -15605417571528704, -13322895849418752};
+    for (int32_t i = 0; i < 30; i++) {
+        ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+    }
+    ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
+
+    // read data
+    CreateReader();
+
+    for (int32_t i = 0; i < 30; i++) {
+        ASSERT_TRUE(_reader->has_next());
+        int64_t value = 0;
+        ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        ASSERT_EQ(value, write_data[i]);
+    }
+
+    ASSERT_FALSE(_reader->has_next());
 }
 
 TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows1) {

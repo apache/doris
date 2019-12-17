@@ -172,7 +172,7 @@ public class SystemInfoService {
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
@@ -230,7 +230,7 @@ public class SystemInfoService {
         LOG.info("finished to drop {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     // only for test

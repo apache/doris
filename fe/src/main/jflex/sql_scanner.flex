@@ -346,6 +346,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("varchar", new Integer(SqlParserSymbols.KW_VARCHAR));
         keywordMap.put("variables", new Integer(SqlParserSymbols.KW_VARIABLES));
         keywordMap.put("view", new Integer(SqlParserSymbols.KW_VIEW));
+        keywordMap.put("materialized", new Integer(SqlParserSymbols.KW_MATERIALIZED));
         keywordMap.put("warnings", new Integer(SqlParserSymbols.KW_WARNINGS));
         keywordMap.put("whitelist", new Integer(SqlParserSymbols.KW_WHITELIST));
         keywordMap.put("when", new Integer(SqlParserSymbols.KW_WHEN));

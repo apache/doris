@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
@@ -215,12 +216,31 @@ public class CreateTableStmt extends DdlStmt {
                 // olap table
                 if (keysDesc == null) {
                     List<String> keysColumnNames = Lists.newArrayList();
+                    int keyLength = 0;
+                    boolean hasAggregate = false;
                     for (ColumnDef columnDef : columnDefs) {
-                        if (columnDef.getAggregateType() == null) {
-                            keysColumnNames.add(columnDef.getName());
+                        if (columnDef.getAggregateType() != null) {
+                            hasAggregate = true;
+                            break;
                         }
                     }
-                    keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
+                    if (hasAggregate) {
+                        for (ColumnDef columnDef : columnDefs) {
+                            if (columnDef.getAggregateType() == null) {
+                                keysColumnNames.add(columnDef.getName());
+                            }
+                        }
+                        keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
+                    } else {
+                        for (ColumnDef columnDef : columnDefs) {
+                            keyLength += columnDef.getType().getStorageLayoutBytes();
+                            if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
+                                    || keyLength < FeConstants.shortkey_maxsize_bytes) {
+                                keysColumnNames.add(columnDef.getName());
+                            }
+                        }
+                        keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
+                    }
                 }
 
                 keysDesc.analyze(columnDefs);

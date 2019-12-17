@@ -29,6 +29,7 @@
 #include "olap/utils.h"
 #include "service/backend_options.h"
 #include "util/thrift_server.h"
+#include "runtime/heartbeat_flags.h"
 
 using std::fstream;
 using std::nothrow;
@@ -145,6 +146,11 @@ Status HeartbeatServer::_heartbeat(
 
     if (master_info.__isset.http_port) {
         _master_info->__set_http_port(master_info.http_port);
+    }
+
+    if (master_info.__isset.heartbeat_flags) {
+        HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
+        heartbeat_flags->update(master_info.heartbeat_flags);
     }
 
     if (need_report) {

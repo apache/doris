@@ -27,6 +27,7 @@ public:
     static void init();
     static void bitmap_init(FunctionContext* ctx, StringVal* slot);
     static StringVal bitmap_empty(FunctionContext* ctx);
+
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
     // the input src's ptr need to point a RoaringBitmap, this function will release the
@@ -38,6 +39,21 @@ public:
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
+    static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
+
+
+    // bitmap_intersect
+    template<typename T, typename ValType>
+    static void bitmap_intersect_init(FunctionContext* ctx, StringVal* dst);
+    template<typename T, typename ValType>
+    static void bitmap_intersect_update(FunctionContext* ctx, const StringVal& src, const ValType& key,
+                                        int num_key, const ValType* keys, const StringVal* dst);
+    template<typename T>
+    static void bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src, const StringVal* dst);
+    template<typename T>
+    static StringVal bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src);
+    template<typename T>
+    static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
 };
 }
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

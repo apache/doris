@@ -17,7 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -28,8 +30,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class DropClusterStmtTest {
 
@@ -38,23 +38,23 @@ public class DropClusterStmtTest {
     @Mocked
     private PaloAuth auth;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
+        Config.disable_cluster_feature = false;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };

@@ -225,7 +225,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
-    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
+    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
 
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
@@ -429,10 +429,11 @@ precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
-precedence left KW_PIPE;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
-precedence left BITAND, BITOR, BITXOR, BITNOT;
+precedence left BITAND, BITOR, BITXOR;
+precedence left KW_PIPE;
+precedence left BITNOT;
 precedence left KW_ORDER, KW_BY, KW_LIMIT;
 precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
@@ -652,6 +653,7 @@ opt_user ::=
 
     :}
     ;
+
 alter_table_clause_list ::=
     alter_table_clause:clause
     {:
@@ -919,6 +921,10 @@ create_stmt ::=
     | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new CreateFileStmt(fileName, db, properties);
+    :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
+    {:
+        RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
     ;
 
@@ -4223,6 +4229,8 @@ keyword ::=
     | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VIEW:id
+    {: RESULT = id; :}
+    | KW_MATERIALIZED:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}

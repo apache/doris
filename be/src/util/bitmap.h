@@ -269,6 +269,7 @@ public:
     // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
     explicit RoaringBitmap(const char* src) {
         _type = (BitmapDataType)src[0];
+        DCHECK(_type >= 0 && _type <= 2);
         switch (_type) {
             case EMPTY:
                 break;
@@ -327,6 +328,49 @@ public:
         }
     }
 
+    // the _type maybe change:
+    // EMPTY  -> EMPTY
+    // SINGLE -> EMPTY, SINGLE
+    // BITMAP -> EMPTY, SINGLE, BITMAP
+    void intersect(const RoaringBitmap& bitmap) {
+        switch(bitmap._type) {
+            case EMPTY:
+                _type = EMPTY;
+                return;
+            case SINGLE:
+                switch (_type) {
+                    case EMPTY:
+                        break;
+                    case SINGLE:
+                        if (_int_value != bitmap._int_value) {
+                            _type = EMPTY;
+                        }
+                        break;
+                    case BITMAP:
+                        if (!_roaring.contains(bitmap._int_value)) {
+                            _type = EMPTY;
+                        } else {
+                            _type = SINGLE;
+                            _int_value = bitmap._int_value;
+                        }
+                }
+                return;
+            case BITMAP:
+                switch (_type) {
+                    case EMPTY:
+                        break;
+                    case SINGLE:
+                        if (!bitmap._roaring.contains(_int_value)) {
+                            _type = EMPTY;
+                        }
+                        break;
+                    case BITMAP:
+                        _roaring &= bitmap._roaring;
+                }
+                return;
+        }
+    }
+
     int64_t cardinality() const {
         switch (_type) {
             case EMPTY:
@@ -366,7 +410,7 @@ public:
         }
     }
 
-    std::string toString() const {
+    std::string to_string() const {
         switch (_type) {
             case EMPTY:
                 return {};

@@ -85,6 +85,7 @@ public class MasterOpExecutor {
         params.setStmt_id(ctx.getStmtId());
         params.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
         params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
+        params.setCurrent_user_ident(ctx.getCurrentUserIdentity().toThrift());
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 

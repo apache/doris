@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -54,7 +55,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;

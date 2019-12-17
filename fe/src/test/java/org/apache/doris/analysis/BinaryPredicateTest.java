@@ -19,10 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;

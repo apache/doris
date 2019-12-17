@@ -124,8 +124,8 @@ public class RollupJobV2 extends AlterJobV2 {
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 
-    public void addRollupIndex(long partitionId, MaterializedIndex rollupIndex) {
-        this.partitionIdToRollupIndex.put(partitionId, rollupIndex);
+    public void addMVIndex(long partitionId, MaterializedIndex mvIndex) {
+        this.partitionIdToRollupIndex.put(partitionId, mvIndex);
     }
 
     /*

@@ -723,7 +723,13 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 continue;
             }
 
-            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
+            int64_t last_failure_time = table_ptr->last_cumu_compaction_failure_time();
+            if (compaction_type == CompactionType::BASE_COMPACTION) {
+                last_failure_time = table_ptr->last_base_compaction_failure_time();
+            }
+            if (now - last_failure_time <= config::min_compaction_failure_interval_sec * 1000) {
+                VLOG(1) << "last " << (compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative")
+                    << " compaction failure time is: " << last_failure_time << ", tablet: " << table_ptr->tablet_id();
                 continue;
             }
 
@@ -759,6 +765,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         LOG(INFO) << "find best tablet to do compaction."
             << " type: " << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "cumulative" : "base")
             << ", tablet id: " << best_tablet->tablet_id() << ", score: " << highest_score;
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            DorisMetrics::tablet_cumulative_max_compaction_score.set_value(highest_score);
+        } else {
+            DorisMetrics::tablet_base_max_compaction_score.set_value(highest_score);
+        }
     }
     return best_tablet;
 }

@@ -134,6 +134,19 @@ void copy_row(DstRowType* dst, const SrcRowType& src, MemPool* pool) {
     }
 }
 
+// NOTE: only use in MemTable for now, it is same with copy_row(), but for HLL and Object type,
+// its content is in Slice->data, other than a normal Slice, so we just assign the Slice->data
+// pointer, instead of memcpy the data.
+// TODO(lingbin): remove this method
+template<typename DstRowType, typename SrcRowType>
+void copy_row_in_memtable(DstRowType* dst, const SrcRowType& src, MemPool* pool) {
+    for (auto cid : dst->schema()->column_ids()) {
+        auto dst_cell = dst->cell(cid);
+        auto src_cell = src.cell(cid);
+        dst->schema()->column(cid)->copy_object(&dst_cell, src_cell, pool);
+    }
+}
+
 template<typename DstRowType, typename SrcRowType>
 void agg_update_row(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool) {
     for (uint32_t cid = dst->schema()->num_key_columns(); cid < dst->schema()->num_columns(); ++cid) {

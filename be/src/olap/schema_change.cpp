@@ -36,6 +36,8 @@
 #include "runtime/mem_tracker.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
+#include "runtime/exec_env.h"
+#include "runtime/heartbeat_flags.h"
 
 using std::deque;
 using std::list;
@@ -339,7 +341,8 @@ bool RowBlockChanger::change_row_block(
             } else if ((newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
                 || (newtype == OLAP_FIELD_TYPE_DATETIME && reftype == OLAP_FIELD_TYPE_DATE)
                 || (newtype == OLAP_FIELD_TYPE_DOUBLE && reftype == OLAP_FIELD_TYPE_FLOAT)
-                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)) {
+                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)
+                || (newtype == OLAP_FIELD_TYPE_INT && reftype == OLAP_FIELD_TYPE_VARCHAR)) {
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // Skip filtered rows
@@ -977,7 +980,7 @@ bool SchemaChangeWithSorting::process(
                                            _temp_delta_versions.second),
                                    rowset_reader->version_hash(),
                                    new_tablet,
-                                   rowset_reader->rowset()->rowset_meta()->rowset_type(),
+                                   StorageEngine::instance()->default_rowset_type(),
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -1034,7 +1037,7 @@ bool SchemaChangeWithSorting::process(
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
-                               rowset_reader->rowset()->rowset_meta()->rowset_type(),
+                               StorageEngine::instance()->default_rowset_type(),
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1471,7 +1474,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
-    writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
+    writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
@@ -1697,7 +1700,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
-        writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
+        writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;

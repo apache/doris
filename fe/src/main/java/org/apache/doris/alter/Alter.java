@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropRollupClause;
@@ -42,6 +43,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -59,19 +61,58 @@ public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
 
     private AlterHandler schemaChangeHandler;
-    private AlterHandler rollupHandler;
+    private AlterHandler materializedViewHandler;
     private SystemHandler clusterHandler;
 
     public Alter() {
         schemaChangeHandler = new SchemaChangeHandler();
-        rollupHandler = new RollupHandler();
+        materializedViewHandler = new MaterializedViewHandler();
         clusterHandler = new SystemHandler();
     }
 
     public void start() {
         schemaChangeHandler.start();
-        rollupHandler.start();
+        materializedViewHandler.start();
         clusterHandler.start();
+    }
+
+    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt) throws DdlException, AnalysisException {
+        String tableName = stmt.getBaseIndexName();
+        Database db = Catalog.getInstance().getDb(stmt.getDBName());
+        // check cluster capacity
+        Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        // check db quota
+        db.checkQuota();
+
+        db.writeLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
+            }
+            OlapTable olapTable = (OlapTable) table;
+
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
+                                               + "Do not allow doing materialized view");
+            }
+            // check if all tablets are healthy, and no tablet is in tablet scheduler
+            boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
+                                                  Catalog.getCurrentCatalog().getTabletScheduler(),
+                                                  db.getClusterName());
+            if (!isStable) {
+                throw new DdlException("table [" + olapTable.getName() + "] is not stable."
+                                               + " Some tablets of this table may not be healthy or are being "
+                                               + "scheduled."
+                                               + " You need to repair the table first"
+                                               + " or stop cluster balance. See 'help admin;'.");
+            }
+
+            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
+        } finally {
+            db.writeUnlock();
+        }
+
     }
 
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
@@ -89,8 +130,8 @@ public class Alter {
 
         // schema change ops can appear several in one alter stmt without other alter ops entry
         boolean hasSchemaChange = false;
-        // rollup ops, if has, should appear one and only one add or drop rollup entry
-        boolean hasAddRollup = false;
+        // materialized view ops (include rollup), if has, should appear one and only one add or drop mv entry
+        boolean hasAddMaterializedView = false;
         boolean hasDropRollup = false;
         // partition ops, if has, should appear one and only one entry
         boolean hasPartition = false;
@@ -124,29 +165,30 @@ public class Alter {
                     || alterClause instanceof DropColumnClause
                     || alterClause instanceof ModifyColumnClause
                     || alterClause instanceof ReorderColumnsClause)
-                    && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename) {
+                    && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
-            } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if ((alterClause instanceof AddRollupClause)
+                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
-                hasAddRollup = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                hasAddMaterializedView = true;
+            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasDropRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
-            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
-            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddRollup
+            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
                     || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename
+                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename
                     && !hasModifyProp) {
                 hasRename = true;
-            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddRollup
+            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasModifyProp = true;
             } else {
@@ -177,7 +219,7 @@ public class Alter {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
             
-            if (hasSchemaChange || hasModifyProp || hasAddRollup) {
+            if (hasSchemaChange || hasModifyProp || hasAddMaterializedView) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),
@@ -192,8 +234,8 @@ public class Alter {
 
             if (hasSchemaChange || hasModifyProp) {
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (hasAddRollup || hasDropRollup) {
-                rollupHandler.process(alterClauses, clusterName, db, olapTable);
+            } else if (hasAddMaterializedView || hasDropRollup) {
+                materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasPartition) {
                 Preconditions.checkState(alterClauses.size() == 1);
                 AlterClause alterClause = alterClauses.get(0);
@@ -223,7 +265,7 @@ public class Alter {
         }
     }
 
-    public void processAlterCluster(AlterSystemStmt stmt) throws DdlException {
+    public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
         clusterHandler.process(Arrays.asList(stmt.getAlterClause()), stmt.getClusterName(), null, null);
     }
 
@@ -251,8 +293,8 @@ public class Alter {
         return this.schemaChangeHandler;
     }
 
-    public AlterHandler getRollupHandler() {
-        return this.rollupHandler;
+    public AlterHandler getMaterializedViewHandler() {
+        return this.materializedViewHandler;
     }
 
     public AlterHandler getClusterHandler() {
