@@ -304,3 +304,11 @@ fi
 cd -
 echo "Finished patching $S2_SOURCE"
 
+# orc patch
+cd $TP_SOURCE_DIR/$ORC_SOURCE
+if [ ! -f $PATCHED_MARK  ]; then
+    patch -p0 CMakeLists.txt $TP_PATCH_DIR/orc-1.4.5.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $ORC_SOURCE"
