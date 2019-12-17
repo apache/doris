@@ -203,7 +203,6 @@ struct Version {
 
 typedef std::vector<Version> Versions;
 
-
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {
     size_t operator()(const Version& version) const {

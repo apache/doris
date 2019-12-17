@@ -18,6 +18,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/compaction.h"
 #include "olap/rowset/rowset_factory.h"
+#include "util/time.h"
 
 using std::vector;
 
@@ -75,6 +76,14 @@ OLAPStatus Compaction::do_compaction() {
 
     // 4. modify rowsets in memory
     RETURN_NOT_OK(modify_rowsets());
+
+    // 5. update last success compaction time
+    int64_t now = UnixMillis();
+    if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        _tablet->set_last_cumu_compaction_success_time(now);
+    } else {
+        _tablet->set_last_base_compaction_success_time(now);
+    } 
 
     LOG(INFO) << "succeed to do " << compaction_name()
               << ". tablet=" << _tablet->full_name()
