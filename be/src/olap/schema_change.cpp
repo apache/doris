@@ -1679,11 +1679,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        // if the tablet meta has preferred_rowset_type field set to BETA_ROWST, just use directly type
-        sc_directly = true;
-    }
-
     // b. 生成历史数据转换器
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
@@ -1934,6 +1929,13 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
     if (base_tablet->delete_predicates().size() != 0){
         //there exists delete condition in header, can't do linked schema change
+        *sc_directly = true;
+    }
+
+    if (StorageEngine::instance()->default_rowset_type() == ALPHA_ROWSET
+            && sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        // if the default rowset type is alpha, and tablet meta has preferred_rowset_type
+        // field set to BETA_ROWST, just use directly type
         *sc_directly = true;
     }
 
