@@ -745,7 +745,7 @@ public class StmtRewriter {
         // Grouping and/or aggregation (including analytic functions) is only
         // allowed on correlated EXISTS subqueries
         if ((expr instanceof BinaryPredicate
-                && (stmt.hasGroupByClause() || stmt.hasAnalyticInfo()))
+                && (stmt.hasAggInfo() || stmt.hasAnalyticInfo()))
                 || (expr instanceof InPredicate
                 && (stmt.hasAggInfo() || stmt.hasAnalyticInfo()))) {
             LOG.warn("canRewriteCorrelatedSubquery fail, expr={} subquery={}", expr.toSql(), stmt.toSql());
