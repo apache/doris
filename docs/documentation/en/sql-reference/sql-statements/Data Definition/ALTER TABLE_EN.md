@@ -127,6 +127,7 @@ under the License.
                 TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
                 Convert LARGEINT to DOUBLE
                 VARCHAR supports modification of maximum length
+                CONVERT VARCHAR to INT
                 Convert DATETIME to DATE(Only year-month-day information is retained, For example: `2019-12-09 21:47:05` <--> `2019-12-09`)
                 Convert DATE to DATETIME(Set hour, minute, second to zero, For example: `2019-12-09` <--> `2019-12-09 00:00:00`)
                 Convert FLOAT to DOUBLE

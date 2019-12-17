@@ -341,7 +341,8 @@ bool RowBlockChanger::change_row_block(
             } else if ((newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
                 || (newtype == OLAP_FIELD_TYPE_DATETIME && reftype == OLAP_FIELD_TYPE_DATE)
                 || (newtype == OLAP_FIELD_TYPE_DOUBLE && reftype == OLAP_FIELD_TYPE_FLOAT)
-                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)) {
+                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)
+                || (newtype == OLAP_FIELD_TYPE_INT && reftype == OLAP_FIELD_TYPE_VARCHAR)) {
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // Skip filtered rows
