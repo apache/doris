@@ -190,6 +190,10 @@ public class SelectStmt extends QueryStmt {
         return whereClause;
     }
 
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
     }

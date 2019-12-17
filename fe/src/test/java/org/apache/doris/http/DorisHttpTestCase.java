@@ -17,8 +17,7 @@
 
 package org.apache.doris.http;
 
-
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -208,7 +207,7 @@ abstract public class DorisHttpTestCase {
             EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList("default_cluster:testDb")).anyTimes();
             EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
             EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
+            EasyMock.expect(catalog.getRollupHandler()).andReturn(new MaterializedViewHandler()).anyTimes();
             EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
             EasyMock.expect(catalog.getClusterDbNames("default_cluster")).andReturn(Lists.newArrayList("default_cluster:testDb")).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq("blockDb"));
