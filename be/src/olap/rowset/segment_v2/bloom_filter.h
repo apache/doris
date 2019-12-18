@@ -25,6 +25,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "util/murmur_hash3.h"
 #include "common/status.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -52,46 +53,48 @@ public:
     // Factory function for BloomFilter
     static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf);
 
-    BloomFilter() = default;
+    BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) { }
 
     virtual ~BloomFilter() {
         delete[] _data;
     }
 
     // for write
-    bool init(uint64_t n, double fpp, HashStrategyPB strategy) {
+    Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
-            return false;
+            return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
         }
         _num_bytes = _optimal_bit_num(n, fpp) / 8;
+        // make sure _num_bytes is power of 2
+        DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _size = _num_bytes + 1;
         // reserve last byte for null flag
         _data = new char[_size];
         _has_null = (bool*)(_data + _num_bytes);
         *_has_null = false;
-        return true;
+        return Status::OK();
     }
 
     // for read
     // use deep copy to aquire the data
-    bool init(char* buf, uint32_t size, HashStrategyPB strategy) {
+    Status init(char* buf, uint32_t size, HashStrategyPB strategy) {
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
-            return false;
+            return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
         }
         if (size == 0) {
-            return false;
+            return Status::InvalidArgument(strings::Substitute("invalid size:$0", size));
         }
         _data = new char[size];
         memcpy(_data, buf, size);
         _size = size;
         _num_bytes = _size -1;
         _has_null = (bool*)(_data + _num_bytes);
-        return true;
+        return Status::OK();
     }
 
     void reset() {

@@ -42,8 +42,8 @@ TEST_F(BlockBloomFilterTest, Normal) {
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf);
-    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(ret);
+    st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf->size() > 0);
     int num = 1000;
     uint32_t values[1000];
@@ -66,8 +66,8 @@ TEST_F(BlockBloomFilterTest, Normal) {
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf2);
-    ret = bf2->init(bf->data(), bf->size(), HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(ret);
+    st = bf2->init(bf->data(), bf->size(), HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf2->size() > 0);
     for (int i = 0; i < num; ++i) {
         ASSERT_TRUE(bf2->test_bytes((char*)&values[i], sizeof(uint32_t)));
@@ -91,16 +91,16 @@ TEST_F(BlockBloomFilterTest, SP) {
     auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf);
-    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(ret);
+    st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf->size() > 0);
 
     std::unique_ptr<BloomFilter> bf2;
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf2);
-    ret = bf2->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(ret);
+    st = bf2->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf2->size() > 0);
 
     int num = 1024;
@@ -133,8 +133,8 @@ TEST_F(BlockBloomFilterTest, slice) {
     auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, bf);
-    auto ret = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(ret);
+    st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
+    ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf->size() > 0);
 
     int num = 1024;

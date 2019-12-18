@@ -237,10 +237,10 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
         int64_t from = row_ranges->get_range_from(i);
         int64_t idx = from;
         int64_t to = row_ranges->get_range_to(i);
-        auto iter = _ordinal_index->seek_at_or_before(row_ranges->get_range_from(i));
+        auto iter = _ordinal_index->seek_at_or_before(from);
         while (idx < to) {
             page_ids.insert(iter.cur_idx());
-            idx = _ordinal_index->get_last_row_id(iter.cur_idx()) + 1;
+            idx = iter.cur_page_last_row_id() + 1;
             iter.next();
         }
     }
@@ -254,7 +254,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
     }
     size_t original_size = row_ranges->count();
     RowRanges::ranges_intersection(*row_ranges, bf_row_ranges, row_ranges);
-    stats->rows_stats_filtered += original_size - row_ranges->count();
+    stats->rows_bf_filtered += original_size - row_ranges->count();
     return Status::OK();
 }
 
