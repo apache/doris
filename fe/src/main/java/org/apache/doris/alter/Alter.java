@@ -167,27 +167,28 @@ public class Alter {
                     || alterClause instanceof ReorderColumnsClause)
                     && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
-            } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if ((alterClause instanceof AddRollupClause)
+                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
-                hasAddRollup = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+                hasAddMaterializedView = true;
+            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasDropRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
-            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddRollup && !hasDropRollup
+            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
-            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddRollup
+            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
                     || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasAddRollup && !hasDropRollup && !hasPartition && !hasRename
+                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename
                     && !hasModifyProp) {
                 hasRename = true;
-            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddRollup
+            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasModifyProp = true;
             } else {

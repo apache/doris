@@ -18,11 +18,8 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJob.JobState;
-<<<<<<< HEAD:fe/src/main/java/org/apache/doris/alter/MaterializedViewHandler.java
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
-=======
->>>>>>> fix bug:fe/src/main/java/org/apache/doris/alter/RollupHandler.java
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -150,12 +147,8 @@ public class MaterializedViewHandler extends AlterHandler {
             rollupIndexName = newStorageFormatIndexName;
             changeStorageFormat = true;
         }
-        // 1. check if rollup index already exists
-        if (olapTable.hasMaterializedIndex(rollupIndexName)) {
-            throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");
-        }
 
-        // 2. get base index schema
+        // get base index schema
         String baseIndexName = alterClause.getBaseRollupName();
         if (baseIndexName == null) {
             // use table name as base table name
@@ -210,17 +203,9 @@ public class MaterializedViewHandler extends AlterHandler {
                                             baseIndexId, mvIndexId, baseIndexName, mvName,
                                             mvColumns, baseSchemaHash, mvSchemaHash,
                                             mvKeysType, mvShortKeyColumnCount);
-        if (properties != null && properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("V2")) {
+        String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+        if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
-        }
-
-        if (rollupIndexName.equalsIgnoreCase(newStorageFormatIndexName)) {
-            List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
-            // create the same schema as base table
-            rollupColumnNames.clear();
-            for (Column column : columns) {
-                rollupColumnNames.add(column.getName());
-            }
         }
 
         /*
@@ -514,11 +499,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (baseIndexId == null) {
             throw new DdlException("Base index[" + baseIndexName + "] does not exist");
         }
-
-        /*
-         * create all rollup indexes. and set state.
-         * After setting, Tables' state will be ROLLUP
-         */
+        // check state
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             // up to here. index's state should only be NORMAL

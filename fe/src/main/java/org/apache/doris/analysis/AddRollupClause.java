@@ -64,14 +64,6 @@ public class AddRollupClause extends AlterClause {
         return baseRollupName;
     }
 
-    public long getTimeoutSecond() {
-        return timeoutSecond;
-    }
-
-    public void setTimeoutSecond(long timeoutSecond) {
-        this.timeoutSecond = timeoutSecond;
-    }
-
     public AddRollupClause(String rollupName, List<String> columnNames,
                            List<String> dupKeys, String baseRollupName,
                            Map<String, String> properties) {
