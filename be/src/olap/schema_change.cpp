@@ -1933,7 +1933,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
     }
 
     if (StorageEngine::instance()->default_rowset_type() == ALPHA_ROWSET
-            && sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+            && new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         // if the default rowset type is alpha, and tablet meta has preferred_rowset_type
         // field set to BETA_ROWST, just use directly type
         *sc_directly = true;

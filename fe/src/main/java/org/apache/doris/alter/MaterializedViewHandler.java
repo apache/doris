@@ -19,7 +19,6 @@ package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
