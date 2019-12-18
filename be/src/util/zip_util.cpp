@@ -26,6 +26,7 @@
 namespace doris {
 
 #define DEFAULT_FILE_NAME_SIZE 256
+#define DEFAULT_UNZIP_BUFFER 1048576 // 1MB
 
 #define BREAK_IF_STATUS_ERROR(stmt) { \
         st = (stmt);                  \
@@ -35,31 +36,22 @@ namespace doris {
 }
 
 using namespace strings;
-        
-Status ZipFile::open() {
-    _zip_file = unzOpen64(_zip_path.c_str());
-    if (_zip_file == nullptr) {
-        return Status::InvalidArgument("open zip file: " + _zip_path + " error");
-    }
-
-    return Status::OK();
-}
 
 Status ZipFile::close() {
-    if (!_close) {
+    if (_zip_file == nullptr) {
         unzClose(_zip_file);
-        _close = true;
     }
-    
+
     return Status::OK();
 }
 
 Status ZipFile::extract(const std::string& target_path, const std::string& dir_name) {
     // check zip file
+    _zip_file = unzOpen64(_zip_path.c_str());
     if (_zip_file == nullptr) {
-        return Status::IOError("zip file is not open");
+        return Status::InvalidArgument("open zip file: " + _zip_path + " error");
     }
-    
+
     unz_global_info64 global_info;
     int err = unzGetGlobalInfo64(_zip_file, &global_info);
 
@@ -74,7 +66,7 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
     }
 
     // 1.create temp directory
-    std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros())  + "_" + dir_name;
+    std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros()) + "_" + dir_name;
     RETURN_IF_ERROR(FileUtils::create_dir(temp));
 
     // 2.unzip to temp directory
@@ -122,7 +114,6 @@ Status ZipFile::extract_file(unzFile zfile, const std::string& target_path) {
 
     // is file, unzip
     Status st = Status::OK();
-    char* file_data = nullptr;
     do {
         err = unzOpenCurrentFile(zfile);
         if (UNZ_OK != err) {
@@ -130,35 +121,32 @@ Status ZipFile::extract_file(unzFile zfile, const std::string& target_path) {
             break;
         }
 
-        uint64_t file_size = file_info_inzip.uncompressed_size;
-        file_data = (char *)malloc(file_size);
-
-        if (UNLIKELY(file_data == nullptr)) {
-            LOG(WARNING) << "malloc failed, size: " << file_size;
-            st = Status::MemoryAllocFailed(strings::Substitute("malloc failed, file $0 size $1", file_name,
-                                                               file_size));
-            break;
-        }
-
-        if (unzReadCurrentFile(zfile, (voidp) file_data, file_size) < 0) {
-            st = Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
-            break;
-        }
+        size_t file_size = file_info_inzip.uncompressed_size < DEFAULT_UNZIP_BUFFER ? file_info_inzip.uncompressed_size
+                                                                                    : DEFAULT_UNZIP_BUFFER;
+        char file_data[file_size];
 
         std::unique_ptr<WritableFile> wfile;
-
         BREAK_IF_STATUS_ERROR(Env::Default()->new_writable_file(path, &wfile));
-        BREAK_IF_STATUS_ERROR(wfile->append(file_data));
+
+        size_t size = 0;
+        do {
+            size = unzReadCurrentFile(zfile, (voidp) file_data, file_size);
+            if (size < 0) {
+                st = Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
+                break;
+            }
+
+            if (!(st =wfile->append(Slice(file_data, size))).ok()) {
+                unzCloseCurrentFile(zfile);
+                return st;
+            }
+        } while (size > 0);
+
         BREAK_IF_STATUS_ERROR(wfile->flush(WritableFile::FLUSH_ASYNC));
         BREAK_IF_STATUS_ERROR(wfile->sync());
-        BREAK_IF_STATUS_ERROR(wfile->close());
-    } while (0);
-
+    } while (false);
+    
     unzCloseCurrentFile(zfile);
-
-    if (file_data != nullptr) {
-        free(file_data);
-    }
 
     return st;
 }

@@ -25,51 +25,47 @@
 
 namespace doris {
 
+/**
+ * zip file extract 
+ * extract .zip file to $(target path)/$(target directory)
+ * 
+ *  usage:
+ *      zipfile = ZipFile("/home/test/test.zip");
+ *      zipfile.open();
+ *      zipfile.extract("/home/test", "target_directory");
+ *      zipfile.close();
+ *      
+ *  /home/test/test.zip content:
+ *  --one/
+ *  ----test.txt
+ *  --two/
+ *  
+ *  The extract result:
+ *  /home/test/target_directory
+ *  --one/
+ *  ----test.txt
+ *  --two/
+ */
 class ZipFile {
 
 public:
-    ZipFile(const std::string& zip_path) : _zip_path(zip_path), _close(false) {}
+    ZipFile(const std::string& zip_path) : _zip_path(zip_path), _zip_file(nullptr) {}
 
     ~ZipFile() {
         WARN_IF_ERROR(close(), "failed to close zip file: " + _zip_path);
     }
 
-    /**
-     * zip file extract 
-     * extract .zip file to $(target path)/$(target directory)
-     * 
-     *  usage:
-     *      zipfile = ZipFile("/home/test/test.zip");
-     *      zipfile.open();
-     *      zipfile.extract("/home/test", "target_directory");
-     *      zipfile.close();
-     *      
-     *  /home/test/test.zip content:
-     *  --one/
-     *  ----test.txt
-     *  --two/
-     *  
-     *  The extract result:
-     *  /home/test/target_directory
-     *  --one/
-     *  ----test.txt
-     *  --two/
-     */
     Status extract(const std::string& target_path, const std::string& target_directory);
 
-    Status open();
-
-    Status close();
-
 private:
+    Status close();
+    
     Status extract_file(unzFile file, const std::string& target_path);
 
 private:
     std::string _zip_path;
 
     unzFile _zip_file;
-
-    bool _close;
 };
 }
 
