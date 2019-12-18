@@ -40,9 +40,11 @@ public interface ConfigurationOptions {
     String DORIS_REQUEST_RETRIES = "doris.request.retries";
     String DORIS_REQUEST_CONNECT_TIMEOUT_MS = "doris.request.connect.timeout.ms";
     String DORIS_REQUEST_READ_TIMEOUT_MS = "doris.request.read.timeout.ms";
+    String DORIS_REQUEST_QUERY_TIMEOUT_S = "doris.request.query.timeout.s";
     int DORIS_REQUEST_RETRIES_DEFAULT = 3;
     int DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT = 30 * 1000;
     int DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT = 30 * 1000;
+    int DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT = 3600;
 
     String DORIS_TABLET_SIZE = "doris.request.tablet.size";
     int DORIS_TABLET_SIZE_DEFAULT = Integer.MAX_VALUE;
