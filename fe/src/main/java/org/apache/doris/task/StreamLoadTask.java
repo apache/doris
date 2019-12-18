@@ -160,8 +160,7 @@ public class StreamLoadTask {
             strictMode = request.isStrictMode();
         }
         if (request.isSetTimezone()) {
-            timezone = request.getTimezone();
-            TimeUtils.checkTimeZoneValid(timezone);
+            timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
         }
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
