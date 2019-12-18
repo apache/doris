@@ -2365,6 +2365,7 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, T* dst) {
     DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
     T src = *static_cast<T*>(ctx->get_constant_arg(2));
     // The literal null is sometimes incorrectly converted to int, so *dst = src may cause SEGV
+    // if src length is larger than int, for example DatetimeVal
     if (UNLIKELY(src.is_null)) {
         dst->is_null = src.is_null;
     } else {
@@ -2383,9 +2384,7 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, StringVal* dst) {
         *dst = StringVal::null();
     } else {
         uint8_t* copy = ctx->allocate(src.len);
-        if (UNLIKELY(copy == NULL)) {
-            // Zero-length allocation always returns a hard-coded pointer.
-            DCHECK(src.len != 0 && !ctx->impl()->state()->query_status().ok());
+        if (UNLIKELY(copy == nullptr)) {
             *dst = StringVal::null();
         } else {
             *dst = StringVal(copy, src.len);
