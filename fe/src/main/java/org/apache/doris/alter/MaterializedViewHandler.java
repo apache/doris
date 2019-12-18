@@ -322,7 +322,6 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException {
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
-        // 2. check if rollup index already exists
         if (changeStorageFormat) {
             String newStorageFormatIndexName = "__v2_" + olapTable.getName();
             rollupIndexName = newStorageFormatIndexName;
@@ -334,6 +333,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
+        // 2. check if rollup index already exists
         if (olapTable.hasMaterializedIndex(rollupIndexName)) {
             throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");
         }
