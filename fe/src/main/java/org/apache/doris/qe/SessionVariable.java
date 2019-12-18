@@ -89,6 +89,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     public static final String LOAD_MEM_LIMIT = "load_mem_limit";
     public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
+    public static final String USE_V2_ROLLUP = "use_v2_rollup";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -217,6 +218,8 @@ public class SessionVariable implements Serializable, Writable {
     // the default rowset type flag which will be passed to Backends througth heartbeat
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
     public static String defaultRowsetType = "alpha";
+    @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
+    private boolean useV2Rollup = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -382,6 +385,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getForwardToMaster() {
         return forwardToMaster;
+    }
+
+    public boolean getUseV2Rollup() { return useV2Rollup; }
+
+    public void setUseV2Rollup(boolean useV2Rollup) {
+        this.useV2Rollup = useV2Rollup;
     }
 
     // Serialize to thrift object

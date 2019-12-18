@@ -54,6 +54,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -130,18 +131,32 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     private void processAddRollup(AddRollupClause alterClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
-        String baseIndexName = alterClause.getBaseRollupName();
         String rollupIndexName = alterClause.getRollupName();
+        String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+        boolean changeStorageFormat = false;
+        if (rollupIndexName.equalsIgnoreCase(olapTable.getName())) {
+            // for upgrade test to create segment v2 rollup index by using the sql:
+            // alter table table_name add rollup table_name (columns) properties ("storage_format" = "v2");
+            Map<String, String> properties = alterClause.getProperties();
+            if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)
+                    || !properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
+                throw new DdlException("Table[" + olapTable.getName() + "] can not " +
+                        "add segment v2 rollup index without setting storage format to v2.");
+            }
+            rollupIndexName = newStorageFormatIndexName;
+            changeStorageFormat = true;
+        }
+
         // get base index schema
+        String baseIndexName = alterClause.getBaseRollupName();
         if (baseIndexName == null) {
             // use table name as base table name
             baseIndexName = olapTable.getName();
         }
         // Step1.1 check base table and base index
         // Step1.2 alter clause validation
-        LOG.info("process add rollup[{}] based on [{}]", rollupIndexName, baseIndexName);
         Long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
-        List<Column> rollupSchema = checkAndPrepareMaterializedView(alterClause, olapTable, baseIndexId);
+        List<Column> rollupSchema = checkAndPrepareMaterializedView(alterClause, olapTable, baseIndexId, changeStorageFormat);
 
         // Step2: create materialized view job
         createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, alterClause.getProperties(),
@@ -187,6 +202,10 @@ public class MaterializedViewHandler extends AlterHandler {
                                             baseIndexId, mvIndexId, baseIndexName, mvName,
                                             mvColumns, baseSchemaHash, mvSchemaHash,
                                             mvKeysType, mvShortKeyColumnCount);
+        String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+        if (mvName.equals(newStorageFormatIndexName)) {
+            mvJob.setStorageFormat(TStorageFormat.V2);
+        }
 
         /*
          * create all rollup indexes. and set state.
@@ -298,10 +317,21 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     private List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
-                                                         long baseIndexId)
+                                                         long baseIndexId, boolean changeStorageFormat)
             throws DdlException {
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
+        if (changeStorageFormat) {
+            String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+            rollupIndexName = newStorageFormatIndexName;
+            List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
+            // create the same schema as base table
+            rollupColumnNames.clear();
+            for (Column column : columns) {
+                rollupColumnNames.add(column.getName());
+            }
+        }
+
         // 2. check if rollup index already exists
         if (olapTable.hasMaterializedIndex(rollupIndexName)) {
             throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");

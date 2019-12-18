@@ -311,3 +311,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `default_rowset_type`
 
     Used for setting the default storage format of Backends storage engine. Valid options: alpha/beta
+
+* `use_v2_rollup`
+
+    Used to control the sql query to use segment v2 rollup index to get data. This variable is only used for validation when upgrading to segment v2 feature. Otherwise, not recommended to use.

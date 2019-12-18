@@ -63,6 +63,11 @@ public class ModifyTablePropertiesClause extends AlterClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             // do nothing, these 2 properties will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT + " should be v2");
+            }
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
