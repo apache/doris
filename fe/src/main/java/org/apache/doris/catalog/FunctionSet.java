@@ -28,11 +28,15 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
+import org.apache.doris.common.Pair;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -685,7 +689,6 @@ public class FunctionSet {
         if (mode == Function.CompareMode.IS_IDENTICAL) {
             return null;
         }
-
         // Next check for indistinguishable
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_INDISTINGUISHABLE)) {
@@ -696,11 +699,16 @@ public class FunctionSet {
             return null;
         }
 
+        List<Pair<Function, Integer>> mactchedFnsScores = new ArrayList<>();
         // Next check for strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                return f;
+                mactchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
             }
+        }
+        if (mactchedFnsScores.size() > 0 ) {
+            Collections.sort(mactchedFnsScores, Comparator.comparing(p -> p.second));
+            return mactchedFnsScores.get(mactchedFnsScores.size() - 1).first;
         }
         if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
             return null;
@@ -709,10 +717,47 @@ public class FunctionSet {
         // Finally check for non-strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                return f;
+                mactchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
             }
         }
+        if (mactchedFnsScores.size() > 0 ) {
+            Collections.sort(mactchedFnsScores, Comparator.comparing(p -> p.second));
+            return mactchedFnsScores.get(mactchedFnsScores.size() - 1).first;
+        }
         return null;
+    }
+
+    /**
+     * a function  may have multi matched functions, for example args type [DATE, BIGINT, NULL] may match
+     * [INT, BIGINT, INT], [DATE, BIGINT, DATE], [BIGINT, BIGINT, BIGINT] in IS_SUPERTYPE_OF model, this function
+     * calculate the score of match, identical match is 3, implicitly castable match is 2, castable match is 1
+     * @param find the function found matched
+     * @param target  the function analyzed from sql clause
+     * @return the match score
+     */
+    private int calMatchScore(Function find, Function target) {
+        int score = 0;
+        for (int i = 0; i < find.getArgs().length; ++i) {
+            if (target.getArgs()[i].matchesType(find.getArgs()[i])) {
+                score += 3;
+            } else if (Type.isImplicitlyCastable(target.getArgs()[i], find.getArgs()[i], true)) {
+                score += 2;
+            } else if (Type.canCastTo(target.getArgs()[i], find.getArgs()[i])) {
+                score += 1;
+            }
+        }
+        if (find.hasVarArgs()) {
+            for (int i = find.getArgs().length; i < target.getArgs().length; ++i) {
+                if (target.getArgs()[i].matchesType(find.getVarArgsType())) {
+                    score += 3;
+                } else if (Type.isImplicitlyCastable(target.getArgs()[i], find.getVarArgsType(), true)) {
+                    score += 2;
+                } else if (Type.canCastTo(target.getArgs()[i], find.getVarArgsType())) {
+                    score += 1;
+                }
+            }
+        }
+        return score;
     }
 
     /**
