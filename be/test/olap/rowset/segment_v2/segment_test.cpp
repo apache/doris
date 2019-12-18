@@ -232,7 +232,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
     FileUtils::remove_all(dname);
 }
 
-TEST_F(SegmentReaderWriterTest, TestZoneMap) {
+TEST_F(SegmentReaderWriterTest, TestIndex) {
     size_t num_rows_per_block = 10;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
@@ -241,7 +241,7 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
     tablet_schema->_num_short_key_columns = 2;
     tablet_schema->_num_rows_per_row_block = num_rows_per_block;
     tablet_schema->_cols.push_back(create_int_key(1));
-    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(2, true, true));
     tablet_schema->_cols.push_back(create_int_key(3));
     tablet_schema->_cols.push_back(create_int_value(4));
 
@@ -427,6 +427,28 @@ TEST_F(SegmentReaderWriterTest, TestZoneMap) {
             ASSERT_EQ(16 * 1024, rowid);
             st = iter->next_batch(&block);
             ASSERT_TRUE(st.is_end_of_file());
+            ASSERT_EQ(0, block.num_rows());
+        }
+        // test bloom filter
+        {
+            StorageReadOptions read_opts;
+            read_opts.stats = &stats;
+            TCondition condition;
+            condition.__set_column_name("2");
+            condition.__set_condition_op("=");
+            // 102 is not in page 1
+            std::vector<std::string> vals = {"102"};
+            condition.__set_condition_values(vals);
+            std::shared_ptr<Conditions> conditions(new Conditions());
+            conditions->set_tablet_schema(tablet_schema.get());
+            conditions->append_condition(condition);
+            read_opts.conditions = conditions.get();
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 1024);
+            st = iter->next_batch(&block);
+            ASSERT_TRUE(st.is_end_of_file()) << "status:" << st.to_string();
             ASSERT_EQ(0, block.num_rows());
         }
     }
@@ -1062,6 +1084,102 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
     }
 
     FileUtils::remove_all(dname);
+}
+
+TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
+    size_t num_rows_per_block = 10;
+
+    std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 2;
+    tablet_schema->_num_rows_per_row_block = num_rows_per_block;
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_key(3));
+    tablet_schema->_cols.push_back(create_int_value(4, OLAP_FIELD_AGGREGATION_REPLACE, true, "", true));
+
+    // segment write
+    std::string dname = "./ut_dir/segment_test";
+    FileUtils::create_dir(dname);
+
+    // for not base segment
+    SegmentWriterOptions opts;
+    opts.num_rows_per_block = num_rows_per_block;
+
+    std::string fname = dname + "/bf_in_unique_model_not_base";
+    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
+    auto st = writer.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row;
+    auto olap_st = row.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    //
+    // 64k int will generate 4 pages
+    for (int i = 0; i < 64 * 1024; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row.cell(j);
+            cell.set_not_null();
+            if (i >= 16 * 1024 && i < 32 * 1024) {
+                // make second page all rows equal
+                *(int*)cell.mutable_cell_ptr() = 164000 + j;
+
+            } else {
+                *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+            }
+        }
+        writer.append_row(row);
+    }
+
+    uint64_t file_size = 0;
+    uint64_t index_size;
+    st = writer.finalize(&file_size, &index_size);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(writer.has_bf_index(3));
+
+    // for base segment
+    // for not base segment
+    SegmentWriterOptions opts2;
+    opts2.num_rows_per_block = num_rows_per_block;
+    opts2.whether_to_filter_value = true;
+
+    std::string fname2 = dname + "/bf_in_unique_model_base";
+    SegmentWriter writer2(fname, 0, tablet_schema.get(), opts2);
+    st = writer2.init(10);
+    ASSERT_TRUE(st.ok());
+
+    RowCursor row2;
+    olap_st = row2.init(*tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+
+    // 0, 1, 2, 3
+    // 10, 11, 12, 13
+    // 20, 21, 22, 23
+    //
+    // 64k int will generate 4 pages
+    for (int i = 0; i < 64 * 1024; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            auto cell = row2.cell(j);
+            cell.set_not_null();
+            if (i >= 16 * 1024 && i < 32 * 1024) {
+                // make second page all rows equal
+                *(int*)cell.mutable_cell_ptr() = 164000 + j;
+
+            } else {
+                *(int*)cell.mutable_cell_ptr() = i * 10 + j;
+            }
+        }
+        writer2.append_row(row2);
+    }
+
+    st = writer2.finalize(&file_size, &index_size);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(writer2.has_bf_index(3));
 }
 
 }
