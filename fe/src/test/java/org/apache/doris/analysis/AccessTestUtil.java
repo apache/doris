@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
@@ -101,7 +101,7 @@ public class AccessTestUtil {
             EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList("testCluster:testDb")).anyTimes();
             EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
             EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
+            EasyMock.expect(catalog.getRollupHandler()).andReturn(new MaterializedViewHandler()).anyTimes();
             EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
             EasyMock.expect(catalog.getClusterDbNames("testCluster")).andReturn(Lists.newArrayList("testCluster:testDb")).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq("blockDb"));

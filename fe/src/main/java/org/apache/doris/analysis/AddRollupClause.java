@@ -18,11 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -42,7 +40,6 @@ public class AddRollupClause extends AlterClause {
     private List<String> columnNames;
     private String baseRollupName;
     private List<String> dupKeys;
-    private long timeoutSecond;
 
     private Map<String, String> properties;
 
@@ -65,10 +62,6 @@ public class AddRollupClause extends AlterClause {
 
     public String getBaseRollupName() {
         return baseRollupName;
-    }
-
-    public long getTimeoutSecond() {
-        return timeoutSecond;
     }
 
     public AddRollupClause(String rollupName, List<String> columnNames,
@@ -98,8 +91,6 @@ public class AddRollupClause extends AlterClause {
             }
         }
         baseRollupName = Strings.emptyToNull(baseRollupName);
-
-        timeoutSecond = PropertyAnalyzer.analyzeTimeout(properties, Config.alter_table_timeout_second);
     }
 
     @Override
