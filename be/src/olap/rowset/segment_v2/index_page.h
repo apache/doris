@@ -61,6 +61,10 @@ public:
 
     Slice finish();
 
+    uint64_t size() {
+        return _buffer.size();
+    }
+
     // Return the key of the first entry in this index block.
     // The pointed-to data is only valid until the next call to this builder.
     Status get_first_key(Slice* key) const;
@@ -133,10 +137,10 @@ public:
     // Move to the next index entry.
     // Return true on success, false when no more entries can be read.
     bool move_next() {
+        _pos++;
         if (_pos >= _reader->count()) {
             return false;
         }
-        _pos++;
         return true;
     }
 

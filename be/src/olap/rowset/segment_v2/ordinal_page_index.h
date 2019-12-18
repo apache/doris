@@ -84,6 +84,8 @@ public:
     inline rowid_t rowid() const;
     inline int32_t cur_idx() const;
     inline const PagePointer& page() const;
+    inline rowid_t cur_page_first_row_id() const;
+    inline rowid_t cur_page_last_row_id() const;
 private:
     OrdinalPageIndex* _index;
     int32_t _cur_idx;
@@ -156,6 +158,14 @@ int32_t OrdinalPageIndexIterator::cur_idx() const {
 
 inline const PagePointer& OrdinalPageIndexIterator::page() const {
     return _index->_pages[_cur_idx];
+}
+
+rowid_t OrdinalPageIndexIterator::cur_page_first_row_id() const {
+    return _index->get_first_row_id(_cur_idx);
+}
+
+rowid_t OrdinalPageIndexIterator::cur_page_last_row_id() const {
+    return _index->get_last_row_id(_cur_idx);
 }
 
 }

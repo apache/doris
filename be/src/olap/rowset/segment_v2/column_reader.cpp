@@ -34,6 +34,7 @@
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/block_compression.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -224,6 +225,39 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
+Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
+            OlapReaderStatistics* stats, RowRanges* row_ranges) {
+    RowRanges bf_row_ranges;
+    std::unique_ptr<BloomFilterIndexIterator> bf_iter;
+    RETURN_IF_ERROR(_bloom_filter_index_reader->new_iterator(&bf_iter));
+    size_t range_size = row_ranges->range_size();
+    // get covered page ids
+    std::set<uint32_t> page_ids;
+    for (int i = 0; i < range_size; ++i) {
+        int64_t from = row_ranges->get_range_from(i);
+        int64_t idx = from;
+        int64_t to = row_ranges->get_range_to(i);
+        auto iter = _ordinal_index->seek_at_or_before(from);
+        while (idx < to) {
+            page_ids.insert(iter.cur_idx());
+            idx = iter.cur_page_last_row_id() + 1;
+            iter.next();
+        }
+    }
+    for (auto& pid : page_ids) {
+        std::unique_ptr<BloomFilter> bf;
+        RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
+        if (cond_column->eval(bf.get())) {
+            bf_row_ranges.add(RowRange(_ordinal_index->get_first_row_id(pid),
+                    _ordinal_index->get_last_row_id(pid) + 1));
+        }
+    }
+    size_t original_size = row_ranges->count();
+    RowRanges::ranges_intersection(*row_ranges, bf_row_ranges, row_ranges);
+    stats->rows_bf_filtered += original_size - row_ranges->count();
+    return Status::OK();
+}
+
 Status ColumnReader::_load_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
@@ -257,6 +291,17 @@ Status ColumnReader::_load_bitmap_index() {
         RETURN_IF_ERROR(_bitmap_index_reader->load());
     } else {
         _bitmap_index_reader.reset(nullptr);
+    }
+    return Status::OK();
+}
+
+Status ColumnReader::_load_bloom_filter_index() {
+    if (_meta.has_bloom_filter_index()) {
+        const BloomFilterIndexPB& bloom_filter_index_meta = _meta.bloom_filter_index();
+        _bloom_filter_index_reader.reset(new BloomFilterIndexReader(_file, bloom_filter_index_meta));
+        RETURN_IF_ERROR(_bloom_filter_index_reader->load());
+    } else {
+        _bloom_filter_index_reader.reset(nullptr);
     }
     return Status::OK();
 }
@@ -480,13 +525,15 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 Status FileColumnIterator::get_row_ranges_by_conditions(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) {
-    if (!_reader->has_zone_map()) {
-        return Status::OK();
+    if (_reader->has_zone_map()) {
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions, 
+            _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
     }
 
-    RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions, 
-            _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
-    // TODO(hkp): get row ranges from bloom filter and secondary index
+    if (cond_column != nullptr && 
+            cond_column->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, _opts.stats, row_ranges));
+    }
     return Status::OK();
 }
 

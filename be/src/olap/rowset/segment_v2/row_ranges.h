@@ -267,7 +267,6 @@ public:
         return result;
     }
 
-private:
     // Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
     // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
     // the last one or might be overlapped with some of the last ones.
