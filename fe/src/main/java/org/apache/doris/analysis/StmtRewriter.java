@@ -744,10 +744,17 @@ public class StmtRewriter {
         Preconditions.checkNotNull(stmt);
         // Grouping and/or aggregation (including analytic functions) is only
         // allowed on correlated EXISTS subqueries
-        if ((expr instanceof BinaryPredicate
-                && (stmt.hasAggInfo() || stmt.hasAnalyticInfo()))
-                || (expr instanceof InPredicate
-                && (stmt.hasAggInfo() || stmt.hasAnalyticInfo()))) {
+        if (expr instanceof BinaryPredicate) {
+            if (stmt.getSelectList().getItems().size() != 1) {
+                throw new AnalysisException("The subquery only support one item in select clause");
+            }
+            SelectListItem item = stmt.getSelectList().getItems().get(0);
+            if (!item.getExpr().contains(Expr.IS_BUILTIN_AGG_FN)) {
+                throw new AnalysisException("The select item of correlated subquery should only be sum, min, max, avg"
+                                                    + " and count. Current subquery:" + stmt.toSql());
+            }
+        }
+        if (expr instanceof InPredicate && (stmt.hasAggInfo() || stmt.hasAnalyticInfo())) {
             LOG.warn("canRewriteCorrelatedSubquery fail, expr={} subquery={}", expr.toSql(), stmt.toSql());
             throw new AnalysisException("Unsupported correlated subquery with grouping "
                     + "and/or aggregation: "
