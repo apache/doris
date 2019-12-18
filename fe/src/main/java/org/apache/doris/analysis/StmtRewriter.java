@@ -742,18 +742,20 @@ public class StmtRewriter {
         Preconditions.checkState(expr.contains(Subquery.class));
         SelectStmt stmt = (SelectStmt) expr.getSubquery().getStatement();
         Preconditions.checkNotNull(stmt);
-        // Grouping and/or aggregation (including analytic functions) is only
-        // allowed on correlated EXISTS subqueries
+        // Only specified function could be supported in correlated subquery of binary predicate.
         if (expr instanceof BinaryPredicate) {
             if (stmt.getSelectList().getItems().size() != 1) {
                 throw new AnalysisException("The subquery only support one item in select clause");
             }
             SelectListItem item = stmt.getSelectList().getItems().get(0);
-            if (!item.getExpr().contains(Expr.IS_BUILTIN_AGG_FN)) {
-                throw new AnalysisException("The select item of correlated subquery should only be sum, min, max, avg"
-                                                    + " and count. Current subquery:" + stmt.toSql());
+            if (!item.getExpr().contains(Expr.CORRELATED_SUBQUERY_SUPPORT_AGG_FN)) {
+                throw new AnalysisException("The select item in correlated subquery of binary predicate should only "
+                                                    + "be sum, min, max, avg and count. Current subquery:"
+                                                    + stmt.toSql());
             }
         }
+        // Grouping and/or aggregation (including analytic functions) is forbidden in correlated subquery of in
+        // predicate.
         if (expr instanceof InPredicate && (stmt.hasAggInfo() || stmt.hasAnalyticInfo())) {
             LOG.warn("canRewriteCorrelatedSubquery fail, expr={} subquery={}", expr.toSql(), stmt.toSql());
             throw new AnalysisException("Unsupported correlated subquery with grouping "
