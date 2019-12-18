@@ -36,6 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +95,27 @@ public final class RollupSelector {
                     selectedIndexId = indexId;
                 }
             }
+        }
+        String tableName = table.getName();
+        String v2RollupIndexName = "__v2_" + tableName;
+        Long v2RollupIndex = table.getIndexIdByName(v2RollupIndexName);
+        long baseIndexId = table.getBaseIndexId();
+        ConnectContext connectContext = ConnectContext.get();
+        boolean useV2Rollup = false;
+        if (connectContext != null) {
+            useV2Rollup = connectContext.getSessionVariable().getUseV2Rollup();
+        }
+        if (baseIndexId == selectedIndexId && v2RollupIndex != null && useV2Rollup) {
+            // if the selectedIndexId is baseIndexId
+            // check whether there is a V2 rollup index and useV2Rollup flag is true,
+            // if both true, use v2 rollup index
+            selectedIndexId = v2RollupIndex;
+        }
+        if (!useV2Rollup && v2RollupIndex != null && v2RollupIndex == selectedIndexId) {
+            // if the selectedIndexId is v2RollupIndex
+            // but useV2Rollup is false, use baseIndexId as selectedIndexId
+            // just make sure to use baseIndex instead of v2RollupIndex if the useV2Rollup is false
+            selectedIndexId = baseIndexId;
         }
         return selectedIndexId;
     }
