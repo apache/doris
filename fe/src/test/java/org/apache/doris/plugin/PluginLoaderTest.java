@@ -19,14 +19,10 @@ package org.apache.doris.plugin;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 
 import org.apache.commons.io.FileUtils;
@@ -34,9 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Version;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class PluginLoaderTest {
 
@@ -66,108 +59,6 @@ public class PluginLoaderTest {
             assertTrue(Version.JDK_1_8_0.before(info.getJavaVersion()));
         } catch (IOException e) {
             e.printStackTrace();
-        }
-    }
-
-    @Test
-    public void testDownloadAndValidateZipNormal() {
-        PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
-        try {
-            // normal
-            new Expectations(util) {
-                {
-                    util.getRemoteInputStream("test/test");
-                    result = PluginTestUtil.openTestFile("source/test.zip");
-
-                    util.getRemoteInputStream("test/test.md5");
-                    result = new ByteArrayInputStream(new String("7529db41471ec72e165f96fe9fb92742").getBytes());
-                }
-            };
-
-            Path zipPath = util.downloadAndValidateZip("test/test");
-            assertTrue(Files.exists(zipPath));
-            assertTrue(Files.deleteIfExists(zipPath));
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Test
-    public void testDownloadAndValidateZipMd5Error() {
-        PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
-        try {
-            new Expectations(util) {
-                {
-                    util.getRemoteInputStream(anyString);
-                    result = PluginTestUtil.openTestFile("source/test.zip");
-
-                    util.getRemoteInputStream(anyString);
-                    result = new ByteArrayInputStream(new String("asdfas").getBytes());
-                }
-            };
-
-            Path zipPath = util.downloadAndValidateZip("test/test");
-            assertFalse(Files.exists(zipPath));
-        } catch (Exception e) {
-            assertTrue(e instanceof UserException);
-            assertTrue(e.getMessage().contains("MD5 check mismatch"));
-        }
-    }
-
-    @Test
-    public void testDownloadAndValidateZipIOException() {
-        PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
-        try {
-            Path zipPath = util.downloadAndValidateZip("http://io-exception");
-        } catch (Exception e) {
-            assertTrue(e instanceof IOException);
-        }
-    }
-
-    @Test
-    public void testDownload() {
-        PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
-        try {
-            new Expectations(util) {
-                {
-                    util.downloadAndValidateZip(anyString);
-                    result = null;
-                }
-            };
-
-            Path p = util.download(PluginTestUtil.getTestPathString("source/test.zip"));
-            assertTrue(Files.exists(p));
-
-            p = util.download("https://hello:12313/test.zip");
-            assertNull(p);
-        } catch (IOException | UserException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            util.download("   ");
-        } catch (Exception e) {
-            assertTrue(e instanceof IllegalArgumentException);
-        }
-    }
-
-    @Test
-    public void testUnzip() {
-        try {
-            PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString("target"));
-
-            Files.copy(PluginTestUtil.getTestPath("source/test.zip"), PluginTestUtil.getTestPath("source/test-a.zip"));
-            Path actualPath = util.unzip(PluginTestUtil.getTestPath("source/test-a.zip"));
-            assertTrue(Files.isDirectory(actualPath));
-
-            Path txtPath = FileSystems.getDefault().getPath(actualPath.toString(), "test.txt");
-            assertTrue(Files.exists(txtPath));
-
-            assertTrue(FileUtils.deleteQuietly(actualPath.toFile()));
-        } catch (Exception e) {
-            e.printStackTrace();
-            assert false;
         }
     }
 

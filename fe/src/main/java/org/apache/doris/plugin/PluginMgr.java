@@ -42,15 +42,11 @@ public class PluginMgr {
         pluginLoader = new PluginLoader(pluginDir);
     }
 
-    public void execute() {
-
-    }
-
     /**
      * Dynamic install plugin thought install statement
      */
-    public void installPlugin(String pluginPath) throws IOException, UserException {
-        PluginInfo info = pluginLoader.getPluginInfo(pluginPath);
+    public void installPlugin(String pluginSource) throws IOException, UserException {
+        PluginInfo info = pluginLoader.readPluginInfo(pluginSource);
 
         {
             // already install
@@ -85,10 +81,10 @@ public class PluginMgr {
     /**
      * Dynamic uninstall plugin thought install statement
      */
-    public void uninstallPlugin(String plugin) throws IOException, UserException {
+    public void uninstallPlugin(String pluginName) throws IOException, UserException {
         for (PluginType type : PluginType.values()) {
-            if (plugins.get(type.ordinal()).containsKey(plugin)) {
-                PluginRef ref = plugins.get(type.ordinal()).remove(plugin);
+            if (plugins.get(type.ordinal()).containsKey(pluginName)) {
+                PluginRef ref = plugins.get(type.ordinal()).remove(pluginName);
 
                 {
                     // check & update meta

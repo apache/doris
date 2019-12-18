@@ -17,12 +17,8 @@
 
 package org.apache.doris.plugin;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.lang.reflect.Constructor;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -33,24 +29,16 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.doris.common.UserException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.collect.ImmutableList;
-
 public class PluginLoader {
     private final static Logger LOG = LogManager.getLogger(PluginLoader.class);
-
-    private static final List<String> DEFAULT_PROTOCOL = ImmutableList.of("https://", "http://");
 
     private final Path pluginDir;
 
@@ -59,15 +47,15 @@ public class PluginLoader {
     }
 
     /**
-     * download .zip and read plugin.properties
+     * get Plugin .zip and read plugin.properties
      */
-    public PluginInfo getPluginInfo(String path) throws IOException, UserException {
+    public PluginInfo readPluginInfo(String source) throws IOException, UserException {
+        PluginZip zip = new PluginZip(source);
+        Path target = Files.createTempDirectory(pluginDir, ".install_");
 
-        Path zipPath = download(path);
+        Path tempPath = zip.extract(target);
 
-        Path actualPath = unzip(zipPath);
-
-        return PluginInfo.readFromProperties(actualPath, path);
+        return PluginInfo.readFromProperties(tempPath, source);
     }
 
     /**
@@ -87,7 +75,7 @@ public class PluginLoader {
     }
 
     /**
-     * close plugin and delete Plugin path
+     * close plugin and delete Plugin
      */
     public void uninstallPlugin(PluginInfo plugininfo, Plugin plugin) throws IOException, UserException {
         pluginUninstallValid(plugininfo, plugin);
@@ -200,123 +188,6 @@ public class PluginLoader {
         pluginInfo.setInstallPath(targetPath.toString());
 
         return targetPath;
-    }
-
-    /**
-     * unzip .zip file and delete it
-     */
-    Path unzip(Path zip) throws IOException, UserException {
-        Path target = Files.createTempDirectory(pluginDir, ".install_");
-
-        try (ZipInputStream zipInput = new ZipInputStream(Files.newInputStream(zip))) {
-            ZipEntry entry;
-            byte[] buffer = new byte[8192];
-            while ((entry = zipInput.getNextEntry()) != null) {
-                Path targetFile = target.resolve(entry.getName());
-                if (entry.getName().startsWith("doris/")) {
-                    throw new UserException("Not use \"doris\" directory within the plugin zip.");
-                }
-                // Using the entry name as a path can result in an entry outside of the plugin dir,
-                // either if the name starts with the root of the filesystem, or it is a relative
-                // entry like ../whatever. This check attempts to identify both cases by first
-                // normalizing the path (which removes foo/..) and ensuring the normalized entry
-                // is still rooted with the target plugin directory.
-                if (!targetFile.normalize().startsWith(target)) {
-                    throw new UserException("Zip contains entry name '" +
-                            entry.getName() + "' resolving outside of plugin directory");
-                }
-
-                // be on the safe side: do not rely on that directories are always extracted
-                // before their children (although this makes sense, but is it guaranteed?)
-                if (!Files.isSymbolicLink(targetFile.getParent())) {
-                    Files.createDirectories(targetFile.getParent());
-                }
-                if (!entry.isDirectory()) {
-                    try (OutputStream out = Files.newOutputStream(targetFile)) {
-                        int len;
-                        while ((len = zipInput.read(buffer)) >= 0) {
-                            out.write(buffer, 0, len);
-                        }
-                    }
-                }
-                zipInput.closeEntry();
-            }
-
-        } catch (UserException e) {
-            //            Files.deleteIfExists(target);
-            throw e;
-        }
-
-        Files.deleteIfExists(zip);
-
-        return target;
-    }
-
-    /**
-     * download zip if the path is remote source, or copy zip if the path is local source
-     **/
-    Path download(String path) throws IOException, UserException {
-        if (StringUtils.isBlank(path)) {
-            throw new IllegalArgumentException("Plugin library path: " + path);
-        }
-
-        boolean isLocal = true;
-        for (String p : DEFAULT_PROTOCOL) {
-            if (StringUtils.startsWithIgnoreCase(path, p)) {
-                isLocal = false;
-                break;
-            }
-        }
-
-        if (!isLocal) {
-            return downloadAndValidateZip(path);
-        } else {
-            return copyLocalZip(path);
-        }
-    }
-
-    Path copyLocalZip(String path) throws IOException {
-        Path sourceZip = FileSystems.getDefault().getPath(path);
-        Path targetZip = Files.createTempFile(pluginDir, ".plugin_", ".zip");
-
-        return Files.copy(sourceZip, targetZip, StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    /**
-     * download zip and check md5
-     **/
-    Path downloadAndValidateZip(String path) throws IOException, UserException {
-        LOG.info("download plugin zip from: " + path);
-
-        Path zip = Files.createTempFile(pluginDir, ".plugin_", ".zip");
-
-        // download zip
-        try (InputStream in = getRemoteInputStream(path)) {
-            Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
-        }
-
-        // .md5 check
-        String expectedChecksum = "";
-        try (InputStream in = getRemoteInputStream(path + ".md5")) {
-            BufferedReader br = new BufferedReader(new InputStreamReader(in));
-            expectedChecksum = br.readLine();
-        }
-
-        DigestUtils.md5Hex(Files.readAllBytes(zip));
-        final String actualChecksum = DigestUtils.md5Hex(Files.readAllBytes(zip));
-
-        if (!StringUtils.equalsIgnoreCase(expectedChecksum, actualChecksum)) {
-            Files.delete(zip);
-            throw new UserException(
-                    "MD5 check mismatch, expected " + expectedChecksum + " but actual " + actualChecksum);
-        }
-
-        return zip;
-    }
-
-    InputStream getRemoteInputStream(String url) throws IOException {
-        URL u = new URL(url);
-        return u.openConnection().getInputStream();
     }
 
 }
