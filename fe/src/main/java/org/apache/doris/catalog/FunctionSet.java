@@ -17,10 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -30,9 +26,13 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.common.Pair;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -699,16 +699,16 @@ public class FunctionSet {
             return null;
         }
 
-        List<Pair<Function, Integer>> mactchedFnsScores = new ArrayList<>();
+        List<Pair<Function, Integer>> matchedFnsScores = new ArrayList<>();
         // Next check for strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                mactchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
+                matchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
             }
         }
-        if (mactchedFnsScores.size() > 0 ) {
-            Collections.sort(mactchedFnsScores, Comparator.comparing(p -> p.second));
-            return mactchedFnsScores.get(mactchedFnsScores.size() - 1).first;
+        if (matchedFnsScores.size() > 0) {
+            Collections.sort(matchedFnsScores, Comparator.comparing(p -> p.second));
+            return matchedFnsScores.get(matchedFnsScores.size() - 1).first;
         }
         if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
             return null;
@@ -717,12 +717,12 @@ public class FunctionSet {
         // Finally check for non-strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                mactchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
+                matchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
             }
         }
-        if (mactchedFnsScores.size() > 0 ) {
-            Collections.sort(mactchedFnsScores, Comparator.comparing(p -> p.second));
-            return mactchedFnsScores.get(mactchedFnsScores.size() - 1).first;
+        if (matchedFnsScores.size() > 0) {
+            Collections.sort(matchedFnsScores, Comparator.comparing(p -> p.second));
+            return matchedFnsScores.get(matchedFnsScores.size() - 1).first;
         }
         return null;
     }
