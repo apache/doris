@@ -45,6 +45,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -98,6 +99,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     protected long watershedTxnId = -1;
 
+    private TStorageFormat storageFormat = null;
+
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
@@ -137,6 +140,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasBfChange = hasBfChange;
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
     }
 
     /*
@@ -202,6 +209,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getKeysType(), TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch);
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
+                            if (this.storageFormat != null) {
+                                createReplicaTask.setStorageFormat(this.storageFormat);
+                            }
                             
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas

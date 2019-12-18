@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,6 +65,8 @@ public class CreateReplicaTask extends AgentTask {
     // if base tablet id is set, BE will create the replica on same disk as this base tablet
     private long baseTabletId = -1;
     private int baseSchemaHash = -1;
+
+    private TStorageFormat storageFormat = null;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
@@ -120,6 +123,10 @@ public class CreateReplicaTask extends AgentTask {
         this.baseSchemaHash = baseSchemaHash;
     }
 
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
+    }
+
     public TCreateTabletReq toThrift() {
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
         createTabletReq.setTablet_id(tabletId);
@@ -164,6 +171,10 @@ public class CreateReplicaTask extends AgentTask {
         if (baseTabletId != -1) {
             createTabletReq.setBase_tablet_id(baseTabletId);
             createTabletReq.setBase_schema_hash(baseSchemaHash);
+        }
+
+        if (storageFormat != null) {
+            createTabletReq.setStorage_format(storageFormat);
         }
 
         return createTabletReq;
