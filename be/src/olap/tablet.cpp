@@ -1044,46 +1044,53 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
     root.SetObject();
 
-    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
-        [](const Version& lhs, const Version& rhs)
+    auto version_comparator = [] (const Version& lhs, const Version& rhs)
         {
             if (lhs.first < rhs.first) return true;
             if (lhs.first == rhs.first) return lhs.second < rhs.second;
             return false;
-        }
+        };
+
+    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
+        version_comparator
     };
+    auto rowset_segment_map = std::map<Version, int64_t, std::function<bool(const Version&, const Version&)>>{
+        version_comparator
+    };
+
     {
         ReadLock rdlock(&_meta_lock);
         for (auto& it : _rs_version_map) {
             rowset_version_map[it.first] = version_for_delete_predicate(it.first);
+            rowset_segment_map[it.first] = it.second->num_segments();
         }
-        root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
-        rapidjson::Value cumu_value;
-        std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
-        cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-        root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
-        rapidjson::Value base_value;
-        format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
-        base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-        root.AddMember("last base failure time", base_value, root.GetAllocator());
-        rapidjson::Value cumu_success_value;
-        format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
-        cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-        root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
-        rapidjson::Value base_success_value;
-        format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
-        base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-        root.AddMember("last base success time", base_success_value, root.GetAllocator());
     }
-    // std::sort(all_rowsets.begin(), all_rowsets.end(), Rowset::comparator);
+
+    root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
+    cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
+    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+    cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+    base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
     versions_arr.SetArray();
     for (auto& it : rowset_version_map) {
         rapidjson::Value value;
-        std::string version_str = strings::Substitute("[$0-$1] $2",
-            it.first.first, it.first.second, (it.second ? "DELETE" : ""));
+        std::string version_str = strings::Substitute("[$0-$1] $2 $3",
+            it.first.first, it.first.second, rowset_segment_map[it.first], (it.second ? "DELETE" : ""));
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator()); 
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
