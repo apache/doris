@@ -627,8 +627,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         "2019/12/17",
         "19/12/17",
     };
-    for (const auto& src_str : valid_src_strs) {
-        write_row.set_field_content(0, reinterpret_cast<char*>(src_str), _mem_pool.get());
+    for (auto src_str : valid_src_strs) {
+        write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
         ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
