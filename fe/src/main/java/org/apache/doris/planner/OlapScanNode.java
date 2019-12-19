@@ -17,15 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -59,6 +50,16 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,6 +96,7 @@ public class OlapScanNode extends ScanNode {
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    // a bucket seq may map to many tablets, and each tablet has a TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
 
     // Constructs node to scan given data files of table 'tbl'.
@@ -270,7 +272,6 @@ public class OlapScanNode extends ScanNode {
                 replicas = localReplicas;
             } else {
                 replicas = allQueryableReplicas;
-
             }
 
             Collections.shuffle(replicas);
