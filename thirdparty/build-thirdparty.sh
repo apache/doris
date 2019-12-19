@@ -635,6 +635,23 @@ build_croaringbitmap() {
     -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
     make -j$PARALLEL && make install
 }
+#orc
+build_orc() {
+    check_if_source_exist $ORC_SOURCE
+    cd $TP_SOURCE_DIR/orc-1.5.8
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD ../ -DBUILD_JAVA=OFF \
+    -DPROTOBUF_HOME=$TP_INSTALL_DIR \
+    -DSNAPPY_HOME=$TP_INSTALL_DIR \
+    -DGTEST_HOME=$TP_INSTALL_DIR \
+    -DLZ4_HOME=$TP_INSTALL_DIR \
+    -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
+    -DZLIB_HOME=$TP_INSTALL_DIR\
+    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
+
+    make -j$PARALLEL && make install
+}
 
 build_llvm
 build_libevent
@@ -663,5 +680,6 @@ build_arrow
 build_s2
 build_bitshuffle
 build_croaringbitmap
+build_orc
 
 echo "Finihsed to build all thirdparties"
