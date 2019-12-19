@@ -101,7 +101,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
    * @return true if hax next value
    */
   def hasNext: Boolean = {
-    if ((rowBatch == null || !rowBatch.hasNext) && !eos) {
+    if (!eos && (rowBatch == null || !rowBatch.hasNext)) {
       if (rowBatch != null) {
         offset += rowBatch.getReadRowCount
         rowBatch.close
