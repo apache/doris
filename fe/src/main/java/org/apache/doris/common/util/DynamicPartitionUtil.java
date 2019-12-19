@@ -197,7 +197,7 @@ public class DynamicPartitionUtil {
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
         TableProperty tableProperty = olapTable.getTableProperty();
         if (tableProperty != null &&
-                tableProperty.getDynamicPartitionProperty().exists() &&
+                tableProperty.getDynamicPartitionProperty().isExist() &&
                 tableProperty.getDynamicPartitionProperty().getEnable()) {
             throw new DdlException("Cannot modify partition on a Dynamic Partition Table, set `dynamic_partition.enable` to false firstly.");
         }
@@ -210,7 +210,7 @@ public class DynamicPartitionUtil {
         }
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) ((OlapTable) table).getPartitionInfo();
         TableProperty tableProperty = ((OlapTable) table).getTableProperty();
-        if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().exists()) {
+        if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().isExist()) {
             return false;
         }
 

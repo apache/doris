@@ -47,7 +47,7 @@ public class DynamicPartitionProperty{
         }
     }
 
-    public boolean exists() {
+    public boolean isExist() {
         return exist;
     }
 
