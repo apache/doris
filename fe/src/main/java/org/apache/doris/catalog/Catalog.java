@@ -3517,9 +3517,6 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // check all dynamic properties exist
-        DynamicPartitionUtil.checkAllDynamicPartitionProperties(properties);
-
         // set index schema
         int schemaVersion = 0;
         try {
@@ -3573,16 +3570,12 @@ public class Catalog {
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
 
-                    if (properties != null && !properties.isEmpty()) {
-                        if (partitionInfo.isMultiColumnPartition()) {
-                            throw new DdlException("Dynamic partition only support single column partition");
-                        }
-                        // here, only dynamic partition properties should be checked
+                    // check user input dynamic properties exist
+                    if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, partitionInfo)) {
+                        // here, only dynamic partition properties should be checked and removed from properties
                         Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
-                        TableProperty tableProperty = new TableProperty();
-                        tableProperty.modifyTableProperties(dynamicPartitionProperties);
-                        dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                                tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+                        TableProperty tableProperty = new TableProperty(dynamicPartitionProperties);
+                        tableProperty.buildDynamicProperty();
                         olapTable.setTableProperty(tableProperty);
                     }
 
@@ -3629,6 +3622,8 @@ public class Catalog {
             LOG.info("successfully create table[{};{}]", tableName, tableId);
             // register or remove table from DynamicPartition after table created
             DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable);
+            dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                    tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
@@ -3902,18 +3897,8 @@ public class Catalog {
             }
 
             // 6. dynamic partition
-            TableProperty tableProperty = olapTable.getTableProperty();
-            if (tableProperty != null && tableProperty.getDynamicPartitionProperty().isExist()) {
-                sb.append(",\n \"").append(DynamicPartitionProperty.ENABLE).append("\" = \"");
-                sb.append(tableProperty.getDynamicPartitionProperty().getEnable()).append("\"");
-                sb.append(",\n \"").append(DynamicPartitionProperty.TIME_UNIT).append("\" = \"");
-                sb.append(tableProperty.getDynamicPartitionProperty().getTimeUnit()).append("\"");
-                sb.append(",\n \"").append(DynamicPartitionProperty.END).append("\" = \"");
-                sb.append(tableProperty.getDynamicPartitionProperty().getEnd()).append("\"");
-                sb.append(",\n \"").append(DynamicPartitionProperty.PREFIX).append("\" = \"");
-                sb.append(tableProperty.getDynamicPartitionProperty().getPrefix()).append("\"");
-                sb.append(",\n \"").append(DynamicPartitionProperty.BUCKETS).append("\" = \"");
-                sb.append(tableProperty.getDynamicPartitionProperty().getBuckets()).append("\"");
+            if (olapTable.dynamicPartitionExists()) {
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
             }
 
             sb.append("\n)");
@@ -4070,6 +4055,7 @@ public class Catalog {
                         }
                     }
                 } // end for partitions
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable);
             }
         }
     }

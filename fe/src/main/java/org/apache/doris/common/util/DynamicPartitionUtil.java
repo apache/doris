@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
@@ -108,9 +109,12 @@ public class DynamicPartitionUtil {
                 properties.containsKey(DynamicPartitionProperty.ENABLE);
     }
 
-    public static void checkAllDynamicPartitionProperties(Map<String, String> properties) throws DdlException{
+    public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException{
         if (properties == null) {
-            return;
+            return false;
+        }
+        if (partitionInfo.isMultiColumnPartition()) {
+            throw new DdlException("Dynamic partition only support single column partition");
         }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
@@ -139,12 +143,13 @@ public class DynamicPartitionUtil {
                 properties.put(DynamicPartitionProperty.ENABLE, enable);
             }
         }
+        return true;
     }
 
     public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable) {
         if (olapTable.getTableProperty() != null
                 && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
-            if (Boolean.parseBoolean(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())) {
+            if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                 Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
                 Catalog.getCurrentCatalog().getDynamicPartitionScheduler().removeDynamicPartitionTable(dbId, olapTable.getId());
@@ -192,8 +197,8 @@ public class DynamicPartitionUtil {
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
         TableProperty tableProperty = olapTable.getTableProperty();
         if (tableProperty != null &&
-                tableProperty.getDynamicPartitionProperty().isExist() &&
-                Boolean.parseBoolean(tableProperty.getDynamicPartitionProperty().getEnable())) {
+                tableProperty.getDynamicPartitionProperty().exists() &&
+                tableProperty.getDynamicPartitionProperty().getEnable()) {
             throw new DdlException("Cannot modify partition on a Dynamic Partition Table, set `dynamic_partition.enable` to false firstly.");
         }
     }
@@ -205,23 +210,23 @@ public class DynamicPartitionUtil {
         }
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) ((OlapTable) table).getPartitionInfo();
         TableProperty tableProperty = ((OlapTable) table).getTableProperty();
-        if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().isExist()) {
+        if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().exists()) {
             return false;
         }
 
-        String enable = tableProperty.getDynamicPartitionProperty().getEnable();
-        return rangePartitionInfo.getPartitionColumns().size() == 1 &&
-                !Strings.isNullOrEmpty(enable) && enable.equalsIgnoreCase(Boolean.TRUE.toString());
+        return rangePartitionInfo.getPartitionColumns().size() == 1 && tableProperty.getDynamicPartitionProperty().getEnable();
     }
 
-    public static String getPartitionFormat(Column column) {
+    public static String getPartitionFormat(Column column) throws DdlException {
         if (column.getDataType().equals(PrimitiveType.DATE)) {
             return DATE_FORMAT;
         } else if (column.getDataType().equals(PrimitiveType.DATETIME)) {
             return DATETIME_FORMAT;
-        } else {
-            // TODO: How to resolve int type a better way
+        } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {
+            // TODO: For Integer Type, only support format it as yyyyMMdd now
             return TIMESTAMP_FORMAT;
+        } else {
+            throw new DdlException("Dynamic Partition Only Support DATE, DATETIME and INTEGER Type Now.");
         }
     }
 

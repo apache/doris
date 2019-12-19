@@ -17,50 +17,37 @@
 
 package org.apache.doris.catalog;
 
-import com.google.gson.annotations.SerializedName;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
-public class DynamicPartitionProperty implements Writable {
+public class DynamicPartitionProperty{
     public static final String TIME_UNIT = "dynamic_partition.time_unit";
     public static final String END = "dynamic_partition.end";
     public static final String PREFIX = "dynamic_partition.prefix";
     public static final String BUCKETS = "dynamic_partition.buckets";
     public static final String ENABLE = "dynamic_partition.enable";
 
-    @SerializedName(value = "exist")
     private boolean exist;
-    @SerializedName(value = "timeUnit")
+
+    private boolean enable;
     private String timeUnit;
-    @SerializedName(value = "end")
-    private String end;
-    @SerializedName(value = "prefix")
+    private int end;
     private String prefix;
-    @SerializedName(value = "buckets")
-    private String buckets;
-    @SerializedName(value = "enable")
-    private String enable;
+    private int buckets;
 
     DynamicPartitionProperty(Map<String ,String> properties) {
         if (properties != null && !properties.isEmpty()) {
             this.exist = true;
+            this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
-            this.end = properties.get(END);
+            this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
-            this.buckets = properties.get(BUCKETS);
-            this.enable = properties.get(ENABLE);
+            this.buckets = Integer.parseInt(properties.get(BUCKETS));
         } else {
             this.exist = false;
         }
     }
 
-    public boolean isExist() {
+    public boolean exists() {
         return exist;
     }
 
@@ -68,7 +55,7 @@ public class DynamicPartitionProperty implements Writable {
         return timeUnit;
     }
 
-    public String getEnd() {
+    public int getEnd() {
         return end;
     }
 
@@ -76,20 +63,20 @@ public class DynamicPartitionProperty implements Writable {
         return prefix;
     }
 
-    public String getBuckets() {
+    public int getBuckets() {
         return buckets;
     }
 
-    public String getEnable() {
+    public boolean getEnable() {
         return enable;
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static DynamicPartitionProperty read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DynamicPartitionProperty.class);
+    public String toString() {
+        return ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
+                ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
+                ",\n\"" + END + "\" = \"" + end + "\"" +
+                ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
+                ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
     }
 }

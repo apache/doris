@@ -1440,26 +1440,28 @@ public class ShowExecutor {
                     if (!(tbl instanceof OlapTable)) {
                         continue;
                     }
-                    TableProperty tableProperty = ((OlapTable) tbl).getTableProperty();
-                    if (tableProperty == null || !tableProperty.getDynamicPartitionProperty().isExist()) {
+
+                    DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
+                    OlapTable olapTable = (OlapTable) tbl;
+                    if (!olapTable.dynamicPartitionExists()) {
+                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
                         continue;
                     }
                     // check tbl privs
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                            db.getFullName(), tbl.getName(),
+                            db.getFullName(), olapTable.getName(),
                             PrivPredicate.SHOW)) {
                         continue;
                     }
-                    DynamicPartitionProperty dynamicPartitionProperty = tableProperty.getDynamicPartitionProperty();
-                    DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
-                    String tableName = tbl.getName();
+                    DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+                    String tableName = olapTable.getName();
                     rows.add(Lists.newArrayList(
                             tableName,
-                            dynamicPartitionProperty.getEnable().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getEnable()),
                             dynamicPartitionProperty.getTimeUnit().toUpperCase(),
-                            dynamicPartitionProperty.getEnd().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
-                            dynamicPartitionProperty.getBuckets().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getBuckets()),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
