@@ -531,8 +531,8 @@ TEST_F(TestColumn, ConvertVarcharToInt) {
     block.init(block_info);
 
     // test max int range
-    std::string src_str = "2147483647";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("2147483647");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -555,8 +555,8 @@ TEST_F(TestColumn, ConvertVarcharToInt) {
     ASSERT_EQ(src_str, dst_str);
 
     // test invalid schema change
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -569,7 +569,8 @@ TEST_F(TestColumn, ConvertVarcharToInt) {
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
     // test overflow
-    src_str = "2147483648";
+    Slice overflow_str("2147483648");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     write_row.set_field_content(0, src_str.data(), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
@@ -619,7 +620,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     block.init(block_info);
 
     // test valid format convert
-    std::vector<std::string> valid_src_strs = {
+    std::vector<Slice> valid_src_strs = {
         "2019-12-17",
         "19-12-17",
         "20191217",
@@ -628,7 +629,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         "19/12/17",
     };
     for (const auto& src_str : valid_src_strs) {
-        write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+        write_row.set_field_content(0, &src_str, _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
         ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -652,8 +653,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     }
 
     // test invalid schema change
-    std::string src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -702,8 +703,8 @@ TEST_F(TestColumn, ConvertVarcharToTinyInt) {
     block_info.row_num = 10000;
     block.init(block_info);
 
-    std::string src_str = "127";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("127");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -725,8 +726,8 @@ TEST_F(TestColumn, ConvertVarcharToTinyInt) {
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
 
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -738,8 +739,8 @@ TEST_F(TestColumn, ConvertVarcharToTinyInt) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "128";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("128");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -785,8 +786,8 @@ TEST_F(TestColumn, ConvertVarcharToSmallInt) {
     block_info.row_num = 10000;
     block.init(block_info);
 
-    std::string src_str = "32767";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("32767");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -808,8 +809,8 @@ TEST_F(TestColumn, ConvertVarcharToSmallInt) {
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
 
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -821,8 +822,8 @@ TEST_F(TestColumn, ConvertVarcharToSmallInt) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "32768";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("32768");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -868,8 +869,8 @@ TEST_F(TestColumn, ConvertVarcharToBigInt) {
     block_info.row_num = 10000;
     block.init(block_info);
 
-    std::string src_str = "9223372036854775807";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("9223372036854775807");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -891,6 +892,8 @@ TEST_F(TestColumn, ConvertVarcharToBigInt) {
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
 
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     src_str = "invalid";
     write_row.set_field_content(0, src_str.data(), _mem_pool.get());
     block.set_row(0, write_row);
@@ -904,8 +907,8 @@ TEST_F(TestColumn, ConvertVarcharToBigInt) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "9223372036854775808";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("9223372036854775808");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -951,8 +954,8 @@ TEST_F(TestColumn, ConvertVarcharToLargeInt) {
     block_info.row_num = 10000;
     block.init(block_info);
 
-    std::string src_str = "2e+126";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("2e+126");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -974,8 +977,8 @@ TEST_F(TestColumn, ConvertVarcharToLargeInt) {
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
 
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -987,8 +990,8 @@ TEST_F(TestColumn, ConvertVarcharToLargeInt) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "2e+127";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("2e+127");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1033,9 +1036,8 @@ TEST_F(TestColumn, ConvertVarcharToFloat) {
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
-
-    std::string src_str = "3.40282e+38";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("3.40282e+38");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1056,9 +1058,8 @@ TEST_F(TestColumn, ConvertVarcharToFloat) {
     read_row.convert_from(1, read_row.cell_ptr(0), src_field->type_info(), _mem_pool.get());
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
-
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1070,8 +1071,8 @@ TEST_F(TestColumn, ConvertVarcharToFloat) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "3.40282e+39";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("3.40282e+39");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1117,8 +1118,8 @@ TEST_F(TestColumn, ConvertVarcharToDouble) {
     block_info.row_num = 10000;
     block.init(block_info);
 
-    std::string src_str = "1.79769e+308";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice src_str("1.79769e+308");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1139,9 +1140,8 @@ TEST_F(TestColumn, ConvertVarcharToDouble) {
     read_row.convert_from(1, read_row.cell_ptr(0), src_field->type_info(), _mem_pool.get());
     std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
     ASSERT_EQ(src_str, dst_str);
-
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice invalid_str("invalid");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -1153,8 +1153,8 @@ TEST_F(TestColumn, ConvertVarcharToDouble) {
     const Field* src_field2 = read_row.column_schema(0);
     ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
-    src_str = "1.79769e+309";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
+    Slice overflow_str("1.79769e+309");
+    write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
