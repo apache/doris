@@ -670,5 +670,21 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     return exec_plan_fragment(exec_fragment_params);
 }
 
+Status FragmentMgr::fragment_runtime_status(const TUniqueId& fragment_instance_id) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_instance_id);
+        if (iter != _fragment_map.end()) {
+            Status status = iter->second->executor()->status();
+            VLOG(1) << "fragment_runtime_state status :" << status;
+            return status;
+        } else {
+            std::stringstream msg;
+            msg << "fragment_instance_id: " << fragment_instance_id << " not found";
+            return Status::NotFound(msg.str());
+        }
+    }
+}
+
 }
 
