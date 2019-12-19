@@ -46,6 +46,8 @@ struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     // Todo(kks): only for UT, we should remove it when we support bitmap_index in FE
     bool need_bitmap_index = false;
+    // whether to filter value column against bloom filter/zone map
+    bool whether_to_filter_value = false;
 };
 
 class SegmentWriter {
@@ -65,14 +67,21 @@ public:
 
     uint32_t num_rows_written() { return _row_count; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* bitmap_index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+
+    // for ut
+    // this function should be called after finalize
+    bool has_bf_index(uint32_t col_id) const {
+        return _footer.columns(col_id).has_bloom_filter_index();
+    }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index(uint64_t* bitmap_index_size);
+    Status _write_bitmap_index();
+    Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);

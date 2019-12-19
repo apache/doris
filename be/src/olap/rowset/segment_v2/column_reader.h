@@ -47,6 +47,7 @@ class EncodingInfo;
 class PageHandle;
 class PagePointer;
 class ColumnIterator;
+class BloomFilterIndexReader;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -98,6 +99,10 @@ public:
         return _meta.has_bitmap_index();
     }
 
+    bool has_bloom_filter_index() {
+        return _meta.has_bloom_filter_index();
+    }
+
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_conditions is a vector of delete predicate of different version
@@ -106,6 +111,10 @@ public:
                                       OlapReaderStatistics* stats,
                                       std::vector<uint32_t>* delete_partial_filtered_pages,
                                       RowRanges* row_ranges);
+
+    // get row ranges with bloom filter index
+    Status get_row_ranges_by_bloom_filter(CondColumn* cond_column,
+            OlapReaderStatistics* stats, RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
@@ -123,6 +132,7 @@ private:
             RETURN_IF_ERROR(_load_zone_map_index());
             RETURN_IF_ERROR(_load_ordinal_index());
             RETURN_IF_ERROR(_load_bitmap_index());
+            RETURN_IF_ERROR(_load_bloom_filter_index());
             return Status::OK();
         });
     }
@@ -130,6 +140,7 @@ private:
     Status _load_zone_map_index();
     Status _load_ordinal_index();
     Status _load_bitmap_index();
+    Status _load_bloom_filter_index();
 
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
@@ -154,6 +165,7 @@ private:
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index_reader;
+    std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index_reader;
 };
 
 // Base iterator to read one column data

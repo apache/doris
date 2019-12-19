@@ -310,3 +310,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `default_rowset_type`
 
     用于设置计算节点存储引擎默认的存储格式。当前支持的存储格式包括：alpha/beta。
+
+* `use_v2_rollup`
+
+    用于控制查询使用segment v2存储格式的rollup索引获取数据。该变量用于上线segment v2的时候，进行验证使用；其他情况，不建议使用。

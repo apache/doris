@@ -159,6 +159,17 @@ public:
         return Status::OK();
     }
 
+    uint64_t size() const override {
+        uint64_t size = 0;
+        size += _null_bitmap.getSizeInBytes(false);
+        for (auto& index : _mem_index) {
+            size += index.second.getSizeInBytes(false);
+        }
+        size += _mem_index.size() * sizeof(CppType);
+        size += _pool.total_allocated_bytes();
+        return size;
+    }
+
 private:
     const TypeInfo* _typeinfo;
     rowid_t _rid = 0;

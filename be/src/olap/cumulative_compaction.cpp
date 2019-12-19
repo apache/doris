@@ -97,7 +97,8 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             continue;
         }
 
-        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas) {
+        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas
+            && transient_rowsets.size() >= 2) {
             // the threshold of files to compacted one time
             break;
         }

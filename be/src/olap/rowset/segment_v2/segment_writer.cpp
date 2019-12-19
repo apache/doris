@@ -66,6 +66,17 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         if (!column.is_key()) {
             opts.need_bitmap_index = _opts.need_bitmap_index;
         }
+        if (column.is_bf_column()) {
+            opts.need_bloom_filter = true;
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
+                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
+                    && !_opts.whether_to_filter_value) {
+                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or 
+                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
+                // do not write the bloom filter index because it is useless
+                opts.need_bloom_filter = false;
+            }
+        }
 
         std::unique_ptr<Field> field(FieldFactory::create(column));
         DCHECK(field.get() != nullptr);
@@ -105,16 +116,18 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* bitmap_index_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
+    uint64_t index_offset = _output_file->size();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
-    RETURN_IF_ERROR(_write_bitmap_index(bitmap_index_size));
+    RETURN_IF_ERROR(_write_bitmap_index());
+    RETURN_IF_ERROR(_write_bloom_filter_index());
     RETURN_IF_ERROR(_write_short_key_index());
-
+    *index_size = _output_file->size() - index_offset;
     RETURN_IF_ERROR(_write_footer());
     *segment_file_size = _output_file->size();
     return Status::OK();
@@ -143,12 +156,17 @@ Status SegmentWriter::_write_zone_map() {
     return Status::OK();
 }
 
-Status SegmentWriter::_write_bitmap_index(uint64_t* bitmap_index_size) {
-    uint64_t start_offset = _output_file->size();
+Status SegmentWriter::_write_bitmap_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_bitmap_index());
     }
-    *bitmap_index_size = _output_file->size() - start_offset;
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_bloom_filter_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
+    }
     return Status::OK();
 }
 

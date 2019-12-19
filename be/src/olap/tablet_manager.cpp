@@ -1318,6 +1318,9 @@ OLAPStatus TabletManager::_create_tablet_meta(
                        shard_id, request.tablet_schema,
                        next_unique_id, col_ordinal_to_unique_id,
                        tablet_meta, tablet_uid);
+    if (request.__isset.storage_format && request.storage_format == TStorageFormat::V2) {
+        (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
+    }
     return res;
 }
 

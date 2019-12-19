@@ -233,6 +233,7 @@ public class Alter {
             }
 
             if (hasSchemaChange || hasModifyProp) {
+                // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasAddMaterializedView || hasDropRollup) {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
