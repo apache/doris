@@ -707,8 +707,15 @@ public class FunctionSet {
             }
         }
         if (matchedFnsScores.size() > 0) {
-            Collections.sort(matchedFnsScores, Comparator.comparing(p -> p.second));
-            return matchedFnsScores.get(matchedFnsScores.size() - 1).first;
+            Function f = matchedFnsScores.get(0).first;
+            int score = matchedFnsScores.get(0).second;
+            for (Pair<Function, Integer> p : matchedFnsScores) {
+                if (p.second > score) {
+                    f = p.first;
+                    score = p.second;
+                }
+            }
+            return f;
         }
         if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
             return null;
@@ -721,8 +728,15 @@ public class FunctionSet {
             }
         }
         if (matchedFnsScores.size() > 0) {
-            Collections.sort(matchedFnsScores, Comparator.comparing(p -> p.second));
-            return matchedFnsScores.get(matchedFnsScores.size() - 1).first;
+            Function f = matchedFnsScores.get(0).first;
+            int score = matchedFnsScores.get(0).second;
+            for (Pair<Function, Integer> p : matchedFnsScores) {
+                if (p.second > score) {
+                    f = p.first;
+                    score = p.second;
+                }
+            }
+            return f;
         }
         return null;
     }
