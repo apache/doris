@@ -85,7 +85,7 @@ private:
     // Only valid if _is_merging is false. (If _is_merging is true, GetNext() is
     // delegated to the receiver). Owned by the stream receiver.
     // boost::scoped_ptr<RowBatch> _input_batch;
-    RowBatch* _input_batch = NULL;
+    RowBatch* _input_batch = nullptr;
 
     // Next row to copy from _input_batch. For non-merging exchanges, _input_batch
     // is retrieved directly from the sender queue in the stream recvr, and rows from
@@ -119,4 +119,3 @@ private:
 };
 
 #endif
-
