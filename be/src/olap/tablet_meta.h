@@ -183,6 +183,14 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
+    RowsetTypePB preferred_rowset_type() const {
+        return _preferred_rowset_type;
+    }
+
+    void set_preferred_rowset_type(RowsetTypePB preferred_rowset_type) {
+        _preferred_rowset_type = preferred_rowset_type;
+    }
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
@@ -203,6 +211,7 @@ private:
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
+    RowsetTypePB _preferred_rowset_type;
 
     RWMutex _meta_lock;
 };

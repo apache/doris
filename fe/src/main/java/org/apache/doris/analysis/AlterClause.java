@@ -17,23 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;
 
 // Alter table clause.
-public class AlterClause {
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        throw new NotImplementedException();
-    }
+public abstract class AlterClause implements ParseNode {
 
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
-    }
-
-    public String toSql() {
         throw new NotImplementedException();
     }
 }

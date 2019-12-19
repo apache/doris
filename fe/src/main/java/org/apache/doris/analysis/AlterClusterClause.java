@@ -22,6 +22,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
+import org.apache.commons.lang.NotImplementedException;
+
 import java.util.Map;
 
 @Deprecated
@@ -59,7 +61,7 @@ public class AlterClusterClause extends AlterClause {
     @Override
     public String toSql() {
         // TODO Auto-generated method stub
-        return super.toSql();
+        throw new NotImplementedException();
     }
 
     public int getInstanceNum() {

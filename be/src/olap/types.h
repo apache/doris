@@ -35,6 +35,7 @@
 #include "util/mem_util.hpp"
 #include "util/slice.h"
 #include "util/types.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -110,6 +111,16 @@ private:
 };
 
 extern TypeInfo* get_type_info(FieldType field_type);
+
+// support following formats when convert varchar to date
+static const std::vector<std::string> DATE_FORMATS {
+    "%Y-%m-%d",
+    "%y-%m-%d",
+    "%Y%m%d",
+    "%y%m%d",
+    "%Y/%m/%d",
+    "%y/%m/%d",
+};
 
 template<FieldType field_type>
 struct CppTypeTraits {
@@ -268,6 +279,30 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_TINYINT> : public BaseFieldtypeTraits<OLA
         char buf[1024] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int8_t*>(src));
         return std::string(buf);
+    }
+};
+
+template<>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_INT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_INT> {
+    static std::string to_string(const void* src) {
+        char buf[1024] = {'\0'};
+        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int32_t *>(src));
+        return std::string(buf);
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
+            using DestType = typename CppTypeTraits<OLAP_FIELD_TYPE_INT>::CppType;
+            auto src_value = *reinterpret_cast<const SrcType*>(src);
+            StringParser::ParseResult parse_res;
+            auto result = StringParser::string_to_int<DestType>(src_value.get_data(), src_value.get_size(), &parse_res);
+            if (parse_res == StringParser::PARSE_SUCCESS) {
+                *reinterpret_cast<DestType*>(dest) = result;
+                return OLAPStatus::OLAP_SUCCESS;
+            }
+        }
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
 
@@ -500,6 +535,19 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             CppType day = static_cast<CppType>(src_value % 100);
             *reinterpret_cast<CppType*>(dest) = (year << 9) + (month << 5) + day;
             return OLAPStatus::OLAP_SUCCESS;
+        }
+
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
+            auto src_value = *reinterpret_cast<const SrcType*>(src);
+            DateTimeValue dt;
+            for (const auto& format : DATE_FORMATS) {
+                if (dt.from_date_format_str(format.c_str(), format.length(), src_value.get_data(), src_value.get_size())) {
+                    *reinterpret_cast<CppType*>(dest) = (dt.year() << 9) + (dt.month() << 5) + dt.day();
+                    return OLAPStatus::OLAP_SUCCESS;
+                }
+            }
+            return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
         }
 
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;

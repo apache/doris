@@ -26,6 +26,8 @@
 #include <set>
 
 #include <boost/filesystem.hpp>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -65,7 +67,11 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir),
     _is_bad(false),
-    _last_compaction_failure_time(0) {
+    _last_cumu_compaction_failure_time(0),
+    _last_base_compaction_failure_time(0),
+    _last_cumu_compaction_success_time(0),
+    _last_base_compaction_success_time(0) {
+
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
     _tablet_path.append("/");
@@ -699,7 +705,6 @@ const uint32_t Tablet::calc_base_compaction_score() const {
             base_rowset_exist = true;
         }
     }
-    score = score < config::base_compaction_num_cumulative_deltas ? 0 : score;
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
     return base_rowset_exist ? score : 0;
@@ -1033,6 +1038,71 @@ void Tablet::pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedP
             candidate_rowsets->push_back(it.second);
         }
     }
+}
+
+OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto version_comparator = [] (const Version& lhs, const Version& rhs)
+        {
+            if (lhs.first < rhs.first) return true;
+            if (lhs.first == rhs.first) return lhs.second < rhs.second;
+            return false;
+        };
+
+    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
+        version_comparator
+    };
+    auto rowset_segment_map = std::map<Version, int64_t, std::function<bool(const Version&, const Version&)>>{
+        version_comparator
+    };
+
+    {
+        ReadLock rdlock(&_meta_lock);
+        for (auto& it : _rs_version_map) {
+            rowset_version_map[it.first] = version_for_delete_predicate(it.first);
+            rowset_segment_map[it.first] = it.second->num_segments();
+        }
+    }
+
+    root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
+    cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
+    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+    cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+    base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
+
+    // print all rowsets' version as an array
+    rapidjson::Document versions_arr;
+    versions_arr.SetArray();
+    for (auto& it : rowset_version_map) {
+        rapidjson::Value value;
+        std::string version_str = strings::Substitute("[$0-$1] $2 $3",
+            it.first.first, it.first.second, rowset_segment_map[it.first], (it.second ? "DELETE" : ""));
+        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator()); 
+        versions_arr.PushBack(value, versions_arr.GetAllocator());
+    }
+    root.AddMember("versions", versions_arr, root.GetAllocator());
+
+    // to json string
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *json_result = std::string(strbuf.GetString());
+
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::do_tablet_meta_checkpoint() {

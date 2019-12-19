@@ -60,7 +60,8 @@ void wirte_index_file(std::string& file_name, const void* values,
         BitmapIndexWriter::create(type_info, &_bitmap_index_builder);
         _bitmap_index_builder->add_values(values, value_count);
         _bitmap_index_builder->add_nulls(null_count);
-        _bitmap_index_builder->finish(wfile.get(), bitmap_index_meta);
+        st = _bitmap_index_builder->finish(wfile.get(), bitmap_index_meta);
+        ASSERT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
         wfile.reset();
     }
 }
@@ -195,7 +196,7 @@ TEST_F(IndexColumnReaderWriterTest, test_multi_pages) {
         int64_t value = 2019;
         bool exact_match;
         auto st = iter->seek_dictionary(&value, &exact_match);
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << "status:" << st.to_string();
         ASSERT_EQ(0, iter->current_ordinal());
 
         Roaring bitmap;

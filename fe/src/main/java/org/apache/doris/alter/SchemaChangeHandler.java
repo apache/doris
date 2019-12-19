@@ -67,6 +67,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -842,12 +843,18 @@ public class SchemaChangeHandler extends AlterHandler {
         
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
-
+        TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
         // create job
         Catalog catalog = Catalog.getCurrentCatalog();
         long jobId = catalog.getNextId();
         SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
+
+        // If StorageFormat is set to TStorageFormat.V2
+        // which will create tablet with preferred_rowset_type set to BETA
+        // for both base table and rollup index
+        schemaChangeJob.setStorageFormat(storageFormat);
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop 
         long tableId = olapTable.getId();
@@ -904,6 +911,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         break;
                     }
                 }
+            } else if (storageFormat == TStorageFormat.V2) {
+                needAlter = true;
             }
 
             if (!needAlter) {

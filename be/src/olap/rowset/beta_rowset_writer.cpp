@@ -161,6 +161,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 OLAPStatus BetaRowsetWriter::_create_segment_writer() {
     auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id, _num_segment);
     segment_v2::SegmentWriterOptions writer_options;
+    writer_options.whether_to_filter_value = _context.version.first == 0;
     _segment_writer.reset(new segment_v2::SegmentWriter(path, _num_segment, _context.tablet_schema, writer_options));
     // TODO set write_mbytes_per_sec based on writer type (load/base compaction/cumulative compaction)
     auto s = _segment_writer->init(config::push_write_mbytes_per_sec);

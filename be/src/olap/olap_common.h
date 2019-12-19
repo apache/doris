@@ -203,7 +203,6 @@ struct Version {
 
 typedef std::vector<Version> Versions;
 
-
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {
     size_t operator()(const Version& version) const {
@@ -248,6 +247,7 @@ struct OlapReaderStatistics {
     int64_t vec_cond_ns = 0;
 
     int64_t rows_stats_filtered = 0;
+    int64_t rows_bf_filtered = 0;
     int64_t rows_del_filtered = 0;
 
     int64_t index_load_ns = 0;

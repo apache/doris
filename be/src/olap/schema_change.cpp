@@ -338,10 +338,12 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_field_content(i, buf, mem_pool);
                     }
                 }
-            } else if ((newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
-                || (newtype == OLAP_FIELD_TYPE_DATETIME && reftype == OLAP_FIELD_TYPE_DATE)
+            } else if ((newtype == OLAP_FIELD_TYPE_INT && reftype == OLAP_FIELD_TYPE_VARCHAR)
                 || (newtype == OLAP_FIELD_TYPE_DOUBLE && reftype == OLAP_FIELD_TYPE_FLOAT)
-                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)) {
+                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_INT)
+                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_VARCHAR)
+                || (newtype == OLAP_FIELD_TYPE_DATE && reftype == OLAP_FIELD_TYPE_DATETIME)
+                || (newtype == OLAP_FIELD_TYPE_DATETIME && reftype == OLAP_FIELD_TYPE_DATE)) {
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // Skip filtered rows
@@ -955,6 +957,11 @@ bool SchemaChangeWithSorting::process(
     reset_merged_rows();
     reset_filtered_rows();
 
+    bool use_beta_rowset = false;
+    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        use_beta_rowset = true;
+    }
+
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
@@ -974,12 +981,16 @@ bool SchemaChangeWithSorting::process(
 
             // enter here while memory limitation is reached.
             RowsetSharedPtr rowset;
+            RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+            if (use_beta_rowset) {
+                new_rowset_type = BETA_ROWSET;
+            }
             if (!_internal_sorting(row_block_arr,
                                    Version(_temp_delta_versions.second,
                                            _temp_delta_versions.second),
                                    rowset_reader->version_hash(),
                                    new_tablet,
-                                   StorageEngine::instance()->default_rowset_type(),
+                                   new_rowset_type,
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -1032,11 +1043,15 @@ bool SchemaChangeWithSorting::process(
         // enter here while memory limitation is reached.
         RowsetSharedPtr rowset = nullptr;
 
+        RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (use_beta_rowset) {
+            new_rowset_type = BETA_ROWSET;
+        }
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
                                rowset_reader->version_hash(),
                                new_tablet,
-                               StorageEngine::instance()->default_rowset_type(),
+                               new_rowset_type,
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1474,6 +1489,9 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        writer_context.rowset_type = BETA_ROWSET;
+    }
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
@@ -1700,6 +1718,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+            // Use beta rowset to do schema change
+            // And in this case, linked schema change will not be used.
+            writer_context.rowset_type = BETA_ROWSET;
+        }
         writer_context.rowset_path_prefix = new_tablet->tablet_path();
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
@@ -1906,6 +1929,12 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
     if (base_tablet->delete_predicates().size() != 0){
         //there exists delete condition in header, can't do linked schema change
+        *sc_directly = true;
+    }
+
+    if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+        // if the default rowset type is alpha, and tablet meta has preferred_rowset_type
+        // field set to BETA_ROWST, just use directly type
         *sc_directly = true;
     }
 

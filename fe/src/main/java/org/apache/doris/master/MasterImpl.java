@@ -19,7 +19,7 @@ package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -130,6 +130,9 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
+                String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatus_code().toString() +
+                        ", backendId: " + backend + ", signature: " + signature;
+                task.setErrorMsg(errMsg);
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
@@ -383,8 +386,8 @@ public class MasterImpl {
         MaterializedIndex index = partition.getIndex(indexId);
         if (index == null) { 
             // this means the index is under rollup
-            RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-            AlterJob alterJob = rollupHandler.getAlterJob(olapTable.getId());
+            MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+            AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null && olapTable.getState() == OlapTableState.ROLLUP) {
                 // this happens when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
@@ -608,8 +611,8 @@ public class MasterImpl {
                 return null;
             }
 
-            RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-            AlterJob alterJob = rollupHandler.getAlterJob(olapTable.getId());
+            MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+            AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null) {
                 // this happends when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
@@ -689,8 +692,8 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         CreateRollupTask createRollupTask = (CreateRollupTask) task;
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-        rollupHandler.handleFinishedReplica(createRollupTask, finishTabletInfos.get(0), -1L);
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        materializedViewHandler.handleFinishedReplica(createRollupTask, finishTabletInfos.get(0), -1L);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ROLLUP, task.getSignature());
     }
 

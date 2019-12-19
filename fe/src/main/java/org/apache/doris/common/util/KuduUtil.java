@@ -305,7 +305,7 @@ public class KuduUtil {
 
     public static void analyzeKeyDesc(KeysDesc keysDesc) throws AnalysisException {
         if (keysDesc.getKeysType() != KeysType.PRIMARY_KEYS) {
-            throw new AnalysisException("Create kudu table shoudl specify PRIMARY KEYS");
+            throw new AnalysisException("Create kudu table should specify PRIMARY KEYS");
         }
     }
 

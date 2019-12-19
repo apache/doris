@@ -30,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -72,6 +73,13 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
+
+    /*
+     * for upgrade alpha rowset to beta rowset, valid value: v1, v2
+     * v1: alpha rowset
+     * v2: beta rowset
+     */
+    public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -372,5 +380,23 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    // analyzeStorageFormat will parse the storage format from properties
+    // sql: alter table tablet_name set ("storage_format" = "v2")
+    // Use this sql to convert all tablets(base and rollup index) to a new format segment
+    public static TStorageFormat analyzeStorageFormat(Map<String, String> properties) {
+        String storage_format = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
+            storage_format = properties.get(PROPERTIES_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_TIMEOUT);
+        }
+        if (storage_format.equalsIgnoreCase("v1")) {
+            return TStorageFormat.V1;
+        } else if(storage_format.equalsIgnoreCase("v2")) {
+            return TStorageFormat.V2;
+        } else {
+            return TStorageFormat.DEFAULT;
+        }
     }
 }

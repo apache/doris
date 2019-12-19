@@ -76,13 +76,18 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 
     std::vector<RowsetSharedPtr> transient_rowsets;
     size_t num_overlapping_segments = 0;
+    // the last delete version we meet when traversing candidate_rowsets
+    Version last_delete_version { -1, -1 };
+
+    // traverse rowsets from begin to penultimate rowset.
+    // Because VersionHash will calculated from chosen rowsets.
+    // If ultimate singleton rowset is chosen, VersionHash
+    // will be different from the value recorded in FE.
+    // So the ultimate singleton rowset is revserved.
     for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
-        // VersionHash will calculated from chosen rowsets.
-        // If ultimate singleton rowset is chosen, VersionHash
-        // will be different from the value recorded in FE.
-        // So the ultimate singleton rowset is revserved.
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
+            last_delete_version = rowset->version();
             if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
                 _input_rowsets = transient_rowsets;
                 break;
@@ -92,7 +97,8 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             continue;
         }
 
-        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas) {
+        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas
+            && transient_rowsets.size() >= 2) {
             // the threshold of files to compacted one time
             break;
         }
@@ -108,12 +114,35 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
         _input_rowsets = transient_rowsets;
     }
-		
+
+    // Cumulative compaction will process with at least 2 rowsets.
+    // So when there is no rowset or only 1 rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
     if (_input_rowsets.size() <= 1) {
-        // There are no suitable rowsets choosed to do cumulative compaction.
-        // Under this circumstance, cumulative_point should be set.
-        // Otherwise, the next round will not choose rowsets. 
-        _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
+        if (last_delete_version.first != -1) {
+            // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
+            // plus 1 to skip the delete version.
+            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doen't matter.
+            _tablet->set_cumulative_layer_point(last_delete_version.first + 1);
+            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+        }
+
+        // we did not meet any delete version. which means num_overlapping_segments is not enough to do cumulative compaction.
+        // We should wait until there are more rowsets to come, and keep the cumulative point unchanged.
+        // But in order to avoid the stall of compaction because no new rowset arrives later, we should increase
+        // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
+
+        // check both last success time of base and cumulative compaction
+        int64_t last_cumu_compaction_success_time = _tablet->last_cumu_compaction_success_time();
+        int64_t last_base_compaction_success_time = _tablet->last_base_compaction_success_time();
+        
+        int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
+        int64_t now = time(NULL);
+        int64_t cumu_interval = now - last_cumu_compaction_success_time;
+        int64_t base_interval = now - last_base_compaction_success_time;
+        if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
+            _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
+        }
+
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 

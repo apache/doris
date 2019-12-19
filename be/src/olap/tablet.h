@@ -212,11 +212,17 @@ public:
     void set_io_error();
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
-    int64_t last_compaction_failure_time() { return _last_compaction_failure_time; }
+    int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_time; }
+    void set_last_cumu_compaction_failure_time(int64_t time) { _last_cumu_compaction_failure_time = time; }
 
-    void set_last_compaction_failure_time(int64_t time) {
-        _last_compaction_failure_time = time;
-    }
+    int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_time; }
+    void set_last_base_compaction_failure_time(int64_t time) { _last_base_compaction_failure_time = time; }
+
+    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_time; }
+    void set_last_cumu_compaction_success_time(int64_t time) { _last_cumu_compaction_success_time = time; }
+
+    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_time; }
+    void set_last_base_compaction_success_time(int64_t time) { _last_base_compaction_success_time = time; }
 
     void delete_all_files();
 
@@ -249,6 +255,9 @@ public:
 
     OLAPStatus generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
 
+    // return a json string to show the compaction status of this tablet
+    OLAPStatus get_compaction_status(std::string* json_result);
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -277,7 +286,10 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
-    std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_failure_time; // timestamp of last cumulative compaction failure
+    std::atomic<int64_t> _last_base_compaction_failure_time; // timestamp of last base compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_success_time; // timestamp of last cumu compaction success
+    std::atomic<int64_t> _last_base_compaction_success_time; // timestamp of last base compaction success
 
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
