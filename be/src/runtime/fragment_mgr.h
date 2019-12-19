@@ -74,11 +74,6 @@ public:
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
 
-    // input: fragment_instance_id
-    // output: error_msgs
-    // Get the plan fragment running status of the specified fragment_instance_id
-    Status fragment_runtime_status(const TUniqueId& fragment_instance_id) const;
-
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);
