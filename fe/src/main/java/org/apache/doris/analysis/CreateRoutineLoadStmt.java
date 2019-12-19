@@ -328,8 +328,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
-        timezone = jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone);
-        TimeUtils.checkTimeZoneValid(timezone);
+        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
     }
 
     private void checkDataSourceProperties() throws AnalysisException {

@@ -70,7 +70,7 @@ public class TimeUtils {
                     + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|(1[0-9])|(2[0-8]))))))"
                     + "(\\s(((0?[0-9])|([1][0-9])|([2][0-3]))\\:([0-5]?[0-9])((\\s)|(\\:([0-5]?[0-9])))))?$");
     
-    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]{1}\\d{2}\\:\\d{2}$");
+    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]{0,1}\\d{1,2}\\:\\d{2}$");
 
     public static Date MIN_DATE = null;
     public static Date MAX_DATE = null;
@@ -235,8 +235,11 @@ public class TimeUtils {
     }
 
     // Check if the time zone_value is valid
-    public static void checkTimeZoneValid(String value) throws DdlException {
+    public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
         try {
+            if (value == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, "null");
+            }
             // match offset type, such as +08:00, -07:00
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
@@ -245,6 +248,11 @@ public class TimeUtils {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
+                boolean postive = value.charAt(0) != '-';
+                value = (postive ? "+" : "-") + String.format("%02d:%02d",
+                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[0]),
+                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[1]));
+
                 // timezone offsets around the world extended from -12:00 to +14:00
                 int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));
                 if (value.charAt(0) == '-' && tz > 1200) {
@@ -254,8 +262,10 @@ public class TimeUtils {
                 }
             }
             ZoneId.of(value, timeZoneAliasMap);
+            return value;
         } catch (DateTimeException ex) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
         }
+        throw new DdlException("Parse time zone " + value + " error");
     }
 }
