@@ -182,6 +182,10 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"master_fe_ip\", state=\"master\"} ").append(
+                Catalog.getCurrentCatalog().getMasterIp() + ":" + Catalog.getCurrentCatalog().getMasterHttpPort()).append("\n");
         return;
     }
 }

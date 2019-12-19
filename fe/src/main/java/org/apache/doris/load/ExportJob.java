@@ -36,6 +36,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
@@ -401,11 +402,21 @@ public class ExportJob implements Writable {
     }
 
     public int getTimeoutSecond() {
-        return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        } else {
+            // for compatibility, some export job in old version does not have this property. use default.
+            return Config.export_task_default_timeout_second;
+        }
     }
 
     public int getTabletNumberPerTask() {
-        return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
+        if (properties.containsKey(ExportStmt.TABLET_NUMBER_PER_TASK_PROP)) {
+            return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
+        } else {
+            // for compatibility, some export job in old version does not have this property. use default.
+            return Config.export_tablet_num_per_task;
+        }
     }
 
     public List<String> getPartitions() {
