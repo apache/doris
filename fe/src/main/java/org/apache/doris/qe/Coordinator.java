@@ -938,7 +938,7 @@ public class Coordinator {
         }
     }
 
-    //One fragment could only have one HashJoinNode
+    // One fragment could only have one HashJoinNode
     private boolean isColocateJoin(PlanNode node) {
         if (Config.disable_colocate_join) {
             return false;
@@ -1054,10 +1054,10 @@ public class Coordinator {
                 scanRangeParams.scan_range = location.scan_range;
                 scanRangeParamsList.add(scanRangeParams);
             }
-
         }
     }
 
+    // randomly choose a backend from the TScanRangeLocations for a certain bucket sequence.
     private void getExecHostPortForBucketSeq(TScanRangeLocations seqLocation, Integer bucketSeq) throws Exception {
         int randomLocation = new Random().nextInt(seqLocation.locations.size());
         Reference<Long> backendIdRef = new Reference<Long>();
