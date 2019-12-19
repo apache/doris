@@ -669,15 +669,19 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
         for (int j = 0; j < _output_expr_ctxs.size(); ++j) {
             auto src_val = _output_expr_ctxs[j]->get_value(src_row);
             auto slot_desc = _output_tuple_desc->slots()[j];
-            if (slot_desc->is_nullable()) {
-                if (src_val == nullptr) {
-                    dst_tuple->set_null(slot_desc->null_indicator_offset());
-                    continue;
-                } else {
-                    dst_tuple->set_not_null(slot_desc->null_indicator_offset());
+            // The following logic is similar to BaseScanner::fill_dest_tuple
+            // Todo(kks): we should unify it
+            if (src_val == nullptr) {
+                // Only when the expr return value is null, we will check the error message.
+                std::string expr_error = _output_expr_ctxs[j]->get_error_msg();
+                if (!expr_error.empty()) {
+                    state->append_error_msg_to_file(slot_desc->col_name(), expr_error);
+                    _number_filtered_rows++;
+                    // The ctx is reused, so must clear the error state and message.
+                    _output_expr_ctxs[j]->clear_error_msg();
+                    break;
                 }
-            } else {
-                if (src_val == nullptr) {
+                if (!slot_desc->is_nullable()) {
                     std::stringstream ss;
                     ss << "null value for not null column, column=" << slot_desc->col_name();
 #if BE_TEST
@@ -689,7 +693,10 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
                     _number_filtered_rows++;
                     break;
                 }
+                dst_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
             }
+            dst_tuple->set_not_null(slot_desc->null_indicator_offset());
             void* slot = dst_tuple->get_slot(slot_desc->tuple_offset());
             RawValue::write(src_val, slot, slot_desc->type(), _output_batch->tuple_data_pool());
         }
