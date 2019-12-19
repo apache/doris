@@ -216,7 +216,8 @@ public class VariableMgr {
         checkUpdate(setVar, ctx.getFlag());
         // Check variable time_zone value is valid
         if (setVar.getVariable().toLowerCase().equals("time_zone")) {
-            setVar = new SetVar(setVar.getVariable(),
+            setVar = new SetVar(
+                    setVar.getType(), setVar.getVariable(),
                     new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(setVar.getValue().getStringValue())));
         }
 
