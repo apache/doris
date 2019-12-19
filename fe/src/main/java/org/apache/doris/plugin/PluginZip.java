@@ -74,7 +74,7 @@ class PluginZip {
 
     /**
      * download zip if the source in remote,
-     * or copy zip if the source in local
+     * or return if the source in local
      **/
     Path downloadZip(Path targetPath) throws IOException, UserException {
         if (StringUtils.isBlank(source)) {
@@ -92,18 +92,8 @@ class PluginZip {
         if (!isLocal) {
             return downloadRemoteZip(targetPath);
         } else {
-            return copyLocalZip(targetPath);
+            return FileSystems.getDefault().getPath(source);
         }
-    }
-
-    Path copyLocalZip(Path targetPath) throws IOException {
-        Path sourceZip = FileSystems.getDefault().getPath(source);
-        Path targetZip = Files.createTempFile(targetPath, ".plugin_", ".zip");
-
-        Path result = Files.copy(sourceZip, targetZip, StandardCopyOption.REPLACE_EXISTING);
-        cleanPathList.add(result);
-
-        return result;
     }
 
     /**
