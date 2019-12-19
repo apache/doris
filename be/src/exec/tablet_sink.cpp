@@ -696,7 +696,9 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
                 dst_tuple->set_null(slot_desc->null_indicator_offset());
                 continue;
             }
-            dst_tuple->set_not_null(slot_desc->null_indicator_offset());
+            if (slot_desc->is_nullable()) {
+                dst_tuple->set_not_null(slot_desc->null_indicator_offset());
+            }
             void* slot = dst_tuple->get_slot(slot_desc->tuple_offset());
             RawValue::write(src_val, slot, slot_desc->type(), _output_batch->tuple_data_pool());
         }
