@@ -18,7 +18,9 @@ under the License.
 -->
 
 # ALTER TABLE
+
 ## description
+
     该语句用于对已有的 table 进行修改。如果没有指定 rollup index，默认操作 base index。
     该语句分为三种操作类型： schema change 、rollup 、partition
     这三种操作类型不能同时出现在一条 ALTER TABLE 语句中。
@@ -29,7 +31,7 @@ under the License.
         ALTER TABLE [database.]table
         alter_clause1[, alter_clause2, ...];
 
-    alter_clause 分为 partition 、rollup、schema change 和 rename 四种。
+    alter_clause 分为 partition 、rollup、schema change、rename 和index五种。
 
     partition 支持如下几种修改方式
     1. 增加分区
@@ -163,8 +165,19 @@ under the License.
     3. 修改 partition 名称
         语法：
             RENAME PARTITION old_partition_name new_partition_name;
-      
+    bitmap index 支持如下几种修改方式
+    1. 创建bitmap 索引
+        语法：
+            ADD INDEX index_name [USING BITMAP] (column [, ...],) [COMMENT 'balabala'];
+        注意：
+            1. 目前仅支持bitmap 索引
+            1. BITMAP 索引仅在单列上创建
+    2. 删除索引
+        语法：
+            DROP INDEX index_name；
+
 ## example
+
     [partition]
     1. 增加分区, 现有分区 [MIN, 2013-01-01)，增加分区 [2013-01-01, 2014-01-01)，使用默认分桶方式
         ALTER TABLE example_db.my_table
@@ -282,7 +295,12 @@ under the License.
         
     3. 将表 example_table 中名为 p1 的 partition 修改为 p2
         ALTER TABLE example_table RENAME PARTITION p1 p2;
-        
+    [index]
+    1. 在table1 上为siteid 创建bitmap 索引
+        ALTER TABLE table1 ADD INDEX index_name  [USING BITMAP] (siteid) COMMENT 'balabala';
+    2. 删除table1 上的siteid列的bitmap 索引
+        ALTER TABLE table1 DROP INDEX index_name;
+
 ## keyword
+
     ALTER,TABLE,ROLLUP,COLUMN,PARTITION,RENAME
-    

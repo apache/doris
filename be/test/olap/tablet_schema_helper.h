@@ -24,7 +24,8 @@
 
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false) {
+TabletColumn create_int_key(int32_t id, bool is_nullable = true,
+        bool is_bf_column = false, bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -34,6 +35,7 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_colu
     column._length = 4;
     column._index_length = 4;
     column._is_bf_column = is_bf_column;
+    column._has_bitmap_index = has_bitmap_index;
     return column;
 }
 
@@ -41,7 +43,8 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_colu
 TabletColumn create_int_value(
         int32_t id,
         FieldAggregationMethod agg_method = OLAP_FIELD_AGGREGATION_SUM,
-        bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false) {
+        bool is_nullable = true, const std::string default_value = "",
+        bool is_bf_column = false, bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -56,6 +59,7 @@ TabletColumn create_int_value(
         column._default_value = default_value;
     }
     column._is_bf_column = is_bf_column;
+    column._has_bitmap_index = has_bitmap_index;
     return column;
 }
 

@@ -44,8 +44,6 @@ extern const uint32_t k_segment_magic_length;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
-    // Todo(kks): only for UT, we should remove it when we support bitmap_index in FE
-    bool need_bitmap_index = false;
     // whether to filter value column against bloom filter/zone map
     bool whether_to_filter_value = false;
 };
