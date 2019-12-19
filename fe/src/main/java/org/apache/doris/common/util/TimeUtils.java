@@ -237,6 +237,9 @@ public class TimeUtils {
     // Check if the time zone_value is valid
     public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
         try {
+            if (value == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, "null");
+            }
             // match offset type, such as +08:00, -07:00
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.

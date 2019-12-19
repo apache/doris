@@ -199,8 +199,11 @@ public class LoadStmt extends DdlStmt {
         }
 
         // time zone
-        properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
+        final String timezone = properties.get(TIMEZONE);
+        if (timezone != null) {
+            properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
                     properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
+        }
     }
 
     private void analyzeVersion() throws AnalysisException {

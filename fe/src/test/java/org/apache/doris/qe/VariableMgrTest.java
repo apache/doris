@@ -124,6 +124,18 @@ public class VariableMgrTest {
         VariableMgr.setVar(var, setVar4);
         Assert.assertEquals(2L, var.getSqlMode());
 
+        // Test checkTimeZoneValidAndStandardize
+        var = VariableMgr.newSessionVariable();
+        SetVar setVar5 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+08:00"));
+        SetVar setVar6 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+8:00"));
+        VariableMgr.setVar(var, setVar6);
+        Assert.assertEquals(setVar5, setVar6);
+        SetVar setVar7 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("8:00"));
+        VariableMgr.setVar(var, setVar7);
+        Assert.assertEquals(setVar5, setVar7);
+        SetVar setVar8 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("-8:00"));
+        VariableMgr.setVar(var, setVar8);
+        Assert.assertEquals(setVar5, setVar8);
     }
 
     @Test(expected = DdlException.class)

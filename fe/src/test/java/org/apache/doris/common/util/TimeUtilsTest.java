@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
+import org.apache.doris.common.DdlException;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -132,6 +133,25 @@ public class TimeUtilsTest {
 
         DateLiteral datetime = new DateLiteral("2015-03-01 12:00:00", ScalarType.DATETIME);
         Assert.assertEquals(20150301120000L, datetime.getRealValue());
+    }
+
+    @Test
+    public void testTimezone() throws AnalysisException {
+        try {
+            Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
+        } catch (DdlException ex) {
+            Assert.fail();
+        }
+        try {
+            TimeUtils.checkTimeZoneValidAndStandardize("FOO");
+            Assert.fail();
+        } catch (DdlException ex) {
+            Assert.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
+        }
     }
 
 }
