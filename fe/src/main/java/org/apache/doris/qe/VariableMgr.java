@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
@@ -215,7 +216,9 @@ public class VariableMgr {
         checkUpdate(setVar, ctx.getFlag());
         // Check variable time_zone value is valid
         if (setVar.getVariable().toLowerCase().equals("time_zone")) {
-            TimeUtils.checkTimeZoneValid(setVar.getValue().getStringValue());
+            setVar = new SetVar(
+                    setVar.getType(), setVar.getVariable(),
+                    new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(setVar.getValue().getStringValue())));
         }
 
         // To modify to default value.
