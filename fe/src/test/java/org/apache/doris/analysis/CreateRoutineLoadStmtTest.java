@@ -96,6 +96,7 @@ public class CreateRoutineLoadStmtTest {
         String topicName = "topic1";
         String serverAddress = "127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
+        String timeZone = "8:00";
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
         PartitionNames partitionNames = new PartitionNames(partitionNameString);
@@ -108,6 +109,7 @@ public class CreateRoutineLoadStmtTest {
         loadPropertyList.add(partitionNames);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        properties.put(LoadStmt.TIMEZONE, timeZone);
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
 
@@ -134,6 +136,7 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
         Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());
         Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
+        Assert.assertEquals("+08:00", createRoutineLoadStmt.getTimezone());
     }
 
 }
