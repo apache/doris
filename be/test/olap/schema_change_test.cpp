@@ -571,7 +571,6 @@ TEST_F(TestColumn, ConvertVarcharToInt) {
     // test overflow
     Slice overflow_str("2147483648");
     write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -629,7 +628,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         "19/12/17",
     };
     for (const auto& src_str : valid_src_strs) {
-        write_row.set_field_content(0, &src_str, _mem_pool.get());
+        write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
         ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
@@ -894,8 +893,6 @@ TEST_F(TestColumn, ConvertVarcharToBigInt) {
 
     Slice invalid_str("invalid");
     write_row.set_field_content(0, reinterpret_cast<char*>(&invalid_str), _mem_pool.get());
-    src_str = "invalid";
-    write_row.set_field_content(0, src_str.data(), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
     ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
