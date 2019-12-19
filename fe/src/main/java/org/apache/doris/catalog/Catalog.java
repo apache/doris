@@ -1089,7 +1089,7 @@ public class Catalog {
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
-        fixBugAfterMetadataReplayed(false);
+        metaConvertOrBugFixAfterMetadataReplayed(false);
 
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
@@ -1107,9 +1107,9 @@ public class Catalog {
     }
 
     /*
-     * Add anything necessary here if there is meta data need to be fixed.
+     * Add anything necessary here if there is meta data need to be fixed or be converted.
      */
-    public void fixBugAfterMetadataReplayed(boolean waitCatalogReady) {
+    public void metaConvertOrBugFixAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
                 try {
@@ -1121,7 +1121,24 @@ public class Catalog {
         }
 
         LOG.info("start to fix meta data bug");
+        // 1. load job meta bugs
         loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
+
+        // 2. replica allocation
+        for (Database db : idToDb.values()) {
+            db.writeLock();
+            try {
+                for (Table tbl : db.getTables()) {
+                    if (tbl.getType() != TableType.OLAP) {
+                        continue;
+                    }
+                    ((OlapTable) tbl).getPartitionInfo().convertToReplicaAllocation(db.getClusterName());
+                    LOG.info("convert to replica allocation. tbl: {}, db: {}", tbl.getName(), db.getFullName());
+                }
+            } finally {
+                db.writeUnlock();
+            }
+        }
     }
 
     // start all daemon threads only running on Master
@@ -1218,7 +1235,7 @@ public class Catalog {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        fixBugAfterMetadataReplayed(true);
+        metaConvertOrBugFixAfterMetadataReplayed(true);
 
         startNonMasterDaemonThreads();
 
@@ -2676,7 +2693,7 @@ public class Catalog {
                 throw new DdlException("partition[" + partitionName + "] already exist in table[" + tableName + "]");
             }
 
-            Catalog.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName);
+            Catalog.getCurrentRecycleBin().recoverPartition(db, olapTable, partitionName);
         } finally {
             db.writeUnlock();
         }
@@ -3033,6 +3050,7 @@ public class Catalog {
                 // update partition info
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
+                rangePartitionInfo.convertToReplicaAllocation(db.getClusterName());
 
                 olapTable.addPartition(partition);
                 // log
@@ -3064,6 +3082,8 @@ public class Catalog {
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             ((RangePartitionInfo) partitionInfo).unprotectHandleNewSinglePartitionDesc(partition.getId(),
                     info.getRange(), info.getDataProperty(), info.getReplicationNum());
+
+            partitionInfo.convertToReplicaAllocation(db.getClusterName());
 
             if (!isCheckpointThread()) {
                 // add to inverted index
@@ -3144,7 +3164,7 @@ public class Catalog {
         db.writeLock();
         try {
             Table table = db.getTable(info.getTableId());
-            Catalog.getCurrentRecycleBin().replayRecoverPartition((OlapTable) table, info.getPartitionId());
+            Catalog.getCurrentRecycleBin().replayRecoverPartition(db, (OlapTable) table, info.getPartitionId());
         } finally {
             db.writeUnlock();
         }
@@ -3212,7 +3232,8 @@ public class Catalog {
 
         // replication num
         if (newReplicationNum != (short) -1) {
-            partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(newReplicationNum, db.getClusterName());
+            partitionInfo.setReplicationNum(partition.getId(), replicaAlloc);
             LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), olapTable.getId(), partitionName,
                     newReplicationNum);
         }
@@ -3233,7 +3254,9 @@ public class Catalog {
                 partitionInfo.setDataProperty(info.getPartitionId(), info.getDataProperty());
             }
             if (info.getReplicationNum() != (short) -1) {
-                partitionInfo.setReplicationNum(info.getPartitionId(), info.getReplicationNum());
+                ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(info.getReplicationNum(),
+                        db.getClusterName());
+                partitionInfo.setReplicationNum(info.getPartitionId(), replicaAlloc);
             }
         } finally {
             db.writeUnlock();
@@ -3472,7 +3495,8 @@ public class Catalog {
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
-            partitionInfo.setReplicationNum(partitionId, replicationNum);
+            ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(replicationNum, db.getClusterName());
+            partitionInfo.setReplicationNum(partitionId, replicaAlloc);
         }
 
         // check colocation properties
@@ -6031,7 +6055,8 @@ public class Catalog {
             }
 
             // replace
-            truncateTableInternal(olapTable, newPartitions);
+            truncateTableInternal(db.getClusterName(), olapTable, newPartitions);
+            olapTable.getPartitionInfo().convertToReplicaAllocation(db.getClusterName());
 
             // write edit log
             TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions);
@@ -6044,11 +6069,11 @@ public class Catalog {
                 tblRef.getName().toSql(), tblRef.getPartitions());
     }
 
-    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions) {
+    private void truncateTableInternal(String clusterName, OlapTable olapTable, List<Partition> newPartitions) {
         // use new partitions to replace the old ones.
         Set<Long> oldTabletIds = Sets.newHashSet();
         for (Partition newPartition : newPartitions) {
-            Partition oldPartition = olapTable.replacePartition(newPartition);
+            Partition oldPartition = olapTable.replacePartition(clusterName, newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
                 index.getTablets().stream().forEach(t -> {
@@ -6068,7 +6093,7 @@ public class Catalog {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
-            truncateTableInternal(olapTable, info.getPartitions());
+            truncateTableInternal(db.getClusterName(), olapTable, info.getPartitions());
 
             if (!Catalog.isCheckpointThread()) {
                 // add tablet to inverted index

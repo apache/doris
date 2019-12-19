@@ -40,6 +40,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -724,8 +725,10 @@ public class RestoreJob extends AbstractJob {
                         long remotePartId = backupPartitionInfo.id;
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
+                        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) restoreReplicationNum,
+                                db.getClusterName());
                         localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
-                                remoteDataProperty, (short) restoreReplicationNum);
+                                remoteDataProperty, replicaAlloc);
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -931,8 +934,9 @@ public class RestoreJob extends AbstractJob {
                 long remotePartId = backupPartitionInfo.id;
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
-                        remoteDataProperty, (short) restoreReplicationNum);
+                ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) restoreReplicationNum,
+                        db.getClusterName());
+                localPartitionInfo.addPartition(restorePart.getId(), remoteRange, remoteDataProperty, replicaAlloc);
                 localTbl.addPartition(restorePart);
 
                 // modify tablet inverted index

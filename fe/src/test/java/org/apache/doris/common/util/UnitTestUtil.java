@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
@@ -108,7 +109,8 @@ public class UnitTestUtil {
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(partitionId, (short) 3);
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        partitionInfo.setReplicationNum(partitionId, replicaAlloc);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         table.addPartition(partition);

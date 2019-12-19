@@ -32,6 +32,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -47,10 +48,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import mockit.internal.startup.Startup;
-import okhttp3.Credentials;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
+
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -61,13 +59,18 @@ import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+
 import junit.framework.AssertionFailedError;
+import okhttp3.Credentials;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*", "javax.net.ssl.*"})
@@ -154,7 +157,8 @@ abstract public class DorisHttpTestCase {
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(testPartitionId, (short) 3);
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        partitionInfo.setReplicationNum(testPartitionId, replicaAlloc);
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);
@@ -171,7 +175,8 @@ abstract public class DorisHttpTestCase {
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(testPartitionId + 100, (short) 3);
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        partitionInfo.setReplicationNum(testPartitionId + 100, replicaAlloc);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();
         props.put(EsTable.HOSTS, "http://node-1:8080");

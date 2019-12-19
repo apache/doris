@@ -21,11 +21,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,22 +35,20 @@ import java.util.Map;
 public class PartitionInfo implements Writable {
     protected PartitionType type;
     // partition id -> data property
-    protected Map<Long, DataProperty> idToDataProperty;
+    protected Map<Long, DataProperty> idToDataProperty = Maps.newHashMap();
     // partition id -> replication num
-    protected Map<Long, Short> idToReplicationNum;
+    @Deprecated
+    protected Map<Long, Short> idToReplicationNum = Maps.newHashMap();
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
+    protected Map<Long, ReplicaAllocation> idToReplicaAllocation = Maps.newHashMap();
 
     public PartitionInfo() {
         // for persist
-        this.idToDataProperty = new HashMap<Long, DataProperty>();
-        this.idToReplicationNum = new HashMap<Long, Short>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
-        this.idToDataProperty = new HashMap<Long, DataProperty>();
-        this.idToReplicationNum = new HashMap<Long, Short>();
     }
 
     public PartitionType getType() {
@@ -66,11 +64,19 @@ public class PartitionInfo implements Writable {
     }
 
     public short getReplicationNum(long partitionId) {
-        return idToReplicationNum.get(partitionId);
+        if (idToReplicaAllocation.containsKey(partitionId)) {
+            return idToReplicationNum.get(partitionId);
+        } else {
+            return idToReplicaAllocation.get(partitionId).getReplicaNum();
+        }
     }
 
-    public void setReplicationNum(long partitionId, short replicationNum) {
-        idToReplicationNum.put(partitionId, replicationNum);
+    public ReplicaAllocation getReplicaAlloc(long partitionId) {
+        return idToReplicaAllocation.get(partitionId);
+    }
+
+    public void setReplicationNum(long partitionId, ReplicaAllocation replicaAlloc) {
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
     }
 
     public void dropPartition(long partitionId) {
@@ -78,9 +84,9 @@ public class PartitionInfo implements Writable {
         idToReplicationNum.remove(partitionId);
     }
 
-    public void addPartition(long partitionId, DataProperty dataProperty, short replicationNum) {
+    public void addPartition(long partitionId, DataProperty dataProperty, ReplicaAllocation replicaAlloc) {
         idToDataProperty.put(partitionId, dataProperty);
-        idToReplicationNum.put(partitionId, replicationNum);
+        setReplicationNum(partitionId, replicaAlloc);
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
@@ -97,10 +103,23 @@ public class PartitionInfo implements Writable {
         return "";
     }
 
+    // used to convert idToReplicationNum to idToReplicaAllocation
+    // should only be called once.
+    public void convertToReplicaAllocation(String cluster) {
+        for (Map.Entry<Long, Short> entry : idToReplicationNum.entrySet()) {
+            long partitionId = entry.getKey();
+            ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(entry.getValue(), cluster);
+            setReplicationNum(partitionId, replicaAlloc);
+        }
+        idToReplicationNum.clear();
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
+        // idToReplicationNum should already be converted to idToReplicaAllocation
+        Preconditions.checkState(idToReplicationNum.isEmpty(), idToReplicaAllocation);
 
+        Text.writeString(out, type.name());
         Preconditions.checkState(idToDataProperty.size() == idToReplicationNum.size());
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
@@ -112,7 +131,8 @@ public class PartitionInfo implements Writable {
                 entry.getValue().write(out);
             }
 
-            out.writeShort(idToReplicationNum.get(entry.getKey()));
+            // out.writeShort(idToReplicationNum.get(entry.getKey()));
+            idToReplicaAllocation.get(entry.getKey()).write(out);
         }
     }
 

@@ -40,6 +40,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
@@ -230,7 +231,8 @@ public class CatalogMocker {
         Partition partition =
                 new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setReplicationNum(TEST_SINGLE_PARTITION_ID, (short) 3);
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        partitionInfo.setReplicationNum(TEST_SINGLE_PARTITION_ID, replicaAlloc);
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
@@ -297,8 +299,10 @@ public class CatalogMocker {
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
         rangePartitionInfo.setRange(TEST_PARTITION2_ID, rangeP2);
 
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, (short) 3);
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, (short) 3);
+        ReplicaAllocation replicaAlloc1 = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, replicaAlloc1);
+        ReplicaAllocation replicaAlloc2 = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, replicaAlloc2);
         DataProperty dataPropertyP1 = new DataProperty(TStorageMedium.HDD);
         DataProperty dataPropertyP2 = new DataProperty(TStorageMedium.HDD);
         rangePartitionInfo.setDataProperty(TEST_PARTITION1_ID, dataPropertyP1);

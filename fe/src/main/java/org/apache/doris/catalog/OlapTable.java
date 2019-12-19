@@ -971,7 +971,7 @@ public class OlapTable extends Table {
      *
      * return the old partition.
      */
-    public Partition replacePartition(Partition newPartition) {
+    public Partition replacePartition(String clusterName, Partition newPartition) {
         Partition oldPartition = nameToPartition.remove(newPartition.getName());
         idToPartition.remove(oldPartition.getId());
 
@@ -979,16 +979,24 @@ public class OlapTable extends Table {
         nameToPartition.put(newPartition.getName(), newPartition);
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
-        short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
+
+        ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAlloc(oldPartition.getId());
+        if (replicaAlloc == null) {
+            // this method("replacePartition()") can be called before or after converting to replica allocation
+            // So if we can't get replicaAlloc, we need to create a new replicaAlloc.
+            Preconditions.checkNotNull(clusterName);
+            short replicaNum = partitionInfo.getReplicationNum(oldPartition.getId());
+            replicaAlloc = ReplicaAllocation.createDefault(replicaNum, clusterName);
+        }
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
             rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty, replicationNum);
+            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty, replicaAlloc);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
-            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum);
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc);
         }
 
         return oldPartition;

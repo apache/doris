@@ -270,6 +270,10 @@ public class Database extends MetaObject implements Writable {
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Catalog.getCurrentCatalog().getEsStateStore().registerTable((EsTable)table);
                 }
+
+                if (table.getType() == TableType.OLAP) {
+                    ((OlapTable) table).getPartitionInfo().convertToReplicaAllocation(getClusterName());
+                }
             }
             return result;
         } finally {

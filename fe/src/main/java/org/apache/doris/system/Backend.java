@@ -24,6 +24,8 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
@@ -92,6 +94,17 @@ public class Backend implements Writable {
     // the max tablet compaction score of this backend.
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
+
+    // the default tag set of a backend.
+    // it also used for being compatible with cluster system
+    public static final TagSet DEFAULT_TAG_SET;
+    static {
+        Tag typeTag = Tag.createNoThrow(Tag.TYPE_ROLE, Tag.VALUE_FRONTEND);
+        Tag locationTag = Tag.createNoThrow(Tag.TYPE_LOCATION, Tag.VALUE_DEFAULT_CLUSTER);
+        Tag storageTag = Tag.createNoThrow(Tag.TYPE_FUNCTION, Tag.VALUE_STORE);
+        Tag computeTag = Tag.createNoThrow(Tag.TYPE_FUNCTION, Tag.VALUE_COMPUTATION);
+        DEFAULT_TAG_SET = TagSet.create(typeTag, locationTag, storageTag, computeTag);
+    }
 
     public Backend() {
         this.host = "";

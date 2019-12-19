@@ -85,8 +85,8 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     public void addPartition(long partitionId, Range<PartitionKey> range, DataProperty dataProperty,
-            short replicationNum) {
-        addPartition(partitionId, dataProperty, replicationNum);
+            ReplicaAllocation replicaAlloc) {
+        addPartition(partitionId, dataProperty, replicaAlloc);
         idToRange.put(partitionId, range);
     }
 

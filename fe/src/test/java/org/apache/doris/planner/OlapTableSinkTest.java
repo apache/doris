@@ -30,6 +30,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
@@ -87,7 +88,8 @@ public class OlapTableSinkTest {
     public void testSinglePartition() throws UserException {
         TupleDescriptor tuple = getTuple();
         SinglePartitionInfo partInfo = new SinglePartitionInfo();
-        partInfo.setReplicationNum(2, (short) 3);
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) 3, "default_cluster");
+        partInfo.setReplicationNum(2, replicaAlloc);
         MaterializedIndex index = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
         HashDistributionInfo distInfo = new HashDistributionInfo(
                 2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));

@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
@@ -51,7 +52,7 @@ import java.util.Objects;
 public class Tag implements Writable {
 
     public static final String TYPE_ROLE = "role";
-    public static final String TYPE_FUNCATION = "function";
+    public static final String TYPE_FUNCTION = "function";
     public static final String TYPE_LOCATION = "location";
 
     public static final String VALUE_FRONTEND = "frontend";
@@ -63,7 +64,7 @@ public class Tag implements Writable {
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
-            TYPE_ROLE, TYPE_FUNCATION, TYPE_LOCATION);
+            TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_DEFAULT_CLUSTER);
@@ -84,6 +85,15 @@ public class Tag implements Writable {
             throw new AnalysisException("Invalid tag format: " + type + ":" + value);
         }
         return new Tag(type, value);
+    }
+
+    public static Tag createNoThrow(String type, String value) {
+        try {
+            return Tag.create(type, value);
+        } catch (AnalysisException e) {
+            Preconditions.checkState(false, type + ":" + value);
+        }
+        return null;
     }
 
     @Override

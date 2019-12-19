@@ -104,7 +104,7 @@ public class Checkpoint extends MasterDaemon {
                           checkPointVersion, catalog.getReplayedJournalId());
                 return;
             }
-            catalog.fixBugAfterMetadataReplayed(false);
+            catalog.metaConvertOrBugFixAfterMetadataReplayed(false);
 
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();

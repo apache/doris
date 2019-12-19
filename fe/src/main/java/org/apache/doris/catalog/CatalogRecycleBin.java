@@ -478,7 +478,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName) throws DdlException {
+    public synchronized void recoverPartition(Database db, OlapTable table, String partitionName) throws DdlException {
         // make sure to get db write lock
         RecyclePartitionInfo recoverPartitionInfo = null;
 
@@ -524,19 +524,21 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         long partitionId = recoverPartition.getId();
         partitionInfo.setRange(partitionId, recoverRange);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
-        partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(recoverPartitionInfo.getReplicationNum(),
+                db.getClusterName());
+        partitionInfo.setReplicationNum(partitionId, replicaAlloc);
 
         // remove from recycle bin
         idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
         // log
-        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId);
+        RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), partitionId);
         Catalog.getInstance().getEditLog().logRecoverPartition(recoverInfo);
         LOG.info("recover partition[{}]", partitionId);
     }
 
-    public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
+    public synchronized void replayRecoverPartition(Database db, OlapTable table, long partitionId) {
         // make sure to get db write lock
 
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
@@ -553,7 +555,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
             rangePartitionInfo.setRange(partitionId, partitionInfo.getRange());
             rangePartitionInfo.setDataProperty(partitionId, partitionInfo.getDataProperty());
-            rangePartitionInfo.setReplicationNum(partitionId, partitionInfo.getReplicationNum());
+            ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(partitionInfo.getReplicationNum(),
+                    db.getClusterName());
+            rangePartitionInfo.setReplicationNum(partitionId, replicaAlloc);
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
