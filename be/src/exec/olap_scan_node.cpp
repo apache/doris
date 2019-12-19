@@ -132,6 +132,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _stats_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter =
+        ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _del_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
 

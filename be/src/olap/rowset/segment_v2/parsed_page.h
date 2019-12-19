@@ -23,7 +23,7 @@
 namespace doris {
 namespace segment_v2 {
 
-class PageHandle;
+class PageHandle;	
 struct PagePointer;
 
 // This contains information when one page is loaded, and ready for read

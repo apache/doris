@@ -296,6 +296,7 @@ message TabletMetaPB {
     // a uniqued id to identified tablet with same tablet_id and schema hash
     optional PUniqueId tablet_uid = 14;
     optional int64 end_rowset_id = 15;
+    optional RowsetTypePB preferred_rowset_type = 16;
 }
 
 message OLAPIndexHeaderMessage {
