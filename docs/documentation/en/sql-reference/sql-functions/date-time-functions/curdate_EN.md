@@ -17,26 +17,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# day
-## description
+# curdate
+## Description
 ### Syntax
 
-`INT DAY(DATETIME date)`
+'DATE CURDATE()'
 
-
-获得日期中的天信息，返回值范围从1-31。
-
-参数为Date或者Datetime类型
+Get the current date and return it in Date type
 
 ## example
 
 ```
-mysql> select day('1987-01-31');
-+----------------------------+
-| day('1987-01-31 00:00:00') |
-+----------------------------+
-|                         31 |
-+----------------------------+
+mysql> SELECT CURDATE();
++------------+
+| CURDATE()  |
++------------+
+| 2019-12-20 |
++------------+
+
+mysql> SELECT CURDATE() + 0;
++---------------+
+| CURDATE() + 0 |
++---------------+
+|      20191220 |
++---------------+
 ```
 ##keyword
-DAY
+CURDATE
