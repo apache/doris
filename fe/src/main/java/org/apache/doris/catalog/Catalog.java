@@ -51,11 +51,14 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.ModifyViewDefClause;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
@@ -67,12 +70,9 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TruncateTableStmt;
-import org.apache.doris.analysis.UserDesc;
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
@@ -4734,6 +4734,13 @@ public class Catalog {
         this.alter.processAlterTable(stmt);
     }
 
+    /**
+     * used for handling AlterViewStmt (the ALTER VIEW command).
+     */
+    public void alterView(AlterViewStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterView(stmt);
+    }
+
     public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
         // TODO(ml): remove it
         throw new AnalysisException("The materialized view is coming soon");
@@ -4769,11 +4776,7 @@ public class Catalog {
         getBackupHandler().cancel(stmt);
     }
 
-    public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-        }
-
+    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
         String tableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
         if (tableName.equals(newTableName)) {
@@ -4785,17 +4788,24 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        // check if rollup has same name
-        if (table.getType() == TableType.OLAP) {
-            OlapTable olapTable = (OlapTable) table;
-            for (String idxName: olapTable.getIndexNameToId().keySet()) {
-                if (idxName.equals(newTableName)) {
-                    throw new DdlException("New name conflicts with rollup index name: " + idxName);
+        if (table instanceof OlapTable) {
+            if (((OlapTable)table).getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "] is under " + ((OlapTable)table).getState());
+            }
+            // check if rollup has same name
+            if (table.getType() == TableType.OLAP) {
+                for (String idxName: ((OlapTable)table).getIndexNameToId().keySet()) {
+                    if (idxName.equals(newTableName)) {
+                        throw new DdlException("New name conflicts with rollup index name: " + idxName);
+                    }
                 }
             }
+            ((OlapTable)table).setName(newTableName);
+        } else if (table instanceof View) {
+            ((View)table).setName(newTableName);
+        } else {
+            throw new DdlException("Invalid type of table");
         }
-
-        table.setName(newTableName);
 
         db.dropTable(tableName);
         db.createTable(table);
@@ -4813,13 +4823,50 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            Table table = db.getTable(tableId);
             String tableName = table.getName();
             db.dropTable(tableName);
-            table.setName(newTableName);
+            if (table instanceof OlapTable) {
+                ((OlapTable)table).setName(newTableName);
+            } else if (table instanceof View) {
+                ((View)table).setName(newTableName);
+            }
             db.createTable(table);
 
             LOG.info("replay rename table[{}] to {}", tableName, newTableName);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void modifyViewDef(Database db, View view, ModifyViewDefClause modifyViewDefClause) throws DdlException {
+        String viewName = view.getName();
+        String inlineViewDef = modifyViewDefClause.getInlineViewDef();
+
+        db.dropTable(viewName);
+        view.setInlineViewDef(inlineViewDef);
+        db.createTable(view);
+
+        TableInfo tableInfo = TableInfo.createForModifyViewDef(db.getId(), view.getId(), inlineViewDef);
+        editLog.logModifyViewDef(tableInfo);
+        LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
+    }
+
+    public void replayModifyViewDef(TableInfo tableInfo) throws DdlException {
+        long dbId = tableInfo.getDbId();
+        long tableId = tableInfo.getTableId();
+        String inlineViewDef = tableInfo.getInlineViewDef();
+
+        Database db = getDb(dbId);
+        db.writeLock();
+        try {
+            View view = (View) db.getTable(tableId);
+            String viewName = view.getName();
+            db.dropTable(viewName);
+            view.setInlineViewDef(inlineViewDef);
+            db.createTable(view);
+
+            LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             db.writeUnlock();
         }

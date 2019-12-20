@@ -35,12 +35,15 @@ public class TableInfo implements Writable {
     private String newRollupName;
     private String newPartitionName;
 
+    // only for view
+    private String inlineViewDef;
+
     public TableInfo() {
         // for persist
     }
 
     private TableInfo(long dbId, long tableId, long indexId, long partitionId,
-                      String newTableName, String newRollupName, String newPartitionName) {
+                      String newTableName, String newRollupName, String newPartitionName, String inlineViewDef) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexId = indexId;
@@ -49,23 +52,29 @@ public class TableInfo implements Writable {
         this.newTableName = newTableName;
         this.newRollupName = newRollupName;
         this.newPartitionName = newPartitionName;
+
+        this.inlineViewDef = inlineViewDef;
     }
 
     public static TableInfo createForTableRename(long dbId, long tableId, String newTableName) {
-        return new TableInfo(dbId, tableId, -1L, -1L, newTableName, "", "");
+        return new TableInfo(dbId, tableId, -1L, -1L, newTableName, "", "", "");
     }
 
     public static TableInfo createForRollupRename(long dbId, long tableId, long indexId, String newRollupName) {
-        return new TableInfo(dbId, tableId, indexId, -1L, "", newRollupName, "");
+        return new TableInfo(dbId, tableId, indexId, -1L, "", newRollupName, "", "");
     }
 
     public static TableInfo createForPartitionRename(long dbId, long tableId, long partitionId,
                                                      String newPartitionName) {
-        return new TableInfo(dbId, tableId, -1L, partitionId, "", "", newPartitionName);
+        return new TableInfo(dbId, tableId, -1L, partitionId, "", "", newPartitionName, "");
     }
 
     public static TableInfo createForModifyDistribution(long dbId, long tableId) {
-        return new TableInfo(dbId, tableId, -1L, -1, "", "", "");
+        return new TableInfo(dbId, tableId, -1L, -1, "", "", "", "");
+    }
+
+    public static TableInfo createForModifyViewDef(long dbId, long tableId, String inlineViewDef) {
+        return new TableInfo(dbId, tableId, -1L, -1L, "", "", "", inlineViewDef);
     }
 
     public long getDbId() {
@@ -96,6 +105,10 @@ public class TableInfo implements Writable {
         return newPartitionName;
     }
 
+    public String getInlineViewDef() {
+        return inlineViewDef;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
@@ -106,6 +119,8 @@ public class TableInfo implements Writable {
         Text.writeString(out, newTableName);
         Text.writeString(out, newRollupName);
         Text.writeString(out, newPartitionName);
+
+        Text.writeString(out, inlineViewDef);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -117,6 +132,8 @@ public class TableInfo implements Writable {
         newTableName = Text.readString(in);
         newRollupName = Text.readString(in);
         newPartitionName = Text.readString(in);
+
+        inlineViewDef = Text.readString(in);
     }
 
     public static TableInfo read(DataInput in) throws IOException {
