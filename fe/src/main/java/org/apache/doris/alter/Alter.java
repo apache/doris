@@ -33,7 +33,6 @@ import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
-import org.apache.doris.analysis.ModifyViewDefClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -278,12 +277,6 @@ public class Alter {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        List<AlterClause> alterClauses = stmt.getOps();
-
-        boolean hasRename = false;
-        boolean hasModifyDefinition = false;
-        boolean hasSwap = false;
-
         String tableName = dbTableName.getTbl();
         db.writeLock();
         try {
@@ -297,18 +290,7 @@ public class Alter {
             }
 
             View view = (View) table;
-
-            for (AlterClause alterClause : alterClauses) {
-                if ((alterClause instanceof ModifyViewDefClause) && hasModifyDefinition) {
-                    Catalog.getInstance().modifyViewDef(db, view, (ModifyViewDefClause) alterClause);
-                    hasModifyDefinition = true;
-                } else if ((alterClause instanceof TableRenameClause) && !hasRename) {
-                    Catalog.getInstance().renameTable(db, view, (TableRenameClause) alterClause);
-                    hasRename = true;
-                } else {
-                    throw new DdlException("Unsupported alter clauses. Alter view only support `Modify definition` and `Rename` and `Swap`.");
-                }
-            }
+            Catalog.getInstance().modifyViewDef(db, view, stmt.getInlineViewDef());
         } finally {
             db.writeUnlock();
         }

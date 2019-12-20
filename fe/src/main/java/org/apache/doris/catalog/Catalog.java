@@ -51,7 +51,6 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.ModifyViewDefClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -4778,7 +4777,11 @@ public class Catalog {
         getBackupHandler().cancel(stmt);
     }
 
-    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+    public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
+        if (table.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        }
+
         String tableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
         if (tableName.equals(newTableName)) {
@@ -4790,24 +4793,7 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        if (table instanceof OlapTable) {
-            if (((OlapTable)table).getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "] is under " + ((OlapTable)table).getState());
-            }
-            // check if rollup has same name
-            if (table.getType() == TableType.OLAP) {
-                for (String idxName: ((OlapTable)table).getIndexNameToId().keySet()) {
-                    if (idxName.equals(newTableName)) {
-                        throw new DdlException("New name conflicts with rollup index name: " + idxName);
-                    }
-                }
-            }
-            ((OlapTable)table).setName(newTableName);
-        } else if (table instanceof View) {
-            ((View)table).setName(newTableName);
-        } else {
-            throw new DdlException("Invalid type of table");
-        }
+        table.setName(newTableName);
 
         db.dropTable(tableName);
         db.createTable(table);
@@ -4825,14 +4811,10 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            Table table = db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTable(tableId);
             String tableName = table.getName();
             db.dropTable(tableName);
-            if (table instanceof OlapTable) {
-                ((OlapTable)table).setName(newTableName);
-            } else if (table instanceof View) {
-                ((View)table).setName(newTableName);
-            }
+            table.setName(newTableName);
             db.createTable(table);
 
             LOG.info("replay rename table[{}] to {}", tableName, newTableName);
@@ -4841,9 +4823,8 @@ public class Catalog {
         }
     }
 
-    public void modifyViewDef(Database db, View view, ModifyViewDefClause modifyViewDefClause) throws DdlException {
+    public void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
         String viewName = view.getName();
-        String inlineViewDef = modifyViewDefClause.getInlineViewDef();
 
         db.dropTable(viewName);
         view.setInlineViewDef(inlineViewDef);
