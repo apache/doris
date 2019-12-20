@@ -17,6 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -24,15 +28,9 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
-import org.apache.doris.common.Pair;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -687,6 +685,7 @@ public class FunctionSet {
         if (mode == Function.CompareMode.IS_IDENTICAL) {
             return null;
         }
+
         // Next check for indistinguishable
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_INDISTINGUISHABLE)) {
@@ -697,23 +696,11 @@ public class FunctionSet {
             return null;
         }
 
-        List<Pair<Function, Integer>> matchedFnsScores = new ArrayList<>();
         // Next check for strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                matchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
+                return f;
             }
-        }
-        if (matchedFnsScores.size() > 0) {
-            Function f = matchedFnsScores.get(0).first;
-            int score = matchedFnsScores.get(0).second;
-            for (Pair<Function, Integer> p : matchedFnsScores) {
-                if (p.second > score) {
-                    f = p.first;
-                    score = p.second;
-                }
-            }
-            return f;
         }
         if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
             return null;
@@ -722,54 +709,10 @@ public class FunctionSet {
         // Finally check for non-strict supertypes
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
-                matchedFnsScores.add(Pair.create(f, calMatchScore(f, desc)));
+                return f;
             }
-        }
-        if (matchedFnsScores.size() > 0) {
-            Function f = matchedFnsScores.get(0).first;
-            int score = matchedFnsScores.get(0).second;
-            for (Pair<Function, Integer> p : matchedFnsScores) {
-                if (p.second > score) {
-                    f = p.first;
-                    score = p.second;
-                }
-            }
-            return f;
         }
         return null;
-    }
-
-    /**
-     * a function  may have multi matched functions, for example args type [DATE, BIGINT, NULL] may match
-     * [INT, BIGINT, INT], [DATE, BIGINT, DATE], [BIGINT, BIGINT, BIGINT] in IS_SUPERTYPE_OF model, this function
-     * calculate the score of match, identical match is 3, implicitly castable match is 2, castable match is 1
-     * @param find the function found matched
-     * @param target  the function analyzed from sql clause
-     * @return the match score
-     */
-    private int calMatchScore(Function find, Function target) {
-        int score = 0;
-        for (int i = 0; i < find.getArgs().length; ++i) {
-            if (target.getArgs()[i].matchesType(find.getArgs()[i])) {
-                score += 3;
-            } else if (Type.isImplicitlyCastable(target.getArgs()[i], find.getArgs()[i], true)) {
-                score += 2;
-            } else if (Type.canCastTo(target.getArgs()[i], find.getArgs()[i])) {
-                score += 1;
-            }
-        }
-        if (find.hasVarArgs()) {
-            for (int i = find.getArgs().length; i < target.getArgs().length; ++i) {
-                if (target.getArgs()[i].matchesType(find.getVarArgsType())) {
-                    score += 3;
-                } else if (Type.isImplicitlyCastable(target.getArgs()[i], find.getVarArgsType(), true)) {
-                    score += 2;
-                } else if (Type.canCastTo(target.getArgs()[i], find.getVarArgsType())) {
-                    score += 1;
-                }
-            }
-        }
-        return score;
     }
 
     /**
