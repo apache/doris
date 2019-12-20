@@ -73,6 +73,8 @@ import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;

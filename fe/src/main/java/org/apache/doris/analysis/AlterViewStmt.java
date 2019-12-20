@@ -1,11 +1,6 @@
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
