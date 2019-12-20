@@ -115,6 +115,8 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
     [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
+    [['curdate', 'current_date'], 'DATE', [],
+        '_ZN5doris18TimestampFunctions7curdateEPN9doris_udf15FunctionContextE'],
     [['utc_timestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE'],
     [['timestamp'], 'DATETIME', ['DATETIME'],
