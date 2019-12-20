@@ -615,6 +615,11 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
+    | KW_ALTER KW_VIEW table_name:tbl
+    alter_table_clause_list:clauses
+    {:
+        RESULT = new AlterViewStmt(tbl, clauses);
+    :}
     | KW_ALTER KW_SYSTEM alter_system_clause:clause
     {:
         RESULT = new AlterSystemStmt(clause);

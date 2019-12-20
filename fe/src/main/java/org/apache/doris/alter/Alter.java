@@ -17,30 +17,9 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AddColumnsClause;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddRollupClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.DropColumnClause;
-import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropRollupClause;
-import org.apache.doris.analysis.ModifyColumnClause;
-import org.apache.doris.analysis.ModifyPartitionClause;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
-import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.ReorderColumnsClause;
-import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.analysis.*;
+import org.apache.doris.catalog.*;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -205,7 +184,7 @@ public class Alter {
                     hasAddPartition = true;
                 }
             } else if (hasRename) {
-                processRename(db, olapTable, alterClauses);
+                processRenameTable(db, olapTable, alterClauses);
             }
         } finally {
             db.writeUnlock();
@@ -223,11 +202,56 @@ public class Alter {
         }
     }
 
+    public void processAlterView(AlterViewStmt stmt) throws UserException {
+        TableName dbTableName = stmt.getTbl();
+        String dbName = dbTableName.getDb();
+
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+
+        List<AlterClause> alterClauses = stmt.getOps();
+
+        boolean hasRename = false;
+        boolean hasModifyDefinition = false;
+        boolean hasSwap = false;
+
+        String tableName = dbTableName.getTbl();
+        db.writeLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+
+            if (table.getType() != TableType.VIEW) {
+                throw new DdlException("The specified table [" + tableName + "] is not a view");
+            }
+
+            View view = (View) table;
+
+            for (AlterClause alterClause : alterClauses) {
+                if ((alterClause instanceof ModifyViewDefClause) && hasModifyDefinition) {
+                    Catalog.getInstance().modifyViewDef(db, view, (ModifyViewDefClause) alterClause);
+                    hasModifyDefinition = true;
+                } else if ((alterClause instanceof TableRenameClause) && !hasRename) {
+                    Catalog.getInstance().renameTable(db, view, (TableRenameClause) alterClause);
+                    hasRename = true;
+                } else {
+                    throw new DdlException("Unsupported alter clauses. Alter view only support `Modify definition` and `Rename` and `Swap`.");
+                }
+            }
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
     public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
         clusterHandler.process(Arrays.asList(stmt.getAlterClause()), stmt.getClusterName(), null, null);
     }
 
-    private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
+    private void processRenameTable(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof TableRenameClause) {
                 Catalog.getInstance().renameTable(db, table, (TableRenameClause) alterClause);
