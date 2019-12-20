@@ -250,7 +250,7 @@ public class Alter {
                     hasAddPartition = true;
                 }
             } else if (hasRename) {
-                processRenameTable(db, olapTable, alterClauses);
+                processRename(db, olapTable, alterClauses);
             }
         } finally {
             db.writeUnlock();
@@ -300,7 +300,7 @@ public class Alter {
         clusterHandler.process(Arrays.asList(stmt.getAlterClause()), stmt.getClusterName(), null, null);
     }
 
-    private void processRenameTable(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
+    private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof TableRenameClause) {
                 Catalog.getInstance().renameTable(db, table, (TableRenameClause) alterClause);
