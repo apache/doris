@@ -599,7 +599,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                               boolean preserveRootType) throws AnalysisException {
         Expr result = clone();
         // Return clone to avoid removing casts.
-        if (smap == null || smap.size() == 0) return result;
+        if (smap == null) return result;
         result = result.substituteImpl(smap, analyzer);
         result.analyze(analyzer);
         if (preserveRootType && !type.equals(result.getType())) result = result.castTo(type);
