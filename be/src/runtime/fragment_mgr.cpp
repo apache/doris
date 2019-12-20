@@ -510,7 +510,7 @@ void FragmentMgr::cancel_worker() {
             for (auto& it : _fragment_map) {
                 if (it.second->is_timeout(now)) {
                     to_delete.push_back(it.second->fragment_instance_id());
-                    LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id)
+                    LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(it.second->fragment_instance_id())
                             << ". timeout(s): " << it.second->get_timeout_second();
                 }
             }
