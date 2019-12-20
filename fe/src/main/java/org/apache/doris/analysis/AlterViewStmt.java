@@ -144,9 +144,9 @@ public class AlterViewStmt extends DdlStmt {
             sb.append("(\n");
             for (int i = 0 ; i < cols.size(); i++) {
                 if (i != 0) {
-                    sb.append("  ").append(", \n");
+                    sb.append(",\n");
                 }
-                sb.append(cols.get(i).getColName());
+                sb.append("  ").append(cols.get(i).getColName());
             }
             sb.append("\n)");
         }
