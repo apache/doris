@@ -136,8 +136,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
             exprs.add(analyticExprs_.get(i));
             materializedSlots_.add(i);
         }
-        List<Expr> resolvedExprs =
-                Expr.substituteList(exprs, smap, analyzer, false);
+        List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
         analyzer.materializeSlots(resolvedExprs);
     }
 
