@@ -92,10 +92,6 @@ public class View extends Table {
         isLocalView = false;
     }
 
-    public void setName(String newName) {
-        this.name = newName;
-    }
-
     /**
      * C'tor for WITH-clause views that already have a parsed QueryStmt and an optional
      * list of column labels.
