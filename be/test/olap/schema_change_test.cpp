@@ -627,6 +627,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         "2019/12/17",
         "19/12/17",
     };
+    std::string expected_val("2019-12-17");
     for (auto src_str : valid_src_strs) {
         write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
         block.set_row(0, write_row);
@@ -648,7 +649,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         const Field *src_field = read_row.column_schema(0);
         read_row.convert_from(1, read_row.cell_ptr(0), src_field->type_info(), _mem_pool.get());
         std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
-        ASSERT_EQ(src_str, dst_str);
+        ASSERT_EQ(expected_val, dst_str);
     }
 
     // test invalid schema change
@@ -690,7 +691,7 @@ TEST_F(TestColumn, ConvertVarcharToBigInt) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToLargeInt) {
-    test_convert_from_varchar("LARGEINT", 16, "2e+126", "2e+127");
+    test_convert_from_varchar("LARGEINT", 16, "170141183460469000000000000000000000000", "1701411834604690000000000000000000000000");
 }
 
 TEST_F(TestColumn, ConvertVarcharToFloat) {
@@ -698,7 +699,9 @@ TEST_F(TestColumn, ConvertVarcharToFloat) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToDouble) {
-    test_convert_from_varchar("DOUBLE", 8, "1.79769e+308", "1.79769e+309");
+    test_convert_from_varchar("DOUBLE", 8,
+            "179769000000000006323030492138942643493033036433685336215410983289126434148906289940615299632196609445533816320312774433484859900046491141051651091672734470972759941382582304802812882753059262973637182942535982636884444611376868582636745405553206881859340916340092953230149901406738427651121855107737424232448.0000000000",
+            "1797690000000000063230304921389426434930330364336853362154109832891264341489062899406152996321966094455338163203127744334848599000464911410516510916727344709727599413825823048028128827530592629736371829425359826368844446113768685826367454055532068818593409163400929532301499014067384276511218551077374242324480.0000000000");
 }
 
 }
