@@ -193,9 +193,6 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                 int state = col_cond->del_eval({min_value.get(), max_value.get()});
                 if (state == DEL_SATISFIED) {
                     should_read = false;
-                    rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
-                    rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
-                    stats->rows_del_filtered += page_last_id - page_first_id + 1;
                     break;
                 } else if (state == DEL_PARTIAL_SATISFIED) {
                     delete_partial_filtered_pages->push_back(i);
