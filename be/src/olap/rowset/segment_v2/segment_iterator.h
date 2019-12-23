@@ -47,14 +47,14 @@ class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
     ~SegmentIterator() override;
-    Status init(const StorageReadOptions& opts) override {
-        _opts = opts;
-        return Status::OK();
-    }
+    Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
 private:
     Status _init();
+
+    Status _init_return_column_iterators();
+    Status _init_bitmap_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
@@ -65,14 +65,10 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     Status _get_row_ranges_by_column_conditions();
-
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    Status _apply_bitmap_index();
 
-    Status _get_row_ranges_from_bitmap_index(Roaring* bitmap_row_ranges);
-
-    Status _init_column_iterators();
-
-    Status _init_bitmap_index_iterators();
+    void _init_lazy_materialization();
 
     Status _next_batch(RowBlockV2* block, size_t row_offset, size_t* rows_read);
 
@@ -80,57 +76,11 @@ private:
     uint32_t num_rows() const { return _segment->num_rows(); }
 
     Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
+    // read `nrows` of columns specified by `column_ids` into `block` at `row_offset`.
+    Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block, size_t row_offset, size_t nrows);
 
 private:
-    class BitmapRangeIterator {
-       public:
-        explicit BitmapRangeIterator(const Roaring& bitmap) {
-            roaring_init_iterator(&bitmap.roaring, &_iter);
-            _last_val = 0;
-            _buf = new uint32_t[256];
-            _read_next_batch();
-        }
-
-        ~BitmapRangeIterator() {
-            delete[] _buf;
-        }
-
-        bool has_more_range() const { return !_eof; }
-
-        bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
-            if (_eof) {
-                return false;
-            }
-            *from = _buf[_buf_pos];
-            uint32_t range_size = 0;
-            do {
-                _last_val = _buf[_buf_pos];
-                _buf_pos++;
-                range_size++;
-                if (_buf_pos == _buf_size) { // read next batch
-                    _read_next_batch();
-                }
-            } while (range_size < max_range_size && !_eof && _buf[_buf_pos] == _last_val + 1);
-            *to = *from + range_size;
-            return true;
-        }
-
-       private:
-        void _read_next_batch() {
-            uint32_t n = roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
-            _buf_pos = 0;
-            _buf_size = n;
-            _eof = n == 0;
-        }
-
-        static const uint32_t kBatchSize = 256;
-        roaring_uint32_iterator_t _iter;
-        uint32_t _last_val;
-        uint32_t* _buf = nullptr;
-        uint32_t _buf_pos;
-        uint32_t _buf_size;
-        bool _eof;
-    };
+    class BitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
     // TODO(zc): rethink if we need copy it
@@ -146,10 +96,24 @@ private:
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
     rowid_t _cur_rowid;
+    // members related to lazy materialization read
+    // --------------------------------------------
+    // whether lazy materialization read should be used.
+    bool _lazy_materialization_read;
+    // columns to read before predicate evaluation
+    std::vector<ColumnId> _predicate_columns;
+    // columns to read after predicate evaluation
+    std::vector<ColumnId> _non_predicate_columns;
+    // remember the rowids we've read for the current row block.
+    // could be a local variable of next_batch(), kept here to reuse vector memory
+    std::vector<rowid_t> _block_rowids;
+
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
 
     StorageReadOptions _opts;
+    // make a copy of `_opts.column_predicates` in order to make local changes
+    std::vector<ColumnPredicate*> _col_predicates;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
