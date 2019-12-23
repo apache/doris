@@ -620,8 +620,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
 
     // test valid format convert
     std::vector<Slice> valid_src_strs = {
-        "20191217",
-        "191217",
+        "2019-12-17",
+        "19-12-17",
         "20191217",
         "191217",
         "2019/12/17",
