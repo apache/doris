@@ -41,6 +41,8 @@ class Tablet;
 class DataDir;
 
 // TabletManager provides get, add, delete tablet method for storage engine
+// NOTE: If you want to add a method that needs to hold meta-lock before you can call it,
+// please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
     TabletManager();
