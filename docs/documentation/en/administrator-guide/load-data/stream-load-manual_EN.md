@@ -171,7 +171,7 @@ The following main explanations are given for the Stream load import result para
 
 	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists"：Label 重复，需更换 Label。
+	"Label Already Exists"：Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
 	
