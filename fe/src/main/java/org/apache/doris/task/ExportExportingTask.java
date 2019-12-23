@@ -54,7 +54,7 @@ import java.util.UUID;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
-    private static final int RETRY_NUM = 3;
+    private static final int RETRY_NUM = 2;
 
     protected final ExportJob job;
 
@@ -201,6 +201,7 @@ public class ExportExportingTask extends MasterTask {
         }
         
         try {
+            coord.setTimeout(leftTimeSecond);
             coord.exec();
         } catch (Exception e) {
             LOG.warn("export Coordinator execute failed. job: {}", job.getId(), e);
