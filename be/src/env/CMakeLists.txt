@@ -22,5 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/env")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/env")
   
 add_library(Env STATIC
+    env.cpp
     env_posix.cpp
 )
