@@ -171,6 +171,7 @@ struct decimal12_t {
 } __attribute__((packed));
 
 inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
+    os << val.to_string();
     return os;
 }
 
