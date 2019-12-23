@@ -310,7 +310,7 @@ Broker imports are asynchronous commands. Successful execution of the above comm
 
 In the return result, FINISHED in the `State'field indicates that the import was successful.
 
-关于 `SHOW LOAD` 的更多说明，可以参阅 `HELP SHOW LOAD;`
+For more instructions on `SHOW LOAD`, see` HELP SHOW LOAD; `
 
 Asynchronous import tasks can be cancelled before the end:
 
