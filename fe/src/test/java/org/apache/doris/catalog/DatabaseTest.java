@@ -17,12 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -36,7 +39,11 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class DatabaseTest {
 
@@ -171,6 +178,13 @@ public class DatabaseTest {
         Partition partition = new Partition(20000L, "table", index, new RandomDistributionInfo(10));
         OlapTable table = new OlapTable(1000, "table", columns, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        List<Column> column = Lists.newArrayList();
+        short schemaHash = 1;
+        table.setIndexSchemaInfo(new Long(1), "test", column, 1, 1, schemaHash);
+        Deencapsulation.setField(table, "baseIndexId", 1);
+        Map<Long, TStorageType> indexIdToStorageType = Maps.newHashMap();
+        indexIdToStorageType.put(new Long(1), TStorageType.COLUMN);
+        Deencapsulation.setField(table, "indexIdToStorageType", indexIdToStorageType);
         table.addPartition(partition);
         db2.createTable(table);
         db2.write(dos);

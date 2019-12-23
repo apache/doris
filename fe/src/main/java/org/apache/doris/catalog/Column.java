@@ -167,6 +167,13 @@ public class Column implements Writable {
         return this.aggregationType;
     }
 
+    public boolean isAggregated() {
+        if (aggregationType == null || aggregationType == AggregateType.NONE) {
+            return false;
+        }
+        return true;
+    }
+
     public boolean isAggregationTypeImplicit() {
         return this.isAggregationTypeImplicit;
     }

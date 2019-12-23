@@ -19,10 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -38,6 +40,18 @@ public class CreateMaterializedViewStmtTest {
     private Analyzer analyzer;
     @Mocked
     private ExprSubstitutionMap exprSubstitutionMap;
+    @Mocked
+    private ConnectContext connectContext;
+
+    @Before
+    public void initTest() {
+        new Expectations() {
+            {
+                connectContext.getSessionVariable().getTestMaterializedView();
+                result = true;
+            }
+        };
+    }
 
     @Test
     public void testFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr) {
@@ -178,6 +192,8 @@ public class CreateMaterializedViewStmtTest {
                 result = havingClause;
                 slotRef.getColumnName();
                 result = "k1";
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -222,6 +238,8 @@ public class CreateMaterializedViewStmtTest {
                 result = "k1";
                 slotRef2.getColumnName();
                 result = "k2";
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -238,7 +256,8 @@ public class CreateMaterializedViewStmtTest {
                                            @Injectable SlotRef slotRef2,
                                            @Injectable FunctionCallExpr functionCallExpr,
                                            @Injectable TableRef tableRef,
-                                           @Injectable SelectStmt selectStmt) throws UserException {
+                                           @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -247,6 +266,8 @@ public class CreateMaterializedViewStmtTest {
         OrderByElement orderByElement1 = new OrderByElement(functionCallExpr, false, false);
         OrderByElement orderByElement2 = new OrderByElement(slotRef1, false, false);
         ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1, orderByElement2);
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
 
         new Expectations() {
             {
@@ -273,6 +294,10 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(slotRef2);
                 functionCallExpr.getChild(0);
                 result = slotRef2;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -326,7 +351,8 @@ public class CreateMaterializedViewStmtTest {
                                                          @Injectable FunctionCallExpr functionCallExpr,
                                                          @Injectable SlotRef functionChild0,
                                                          @Injectable TableRef tableRef,
-                                                         @Injectable SelectStmt selectStmt) throws UserException {
+                                                         @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -336,6 +362,11 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem3);
         OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
         ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1);
+
+
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
+        groupByList.add(slotRef2);
 
         new Expectations() {
             {
@@ -364,6 +395,10 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(slotRef1);
                 functionCallExpr.getChild(0);
                 result = functionChild0;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -383,7 +418,8 @@ public class CreateMaterializedViewStmtTest {
                                             @Injectable FunctionCallExpr functionCallExpr,
                                             @Injectable SlotRef functionChild0,
                                             @Injectable TableRef tableRef,
-                                            @Injectable SelectStmt selectStmt) throws UserException {
+                                            @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -401,6 +437,11 @@ public class CreateMaterializedViewStmtTest {
         final String columnName3 = "k3";
         final String columnName4 = "v1";
         final String columnName5 = "sum_v2";
+
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
+        groupByList.add(slotRef2);
+        groupByList.add(slotRef3);
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -434,6 +475,10 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName4;
                 functionChild0.getColumnName();
                 result = columnName5;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
             }
         };
 
@@ -475,11 +520,9 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
-                                            @Injectable SlotRef slotRef2,
-                                            @Injectable SlotRef slotRef3,
-                                            @Injectable SlotRef slotRef4,
-                                            @Injectable TableRef tableRef,
-                                            @Injectable SelectStmt selectStmt) throws UserException {
+            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -494,6 +537,11 @@ public class CreateMaterializedViewStmtTest {
         final String columnName2 = "k2";
         final String columnName3 = "k3";
         final String columnName4 = "v1";
+
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
+        groupByList.add(slotRef2);
+        groupByList.add(slotRef3);
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -529,6 +577,10 @@ public class CreateMaterializedViewStmtTest {
                 result = 3;
                 slotRef4.getType().getStorageLayoutBytes();
                 result = 4;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
             }
         };
 
@@ -565,11 +617,12 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testMVColumns(@Injectable SlotRef slotRef1,
-                              @Injectable SlotRef slotRef2,
-                              @Injectable FunctionCallExpr functionCallExpr,
-                              @Injectable SlotRef functionChild0,
-                              @Injectable TableRef tableRef,
-                              @Injectable SelectStmt selectStmt) throws UserException {
+            @Injectable SlotRef slotRef2,
+            @Injectable FunctionCallExpr functionCallExpr,
+            @Injectable SlotRef functionChild0,
+            @Injectable TableRef tableRef,
+            @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -583,6 +636,9 @@ public class CreateMaterializedViewStmtTest {
         final String columnName1 = "k1";
         final String columnName2 = "v1";
         final String columnName3 = "sum_v2";
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
+        groupByList.add(slotRef2);
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -612,6 +668,10 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName2;
                 functionChild0.getColumnName();
                 result = columnName3;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
             }
         };
 
@@ -639,6 +699,46 @@ public class CreateMaterializedViewStmtTest {
             Assert.fail(e.getMessage());
         }
 
+    }
+
+    @Test
+    public void testDeduplicateMV(@Injectable SlotRef slotRef1,
+            @Injectable TableRef tableRef,
+            @Injectable SelectStmt selectStmt,
+            @Injectable GroupByClause groupByClause) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+        final String columnName1 = "k1";
+        List<Expr> groupByList = Lists.newArrayList();
+        groupByList.add(slotRef1);
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.getSelectList();
+                result = selectList;
+                selectStmt.analyze(analyzer);
+                selectStmt.getTableRefs();
+                result = Lists.newArrayList(tableRef);
+                selectStmt.getWhereClause();
+                result = null;
+                slotRef1.getColumnName();
+                result = columnName1;
+                selectStmt.getGroupByClause();
+                result = groupByClause;
+                groupByClause.getGroupingExprs();
+                result = groupByList;
+            }
+        };
+
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            System.out.print(e.getMessage());
+        }
 
     }
 }
