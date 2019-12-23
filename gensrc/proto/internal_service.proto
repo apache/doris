@@ -123,6 +123,7 @@ enum PPlanFragmentCancelReason {
     LIMIT_REACH = 1;
     USER_CANCEL = 2;
     INTERNAL_ERROR = 3;
+    TIMEOUT = 4;
 };
 
 message PCancelPlanFragmentRequest {
