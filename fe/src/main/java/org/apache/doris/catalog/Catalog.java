@@ -1139,6 +1139,9 @@ public class Catalog {
                 db.writeUnlock();
             }
         }
+
+        // tag for backend
+        systemInfo.convertToTagSystem();
     }
 
     // start all daemon threads only running on Master

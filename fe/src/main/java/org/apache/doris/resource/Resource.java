@@ -32,6 +32,11 @@ public abstract class Resource {
     @SerializedName(value = "tagSet")
     protected TagSet tagSet;
 
+    public Resource(long id) {
+        this.id = id;
+        this.tagSet = TagSet.create();
+    }
+
     public Resource(long id, TagSet tagSet) {
         this.tagSet = tagSet;
     }

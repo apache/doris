@@ -24,6 +24,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.Resource;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.TagSet;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -51,7 +52,7 @@ import java.util.stream.Collectors;
  * This class extends the primary identifier of a Backend with ephemeral state,
  * eg usage information, current administrative state etc.
  */
-public class Backend implements Writable {
+public class Backend extends Resource implements Writable {
 
     public enum BackendState {
         using, /* backend is belong to a cluster*/
@@ -61,7 +62,6 @@ public class Backend implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(Backend.class);
 
-    private long id;
     private String host;
 
     private int heartbeatPort; // heartbeat
@@ -107,6 +107,7 @@ public class Backend implements Writable {
     }
 
     public Backend() {
+        super(-1);
         this.host = "";
         this.lastUpdateMs = new AtomicLong();
         this.lastStartTime = new AtomicLong();
@@ -125,6 +126,7 @@ public class Backend implements Writable {
     }
 
     public Backend(long id, String host, int heartbeatPort) {
+        super(id);
         this.id = id;
         this.host = host;
         this.heartbeatPort = heartbeatPort;
@@ -482,6 +484,8 @@ public class Backend implements Writable {
         out.writeInt(decommissionType.get());
 
         out.writeInt(brpcPort.get());
+
+        tagSet.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -526,6 +530,10 @@ public class Backend implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_40) {
             brpcPort.set(in.readInt());
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
+            tagSet = TagSet.read(in);
         }
     }
 
@@ -638,6 +646,22 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore.get();
+    }
+
+    // set the tag set based on cluster name
+    public void convertToTagSystem() {
+        if (!this.tagSet.isEmpty()) {
+            // already converted
+            return;
+        }
+        this.tagSet = TagSet.copyFrom(DEFAULT_TAG_SET);
+        if (ownerClusterName.get().isEmpty()) {
+            ownerClusterName.set(SystemInfoService.DEFAULT_CLUSTER);
+        }
+        if (!ownerClusterName.get().equals(SystemInfoService.DEFAULT_CLUSTER)) {
+            Tag locationTag = Tag.createNoThrow(Tag.TYPE_LOCATION, ownerClusterName.get());
+            this.tagSet.substituteMerge(TagSet.create(locationTag));
+        }
     }
 }
 

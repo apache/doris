@@ -167,6 +167,8 @@ public class SystemInfoService {
             // backend is free
         }
 
+        newBackend.convertToTagSystem();
+
         // log
         Catalog.getInstance().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
@@ -1009,6 +1011,8 @@ public class SystemInfoService {
                 // cluster is not created. Be in cluster will be updated in loadCluster.
             }
         }
+
+        newBackend.convertToTagSystem();
     }
 
     public void replayDropBackend(Backend backend) {
@@ -1148,6 +1152,12 @@ public class SystemInfoService {
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
         pathHashToDishInfoRef.set(newPathInfos);
         LOG.debug("update path infos: {}", newPathInfos);
+    }
+
+    public void convertToTagSystem() {
+        for (Backend backend : idToBackendRef.get().values()) {
+            backend.convertToTagSystem();
+        }
     }
 }
 

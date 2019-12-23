@@ -135,11 +135,13 @@ public class BackendTest {
         for (int count = 0; count < 100; ++count) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
             backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
+            backend.convertToTagSystem();
             list1.add(backend);
         }
         for (int count = 100; count < 200; count++) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
             backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
+            backend.convertToTagSystem();
             list1.add(backend);
         }
         for (Backend backend : list1) {
@@ -151,11 +153,11 @@ public class BackendTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         for (int count = 0; count < 100; ++count) {
-            Backend backend = new Backend();
-            backend.readFields(dis);
+            Backend backend = Backend.read(dis);
             list2.add(backend);
             Assert.assertEquals(count, backend.getId());
             Assert.assertEquals("10.120.22.32" + count, backend.getHost());
+            Assert.assertEquals(Backend.DEFAULT_TAG_SET, backend.getTagSet());
         }
         
         for (int count = 100; count < 200; ++count) {
@@ -163,6 +165,7 @@ public class BackendTest {
             list2.add(backend);
             Assert.assertEquals(count, backend.getId());
             Assert.assertEquals("10.120.22.32" + count, backend.getHost());
+            Assert.assertEquals(Backend.DEFAULT_TAG_SET, backend.getTagSet());
         }
         
         for (int count = 0; count < 200; count++) {

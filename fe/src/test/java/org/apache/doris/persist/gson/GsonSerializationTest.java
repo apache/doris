@@ -47,6 +47,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /*
  * This unit test provides examples about how to make a class serializable.
@@ -73,11 +75,17 @@ public class GsonSerializationTest {
         public InnerClassA ignoreClassA2;
         @SerializedName(value = "flag")
         public int flag = 0;
+        @SerializedName(value = "atomicLong")
+        public AtomicLong atomicLong;
+        @SerializedName(value = "atomicBoolean")
+        public AtomicBoolean atomicBoolean;
 
         public OrigClassA(int flag) {
             this.flag = flag;
             classA1 = new InnerClassA(1);
             ignoreClassA2 = new InnerClassA(2);
+            atomicLong = new AtomicLong(flag);
+            atomicBoolean = new AtomicBoolean(false);
         }
 
         @Override
@@ -259,6 +267,8 @@ public class GsonSerializationTest {
         Assert.assertEquals(1, readClassA.flag);
         Assert.assertEquals(1, readClassA.classA1.flag);
         Assert.assertNull(readClassA.ignoreClassA2);
+        Assert.assertEquals(1, readClassA.atomicLong.get());
+        Assert.assertEquals(false, readClassA.atomicBoolean.get());
 
         Assert.assertEquals(Lists.newArrayList("string1", "string2"), readClassA.classA1.list1);
         Assert.assertTrue(readClassA.classA1.map1.containsKey(1L));
