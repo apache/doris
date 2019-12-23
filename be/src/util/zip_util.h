@@ -49,7 +49,7 @@ namespace doris {
 class ZipFile {
 
 public:
-    ZipFile(const std::string& zip_path) : _zip_path(zip_path), _zip_file(nullptr) {}
+    ZipFile(const std::string& zip_path) : _zip_path(zip_path), _zip_file(nullptr), _open_current_file(false) {}
 
     ~ZipFile() {
         WARN_IF_ERROR(close(), "failed to close zip file: " + _zip_path);
@@ -60,12 +60,16 @@ public:
 private:
     Status close();
     
-    Status extract_file(unzFile file, const std::string& target_path);
+    Status extract_file(const std::string& target_path);
 
 private:
     std::string _zip_path;
 
     unzFile _zip_file;
+  
+    bool _open_current_file;
+    
+    std::vector<std::string> _clean_paths;
 };
 }
 

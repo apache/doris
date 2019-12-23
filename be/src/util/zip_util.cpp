@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
 
 #include "util/zip_util.h"
 #include "util/file_utils.h"
@@ -26,20 +27,20 @@
 namespace doris {
 
 #define DEFAULT_FILE_NAME_SIZE 256
-#define DEFAULT_UNZIP_BUFFER 1048576 // 1MB
-
-#define BREAK_IF_STATUS_ERROR(stmt) { \
-        st = (stmt);                  \
-        if (UNLIKELY(!st.ok())) {     \
-            break;                    \
-        }                             \
-}
+const static ZPOS64_T DEFAULT_UNZIP_BUFFER = 1048576; // 1MB
 
 using namespace strings;
 
 Status ZipFile::close() {
-    if (_zip_file == nullptr) {
+    if (_zip_file != nullptr) {
+        if (_open_current_file) {
+            unzCloseCurrentFile(_zip_file);
+        }
         unzClose(_zip_file);
+    }
+
+    for (auto& p: _clean_paths) {
+        RETURN_IF_ERROR(FileUtils::remove_all(p));
     }
 
     return Status::OK();
@@ -67,37 +68,30 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
 
     // 1.create temp directory
     std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros()) + "_" + dir_name;
+    _clean_paths.push_back(temp);
+
     RETURN_IF_ERROR(FileUtils::create_dir(temp));
 
     // 2.unzip to temp directory
-    Status st;
     for (int i = 0; i < global_info.number_entry; ++i) {
-        st = extract_file(_zip_file, temp);
-        if (!st.ok()) {
-            FileUtils::remove_all(temp);
-            return st;
-        }
+        RETURN_IF_ERROR(extract_file(temp));
         unzGoToNextFile(_zip_file);
     }
 
     // 3.move to target directory
-    st = Env::Default()->rename_file(temp, target);
-    if (!st.ok()) {
-        FileUtils::remove_all(temp);
-        return st;
-    }
+    RETURN_IF_ERROR(Env::Default()->rename_file(temp, target));
+    _clean_paths.clear();
+    
     return Status::OK();
-
 }
 
-Status ZipFile::extract_file(unzFile zfile, const std::string& target_path) {
-    int err;
+Status ZipFile::extract_file(const std::string& target_path) {
     char file_name[DEFAULT_FILE_NAME_SIZE];
 
     unz_file_info64 file_info_inzip;
 
-    err = unzGetCurrentFileInfo64(zfile, &file_info_inzip, file_name, DEFAULT_FILE_NAME_SIZE,
-                                  nullptr, 0, nullptr, 0);
+    int err = unzGetCurrentFileInfo64(_zip_file, &file_info_inzip, file_name, DEFAULT_FILE_NAME_SIZE,
+                                      nullptr, 0, nullptr, 0);
 
     if (err != UNZ_OK) {
         return Status::IOError(strings::Substitute("read zip file info error, code: $0", err));
@@ -107,48 +101,40 @@ Status ZipFile::extract_file(unzFile zfile, const std::string& target_path) {
     std::string path = target_path + "/" + std::string(file_name);
 
     if (HasSuffixString(file_name, "/") || HasSuffixString(file_name, "\\")) {
-        FileUtils::create_dir(path);
-
-        return Status::OK();
+        return FileUtils::create_dir(path);
     }
 
     // is file, unzip
-    Status st = Status::OK();
+    err = unzOpenCurrentFile(_zip_file);
+    _open_current_file = true;
+
+    if (UNZ_OK != err) {
+        return Status::IOError(strings::Substitute("read zip file $0 info error, code: $1", file_name, err));
+    }
+
+    ZPOS64_T file_size = std::min(file_info_inzip.uncompressed_size, DEFAULT_UNZIP_BUFFER);
+    std::unique_ptr<char []> file_data(new char[file_size]);
+
+    std::unique_ptr<WritableFile> wfile;
+    RETURN_IF_ERROR(Env::Default()->new_writable_file(path, &wfile));
+
+    size_t size = 0;
     do {
-        err = unzOpenCurrentFile(zfile);
-        if (UNZ_OK != err) {
-            st = Status::IOError(strings::Substitute("read zip file $0 info error, code: $1", file_name, err));
-            break;
+        size = unzReadCurrentFile(_zip_file, (voidp) file_data.get(), file_size);
+        if (size < 0) {
+            return Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
         }
 
-        size_t file_size = file_info_inzip.uncompressed_size < DEFAULT_UNZIP_BUFFER ? file_info_inzip.uncompressed_size
-                                                                                    : DEFAULT_UNZIP_BUFFER;
-        char file_data[file_size];
+        RETURN_IF_ERROR(wfile->append(Slice(file_data.get(), size)));
+    } while (size > 0);
 
-        std::unique_ptr<WritableFile> wfile;
-        BREAK_IF_STATUS_ERROR(Env::Default()->new_writable_file(path, &wfile));
+    RETURN_IF_ERROR(wfile->flush(WritableFile::FLUSH_ASYNC));
+    RETURN_IF_ERROR(wfile->sync());
 
-        size_t size = 0;
-        do {
-            size = unzReadCurrentFile(zfile, (voidp) file_data, file_size);
-            if (size < 0) {
-                st = Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
-                break;
-            }
+    unzCloseCurrentFile(_zip_file);
+    _open_current_file = false;
 
-            if (!(st =wfile->append(Slice(file_data, size))).ok()) {
-                unzCloseCurrentFile(zfile);
-                return st;
-            }
-        } while (size > 0);
-
-        BREAK_IF_STATUS_ERROR(wfile->flush(WritableFile::FLUSH_ASYNC));
-        BREAK_IF_STATUS_ERROR(wfile->sync());
-    } while (false);
-    
-    unzCloseCurrentFile(zfile);
-
-    return st;
+    return Status::OK();
 }
 
 }
