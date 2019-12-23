@@ -124,6 +124,8 @@ public:
         return false;
     }
 
+    int get_timeout_second() const { return _timeout_second; } 
+
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
@@ -498,7 +500,6 @@ Status FragmentMgr::cancel(const TUniqueId& id, const PPlanFragmentCancelReason&
     return Status::OK();
 }
 
-//
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     while (!_stop) {
@@ -513,11 +514,11 @@ void FragmentMgr::cancel_worker() {
             }
         }
         for (auto& id : to_delete) {
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel fragment " << print_id(id);
-            cancel(id);
+            cancel(id, PPlanFragmentCancelReason::TIMEOUT);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
         }
 
-        // check every ten seconds
+        // check every 1 seconds
         sleep(1);
     }
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";

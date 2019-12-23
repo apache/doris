@@ -75,14 +75,14 @@ public class BootstrapFinishAction extends RestBaseAction {
                 if (result.status == ActionStatus.OK) {
                     if (clusterId != Catalog.getInstance().getClusterId()) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + clusterId;
+                        result.msg = "invalid cluster id: " + Catalog.getInstance().getClusterId();
                     }
                 }
 
                 if (result.status == ActionStatus.OK) {
                     if (!token.equals(Catalog.getInstance().getToken())) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + clusterId;
+                        result.msg = "invalid token: " + Catalog.getInstance().getToken();
                     }
                 }
 
