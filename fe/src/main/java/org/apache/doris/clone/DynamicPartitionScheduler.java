@@ -17,7 +17,9 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -47,7 +49,6 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -67,26 +68,26 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private final String DEFAULT_RUNTIME_VALUE = "N/A";
 
-    private Map<String, Map<String, String>> runtimeInfos = new HashMap<>();
+    private Map<String, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
+    private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
+    private boolean initialize;
 
     public enum State {
         NORMAL,
         ERROR
     }
 
-    private Set<Pair<Long, Long>> dynamicPartitionTableInfo = new HashSet<>();
-    private boolean initialize;
 
     public DynamicPartitionScheduler(String name, long intervalMs) {
         super(name, intervalMs);
         this.initialize = false;
     }
 
-    public synchronized void registerDynamicPartitionTable(Long dbId, Long tableId) {
+    public void registerDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
     }
 
-    public synchronized void removeDynamicPartitionTable(Long dbId, Long tableId) {
+    public void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
@@ -95,11 +96,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return tableRuntimeInfo.getOrDefault(key, DEFAULT_RUNTIME_VALUE);
     }
 
-    public synchronized void removeRuntimeInfo(String tableName) {
+    public void removeRuntimeInfo(String tableName) {
         runtimeInfos.remove(tableName);
     }
 
-    public synchronized void createOrUpdateRuntimeInfo(String tableName, String key, String value) {
+    public void createOrUpdateRuntimeInfo(String tableName, String key, String value) {
         Map<String, String> runtimeInfo = runtimeInfos.get(tableName);
         if (runtimeInfo == null) {
             runtimeInfo = createDefaultRuntimeInfo();
@@ -110,8 +111,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
     }
 
-    private synchronized Map<String, String> createDefaultRuntimeInfo() {
-        HashMap<String, String> defaultRuntimeInfo = new HashMap<>(4);
+    private Map<String, String> createDefaultRuntimeInfo() {
+        Map<String, String> defaultRuntimeInfo = Maps.newConcurrentMap();
         defaultRuntimeInfo.put(LAST_UPDATE_TIME, DEFAULT_RUNTIME_VALUE);
         defaultRuntimeInfo.put(LAST_SCHEDULER_TIME, DEFAULT_RUNTIME_VALUE);
         defaultRuntimeInfo.put(DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
