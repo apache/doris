@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
+#include "runtime/runtime_state.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybird_set.h"
 #include "util/tdigest.h"
@@ -2362,8 +2363,36 @@ void AggregateFunctions::offset_fn_init(FunctionContext* ctx, T* dst) {
     DCHECK(ctx->is_arg_constant(1));
     DCHECK(ctx->is_arg_constant(2));
     DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
-    *dst = *static_cast<T*>(ctx->get_constant_arg(2));
+    T src = *static_cast<T*>(ctx->get_constant_arg(2));
+    // The literal null is sometimes incorrectly converted to int, so *dst = src may cause SEGV
+    // if src length is larger than int, for example DatetimeVal
+    if (UNLIKELY(src.is_null)) {
+        dst->is_null = src.is_null;
+    } else {
+        *dst = src;
+    }
 }
+
+template <>
+void AggregateFunctions::offset_fn_init(FunctionContext* ctx, StringVal* dst) {
+    DCHECK_EQ(ctx->get_num_args(), 3);
+    DCHECK(ctx->is_arg_constant(1));
+    DCHECK(ctx->is_arg_constant(2));
+    DCHECK_EQ(ctx->get_arg_type(0)->type, ctx->get_arg_type(2)->type);
+    StringVal src = *static_cast<StringVal*>(ctx->get_constant_arg(2));
+    if (src.is_null) {
+        *dst = StringVal::null();
+    } else {
+        uint8_t* copy = ctx->allocate(src.len);
+        if (UNLIKELY(copy == nullptr)) {
+            *dst = StringVal::null();
+        } else {
+            *dst = StringVal(copy, src.len);
+            memcpy(dst->ptr, src.ptr, src.len);
+        }
+    }
+}
+
 /*
 template <>
 void AggregateFunctions::offset_fn_init(FunctionContext* ctx, IntVal* dst) {
@@ -2771,8 +2800,6 @@ template void AggregateFunctions::offset_fn_init<FloatVal>(
     FunctionContext*, FloatVal*);
 template void AggregateFunctions::offset_fn_init<DoubleVal>(
     FunctionContext*, DoubleVal*);
-template void AggregateFunctions::offset_fn_init<StringVal>(
-    FunctionContext*, StringVal*);
 template void AggregateFunctions::offset_fn_init<DateTimeVal>(
     FunctionContext*, DateTimeVal*);
 template void AggregateFunctions::offset_fn_init<DecimalVal>(
