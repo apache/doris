@@ -255,18 +255,31 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 };
 
-#define CONVERT_FROM_VARCHAR(type_name, string_parser_fn) \
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) { \
-            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType; \
-            auto src_value = *reinterpret_cast<const SrcType*>(src); \
-            StringParser::ParseResult parse_res; \
-            auto result = StringParser::string_parser_fn(src_value.get_data(), src_value.get_size(), &parse_res); \
-            if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS || std::isnan(result) || std::isinf(result))) { \
-                return OLAPStatus::OLAP_ERR_INVALID_SCHEMA; \
-            } \
-            *reinterpret_cast<CppTypeTraits<type_name>::CppType*>(dest) = result; \
-            return OLAPStatus::OLAP_SUCCESS; \
-        } \
+template <typename T>
+OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
+    using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
+    auto src_value = *reinterpret_cast<const SrcType*>(src);
+    StringParser::ParseResult parse_res;
+    T result = StringParser::string_to_int<T>(src_value.get_data(), src_value.get_size(), &parse_res);
+    if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+    }
+    *reinterpret_cast<T*>(dest) = result;
+    return OLAPStatus::OLAP_SUCCESS;
+}
+
+template <typename T>
+OLAPStatus convert_float_from_varchar(void* dest, const void* src) {
+    using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
+    auto src_value = *reinterpret_cast<const SrcType *>(src);
+    StringParser::ParseResult parse_res;
+    T result = StringParser::string_to_float<T>(src_value.get_data(), src_value.get_size(), &parse_res);
+    if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+    }
+    *reinterpret_cast<T *>(dest) = result;
+    return OLAPStatus::OLAP_SUCCESS;
+}
 
 template<FieldType field_type>
 struct FieldTypeTraits : public BaseFieldtypeTraits<field_type> { };
@@ -294,7 +307,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_TINYINT> : public BaseFieldtypeTraits<OLA
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_TINYINT, string_to_int<CppTypeTraits<OLAP_FIELD_TYPE_TINYINT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_int_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -307,7 +322,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_SMALLINT> : public BaseFieldtypeTraits<OL
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_SMALLINT, string_to_int<CppTypeTraits<OLAP_FIELD_TYPE_SMALLINT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_int_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -320,7 +337,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_INT> : public BaseFieldtypeTraits<OLAP_FI
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_INT, string_to_int<CppTypeTraits<OLAP_FIELD_TYPE_INT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_int_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -333,7 +352,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_BIGINT> : public BaseFieldtypeTraits<OLAP
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_BIGINT, string_to_int<CppTypeTraits<OLAP_FIELD_TYPE_BIGINT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_int_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -439,7 +460,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
         *reinterpret_cast<PackedInt128*>(buf) = (int128_t)(1) << 127;
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_LARGEINT, string_to_int<CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_int_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -455,7 +478,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
         return OLAP_SUCCESS;
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_FLOAT, string_to_float<CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_float_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
@@ -495,7 +520,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
             *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
             return OLAPStatus::OLAP_SUCCESS;
         }
-        CONVERT_FROM_VARCHAR(OLAP_FIELD_TYPE_DOUBLE, string_to_float<CppTypeTraits<OLAP_FIELD_TYPE_DOUBLE>::CppType>)
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return convert_float_from_varchar<CppType>(dest, src);
+        }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
