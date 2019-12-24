@@ -24,14 +24,14 @@ import org.apache.commons.lang.StringUtils;
 /**
  * Parse software's version, like XX.YY.ZZ, where xx is major version, yy is minor version and ZZ is revision
  */
-public class Version implements Comparable<Version> {
+public class DigitalVersion implements Comparable<DigitalVersion> {
 
-    public static final Version CURRENT_DORIS_VERSION = new Version(110000);
+    public static final DigitalVersion CURRENT_DORIS_VERSION = new DigitalVersion(110000);
     // Plugin version is the same as Doris's history version
-    public static final Version CURRENT_PLUGIN_VERSION = new Version(110000);
+    public static final DigitalVersion CURRENT_PLUGIN_VERSION = new DigitalVersion(110000);
 
-    public static final Version JDK_9_0_0 = new Version(9000000);
-    public static final Version JDK_1_8_0 = new Version(1080000);
+    public static final DigitalVersion JDK_9_0_0 = new DigitalVersion(9000000);
+    public static final DigitalVersion JDK_1_8_0 = new DigitalVersion(1080000);
 
     public final int id;
 
@@ -41,7 +41,7 @@ public class Version implements Comparable<Version> {
 
     public final byte revision;
 
-    public Version(int id) {
+    public DigitalVersion(int id) {
         this.id = id;
 
         this.major = (byte) ((id / 1000000) % 100);
@@ -49,7 +49,7 @@ public class Version implements Comparable<Version> {
         this.revision = (byte) ((id / 100) % 100);
     }
 
-    public Version(byte major, byte minor, byte revision) {
+    public DigitalVersion(byte major, byte minor, byte revision) {
         this.major = major;
         this.minor = minor;
         this.revision = revision;
@@ -57,7 +57,7 @@ public class Version implements Comparable<Version> {
         this.id = major * 1000000 + minor * 10000 + revision * 100;
     }
 
-    public static Version fromString(String version) throws IllegalArgumentException {
+    public static DigitalVersion fromString(String version) throws IllegalArgumentException {
 
         if (StringUtils.isBlank(version)) {
             throw new IllegalArgumentException("Illegal empty version");
@@ -78,26 +78,26 @@ public class Version implements Comparable<Version> {
                 throw new IllegalArgumentException("Illegal version format: " + version);
             }
 
-            return new Version((byte) major, (byte) minor, (byte) revision);
+            return new DigitalVersion((byte) major, (byte) minor, (byte) revision);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Illegal version format: " + version, e);
         }
     }
 
     @Override
-    public int compareTo(Version o) {
+    public int compareTo(DigitalVersion o) {
         return Integer.compare(this.id, o.id);
     }
 
-    public boolean onOrAfter(Version v) {
+    public boolean onOrAfter(DigitalVersion v) {
         return this.id >= v.id;
     }
 
-    public boolean after(Version v) {
+    public boolean after(DigitalVersion v) {
         return this.id > v.id;
     }
 
-    public boolean before(Version v) {
+    public boolean before(DigitalVersion v) {
         return this.id < v.id;
     }
 
@@ -114,7 +114,7 @@ public class Version implements Comparable<Version> {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Version version = (Version) o;
+        DigitalVersion version = (DigitalVersion) o;
         return id == version.id &&
                 major == version.major &&
                 minor == version.minor &&

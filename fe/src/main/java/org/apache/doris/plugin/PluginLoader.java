@@ -37,6 +37,8 @@ import org.apache.doris.common.UserException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Strings;
+
 public class PluginLoader {
     private final static Logger LOG = LogManager.getLogger(PluginLoader.class);
 
@@ -170,7 +172,7 @@ public class PluginLoader {
      */
     Path movePlugin(PluginInfo pluginInfo) throws UserException, IOException {
 
-        if (StringUtils.isBlank(pluginInfo.getInstallPath())) {
+        if (Strings.isNullOrEmpty(pluginInfo.getInstallPath())) {
             throw new UserException("Install plugin " + pluginInfo.getName() + " failed.");
         }
 

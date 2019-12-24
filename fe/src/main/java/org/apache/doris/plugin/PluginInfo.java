@@ -28,7 +28,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.doris.common.util.Version;
+import org.apache.doris.common.util.DigitalVersion;
+
+import com.google.common.base.Strings;
 
 public class PluginInfo {
 
@@ -40,9 +42,9 @@ public class PluginInfo {
 
     private String description;
 
-    private Version version;
+    private DigitalVersion version;
 
-    private Version javaVersion;
+    private DigitalVersion javaVersion;
 
     private String className;
 
@@ -52,7 +54,7 @@ public class PluginInfo {
 
     private String installPath;
 
-    public PluginInfo(String name, PluginType type, String description, Version version, Version javaVersion,
+    public PluginInfo(String name, PluginType type, String description, DigitalVersion version, DigitalVersion javaVersion,
                       String className, String soName, String source) {
 
         this.name = name;
@@ -79,16 +81,12 @@ public class PluginInfo {
         }
 
         final String name = propsMap.remove("name");
-        if (null == name || name.isEmpty()) {
+        if (Strings.isNullOrEmpty(name)) {
             throw new IllegalArgumentException(
                     "property [name] is missing in [" + descriptor + "]");
         }
 
         final String description = propsMap.remove("description");
-        if (null == description) {
-            throw new IllegalArgumentException(
-                    "property [description] is missing for plugin [" + name + "]");
-        }
 
         final PluginType type;
         final String typeStr = propsMap.remove("type");
@@ -104,12 +102,12 @@ public class PluginInfo {
                     "property [version] is missing for plugin [" + name + "]");
         }
 
-        Version version = Version.fromString(versionString);
+        DigitalVersion version = DigitalVersion.fromString(versionString);
 
         final String javaVersionString = propsMap.remove("java.version");
-        Version javaVersion = Version.JDK_1_8_0;
+        DigitalVersion javaVersion = DigitalVersion.JDK_1_8_0;
         if (null != javaVersionString) {
-            javaVersion = Version.fromString(javaVersionString);
+            javaVersion = DigitalVersion.fromString(javaVersionString);
         }
 
         final String className = propsMap.remove("classname");
@@ -117,7 +115,7 @@ public class PluginInfo {
         final String soName = propsMap.remove("soname");
 
         // version check
-        if (version.before(Version.CURRENT_DORIS_VERSION)) {
+        if (version.before(DigitalVersion.CURRENT_DORIS_VERSION)) {
             throw new IllegalArgumentException("plugin version is too old. plz recompile and modify property "
                     + "[version]");
         }
@@ -143,11 +141,11 @@ public class PluginInfo {
         return description;
     }
 
-    public Version getVersion() {
+    public DigitalVersion getVersion() {
         return version;
     }
 
-    public Version getJavaVersion() {
+    public DigitalVersion getJavaVersion() {
         return javaVersion;
     }
 

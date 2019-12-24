@@ -38,6 +38,7 @@ import org.apache.doris.common.UserException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -77,7 +78,7 @@ class PluginZip {
      * or return if the source in local
      **/
     Path downloadZip(Path targetPath) throws IOException, UserException {
-        if (StringUtils.isBlank(source)) {
+        if (Strings.isNullOrEmpty(source)) {
             throw new IllegalArgumentException("Plugin library path: " + source);
         }
 

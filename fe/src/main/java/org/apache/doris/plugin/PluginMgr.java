@@ -23,10 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.common.UserException;
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 public class PluginMgr {
@@ -102,8 +102,8 @@ public class PluginMgr {
      * For built-in Plugin register
      */
     public boolean registerPlugin(PluginInfo pluginInfo, Plugin plugin) {
-        if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType()) || StringUtils
-                .isBlank(pluginInfo.getName())) {
+        if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType()) || Strings
+                .isNullOrEmpty(pluginInfo.getName())) {
             return false;
         }
 

@@ -27,7 +27,7 @@ import java.util.Map;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Version;
+import org.apache.doris.common.util.DigitalVersion;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -54,9 +54,9 @@ public class PluginLoaderTest {
 
             assertEquals("plugin_test", info.getName());
             assertEquals(PluginType.STORAGE, info.getType());
-            assertTrue(Version.CURRENT_DORIS_VERSION.onOrAfter(info.getVersion()));
-            assertTrue(Version.JDK_9_0_0.onOrAfter(info.getJavaVersion()));
-            assertTrue(Version.JDK_1_8_0.before(info.getJavaVersion()));
+            assertTrue(DigitalVersion.CURRENT_DORIS_VERSION.onOrAfter(info.getVersion()));
+            assertTrue(DigitalVersion.JDK_9_0_0.onOrAfter(info.getJavaVersion()));
+            assertTrue(DigitalVersion.JDK_1_8_0.before(info.getJavaVersion()));
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -65,8 +65,8 @@ public class PluginLoaderTest {
     @Test
     public void testMovePlugin() {
         PluginInfo pf =
-                new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", Version.CURRENT_DORIS_VERSION,
-                        Version.JDK_1_8_0, "test/test", "libtest.so", "test/test");
+                new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", DigitalVersion.CURRENT_DORIS_VERSION,
+                        DigitalVersion.JDK_1_8_0, "test/test", "libtest.so", "test/test");
 
         pf.setInstallPath(PluginTestUtil.getTestPathString("target"));
 
@@ -87,8 +87,8 @@ public class PluginLoaderTest {
             PluginLoader util = new PluginLoader(PluginTestUtil.getTestPathString(""));
             System.out.println(PluginTestUtil.getTestPath(""));
 
-            PluginInfo info = new PluginInfo("test", PluginType.STORAGE, "test", Version.CURRENT_DORIS_VERSION,
-                    Version.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
+            PluginInfo info = new PluginInfo("test", PluginType.STORAGE, "test", DigitalVersion.CURRENT_DORIS_VERSION,
+                    DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
             Plugin p = util.dynamicLoadPlugin(info, PluginTestUtil.getTestPath(""));
 
             p.init();
