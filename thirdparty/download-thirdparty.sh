@@ -277,6 +277,15 @@ if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     echo "Finished patching $COMPILER_RT_SOURCE"
 fi
 
+# patch to llvm to support aarch64 platform
+cd $TP_SOURCE_DIR/$LLVM_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/llvm-3.4.2.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LLVM_SOURCE"
+
 # lz4 patch to disable shared library
 cd $TP_SOURCE_DIR/$LZ4_SOURCE
 if [ ! -f $PATCHED_MARK ]; then

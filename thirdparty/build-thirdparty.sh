@@ -221,6 +221,12 @@ build_thrift() {
 
 # llvm
 build_llvm() {
+    MACHINE_TYPE=$(uname -m)
+    LLVM_TARGET="X86"
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        LLVM_TARGET="AArch64"
+    fi
+
     check_if_source_exist $LLVM_SOURCE
     check_if_source_exist $CLANG_SOURCE
     check_if_source_exist $COMPILER_RT_SOURCE
@@ -242,7 +248,7 @@ build_llvm() {
     mkdir llvm-build -p && cd llvm-build
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    $CMAKE_CMD -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
+    $CMAKE_CMD -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGET} -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
     make -j$PARALLEL REQUIRES_RTTI=1 && make install
 }
 
