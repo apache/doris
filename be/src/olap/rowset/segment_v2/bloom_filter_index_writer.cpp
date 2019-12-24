@@ -171,6 +171,9 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         case OLAP_FIELD_TYPE_BIGINT:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, typeinfo));
             break;
+        case OLAP_FIELD_TYPE_LARGEINT:
+            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, typeinfo));
+            break;
         case OLAP_FIELD_TYPE_CHAR:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, typeinfo));
             break;
