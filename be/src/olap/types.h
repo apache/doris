@@ -258,26 +258,30 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 template <typename T>
 OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
     using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
-    auto src_value = *reinterpret_cast<const SrcType*>(src);
+    auto src_value = reinterpret_cast<const SrcType*>(src);
     StringParser::ParseResult parse_res;
-    T result = StringParser::string_to_int<T>(src_value.get_data(), src_value.get_size(), &parse_res);
+    T result = StringParser::string_to_int<T>(src_value->get_data(), src_value->get_size(), &parse_res);
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
-    *reinterpret_cast<T*>(dest) = result;
+    if (typeid(T) == typeid(CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType)) {
+	memcpy(dest, &result, sizeof(T));
+    } else {
+	*reinterpret_cast<T*>(dest) = result;
+    }
     return OLAPStatus::OLAP_SUCCESS;
 }
 
 template <typename T>
 OLAPStatus convert_float_from_varchar(void* dest, const void* src) {
     using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
-    auto src_value = *reinterpret_cast<const SrcType *>(src);
+    auto src_value = reinterpret_cast<const SrcType *>(src);
     StringParser::ParseResult parse_res;
-    T result = StringParser::string_to_float<T>(src_value.get_data(), src_value.get_size(), &parse_res);
+    T result = StringParser::string_to_float<T>(src_value->get_data(), src_value->get_size(), &parse_res);
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
-    *reinterpret_cast<T *>(dest) = result;
+    *reinterpret_cast<T*>(dest) = result;
     return OLAPStatus::OLAP_SUCCESS;
 }
 
