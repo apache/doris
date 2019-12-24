@@ -74,9 +74,9 @@ enum RowsetStatePB {
 
 // indicate whether date between segments of a rowset is overlappinng
 enum SegmentsOverlapPB {
-    UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
+    OVERLAP_UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
     OVERLAPPING = 1;
-    NONOVERLAPPINNG = 2；
+    NONOVERLAPPING = 2;
 }
 
 message RowsetMetaPB {
@@ -122,7 +122,7 @@ message RowsetMetaPB {
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
     // to indicate whether the data between the segments overlap
-    optional SegmentsOverlapPB segments_overlap_pb = 51 [default = UNKNOWN];
+    optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
 message AlphaRowsetExtraMetaPB {

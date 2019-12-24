@@ -1047,25 +1047,16 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
     root.SetObject();
 
-    auto version_comparator = [] (const Version& lhs, const Version& rhs)
-        {
-            if (lhs.first < rhs.first) return true;
-            if (lhs.first == rhs.first) return lhs.second < rhs.second;
-            return false;
-        };
-
-    auto rowset_version_map = std::map<Version, bool, std::function<bool(const Version&, const Version&)>>{
-        version_comparator
-    };
-    auto rowset_segment_map = std::map<Version, int64_t, std::function<bool(const Version&, const Version&)>>{
-        version_comparator
-    };
-
+    std::vector<RowsetSharedPtr> rowsets;
+    std::vector<bool> delete_flags;
     {
         ReadLock rdlock(&_meta_lock);
         for (auto& it : _rs_version_map) {
-            rowset_version_map[it.first] = version_for_delete_predicate(it.first);
-            rowset_segment_map[it.first] = it.second->num_segments();
+            rowsets.push_back(it.second);
+        }
+        std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+        for (auto& rs : rowsets) {
+            delete_flags.push_back(version_for_delete_predicate(rs->version()));
         }
     }
 
@@ -1090,14 +1081,16 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
     versions_arr.SetArray();
-    for (auto& it : rowset_version_map) {
+    for (int i = 0; i < rowsets.size(); ++i) {
+        const Version& ver = rowsets[i]->version(); 
         rapidjson::Value value;
-        std::string version_str = strings::Substitute("[$0-$1] $2 $3",
-            it.first.first, it.first.second, rowset_segment_map[it.first], (it.second ? "DELETE" : ""));
+        std::string version_str = strings::Substitute("[$0-$1] $2 $3 $4",
+            ver.first, ver.second, rowsets[i]->num_segments(), (delete_flags[i] ? "DELETE" : "DATA"),
+            SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()));
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator()); 
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
-    root.AddMember("versions", versions_arr, root.GetAllocator());
+    root.AddMember("rowsets", versions_arr, root.GetAllocator());
 
     // to json string
     rapidjson::StringBuffer strbuf;

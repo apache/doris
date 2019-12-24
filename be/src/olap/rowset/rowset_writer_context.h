@@ -40,7 +40,7 @@ struct RowsetWriterContext {
         version_hash(0),
         txn_id(0),
         tablet_uid(0, 0),
-        segments_overlap(UNKNOWN) {
+        segments_overlap(OVERLAP_UNKNOWN) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
@@ -63,7 +63,7 @@ struct RowsetWriterContext {
     PUniqueId load_id;
     TabletUid tablet_uid;
     // indicate whether the data among segments is overlapping.
-    // default is UNKNOWN.
+    // default is OVERLAP_UNKNOWN.
     SegmentsOverlapPB segments_overlap;
     // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.

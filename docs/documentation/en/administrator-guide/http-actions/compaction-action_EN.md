@@ -51,11 +51,11 @@ If the tablet exists, the result is returned in JSON format:
     "last base failure time": "2019-12-16 18:13:23.320",
     "last cumu success time": "2019-12-16 18:12:15.110",
     "last base success time": "2019-12-16 18:11:50.780",
-    "versions": [
-        "[0-48] 10 ",
-        "[49-49] 2 ",
-        "[50-50] 0 DELETE",
-        "[51-51] 5 "
+    "rowsets": [
+        "[0-48] 10 DATA OVERLAPPING",
+        "[49-49] 2 DATA OVERLAPPING",
+        "[50-50] 0 DELETE NONOVERLAPPING",
+        "[51-51] 5 DATE OVERLAPPING"
     ]
 }
 ```
@@ -65,7 +65,7 @@ Explanation of results:
 * cumulative point: The version boundary between base and cumulative compaction. Versions before (excluding) points are handled by base compaction. Versions after (inclusive) are handled by cumulative compaction.
 * last cumulative failure time: The time when the last cumulative compaction failed. After 10 minutes by default, cumulative compaction is attempted on the this tablet again.
 * last base failure time: The time when the last base compaction failed. After 10 minutes by default, base compaction is attempted on the this tablet again.
-* versions: The current data version collection of this tablet. [0-48] means a rowset with version 0-48. The second number is the number of segments in a rowset. The `DELETE` suffix indicates the delete version.
+* rowsets: The current rowsets collection of this tablet. [0-48] means a rowset with version 0-48. The second number is the number of segments in a rowset. The `DELETE` indicates the delete version. `OVERLAPPING` and `NONOVERLAPPING` indicates whether data between segments is overlap.
 
 ### Examples
 

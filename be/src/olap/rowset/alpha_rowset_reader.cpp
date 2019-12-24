@@ -44,7 +44,6 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
         _stats = _current_read_context->stats;
     }
 
-    Version version = _alpha_rowset_meta->version();
     _is_segments_overlapping = _alpha_rowset_meta->is_segments_overlapping();
     _ordinal = 0;
 
