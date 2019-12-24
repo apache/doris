@@ -117,7 +117,7 @@ void test_bloom_filter_index_reader_writer_template(const std::string file_name,
                 Slice* value = (Slice*)(val + i);
                 ASSERT_TRUE(bf->test_bytes(value->data, value->size));
             } else {
-                ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType))) << "index:" << i << ", value:" << val[i];
+                ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
 
@@ -176,6 +176,20 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
     std::string file_name = "bloom_filter_bigint";
     int64_t not_exist_value = 18888;
     test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
+    size_t num = 1024 * 3 - 1;
+    int128_t* val = new int128_t[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = 100000000 + i + 1;
+    }
+
+    std::string file_name = "bloom_filter_largeint";
+    int128_t not_exist_value = 18888;
+    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_LARGEINT>(file_name, val, num, 1, &not_exist_value);
     delete[] val;
 }
 
