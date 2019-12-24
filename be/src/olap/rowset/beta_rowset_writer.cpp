@@ -68,6 +68,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     _rowset_meta->set_tablet_schema_hash(_context.tablet_schema_hash);
     _rowset_meta->set_rowset_type(_context.rowset_type);
     _rowset_meta->set_rowset_state(_context.rowset_state);
+    _rowset_meta->set_segments_overlap(_context.segments_overlap);
     if (_context.rowset_state == PREPARED || _context.rowset_state == COMMITTED) {
         _is_pending = true;
         _rowset_meta->set_txn_id(_context.txn_id);

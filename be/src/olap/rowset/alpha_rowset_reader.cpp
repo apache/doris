@@ -45,15 +45,15 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     }
 
     Version version = _alpha_rowset_meta->version();
-    _is_singleton_rowset = (version.first == version.second);
+    _is_segments_overlapping = _alpha_rowset_meta->is_segments_overlapping();
     _ordinal = 0;
 
     RETURN_NOT_OK(_init_merge_ctxs(read_context));
 
     // needs to sort merge only when
     // 1) we are told to return sorted result (need_ordered_result)
-    // 2) we have several segment groups (_is_singleton_rowset && _merge_ctxs.size() > 1)
-    if (_current_read_context->need_ordered_result && _is_singleton_rowset && _merge_ctxs.size() > 1) {
+    // 2) we have several segment groups (_is_segments_overlapping && _merge_ctxs.size() > 1)
+    if (_current_read_context->need_ordered_result && _is_segments_overlapping && _merge_ctxs.size() > 1) {
         _next_block = &AlphaRowsetReader::_merge_block;
         _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
         if (_read_block == nullptr) {
@@ -315,7 +315,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         _merge_ctxs.emplace_back(std::move(merge_ctx));
     }
 
-    if (!_is_singleton_rowset && _merge_ctxs.size() > 1) {
+    if (!_is_segments_overlapping && _merge_ctxs.size() > 1) {
         LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
                      << _merge_ctxs.size();
         return OLAP_ERR_READER_READING_ERROR;

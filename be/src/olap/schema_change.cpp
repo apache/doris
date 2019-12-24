@@ -919,12 +919,7 @@ bool SchemaChangeWithSorting::process(
     bool need_create_empty_version = false;
     OLAPStatus res = OLAP_SUCCESS;
     RowsetSharedPtr rowset = rowset_reader->rowset();
-    if (!rowset->empty()) {
-        int num_rows = rowset_reader->rowset()->num_rows();
-        if (num_rows == 0) {
-            need_create_empty_version = true;
-        }
-    } else {
+    if (rowset->empty() || rowset->num_rows() == 0) {
         need_create_empty_version = true;
     }
 
@@ -962,6 +957,7 @@ bool SchemaChangeWithSorting::process(
         use_beta_rowset = true;
     }
 
+    SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
@@ -991,6 +987,7 @@ bool SchemaChangeWithSorting::process(
                                    rowset_reader->version_hash(),
                                    new_tablet,
                                    new_rowset_type,
+                                   segments_overlap,
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -1052,6 +1049,7 @@ bool SchemaChangeWithSorting::process(
                                rowset_reader->version_hash(),
                                new_tablet,
                                new_rowset_type,
+                               segments_overlap,
                                &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             result = false;
@@ -1131,6 +1129,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                                                 VersionHash version_hash,
                                                 TabletSharedPtr new_tablet,
                                                 RowsetTypePB new_rowset_type,
+                                                SegmentsOverlapPB segments_overlap,
                                                 RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     RowBlockMerger merger(new_tablet);
@@ -1147,6 +1146,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     context.rowset_state = VISIBLE;
     context.version = version;
     context.version_hash = version_hash;
+    context.segments_overlap = segments_overlap;
     VLOG(3) << "init rowset builder. tablet=" << new_tablet->full_name()
             << ", block_row_size=" << new_tablet->num_rows_per_row_block();
 
@@ -1498,6 +1498,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.txn_id = (*base_rowset)->txn_id();
     writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
     writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
+    writer_context.segments_overlap = (*base_rowset)->rowset_meta()->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -1728,6 +1729,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
         writer_context.version_hash = rs_reader->version_hash();
+        writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         OLAPStatus status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);

@@ -678,15 +678,14 @@ const uint32_t Tablet::calc_cumulative_compaction_score() const {
     bool base_rowset_exist = false;
     const int64_t point = cumulative_layer_point();
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
-        if (rs_meta->start_version() >= point) {
-            score++;
-        }
-        if (rs_meta->start_version() == rs_meta->end_version()) {
-            score += rs_meta->num_segments();
-        }
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }
+        if (rs_meta->start_version() < point) {
+            continue;
+        }
+
+        score += rs_meta->get_compaction_score();
     }
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
@@ -698,12 +697,14 @@ const uint32_t Tablet::calc_base_compaction_score() const {
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
-        if (rs_meta->start_version() < point) {
-            score++;
-        }
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }
+        if (rs_meta->start_version() >= point) {
+            continue;
+        }
+
+        score += rs_meta->get_compaction_score();
     }
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
@@ -731,9 +732,10 @@ void Tablet::compute_version_hash_from_rowsets(
         const std::vector<RowsetSharedPtr>& rowsets, VersionHash* version_hash) const {
     DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
     int64_t v_hash  = 0;
-    for (auto& rowset : rowsets) {
-        v_hash ^= rowset->version_hash();
-    }
+    // version hash is useless since Doris version 0.11
+    // but for compatibility, we set version hash as the last rowset's version hash.
+    // this can also enable us to do the compaction for last one rowset.
+    v_hash = rowsets.back()->version_hash();
     *version_hash = v_hash;
 }
 
@@ -814,28 +816,29 @@ OLAPStatus Tablet::calculate_cumulative_point() {
         return OLAP_SUCCESS;
     }
     
-    std::list<Version> existing_versions;
+    std::list<RowsetMetaSharedPtr> existing_rss;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+        existing_rss.emplace_back(rs);
     }
 
-    // sort the existing versions in ascending order
-    existing_versions.sort([](const Version& a, const Version& b) {
+    // sort the existing rowset by version in ascending order
+    existing_rss.sort([](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
         // simple because 2 versions are certainly not overlapping
-        return a.first < b.first;
+        return a->version().first < b->version().first;
     });
 
     int64_t prev_version = -1;
-    for (const Version& version : existing_versions) {
-        if (version.first > prev_version + 1) {
+    for (const RowsetMetaSharedPtr& rs : existing_rss) {
+        if (rs->version().first > prev_version + 1) {
             break;
         }
-        if (version.first == version.second) {
-            _cumulative_point = version.first;
+        if (rs->is_segments_overlapping()) {
+            _cumulative_point = rs->version().first;
             break;
         }
-        prev_version = version.second;
-        _cumulative_point = version.second + 1;
+
+        prev_version = rs->version().second;
+        _cumulative_point = prev_version + 1;
     }
     return OLAP_SUCCESS;
 }

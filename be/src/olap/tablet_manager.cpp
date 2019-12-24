@@ -1221,6 +1221,8 @@ OLAPStatus TabletManager::_create_inital_rowset(
             context.rowset_state = VISIBLE;
             context.version = version;
             context.version_hash = request.version_hash;
+            // there is no data in init rowset, so overlapping info is unknown.
+            context.segments_overlap = UNKNOWN;
 
             std::unique_ptr<RowsetWriter> builder;
             res = RowsetFactory::create_rowset_writer(context, &builder);
