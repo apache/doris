@@ -53,6 +53,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -290,7 +291,51 @@ public class Alter {
             }
 
             View view = (View) table;
-            Catalog.getInstance().modifyViewDef(db, view, stmt.getInlineViewDef());
+            modifyViewDef(db, view, stmt.getInlineViewDef());
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
+        String viewName = view.getName();
+
+        db.dropTable(viewName);
+        view.setInlineViewDef(inlineViewDef);
+        try {
+            view.init();
+        } catch (UserException e) {
+            throw new DdlException("failed to init view stmt", e);
+        }
+
+        db.createTable(view);
+
+        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef);
+        Catalog.getInstance().getEditLog().logModifyViewDef(alterViewInfo);
+        LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
+    }
+
+    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
+        long dbId = alterViewInfo.getDbId();
+        long tableId = alterViewInfo.getTableId();
+        String inlineViewDef = alterViewInfo.getInlineViewDef();
+
+        Database db = Catalog.getInstance().getDb(dbId);
+        db.writeLock();
+        try {
+            View view = (View) db.getTable(tableId);
+            String viewName = view.getName();
+            db.dropTable(viewName);
+            view.setInlineViewDef(inlineViewDef);
+            try {
+                view.init();
+            } catch (UserException e) {
+                throw new DdlException("failed to init view stmt", e);
+            }
+
+            db.createTable(view);
+
+            LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             db.writeUnlock();
         }

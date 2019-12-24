@@ -4834,50 +4834,6 @@ public class Catalog {
         }
     }
 
-    public void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
-        String viewName = view.getName();
-
-        db.dropTable(viewName);
-        view.setInlineViewDef(inlineViewDef);
-        try {
-            view.init();
-        } catch (UserException e) {
-            throw new DdlException("failed to init view stmt", e);
-        }
-
-        db.createTable(view);
-
-        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef);
-        editLog.logModifyViewDef(alterViewInfo);
-        LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
-    }
-
-    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
-        long dbId = alterViewInfo.getDbId();
-        long tableId = alterViewInfo.getTableId();
-        String inlineViewDef = alterViewInfo.getInlineViewDef();
-
-        Database db = getDb(dbId);
-        db.writeLock();
-        try {
-            View view = (View) db.getTable(tableId);
-            String viewName = view.getName();
-            db.dropTable(viewName);
-            view.setInlineViewDef(inlineViewDef);
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt", e);
-            }
-
-            db.createTable(view);
-
-            LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
-        } finally {
-            db.writeUnlock();
-        }
-    }
-
     // the invoker should keep db write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
             GroupId assignedGroupId)
