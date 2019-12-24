@@ -277,12 +277,14 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-            bool is_nullable, FieldType type) : _has_default_value(has_default_value),
+            bool is_nullable, FieldType type, size_t length) : _has_default_value(has_default_value),
                                                 _default_value(default_value),
                                                 _is_nullable(is_nullable),
                                                 _type(type),
+                                                _length(length),
                                                 _is_default_value_null(false),
-                                                _value_size(0) { }
+                                                _value_size(0),
+                                                _pool(new MemPool(&_tracker)){ }
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -305,9 +307,12 @@ private:
     std::string _default_value;
     bool _is_nullable;
     FieldType _type;
+    size_t _length;
     bool _is_default_value_null;
     size_t _value_size;
-    faststring _mem_value;
+    void* _mem_value = nullptr;
+    MemTracker _tracker;
+    std::unique_ptr<MemPool> _pool;
 
     // current rowid
     rowid_t _current_rowid = 0;

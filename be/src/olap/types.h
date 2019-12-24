@@ -500,15 +500,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         return OLAP_SUCCESS;
     }
     static std::string to_string(const void* src) {
-        tm time_tm;
-        int value = *reinterpret_cast<const CppType*>(src);
-        memset(&time_tm, 0, sizeof(time_tm));
-        time_tm.tm_mday = static_cast<int>(value & 31);
-        time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
-        time_tm.tm_year = static_cast<int>(value >> 9) - 1900;
-        char buf[20] = {'\0'};
-        strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
-        return std::string(buf);
+        return reinterpret_cast<const CppType*>(src)->to_string();
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {

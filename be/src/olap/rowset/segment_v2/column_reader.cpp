@@ -546,8 +546,26 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         } else {
             TypeInfo* type_info = get_type_info(_type);
             _value_size = type_info->size();
-            _mem_value.reserve(_value_size);
-            OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
+            _mem_value = reinterpret_cast<void*>(_pool->allocate(_value_size));
+            OLAPStatus s = OLAP_SUCCESS;
+            if (_type == OLAP_FIELD_TYPE_CHAR) {
+                int32_t length = _length;
+                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
+                memset(string_buffer, 0, length);
+                memory_copy(string_buffer, _default_value.c_str(), _default_value.length());
+                ((Slice*)_mem_value)->size = length;
+                ((Slice*)_mem_value)->data = string_buffer;
+            } else if ( _type == OLAP_FIELD_TYPE_VARCHAR ||
+                _type == OLAP_FIELD_TYPE_HLL ||
+                _type == OLAP_FIELD_TYPE_OBJECT ) {
+                int32_t length = _default_value.length();
+                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
+                memory_copy(string_buffer, _default_value.c_str(), length);
+                ((Slice*)_mem_value)->size = length;
+                ((Slice*)_mem_value)->data = string_buffer;
+            } else {
+                s = type_info->from_string(_mem_value, _default_value);
+            }
             if (s != OLAP_SUCCESS) {
                 return Status::InternalError(
                         strings::Substitute("get value of type from default value failed. status:$0", s));
@@ -571,7 +589,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         dst->advance(*n);
     } else {
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->data(), _mem_value.data(), _value_size);
+            memcpy(dst->data(), _mem_value, _value_size);
             dst->advance(1);
         }
     }

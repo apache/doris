@@ -68,8 +68,11 @@ public class ColumnDef {
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
-        // default "value"
-        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, null);
+        private static String ZERO = new String(new byte[] {0});
+        // default "value", "0" means empty hll
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        // default "value", "0" means empty bitmap
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
     }
 
     // parameter initialized in constructor
@@ -156,6 +159,13 @@ public class ColumnDef {
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
         }
 
+        if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
+            if (defaultValue.isSet) {
+                throw new AnalysisException("Bitmap type column can not set default value");
+            }
+            defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+        }
+
         // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
         // If defalut value is not set, we set it NULL
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
@@ -216,6 +226,8 @@ public class ColumnDef {
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }
+                break;
+            case BITMAP:
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);

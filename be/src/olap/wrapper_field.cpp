@@ -23,7 +23,10 @@ const size_t DEFAULT_STRING_LENGTH = 50;
 
 WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
-        (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL);
+        (column.type() == OLAP_FIELD_TYPE_CHAR ||
+        column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+        column.type() == OLAP_FIELD_TYPE_HLL ||
+        column.type() == OLAP_FIELD_TYPE_OBJECT);
     if (is_string_type && len > OLAP_STRING_MAX_LENGTH) {
         OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].",
                         len, OLAP_STRING_MAX_LENGTH);

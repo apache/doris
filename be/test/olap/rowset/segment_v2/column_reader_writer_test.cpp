@@ -170,7 +170,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                 int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
-                auto st = iter->next_batch(&rows_read, &dst);
+                st = iter->next_batch(&rows_read, &dst);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
@@ -191,6 +191,92 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         delete iter;
     }
 }
+
+
+template<FieldType type>
+void test_read_default_value(std::string value, void* result) {
+        using Type = typename TypeTraits<type>::CppType;
+        const TypeInfo* type_info = get_type_info(type);
+        // read and check
+        {
+            TabletColumn tablet_column = create_with_default_value<type>(value);
+            DefaultValueColumnIterator iter(tablet_column.has_default_value(),
+                                                   tablet_column.default_value(),
+                                                   tablet_column.is_nullable(),
+                                                   tablet_column.type(),
+                                                   tablet_column.length());
+            ColumnIteratorOptions iter_opts;
+            auto st = iter.init(iter_opts);
+            ASSERT_TRUE(st.ok());
+            // sequence read
+            {
+                st = iter.seek_to_first();
+                ASSERT_TRUE(st.ok()) << st.to_string();
+
+                MemTracker tracker;
+                MemPool pool(&tracker);
+                Type vals[1024];
+                Type* vals_ = vals;
+                uint8_t is_null[1024];
+                ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
+
+                int idx = 0;
+                size_t rows_read = 1024;
+                ColumnBlockView dst(&col);
+                st = iter.next_batch(&rows_read, &dst);
+                ASSERT_TRUE(st.ok());
+                for (int j = 0; j < rows_read; ++j) {
+                    if (type == OLAP_FIELD_TYPE_CHAR) {
+                        Slice* dst_slice = (Slice*)vals_;
+                        ASSERT_EQ(*(std::string*)result, dst_slice[j].to_string()) << "j:" << j;
+                    } else if (type == OLAP_FIELD_TYPE_VARCHAR
+                    || type == OLAP_FIELD_TYPE_HLL
+                    || type == OLAP_FIELD_TYPE_OBJECT) {
+                        Slice* dst_slice = (Slice*)vals_;
+                        ASSERT_EQ(value, dst_slice[j].to_string()) << "j:" << j;
+                    } else {
+                        ASSERT_EQ(*(Type*)result, vals[j]);
+                    }
+                    idx++;
+                }
+            }
+
+            {
+                MemTracker tracker;
+                MemPool pool(&tracker);
+                Type vals[1024];
+                uint8_t is_null[1024];
+                ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
+
+                for (int rowid = 0; rowid < 2048; rowid += 128) {
+                    st = iter.seek_to_ordinal(rowid);
+                    ASSERT_TRUE(st.ok());
+
+                    int idx = rowid;
+                    size_t rows_read = 1024;
+                    ColumnBlockView dst(&col);
+                    st = iter.next_batch(&rows_read, &dst);
+                    ASSERT_TRUE(st.ok());
+                    for (int j = 0; j < rows_read; ++j) {
+                        if (type == OLAP_FIELD_TYPE_CHAR) {
+                            Slice* dst_slice = (Slice*)vals;
+                            ASSERT_EQ(*(std::string*)result, dst_slice[j].to_string()) << "j:" << j;
+                        } else if (type == OLAP_FIELD_TYPE_VARCHAR
+                           || type == OLAP_FIELD_TYPE_HLL
+                           || type == OLAP_FIELD_TYPE_OBJECT) {
+                            Slice* dst_slice = (Slice*)vals;
+                            ASSERT_EQ(value, dst_slice[j].to_string());
+                        } else {
+                            ASSERT_EQ(*(Type*)result, vals[j]);
+                        }
+                        idx++;
+                    }
+                }
+            }
+        }
+    }
+
+
 
 TEST_F(ColumnReaderWriterTest, test_nullable) {
     size_t num_uint8_rows = 1024 * 1024;
@@ -271,6 +357,53 @@ TEST_F(ColumnReaderWriterTest, test_types) {
     delete[] date_vals;
     delete[] datetime_vals;
     delete[] decimal_vals;
+}
+
+TEST_F(ColumnReaderWriterTest, test_default_value) {
+    std::string v_int("1");
+    int32_t result = 1;
+    test_read_default_value<OLAP_FIELD_TYPE_TINYINT>(v_int, &result);
+    test_read_default_value<OLAP_FIELD_TYPE_SMALLINT>(v_int, &result);
+    test_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
+
+    std::string v_bigint("9223372036854775807");
+    int64_t result_bigint =  std::numeric_limits<int64_t>::max();
+    test_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
+    int128_t result_largeint =  std::numeric_limits<int64_t>::max();
+    test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint)
+
+    std::string v_float("1.00");
+    float result2 = 1.00;
+    test_read_default_value<OLAP_FIELD_TYPE_FLOAT>(v_float, &result2);
+
+    std::string v_double("1.00");
+    double result3 = 1.00;
+    test_read_default_value<OLAP_FIELD_TYPE_DOUBLE>(v_double, &result3);
+
+    std::string v_varchar("varchar");
+    test_read_default_value<OLAP_FIELD_TYPE_VARCHAR>(v_varchar, &v_varchar);
+
+    std::string v_char("char");
+    test_read_default_value<OLAP_FIELD_TYPE_CHAR>(v_char, &v_char);
+
+    char* c = (char *)malloc(1);
+    c[0] = 0;
+    std::string v_object(c, 1);
+    test_read_default_value<OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
+    test_read_default_value<OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
+    free(c);
+
+    std::string v_date("2019-11-12");
+    uint24_t result_date(1034092);
+    test_read_default_value<OLAP_FIELD_TYPE_DATE>(v_date, &result_date);
+
+    std::string v_datetime("2019-11-12 12:01:08");
+    int64_t result_datetime = 20191112120108;
+    test_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
+
+    std::string v_decimal("102418.000000002");
+    decimal12_t decimal(102418, 2);
+    test_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
 }
