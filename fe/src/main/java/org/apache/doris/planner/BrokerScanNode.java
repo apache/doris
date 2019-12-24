@@ -402,6 +402,8 @@ public class BrokerScanNode extends LoadScanNode {
     private TFileFormatType formatType(String fileFormat, String path) {
         if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
             return TFileFormatType.FORMAT_PARQUET;
+        } else if (fileFormat.toLowerCase().equals("orc")) {
+            return TFileFormatType.FORMAT_ORC;                  
         }
 
         String lowerCasePath = path.toLowerCase();

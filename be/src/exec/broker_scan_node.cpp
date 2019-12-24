@@ -26,6 +26,7 @@
 #include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
 #include "exec/parquet_scanner.h"
+#include "exec/orc_scanner.h"
 #include "exprs/expr.h"
 #include "util/runtime_profile.h"
 
@@ -274,6 +275,14 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         scan = new ParquetScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
+    case TFileFormatType::FORMAT_ORC:
+        scan = new ORCScanner(_runtime_state,
                 runtime_profile(),
                 scan_range.params,
                 scan_range.ranges,

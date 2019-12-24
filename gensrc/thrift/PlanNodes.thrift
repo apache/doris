@@ -98,7 +98,8 @@ enum TFileFormatType {
     FORMAT_CSV_BZ2,
     FORMAT_CSV_LZ4FRAME,
     FORMAT_CSV_LZOP,
-    FORMAT_PARQUET
+    FORMAT_PARQUET,
+    FORMAT_ORC
 }
 
 // One broker range information.
