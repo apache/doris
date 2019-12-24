@@ -238,7 +238,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
-                    TableInfo info = (TableInfo) journal.getData();
+                    AlterViewInfo info = (AlterViewInfo) journal.getData();
                     catalog.replayModifyViewDef(info);
                 }
                 case OperationType.OP_RENAME_PARTITION: {
@@ -1020,8 +1020,8 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
     }
 
-    public void logModifyViewDef(TableInfo tableInfo) {
-        logEdit(OperationType.OP_MODIFY_VIEW_DEF, tableInfo);
+    public void logModifyViewDef(AlterViewInfo alterViewInfo) {
+        logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
     }
 
     public void logRollupRename(TableInfo tableInfo) {

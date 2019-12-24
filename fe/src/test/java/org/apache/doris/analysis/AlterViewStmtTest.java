@@ -17,9 +17,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.TableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.Before;
@@ -84,7 +84,7 @@ public class AlterViewStmtTest {
                 editLog.logCreateTable((CreateTableInfo) any);
                 minTimes = 0;
 
-                editLog.logModifyViewDef((TableInfo) any);
+                editLog.logModifyViewDef((AlterViewInfo) any);
                 minTimes = 0;
             }
         };

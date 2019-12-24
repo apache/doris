@@ -146,6 +146,7 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -4846,15 +4847,15 @@ public class Catalog {
 
         db.createTable(view);
 
-        TableInfo tableInfo = TableInfo.createForModifyViewDef(db.getId(), view.getId(), inlineViewDef);
-        editLog.logModifyViewDef(tableInfo);
+        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef);
+        editLog.logModifyViewDef(alterViewInfo);
         LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
     }
 
-    public void replayModifyViewDef(TableInfo tableInfo) throws DdlException {
-        long dbId = tableInfo.getDbId();
-        long tableId = tableInfo.getTableId();
-        String inlineViewDef = tableInfo.getInlineViewDef();
+    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
+        long dbId = alterViewInfo.getDbId();
+        long tableId = alterViewInfo.getTableId();
+        String inlineViewDef = alterViewInfo.getInlineViewDef();
 
         Database db = getDb(dbId);
         db.writeLock();

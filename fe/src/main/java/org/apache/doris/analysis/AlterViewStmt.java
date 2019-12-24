@@ -35,111 +35,46 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 // Alter view statement
-public class AlterViewStmt extends DdlStmt {
-
-    private TableName tbl;
-
-    private final List<ColWithComment> cols;
-    private final QueryStmt queryStmt;
-
-    // Set during analyze
-    private final List<Column> finalCols;
-
-    private String inlineViewDef;
-    private QueryStmt cloneStmt;
-
-    public List<Column> getColumns() {
-        return finalCols;
-    }
-
-    public String getInlineViewDef() {
-        return inlineViewDef;
-    }
+public class AlterViewStmt extends BaseViewStmt {
 
     public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
-        this.tbl = tbl;
-        this.cols = cols;
-        this.queryStmt = queryStmt;
-        finalCols = Lists.newArrayList();
+        super(tbl, cols, queryStmt);
     }
 
     public TableName getTbl() {
-        return tbl;
-    }
-
-    /**
-     * Sets the originalViewDef and the expanded inlineViewDef based on viewDefStmt.
-     * If columnNames were given, checks that they do not contain duplicate column names
-     * and throws an exception if they do.
-     */
-    private void createColumnAndViewDefs(Analyzer analyzer) throws AnalysisException, UserException {
-
-        if (cols != null) {
-            if (cols.size() != queryStmt.getColLabels().size()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
-            }
-            for (int i = 0; i < cols.size(); ++i) {
-                PrimitiveType type = queryStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                Column col = new Column(cols.get(i).getColName(), ScalarType.createType(type));
-                col.setComment(cols.get(i).getComment());
-                finalCols.add(col);
-            }
-        } else {
-            for (int i = 0; i < queryStmt.getBaseTblResultExprs().size(); ++i) {
-                PrimitiveType type = queryStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        queryStmt.getColLabels().get(i),
-                        ScalarType.createType(type)));
-            }
-        }
-        // Set for duplicate columns
-        Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (Column col : finalCols) {
-            if (!colSets.add(col.getName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
-            }
-        }
-
-        if (cols == null) {
-            inlineViewDef = queryStmt.toSql();
-        } else {
-            Analyzer tmpAnalyzer = new Analyzer(analyzer);
-            List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
-            cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
-            inlineViewDef = cloneStmt.toSql();
-        }
+        return tableName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (tbl == null) {
+        if (tableName == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
-        tbl.analyze(analyzer);
+        tableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tbl.getTbl());
+                    tableName.getTbl());
         }
 
         if (cols != null) {
-            cloneStmt = queryStmt.clone();
+            cloneStmt = viewDefStmt.clone();
         }
-        queryStmt.setNeedToSql(true);
+        viewDefStmt.setNeedToSql(true);
         Analyzer viewAnalyzer = new Analyzer(analyzer);
 
-        queryStmt.analyze(viewAnalyzer);
+        viewDefStmt.analyze(viewAnalyzer);
         createColumnAndViewDefs(analyzer);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER VIEW ").append(tbl.toSql()).append("\n");
+        sb.append("ALTER VIEW ").append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
             for (int i = 0 ; i < cols.size(); i++) {
@@ -151,7 +86,7 @@ public class AlterViewStmt extends DdlStmt {
             sb.append("\n)");
         }
         sb.append("\n");
-        sb.append("AS ").append(queryStmt.toSql()).append("\n");
+        sb.append("AS ").append(viewDefStmt.toSql()).append("\n");
         return sb.toString();
     }
 
