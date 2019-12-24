@@ -64,7 +64,7 @@ public class PartitionInfo implements Writable {
     }
 
     public short getReplicationNum(long partitionId) {
-        if (idToReplicaAllocation.containsKey(partitionId)) {
+        if (idToReplicationNum.containsKey(partitionId)) {
             return idToReplicationNum.get(partitionId);
         } else {
             return idToReplicaAllocation.get(partitionId).getReplicaNum();
@@ -120,7 +120,7 @@ public class PartitionInfo implements Writable {
         Preconditions.checkState(idToReplicationNum.isEmpty(), idToReplicaAllocation);
 
         Text.writeString(out, type.name());
-        Preconditions.checkState(idToDataProperty.size() == idToReplicationNum.size());
+        Preconditions.checkState(idToDataProperty.size() == idToReplicaAllocation.size());
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());

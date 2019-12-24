@@ -62,7 +62,5 @@ public class ReplicaAllocationTest {
         tagMap = replicaAllocation.getTagMapByType(AllocationType.LOCAL);
         Assert.assertTrue(tagMap.containsKey(tagSet));
         Assert.assertEquals(3, (int) tagMap.get(tagSet));
-        
-        replicaAllocation.g
     }
 }
