@@ -68,10 +68,6 @@ public class TableInfo implements Writable {
         return new TableInfo(dbId, tableId, -1L, -1, "", "", "");
     }
 
-    public static TableInfo createForModifyViewDef(long dbId, long tableId) {
-        return new TableInfo(dbId, tableId, -1L, -1L, "", "", "");
-    }
-
     public long getDbId() {
         return dbId;
     }
