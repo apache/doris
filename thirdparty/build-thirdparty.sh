@@ -164,6 +164,12 @@ build_libevent() {
 }
 
 build_openssl() {
+    MACHINE_TYPE=$(uname -m)
+    OPENSSL_PLATFORM="linux-x86_64"
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        OPENSSL_PLATFORM="linux-aarch64"
+    fi
+
     check_if_source_exist $OPENSSL_SOURCE
     cd $TP_SOURCE_DIR/$OPENSSL_SOURCE
 
@@ -172,7 +178,7 @@ build_openssl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
-    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared linux-x86_64
+    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
     make && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
