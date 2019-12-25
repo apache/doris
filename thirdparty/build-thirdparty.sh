@@ -596,7 +596,18 @@ build_bitshuffle() {
     check_if_source_exist $BITSHUFFLE_SOURCE
     cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
     PREFIX=$TP_INSTALL_DIR
+
+    # This library has significant optimizations when built with -mavx2. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it twice,
+    # once with the flag and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2'.
     arches="default avx2"
+    MACHINE_TYPE=$(uname -m)
+    # Becuase aarch64 don't support avx2, disable it.
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        arches="default"
+    fi
+
     to_link=""
     for arch in $arches ; do
         arch_flag=""
