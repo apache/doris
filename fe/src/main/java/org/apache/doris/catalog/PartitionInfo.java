@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -149,7 +150,6 @@ public class PartitionInfo implements Writable {
                 entry.getValue().write(out);
             }
 
-            // out.writeShort(idToReplicationNum.get(entry.getKey()));
             idToReplicaAllocation.get(entry.getKey()).write(out);
         }
     }
@@ -167,8 +167,13 @@ public class PartitionInfo implements Writable {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
 
-            short replicationNum = in.readShort();
-            idToReplicationNum.put(partitionId, replicationNum);
+            if (Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_70) {
+                short replicationNum = in.readShort();
+                idToReplicationNum.put(partitionId, replicationNum);
+            } else {
+                ReplicaAllocation replicaAlloc = ReplicaAllocation.read(in);
+                idToReplicaAllocation.put(partitionId, replicaAlloc);
+            }
         }
     }
 
