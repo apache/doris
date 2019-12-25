@@ -55,7 +55,7 @@ public class MetaCheckAction extends RestBaseAction {
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/metacheck/", new MetricsAction(controller));
+        controller.registerHandler(HttpMethod.GET, "/metacheck/", new MetaCheckAction(controller));
     }
 
     @Override
