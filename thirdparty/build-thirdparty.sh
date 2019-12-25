@@ -283,6 +283,10 @@ build_glog() {
     check_if_source_exist $GLOG_SOURCE
     cd $TP_SOURCE_DIR/$GLOG_SOURCE
 
+    # to generate config.guess and config.sub to support aarch64
+    rm -rf config.*
+    autoreconf -i
+
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
