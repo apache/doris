@@ -109,10 +109,8 @@ template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 uint64_t SegmentWriter::estimate_segment_size() {
     uint64_t size = 8; //magic size
-    int index = 0;
     for (auto& column_writer : _column_writers) {
         size += column_writer->estimate_buffer_size();
-        index++;
     }
     size += _index_builder->size();
     return size;

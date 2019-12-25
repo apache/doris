@@ -264,8 +264,7 @@ Status ColumnWriter::write_ordinal_index() {
 Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
         OwnedSlice data = _column_zone_map_builder->finish();
-        std::vector<Slice> slices;
-        slices.push_back(data.slice());
+        std::vector<Slice> slices{data.slice()};
         RETURN_IF_ERROR(_write_slices(&slices));
     }
     return Status::OK();
