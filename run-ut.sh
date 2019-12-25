@@ -280,7 +280,6 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_zone_map_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/row_ranges_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/block_bloom_filter_test
-${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bloom_filter_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bloom_filter_index_reader_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/txn_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/storage_types_test

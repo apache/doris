@@ -249,7 +249,7 @@ Status ColumnWriter::write_data() {
         _page_builder->get_dictionary_page(&dict_page);
         std::vector<Slice> origin_data;
         origin_data.push_back(dict_page.slice());
-        RETURN_IF_ERROR(_write_slices(&origin_data));
+        RETURN_IF_ERROR(_compress_and_write_page(&origin_data, &_dict_page_pp));
     }
     return Status::OK();
 }
@@ -257,7 +257,7 @@ Status ColumnWriter::write_data() {
 Status ColumnWriter::write_ordinal_index() {
     Slice data = _ordinal_index_builder->finish();
     std::vector<Slice> slices{data};
-    auto st = _write_slices(&slices);
+    auto st = _compress_and_write_page(&slices, &_ordinal_index_pp);
     return st;
 }
 
@@ -265,7 +265,7 @@ Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
         OwnedSlice data = _column_zone_map_builder->finish();
         std::vector<Slice> slices{data.slice()};
-        RETURN_IF_ERROR(_write_slices(&slices));
+        RETURN_IF_ERROR(_compress_and_write_page(&slices, &_zone_map_pp));
     }
     return Status::OK();
 }
@@ -321,7 +321,7 @@ Status ColumnWriter::_write_data_page(Page* page) {
     return Status::OK();
 }
 
-Status ColumnWriter::_write_slices(std::vector<Slice>* origin_data) {
+Status ColumnWriter::_compress_and_write_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
 
@@ -332,7 +332,7 @@ Status ColumnWriter::_write_slices(std::vector<Slice>* origin_data) {
         RETURN_IF_ERROR(compressor.compress(*origin_data, &compressed_data));
         output_data = &compressed_data;
     }
-    return _write_physical_page(output_data, &_zone_map_pp);
+    return _write_physical_page(output_data, pp);
 }
 
 // write a physical page in to files
