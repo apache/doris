@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -26,9 +27,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class AlterViewInfo implements Writable {
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
-
+    @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
 
     public AlterViewInfo() {
