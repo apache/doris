@@ -62,12 +62,18 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 public class GenericPoolTest {
     static GenericPool<BackendService.Client> backendService;
     static ThriftServer service;
     static String ip = "127.0.0.1";
-    static int port = 39401;
+    static int port;
+
+    static {
+        Random r = new Random(System.currentTimeMillis());
+        port = 20000 + r.nextInt(10000);
+    }
 
     static void close() {
         if (service != null) {
@@ -92,6 +98,7 @@ public class GenericPoolTest {
                     new InternalProcessor());
             service = new ThriftServer(port, tprocessor);
             service.start();
+            Thread.sleep(5000);
         } catch (Exception e) {
             e.printStackTrace();
             close();
