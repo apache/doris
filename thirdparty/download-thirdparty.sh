@@ -299,6 +299,8 @@ echo "Finished patching $BRPC_SOURCE"
 cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/s2geometry-0.9.0.patch
+    # replace uint64 with uint64_t to make compiler happy
+    patch -p0 < $TP_PATCH_DIR/s2geometry-0.9.0-uint64.patch
     touch $PATCHED_MARK
 fi
 cd -
