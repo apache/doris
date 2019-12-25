@@ -27,6 +27,7 @@ import com.google.common.collect.Range;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
@@ -102,8 +103,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 leftVal = (new DateLiteral((String) element, Type.DATETIME)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
-                leftVal = (Long)element;
-                rightVal = ((StringLiteral)subExpr.getChild(1)).getLongValue();
+                leftVal = Long.parseLong(element.toString());
+                rightVal = ((IntLiteral)subExpr.getChild(1)).getLongValue();
             }
             switch (binaryPredicate.getOp()) {
                 case EQ:
