@@ -19,6 +19,7 @@ package org.apache.doris.resource;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
@@ -31,6 +32,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -211,6 +213,9 @@ public class TagManager implements Writable {
         } finally {
             lock.readLock().unlock();
         }
+
+        ListComparator<List<? extends Comparable>> comparator = new ListComparator<List<? extends Comparable>>(0);
+        Collections.sort(infos, comparator);
         return infos;
     }
 

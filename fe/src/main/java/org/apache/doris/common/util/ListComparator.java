@@ -25,7 +25,7 @@ import java.util.List;
 /*
  * this class is for sorting list collections
  */
-public class ListComparator<T extends List<Comparable>> implements Comparator<T> {
+public class ListComparator<T extends List<? extends Comparable>> implements Comparator<T> {
 
     OrderByPair[] orderByPairs;
     boolean isDesc;
