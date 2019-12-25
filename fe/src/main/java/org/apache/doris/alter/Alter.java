@@ -297,10 +297,9 @@ public class Alter {
         }
     }
 
-    public void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
+    private void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
         String viewName = view.getName();
 
-        db.dropTable(viewName);
         view.setInlineViewDef(inlineViewDef);
         try {
             view.init();
@@ -308,6 +307,7 @@ public class Alter {
             throw new DdlException("failed to init view stmt", e);
         }
 
+        db.dropTable(viewName);
         db.createTable(view);
 
         AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef);
@@ -325,7 +325,6 @@ public class Alter {
         try {
             View view = (View) db.getTable(tableId);
             String viewName = view.getName();
-            db.dropTable(viewName);
             view.setInlineViewDef(inlineViewDef);
             try {
                 view.init();
@@ -333,6 +332,7 @@ public class Alter {
                 throw new DdlException("failed to init view stmt", e);
             }
 
+            db.dropTable(viewName);
             db.createTable(view);
 
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);

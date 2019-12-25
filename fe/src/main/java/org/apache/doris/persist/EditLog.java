@@ -240,6 +240,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     catalog.getAlterInstance().replayModifyViewDef(info);
+                    break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();

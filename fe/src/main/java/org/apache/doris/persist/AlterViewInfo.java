@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -54,20 +55,12 @@ public class AlterViewInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        Text.writeString(out, inlineViewDef);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        inlineViewDef = Text.readString(in);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static AlterViewInfo read(DataInput in) throws IOException {
-        AlterViewInfo info = new AlterViewInfo();
-        info.readFields(in);
-        return info;
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
     }
 }
