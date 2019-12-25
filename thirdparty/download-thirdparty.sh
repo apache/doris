@@ -225,6 +225,8 @@ if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-vlog-double-lock-bug.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-for-palo2.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-remove-unwind-dependency.patch
+    # patch Makefile.am to make autoreconf work
+    patch -p0 < $TP_PATCH_DIR/glog-0.3.3-makefile.patch
     touch $PATCHED_MARK
 fi
 cd -
