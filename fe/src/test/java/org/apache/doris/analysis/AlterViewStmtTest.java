@@ -139,7 +139,7 @@ public class AlterViewStmtTest {
     public void testNormal() {
         String originStmt = "select col1 as c1, sum(col2) as c2 from testTbl group by col1";
         View view = new View(30000L, "testView", null);
-        view.setInlineViewDef("select col1 as c1, sum(col2) as c2 from testTbl group by col1");
+        view.setInlineViewDefWithSqlMode("select col1 as c1, sum(col2) as c2 from testTbl group by col1", 0L);
         try {
             view.init();
         } catch (UserException e) {

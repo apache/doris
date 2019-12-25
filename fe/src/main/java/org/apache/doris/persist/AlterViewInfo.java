@@ -33,15 +33,18 @@ public class AlterViewInfo implements Writable {
     private long tableId;
     @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
+    @SerializedName(value = "sqlMode")
+    private long sqlMode;
 
     public AlterViewInfo() {
         // for persist
     }
 
-    public AlterViewInfo(long dbId, long tableId, String inlineViewDef) {
+    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, long sqlMode) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
+        this.sqlMode = sqlMode;
     }
 
     public long getDbId() {
@@ -54,6 +57,10 @@ public class AlterViewInfo implements Writable {
 
     public String getInlineViewDef() {
         return inlineViewDef;
+    }
+
+    public long getSqlMode() {
+        return sqlMode;
     }
 
     @Override

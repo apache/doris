@@ -68,6 +68,9 @@ public class View extends Table {
     // Hive would produce in view creation.
     private String inlineViewDef;
 
+    // for persist
+    private long sqlMode = 0L;
+
     // View definition created by parsing inlineViewDef_ into a QueryStmt.
     // 'queryStmt' is a strong reference, which is used when this view is created directly from a QueryStmt
     // 'queryStmtRef' is a soft reference, it is created from parsing query stmt, and it will be cleared if
@@ -128,8 +131,9 @@ public class View extends Table {
         return retStmt;
     }
 
-    public void setInlineViewDef(String inlineViewDef) {
+    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
         this.inlineViewDef = inlineViewDef;
+        this.sqlMode = sqlMode;
     }
 
     public String getInlineViewDef() {
@@ -146,8 +150,7 @@ public class View extends Table {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
-        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef),
-                ConnectContext.get().getSessionVariable().getSqlMode());
+        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef), sqlMode);
         SqlParser parser = new SqlParser(input);
         ParseNode node;
         try {

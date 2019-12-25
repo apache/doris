@@ -4739,7 +4739,7 @@ public class Catalog {
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
     public void alterView(AlterViewStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterView(stmt);
+        this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
@@ -5142,7 +5142,8 @@ public class Catalog {
         long tableId = Catalog.getInstance().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
-        newView.setInlineViewDef(stmt.getInlineViewDef());
+        newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+                ConnectContext.get().getSessionVariable().getSqlMode());
         // init here in case the stmt string from view.toSql() has some syntax error.
         try {
             newView.init();

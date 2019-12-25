@@ -54,6 +54,7 @@ import org.apache.doris.common.UserException;
 import com.google.common.base.Preconditions;
 
 import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -269,7 +270,7 @@ public class Alter {
         }
     }
 
-    public void processAlterView(AlterViewStmt stmt) throws UserException {
+    public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
 
@@ -291,16 +292,16 @@ public class Alter {
             }
 
             View view = (View) table;
-            modifyViewDef(db, view, stmt.getInlineViewDef());
+            modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode());
         } finally {
             db.writeUnlock();
         }
     }
 
-    private void modifyViewDef(Database db, View view, String inlineViewDef) throws DdlException {
+    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode) throws DdlException {
         String viewName = view.getName();
 
-        view.setInlineViewDef(inlineViewDef);
+        view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
         try {
             view.init();
         } catch (UserException e) {
@@ -310,7 +311,7 @@ public class Alter {
         db.dropTable(viewName);
         db.createTable(view);
 
-        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef);
+        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, sqlMode);
         Catalog.getInstance().getEditLog().logModifyViewDef(alterViewInfo);
         LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
     }
@@ -325,7 +326,7 @@ public class Alter {
         try {
             View view = (View) db.getTable(tableId);
             String viewName = view.getName();
-            view.setInlineViewDef(inlineViewDef);
+            view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
             try {
                 view.init();
             } catch (UserException e) {
