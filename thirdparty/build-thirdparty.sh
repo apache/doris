@@ -654,6 +654,7 @@ build_orc() {
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR\
+    -DBUILD_LIBHDFSPP=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
 
     make -j$PARALLEL && make install
