@@ -167,6 +167,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.TagManager;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
@@ -368,6 +369,8 @@ public class Catalog {
 
     private SmallFileMgr smallFileMgr;
 
+    private TagManager tagManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -489,6 +492,8 @@ public class Catalog {
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
         this.smallFileMgr = new SmallFileMgr();
+
+        this.tagManager = new TagManager();
     }
 
     public static void destroyCheckpoint() {
@@ -4571,6 +4576,10 @@ public class Catalog {
 
     public SmallFileMgr getSmallFileMgr() {
         return this.smallFileMgr;
+    }
+
+    public TagManager getTagManager() {
+        return tagManager;
     }
 
     public long getReplayedJournalId() {

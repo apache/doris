@@ -50,6 +50,7 @@ public final class ProcService {
         root.register("cluster_balance", new ClusterBalanceProcDir());
         root.register("routine_loads", new RoutineLoadsProcDir());
         root.register("colocation_group", new ColocationGroupProcDir());
+        root.register("tags", new TagsProcNode(Catalog.getCurrentCatalog().getTagManager()));
     }
 
     // 通过指定的路径获得对应的PROC Node

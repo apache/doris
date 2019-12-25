@@ -169,8 +169,10 @@ public class SystemInfoService {
 
         newBackend.convertToTagSystem();
 
+        Catalog.getCurrentCatalog().getTagManager().addResourceTags(newBackend.getId(), newBackend.getTagSet());
+
         // log
-        Catalog.getInstance().getEditLog().logAddBackend(newBackend);
+        Catalog.getCurrentCatalog().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
@@ -227,6 +229,9 @@ public class SystemInfoService {
         } else {
             LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
         }
+
+        Catalog.getCurrentCatalog().getTagManager().removeResource(droppedBackend.getId());
+
         // log
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
@@ -1013,6 +1018,7 @@ public class SystemInfoService {
         }
 
         newBackend.convertToTagSystem();
+        Catalog.getCurrentCatalog().getTagManager().addResourceTags(newBackend.getId(), newBackend.getTagSet());
     }
 
     public void replayDropBackend(Backend backend) {
@@ -1036,6 +1042,7 @@ public class SystemInfoService {
         } else {
             LOG.error("Cluster " + backend.getOwnerClusterName() + " no exist.");
         }
+        Catalog.getCurrentCatalog().getTagManager().removeResource(backend.getId());
     }
 
     public void updateBackendState(Backend be) {

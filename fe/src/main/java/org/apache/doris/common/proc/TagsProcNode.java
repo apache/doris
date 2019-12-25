@@ -18,39 +18,36 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.resource.TagManager;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+public class TagsProcNode implements ProcNodeInterface {
+    private static final Logger LOG = LogManager.getLogger(TagsProcNode.class);
 
-// 通用PROC DIR类，可以进行注册，返回底层节点内容。
-// 非线程安全的，需要调用者考虑线程安全内容。
-public class BaseProcDir implements ProcDirInterface {
-    protected Map<String, ProcNodeInterface> nodeMap = new ConcurrentSkipListMap<>();;
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Tags").add("ResourceIds")
+            .build();
 
-    public BaseProcDir() {
-    }
+    private TagManager tagManager;
 
-    @Override
-    public boolean register(String name, ProcNodeInterface node) {
-        nodeMap.put(name, node);
-        return true;
-    }
-
-    @Override
-    public ProcNodeInterface lookup(String name) {
-        return nodeMap.get(name);
+    public TagsProcNode(TagManager tagManager) {
+        this.tagManager = tagManager;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
+        Preconditions.checkNotNull(tagManager);
+
         BaseProcResult result = new BaseProcResult();
-        result.setNames(Lists.newArrayList("name"));
-        for (String name : nodeMap.keySet()) {
-            result.addRow(Lists.newArrayList(name));
-        }
+        result.setNames(TITLE_NAMES);
+        result.setRows(tagManager.getShowInfos());
         return result;
     }
 }
+
+

@@ -21,7 +21,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -29,6 +31,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -192,6 +195,23 @@ public class TagManager implements Writable {
                 tagIndex.put(tag, resourceId);
             }
         }
+    }
+
+    public List<List<String>> getShowInfos() {
+        List<List<String>> infos = Lists.newArrayList();
+        lock.readLock().lock();
+        try {
+            for (Tag tag : tagIndex.keySet()) {
+                Set<Long> resourceIds = tagIndex.get(tag);
+                List<String> info = Lists.newArrayList();
+                info.add(tag.toString());
+                info.add(Joiner.on(",").join(resourceIds));
+                infos.add(info);
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+        return infos;
     }
 
     @Override
