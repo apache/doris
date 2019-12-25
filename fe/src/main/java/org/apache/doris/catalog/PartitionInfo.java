@@ -167,7 +167,7 @@ public class PartitionInfo implements Writable {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
 
-            if (Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_70) {
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_70) {
                 short replicationNum = in.readShort();
                 idToReplicationNum.put(partitionId, replicationNum);
             } else {
