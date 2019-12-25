@@ -28,7 +28,8 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.metric.MetricVisitor;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -60,8 +61,13 @@ public class MetaCheckAction extends RestBaseAction {
 
     @Override
     protected void executeWithoutPassword(BaseRequest request, BaseResponse response) {
+        if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            response.setContentType("text/plain");
+            response.getContent().append("Access denied. Need ADMIN privilege");
+            sendResult(request, response);
+        }
+
         String type = request.getSingleParameter(TYPE_PARAM);
-        MetricVisitor visitor = null;
         if (Strings.isNullOrEmpty(type)) {
             response.setContentType("text/plain");
             response.getContent().append("Missing type parameter");
