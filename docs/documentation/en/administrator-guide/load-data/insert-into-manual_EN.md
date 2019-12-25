@@ -49,11 +49,15 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 
 **Notice**
 
-When using `CTE(Common Table Expressions)` as the query part of insert operation, the `WITH LABEL` part must be specified.
+When using `CTE(Common Table Expressions)` as the query part of insert operation, the `WITH LABEL` or column list part must be specified.
 For example:
 
 ```
 INSERT INTO tbl1 WITH LABEL label1
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+
+INSERT INTO tbl1 (k1)
 WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
 SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
 ```

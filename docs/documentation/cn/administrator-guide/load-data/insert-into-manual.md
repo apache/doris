@@ -49,10 +49,15 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 
 **注意**
 
-当需要使用 `CTE(Common Table Expressions)` 作为 insert 操作中的查询部分时，必须指定 `WITH LABEL` 部分。示例
+当需要使用 `CTE(Common Table Expressions)` 作为 insert 操作中的查询部分时，必须指定 `WITH LABEL` 和 column list 部分。示例
 
 ```
 INSERT INTO tbl1 WITH LABEL label1
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+
+
+INSERT INTO tbl1 (k1)
 WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
 SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
 ```
