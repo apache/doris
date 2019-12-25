@@ -264,7 +264,7 @@ OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
-	memcpy(dest, &result, sizeof(T));
+    memcpy(dest, &result, sizeof(T));
     return OLAPStatus::OLAP_SUCCESS;
 }
 
