@@ -264,11 +264,7 @@ OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
-    if (typeid(T) == typeid(CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType)) {
 	memcpy(dest, &result, sizeof(T));
-    } else {
-	*reinterpret_cast<T*>(dest) = result;
-    }
     return OLAPStatus::OLAP_SUCCESS;
 }
 
