@@ -17,11 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,6 +37,8 @@ import java.util.Map;
  * Repository of a partition's related infos
  */
 public class PartitionInfo implements Writable {
+    private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
+
     protected PartitionType type;
     // partition id -> data property
     protected Map<Long, DataProperty> idToDataProperty = Maps.newHashMap();
@@ -112,6 +118,18 @@ public class PartitionInfo implements Writable {
             setReplicationNum(partitionId, replicaAlloc);
         }
         idToReplicationNum.clear();
+    }
+
+    /*
+     * This method is only for checking whether the replica allocation converted successfully.
+     */
+    public void checkReplicaAllocation() throws DdlException {
+        if (!idToReplicationNum.isEmpty()) {
+            throw new DdlException("idToReplicationNum is not empty");
+        }
+        if (idToReplicaAllocation.size() != idToDataProperty.size()) {
+            throw new DdlException("idToReplicaAllocation size is incorrect");
+        }
     }
 
     @Override

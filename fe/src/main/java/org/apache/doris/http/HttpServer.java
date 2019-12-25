@@ -49,6 +49,7 @@ import org.apache.doris.http.rest.GetSmallFileAction;
 import org.apache.doris.http.rest.GetStreamLoadState;
 import org.apache.doris.http.rest.HealthAction;
 import org.apache.doris.http.rest.LoadAction;
+import org.apache.doris.http.rest.MetaCheckAction;
 import org.apache.doris.http.rest.MetaReplayerCheckAction;
 import org.apache.doris.http.rest.MetricsAction;
 import org.apache.doris.http.rest.MigrationAction;
@@ -163,6 +164,7 @@ public class HttpServer {
         CheckAction.registerAction(controller, imageDir);
         DumpAction.registerAction(controller, imageDir);
         RoleAction.registerAction(controller, imageDir);
+        MetaCheckAction.registerAction(controller);
 
         // external usage
         TableRowCountAction.registerAction(controller);

@@ -21,6 +21,7 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -661,6 +662,19 @@ public class Backend extends Resource implements Writable {
         if (!ownerClusterName.get().equals(SystemInfoService.DEFAULT_CLUSTER)) {
             Tag locationTag = Tag.createNoThrow(Tag.TYPE_LOCATION, ownerClusterName.get());
             this.tagSet.substituteMerge(TagSet.create(locationTag));
+        }
+    }
+
+    /*
+     * Only used for checking whether the tag system converted successfully
+     */
+    public void checkTagSetConverted() throws DdlException {
+        if (tagSet.isEmpty()) {
+            throw new DdlException("tag set is empty");
+        }
+
+        if (!tagSet.containsTag(Tag.createNoThrow(Tag.TYPE_LOCATION, ownerClusterName.get()))) {
+            throw new DdlException("tag set does not contain location with cluster: " + ownerClusterName.get());
         }
     }
 }
