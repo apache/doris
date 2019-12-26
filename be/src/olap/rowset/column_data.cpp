@@ -478,7 +478,9 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     res = _get_block(false);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("fail to load data to row block. [res=%d]", res);
+            LOG(WARNING) << "fail to load data to row block. res=" << res
+                         << ", version=" << version().first
+                         << "-" << version().second;
         }
         *row_block = nullptr;
         return res;
