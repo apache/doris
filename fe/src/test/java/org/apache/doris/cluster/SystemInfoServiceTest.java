@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.resource.TagManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -91,6 +92,7 @@ public class SystemInfoServiceTest {
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
         EasyMock.expect(catalog.getDb(EasyMock.anyLong())).andReturn(db).anyTimes();
         EasyMock.expect(catalog.getCluster(EasyMock.anyString())).andReturn(new Cluster("cluster", 1)).anyTimes();
+        EasyMock.expect(catalog.getTagManager()).andReturn(new TagManager()).anyTimes();
 
         catalog.clear();
         EasyMock.expectLastCall().anyTimes();
@@ -100,6 +102,7 @@ public class SystemInfoServiceTest {
         systemInfoService = new SystemInfoService();
         invertedIndex = new TabletInvertedIndex();
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
         EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
         EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
@@ -166,19 +169,19 @@ public class SystemInfoServiceTest {
     @Test(expected = AnalysisException.class)
     public void validHostAndPortTest1() throws Exception {
         createHostAndPort(1);
-        systemInfoService.validateHostAndPort(hostPort);
+        SystemInfoService.validateHostAndPort(hostPort);
     }
 
     @Test(expected = AnalysisException.class)
     public void validHostAndPortTest3() throws Exception {
         createHostAndPort(3);
-        systemInfoService.validateHostAndPort(hostPort);
+        SystemInfoService.validateHostAndPort(hostPort);
     }
 
     @Test
     public void validHostAndPortTest4() throws Exception {
         createHostAndPort(4);
-        systemInfoService.validateHostAndPort(hostPort);
+        SystemInfoService.validateHostAndPort(hostPort);
     }
 
     @Test

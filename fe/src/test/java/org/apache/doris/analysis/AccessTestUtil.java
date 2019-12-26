@@ -38,6 +38,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.TagManager;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
@@ -104,6 +105,8 @@ public class AccessTestUtil {
             EasyMock.expect(catalog.getRollupHandler()).andReturn(new MaterializedViewHandler()).anyTimes();
             EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
             EasyMock.expect(catalog.getClusterDbNames("testCluster")).andReturn(Lists.newArrayList("testCluster:testDb")).anyTimes();
+            EasyMock.expect(catalog.getTagManager()).andReturn(new TagManager()).anyTimes();
+
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq("blockDb"));
             EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));

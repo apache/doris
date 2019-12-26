@@ -39,7 +39,7 @@ public class DescribeStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
     private ConnectContext ctx;
-
+    
     @Before
     public void setUp() {
         ctx = new ConnectContext(null);
@@ -57,7 +57,6 @@ public class DescribeStmtTest {
         EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(AccessTestUtil.fetchSystemInfoService()).anyTimes();
         PowerMock.replay(Catalog.class);
-
     }
 
     @Test

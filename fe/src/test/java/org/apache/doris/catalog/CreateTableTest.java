@@ -24,6 +24,7 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -66,8 +67,7 @@ public class CreateTableTest {
     private Database db = new Database();
     private Analyzer analyzer;
 
-    @Injectable
-    ConnectContext connectContext;
+    ConnectContext ctx;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -86,7 +86,9 @@ public class CreateTableTest {
         columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
         columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createVarchar(10))));
 
-        analyzer = new Analyzer(catalog, connectContext);
+        analyzer = new Analyzer(catalog, ctx);
+
+        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
         new Expectations(analyzer) {
             {
@@ -95,6 +97,13 @@ public class CreateTableTest {
                 result = clusterName;
             }
         };
+
+        ctx = new ConnectContext(null);
+        ctx.setQualifiedUser("root");
+        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setThreadLocalInfo();
 
         dbTableName.analyze(analyzer);
     }
