@@ -142,6 +142,8 @@ public class SingleRangePartitionDesc {
             // after introducing the replica allocation. we need the cluster info, so that we can convert
             // the "replicationNum" to "replicaAllocation"
             this.clusterName = ConnectContext.get().getClusterName();
+        } else {
+            this.clusterName = SystemInfoService.DEFAULT_CLUSTER;
         }
 
         this.isAnalyzed = true;
