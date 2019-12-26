@@ -370,7 +370,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     int64_t result_bigint =  std::numeric_limits<int64_t>::max();
     test_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
     int128_t result_largeint =  std::numeric_limits<int64_t>::max();
-    test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint)
+    test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
 
     std::string v_float("1.00");
     float result2 = 1.00;
