@@ -90,7 +90,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
                 break;
             }
 
-            // we meet a delete version, and no othher versions before, skip it and continue
+            // we meet a delete version, and no other versions before, skip it and continue
             transient_rowsets.clear();
             compaction_score = 0;
             continue;

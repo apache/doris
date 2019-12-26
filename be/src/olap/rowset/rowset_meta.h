@@ -344,9 +344,8 @@ public:
         if (!is_segments_overlapping()) {
             score = 1;
         } else {
-            // if this is a delete version, num_segments() will be 0.
-            // so set at least 1 to avoid return 0.
-            score = num_segments() == 0 ? 1 : num_segments();
+            score = num_segments();
+            CHECK(score > 0);
         }
         return score;
     }
