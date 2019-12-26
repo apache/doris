@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,19 +30,12 @@ import java.util.List;
 // Alter view statement
 public class AlterViewStmt extends BaseViewStmt {
 
-    private final List<Type> types;
-
     public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
         super(tbl, cols, queryStmt);
-        types = Lists.newArrayList();
     }
 
     public TableName getTbl() {
         return tableName;
-    }
-
-    public List<Type> getTypes() {
-        return types;
     }
 
     @Override
@@ -70,12 +61,6 @@ public class AlterViewStmt extends BaseViewStmt {
         Analyzer viewAnalyzer = new Analyzer(analyzer);
 
         viewDefStmt.analyze(viewAnalyzer);
-
-        // save the types here to update the schema of view, or else we have to analyze inlineViewDef when init the view.
-        for(int i = 0 ; i < viewDefStmt.getBaseTblResultExprs().size(); i++) {
-            types.add(viewDefStmt.getBaseTblResultExprs().get(i).getType());
-        }
-
         createColumnAndViewDefs(analyzer);
     }
 
