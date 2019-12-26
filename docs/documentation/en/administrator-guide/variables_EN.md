@@ -254,7 +254,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
     A query plan typically produces a set of scan ranges, the range of data that needs to be scanned. These data are distributed across multiple BE nodes. A BE node will have one or more scan ranges. By default, a set of scan ranges for each BE node is processed by only one execution instance. When the machine resources are abundant, you can increase the variable and let more execution instances process a set of scan ranges at the same time, thus improving query efficiency.
     
-    Modifying this parameter is only helpful for improving the efficiency of the scan node. Larger values ​​may consume more machine resources such as CPU, memory, and disk IO.
+    The number of scan instances determines the number of other execution nodes in the upper layer, such as aggregate nodes and join nodes. Therefore, it is equivalent to increasing the concurrency of the entire query plan execution. Modifying this parameter will help improve the efficiency of large queries, but larger values will consume more machine resources, such as CPU, memory, and disk IO.
     
 * `query_cache_size`
 
