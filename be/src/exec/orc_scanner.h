@@ -23,6 +23,7 @@
 #include <string>
 #include <map>
 #include <sstream>
+#include <orc/OrcFile.hh>
 
 #include "exec/base_scanner.h"
 #include "exec/file_reader.h"
@@ -34,7 +35,6 @@
 #include "runtime/tuple.h"
 #include "util/slice.h"
 #include "util/runtime_profile.h"
-#include "orc/OrcFile.hh"
 
 namespace doris {
 
@@ -57,28 +57,18 @@ public:
     ORCFileStream(FileReader *file, std::string filename) : _file(file), _filename(filename) {
     }
 
-    ~ORCFileStream() {
-        if (_file) {
-            _file->close();
-            delete _file;
-            _file = nullptr;
-        }
-    }
+    ~ORCFileStream();
 
     /**
      * Get the total length of the file in bytes.
      */
-    uint64_t getLength() const {
-        return _file->size();
-    }
+    uint64_t getLength() const;
 
     /**
      * Get the natural size for reads.
      * @return the number of bytes that should be read at once
      */
-    uint64_t getNaturalReadSize() const {
-        return 128 * 1024;
-    }
+    uint64_t getNaturalReadSize() const;
 
     /**
      * Read length bytes from the file starting at offset into
@@ -87,50 +77,26 @@ public:
      * @param length the number of bytes to read.
      * @param offset the position in the stream to read from.
      */
-     void read(void *buf, uint64_t length, uint64_t offset) {
-        if (!buf) {
-            throw orc::ParseError("Buffer is null");
-        }
-
-        int64_t bytes_read = 0;
-        int64_t reads = 0;
-        while (bytes_read < length) {
-            Status result = _file->readat(offset, length - bytes_read, &reads, buf);
-            if (!result.ok()) {
-                throw orc::ParseError("Bad read of " + _filename);
-            }
-            if (reads == 0) {
-                break;
-            }
-            bytes_read += reads;// total read bytes
-            offset += reads;
-            buf = (char *) buf + reads;
-        }
-        if (length != bytes_read) {
-            throw orc::ParseError("Short read of " + _filename
-                + ". expected :" + std::to_string(length) + ", actual : " + std::to_string(bytes_read));
-        }
-    }
+    void read(void *buf, uint64_t length, uint64_t offset);
 
     /**
      * Get the name of the stream for error messages.
      */
-    const std::string &getName() const {
-        return _filename;
-    }
+    const std::string& getName() const;
 
 private:
     FileReader *_file;
     std::string _filename;
 };
+
 // Broker scanner convert the data read from broker to doris's tuple.
 class ORCScanner : public BaseScanner {
 public:
-    ORCScanner(RuntimeState* state,
-    RuntimeProfile *profile,
-    const TBrokerScanRangeParams &params,
-    const std::vector<TBrokerRangeDesc> &ranges,
-    const std::vector<TNetworkAddress> &broker_addresses,ScannerCounter* counter);
+    ORCScanner(RuntimeState *state,
+               RuntimeProfile *profile,
+               const TBrokerScanRangeParams& params,
+               const std::vector<TBrokerRangeDesc>& ranges,
+               const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter *counter);
 
     ~ORCScanner();
 
@@ -148,8 +114,8 @@ private:
     Status open_next_reader();
 
 private:
-    const std::vector<TBrokerRangeDesc> &_ranges;
-    const std::vector<TNetworkAddress> &_broker_addresses;
+    const std::vector<TBrokerRangeDesc>& _ranges;
+    const std::vector<TNetworkAddress>& _broker_addresses;
 
     // Reader
     int _next_range;
@@ -170,8 +136,8 @@ private:
 
     int _total_groups; // groups in a orc file
     int _current_group;
-    int _rows_of_group; // rows in a group.
-    int _current_line_of_group;
+    int64_t _rows_of_group; // rows in a group.
+    int64_t _current_line_of_group;
 };
 
 }
