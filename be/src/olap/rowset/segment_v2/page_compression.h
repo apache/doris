@@ -83,6 +83,12 @@ public:
     // smaller enough than raw data, this class will return uncompressed data.
     Status compress(const std::vector<Slice>& raw_data,
                     std::vector<Slice>* compressed_data);
+
+    // Try to compress input raw data into compressed page by returning OwnedSlice
+    // according given BlockCompressionCodec. If compressed page is not
+    // smaller enough than raw data, this class will return uncompressed data.
+    Status compress(const std::vector<Slice>& raw_data,
+                    OwnedSlice* compressed_data, bool* compressed);
 private:
     const BlockCompressionCodec* _codec;
 
