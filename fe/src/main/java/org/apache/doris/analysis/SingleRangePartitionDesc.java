@@ -25,6 +25,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
@@ -45,6 +47,9 @@ public class SingleRangePartitionDesc {
     private Short replicationNum;
     private Pair<Long, Long> versionInfo;
 
+    // cluster name should be set in analysis phase, and is used for creating default replica allocation.
+    private String clusterName;
+
     public SingleRangePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                     Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
@@ -57,6 +62,7 @@ public class SingleRangePartitionDesc {
 
         this.partitionDataProperty = DataProperty.DEFAULT_HDD_DATA_PROPERTY;
         this.replicationNum = FeConstants.default_replication_num;
+        this.clusterName = SystemInfoService.DEFAULT_CLUSTER;
     }
 
     public boolean isSetIfNotExists() {
@@ -85,6 +91,10 @@ public class SingleRangePartitionDesc {
 
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    public String getClusterName() {
+        return clusterName;
     }
 
     public void analyze(int partColNum, Map<String, String> otherProperties) throws AnalysisException {
@@ -126,6 +136,12 @@ public class SingleRangePartitionDesc {
                 MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
                 throw new AnalysisException("Unknown properties: " + mapJoiner.join(properties));
             }
+        }
+
+        if (ConnectContext.get() != null) {
+            // after introducing the replica allocation. we need the cluster info, so that we can convert
+            // the "replicationNum" to "replicaAllocation"
+            this.clusterName = ConnectContext.get().getClusterName();
         }
 
         this.isAnalyzed = true;

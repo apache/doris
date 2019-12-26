@@ -70,6 +70,16 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
+    // get replication number from an arbitrary partition
+    // this is just for colocation index
+    public short getArbitraryReplicationNum() {
+        if (!idToReplicationNum.isEmpty()) {
+            return idToReplicationNum.values().stream().findFirst().get();
+        } else {
+            return idToReplicaAllocation.values().stream().findFirst().get().getReplicaNum();
+        }
+    }
+
     public short getReplicationNum(long partitionId) {
         if (idToReplicationNum.containsKey(partitionId)) {
             return idToReplicationNum.get(partitionId);
@@ -89,6 +99,7 @@ public class PartitionInfo implements Writable {
     public void dropPartition(long partitionId) {
         idToDataProperty.remove(partitionId);
         idToReplicationNum.remove(partitionId);
+        idToReplicaAllocation.remove(partitionId);
     }
 
     public void addPartition(long partitionId, DataProperty dataProperty, ReplicaAllocation replicaAlloc) {
@@ -104,6 +115,29 @@ public class PartitionInfo implements Writable {
 
     public boolean isMultiColumnPartition() {
         return isMultiColumnPartition;
+    }
+
+    // this only for restore job. reset the partition id in idToReplicaAllocation
+    public void resetPartitionReplicaNum(Long oldPartId, long newPartId, ReplicaAllocation newReplicaAlloc) {
+        idToReplicationNum.remove(oldPartId);
+        idToReplicaAllocation.remove(oldPartId);
+        idToReplicaAllocation.put(newPartId, newReplicaAlloc);
+    }
+
+    // return true if all partitions replication num equals with specified replication num
+    public boolean isReplicaNumSameWith(short expectedReplicaNum) {
+        for (Short replicaNum : idToReplicationNum.values()) {
+            if (replicaNum != expectedReplicaNum) {
+                return false;
+            }
+        }
+        for (ReplicaAllocation replicaAlloc : idToReplicaAllocation.values()) {
+            if (replicaAlloc.getReplicaNum() != expectedReplicaNum) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public String toSql(OlapTable table, List<Long> partitionId) {

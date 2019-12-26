@@ -96,10 +96,8 @@ public class ColocateGroupSchema implements Writable {
     }
 
     public void checkReplicationNum(PartitionInfo partitionInfo) throws DdlException {
-        for (Short repNum : partitionInfo.idToReplicationNum.values()) {
-            if (repNum != replicationNum) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, replicationNum);
-            }
+        if (!partitionInfo.isReplicaNumSameWith(replicationNum)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, replicationNum);
         }
     }
 

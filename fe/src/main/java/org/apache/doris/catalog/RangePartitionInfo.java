@@ -190,7 +190,9 @@ public class RangePartitionInfo extends PartitionInfo {
             throw new DdlException("Invalid key range: " + e.getMessage());
         }
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
-        idToReplicationNum.put(partitionId, desc.getReplicationNum());
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault(desc.getReplicationNum(),
+                desc.getClusterName());
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
         return range;
     }
 

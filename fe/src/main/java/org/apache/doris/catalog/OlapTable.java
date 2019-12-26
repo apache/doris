@@ -323,15 +323,15 @@ public class OlapTable extends Table {
         }
 
         // reset partition info and idToPartition map
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.createDefault((short) restoreReplicationNum,
+                db.getClusterName());
         if (partitionInfo.getType() == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = catalog.getNextId();
                 rangePartitionInfo.idToDataProperty.put(newPartId,
                                                         rangePartitionInfo.idToDataProperty.remove(entry.getValue()));
-                rangePartitionInfo.idToReplicationNum.remove(entry.getValue());
-                rangePartitionInfo.idToReplicationNum.put(newPartId,
-                                                          (short) restoreReplicationNum);
+                rangePartitionInfo.resetPartitionReplicaNum(entry.getValue(), newPartId, replicaAlloc);
                 rangePartitionInfo.getIdToRange().put(newPartId,
                                                       rangePartitionInfo.getIdToRange().remove(entry.getValue()));
 
@@ -342,8 +342,7 @@ public class OlapTable extends Table {
             long newPartId = catalog.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
+                partitionInfo.resetPartitionReplicaNum(entry.getValue(), newPartId, replicaAlloc);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }

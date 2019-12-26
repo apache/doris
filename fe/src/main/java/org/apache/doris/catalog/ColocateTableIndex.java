@@ -161,7 +161,7 @@ public class ColocateTableIndex implements Writable {
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
+                        tbl.getPartitionInfo().getArbitraryReplicationNum());
                 group2Schema.put(groupId, groupSchema);
             }
             group2Tables.put(groupId, tbl.getId());
@@ -667,7 +667,7 @@ public class ColocateTableIndex implements Writable {
                         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                                 ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(), 
                                 tbl.getDefaultDistributionInfo().getBucketNum(),
-                                tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
+                                tbl.getPartitionInfo().getArbitraryReplicationNum());
                         group2Schema.put(groupId, groupSchema);
                         group2BackendsPerBucketSeq.put(groupId, tmpGroup2BackendsPerBucketSeq.get(groupId.grpId));
                     }

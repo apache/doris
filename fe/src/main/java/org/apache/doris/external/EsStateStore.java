@@ -296,8 +296,7 @@ public class EsStateStore extends MasterDaemon {
             long partitionId = 0;
             for (EsIndexState esIndexState : esIndexStates) {
                 Range<PartitionKey> range = ((RangePartitionInfo) partitionInfo).handleNewSinglePartitionDesc(
-                        esIndexState.getPartitionDesc(),
-                        partitionId);
+                        esIndexState.getPartitionDesc(), partitionId);
                 esTableState.addPartition(esIndexState.getIndexName(), partitionId);
                 esIndexState.setPartitionId(partitionId);
                 ++partitionId;
