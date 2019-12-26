@@ -47,6 +47,21 @@ INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
 INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 ```
 
+**Notice**
+
+When using `CTE(Common Table Expressions)` as the query part of insert operation, the `WITH LABEL` or column list part must be specified.
+For example:
+
+```
+INSERT INTO tbl1 WITH LABEL label1
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+
+INSERT INTO tbl1 (k1)
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+```
+
 The following is a brief introduction to the parameters used in creating import statements:
 
 + partition\_info
