@@ -33,25 +33,34 @@ import java.nio.channels.SocketChannel;
 public class MysqlChannel {
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
     // one packet will split to many packets
-    private static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff - 1;
+    protected static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff - 1;
     // MySQL packet header length
-    private static final int PACKET_HEADER_LEN = 4;
+    protected static final int PACKET_HEADER_LEN = 4;
     // logger for this class
-    private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
+    protected static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // next sequence id to receive or send
-    private int sequenceId;
+    protected int sequenceId;
     // channel connected with client
-    private SocketChannel channel;
+    protected SocketChannel channel;
     // used to receive/send header, avoiding new this many time.
-    private ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+    protected ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
     // default packet byte buffer for most packet
-    private ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
-    private ByteBuffer sendBuffer;
+    protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
+    protected ByteBuffer sendBuffer;
     // for log and show
-    private String remoteHostPortString;
-    private String remoteIp;
-    private boolean isSend;
+    protected String remoteHostPortString;
+    protected String remoteIp;
+    protected boolean isSend;
 
+
+    public MysqlChannel() {
+        this.sequenceId = 0;
+        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.isSend = false;
+        this.remoteHostPortString = "";
+        this.remoteIp = "";
+    }
+    
     public MysqlChannel(SocketChannel channel) {
         this.sequenceId = 0;
         this.channel = channel;
@@ -112,7 +121,7 @@ public class MysqlChannel {
         }
     }
 
-    private int readAll(ByteBuffer dstBuf) throws IOException {
+    protected int readAll(ByteBuffer dstBuf) throws IOException {
         int readLen = 0;
         while (dstBuf.remaining() != 0) {
             int ret = channel.read(dstBuf);
@@ -178,7 +187,7 @@ public class MysqlChannel {
         return result;
     }
 
-    private void realNetSend(ByteBuffer buffer) throws IOException {
+    protected void realNetSend(ByteBuffer buffer) throws IOException {
         long bufLen = buffer.remaining();
         long writeLen = channel.write(buffer);
         if (bufLen != writeLen) {

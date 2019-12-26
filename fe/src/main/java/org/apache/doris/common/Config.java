@@ -267,6 +267,11 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /*
+    * nio enabled
+     */
+    @ConfField public static boolean nio_enabled = false;
+
+    /*
      * Cluster name will be shown as the title of web page
      */
     @ConfField public static String cluster_name = "Baidu Palo";

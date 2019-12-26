@@ -41,60 +41,60 @@ import java.util.List;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    private static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
 
     // set this id before analyze
-    private volatile long stmtId;
-    private volatile long forwardedStmtId;
+    protected volatile long stmtId;
+    protected volatile long forwardedStmtId;
 
-    private volatile TUniqueId queryId;
+    protected volatile TUniqueId queryId;
     // id for this connection
-    private volatile int connectionId;
+    protected volatile int connectionId;
     // mysql net
-    private volatile MysqlChannel mysqlChannel;
+    protected volatile MysqlChannel mysqlChannel;
     // state
-    private volatile QueryState state;
-    private volatile long returnRows;
+    protected volatile QueryState state;
+    protected volatile long returnRows;
     // the protocol capability which server say it can support
-    private volatile MysqlCapability serverCapability;
+    protected volatile MysqlCapability serverCapability;
     // the protocol capability after server and client negotiate
-    private volatile MysqlCapability capability;
+    protected volatile MysqlCapability capability;
     // Indicate if this client is killed.
-    private volatile boolean isKilled;
+    protected volatile boolean isKilled;
     // Db
-    private volatile String currentDb = "";
+    protected volatile String currentDb = "";
     // cluster name
-    private volatile String clusterName = "";
+    protected volatile String clusterName = "";
     // username@host of current login user
-    private volatile String qualifiedUser;
+    protected volatile String qualifiedUser;
     // username@host combination for the Doris account
     // that the server used to authenticate the current client.
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
-    private volatile UserIdentity currentUserIdentity;
+    protected volatile UserIdentity currentUserIdentity;
     // Serializer used to pack MySQL packet.
-    private volatile MysqlSerializer serializer;
+    protected volatile MysqlSerializer serializer;
     // Variables belong to this session.
-    private volatile SessionVariable sessionVariable;
+    protected volatile SessionVariable sessionVariable;
     // Scheduler this connection belongs to
-    private volatile ConnectScheduler connectScheduler;
+    protected volatile ConnectScheduler connectScheduler;
     // Executor
-    private volatile StmtExecutor executor;
+    protected volatile StmtExecutor executor;
     // Command this connection is processing.
-    private volatile MysqlCommand command;
+    protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
-    private volatile long startTime;
+    protected volatile long startTime;
     // Cache thread info for this connection.
-    private volatile ThreadInfo threadInfo;
+    protected volatile ThreadInfo threadInfo;
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
-    private Catalog catalog;
-    private boolean isSend;
+    protected Catalog catalog;
+    protected boolean isSend;
 
-    private AuditBuilder auditBuilder;
+    protected AuditBuilder auditBuilder;
 
-    private String remoteIP;
+    protected String remoteIP;
 
     public static ConnectContext get() {
         return threadLocalInfo.get();
@@ -110,6 +110,17 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public ConnectContext(){
+        state = new QueryState();
+        returnRows = 0;
+        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
+        isKilled = false;
+        serializer = MysqlSerializer.newInstance();
+        sessionVariable = VariableMgr.newSessionVariable();
+        auditBuilder = new AuditBuilder();
+        command = MysqlCommand.COM_SLEEP;
     }
 
     public ConnectContext(SocketChannel channel) {
