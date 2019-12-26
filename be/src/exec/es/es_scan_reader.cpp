@@ -65,7 +65,7 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
         // add terminate_after for the first scroll to avoid decompress all postings list
         _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + _scroll_keep_alive + REQUEST_PREFERENCE_PREFIX + _shards
                                    + "&" + REUQEST_SCROLL_FILTER_PATH
-                                   + "&terminate_after=" + batch_size_str;;
+                                   + "&terminate_after=" + batch_size_str;
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     }
     _eos = false;
