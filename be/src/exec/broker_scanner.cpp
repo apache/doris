@@ -194,6 +194,9 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     case TFileFormatType::FORMAT_CSV_LZOP:
         compress_type = CompressType::LZOP;
         break;
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
     default: {
         std::stringstream ss;
         ss << "Unknown format type, type=" << type;
@@ -242,6 +245,7 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_BZ2:
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
         _cur_line_reader = new PlainTextLineReader(
                 _profile,
                 _cur_file_reader, _cur_decompressor,

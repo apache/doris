@@ -415,6 +415,8 @@ public class BrokerScanNode extends LoadScanNode {
             return TFileFormatType.FORMAT_CSV_LZ4FRAME;
         } else if (lowerCasePath.endsWith(".lzo")) {
             return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileFormatType.FORMAT_CSV_DEFLATE;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }
