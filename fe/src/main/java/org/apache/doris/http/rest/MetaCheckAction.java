@@ -61,7 +61,7 @@ public class MetaCheckAction extends RestBaseAction {
 
     @Override
     protected void executeWithoutPassword(BaseRequest request, BaseResponse response) {
-        if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             response.setContentType("text/plain");
             response.getContent().append("Access denied. Need ADMIN privilege");
             sendResult(request, response);
