@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -39,11 +40,13 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -292,13 +295,13 @@ public class Alter {
             }
 
             View view = (View) table;
-            modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode());
+            modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
         } finally {
             db.writeUnlock();
         }
     }
 
-    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode) throws DdlException {
+    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode, List<Column> newFullSchema) throws DdlException {
         String viewName = view.getName();
 
         view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
@@ -307,6 +310,7 @@ public class Alter {
         } catch (UserException e) {
             throw new DdlException("failed to init view stmt", e);
         }
+        view.setNewFullSchema(newFullSchema);
 
         db.dropTable(viewName);
         db.createTable(view);
