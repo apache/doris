@@ -44,10 +44,7 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
         }
     }
     // check queue status before get result
-    Status status = queue->status();
-    if (!status.ok()) {
-        return status;
-    }
+    RETURN_IF_ERROR(queue->status());
     bool sucess = queue->blocking_get(result);
     if (sucess) {
         // sentinel nullptr indicates scan end
@@ -63,7 +60,7 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
     } else {
         *eos = true;
     }
-    return status;
+    return Status::OK();
 }
 
 void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue) {
@@ -90,18 +87,6 @@ Status ResultQueueMgr::cancel(const TUniqueId& fragment_instance_id) {
         _fragment_queue_map.erase(fragment_instance_id);
     }
     return Status::OK();
-}
-
-Status ResultQueueMgr::queue_status(const TUniqueId& fragment_instance_id) {
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _fragment_queue_map.find(fragment_instance_id);
-    if (iter != _fragment_queue_map.end()) {
-        return iter->second->status();
-    } else {
-        std::stringstream msg;
-        msg << "fragment_instance_id: " << fragment_instance_id << " not found";
-        return Status::NotFound(msg.str());
-    }
 }
 
 void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id, const Status& status) {

@@ -53,8 +53,6 @@ public:
 
     Status cancel(const TUniqueId& fragment_id);
 
-    Status queue_status(const TUniqueId& fragment_id);
-
     void update_queue_status(const TUniqueId& fragment_id, const Status& status);
 
 private:
