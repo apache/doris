@@ -42,7 +42,7 @@ protected:
 };
 
 TEST_F(ResultQueueMgrTest, create_normal) {
-    shared_block_queue_t block_queue_t;
+    BlockQueueSharedPtr block_queue_t;
     TUniqueId query_id;
     query_id.lo = 10;
     query_id.hi = 100;
@@ -57,11 +57,11 @@ TEST_F(ResultQueueMgrTest, create_same_queue) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    shared_block_queue_t block_queue_t_1;
+    BlockQueueSharedPtr block_queue_t_1;
     queue_mgr.create_queue(query_id, &block_queue_t_1);
     ASSERT_TRUE(block_queue_t_1 != nullptr);
 
-    shared_block_queue_t block_queue_t_2;
+    BlockQueueSharedPtr block_queue_t_2;
     queue_mgr.create_queue(query_id, &block_queue_t_2);
     ASSERT_TRUE(block_queue_t_2 != nullptr);
 
@@ -74,7 +74,7 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
 
-    shared_block_queue_t block_queue_t;
+    BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
 
@@ -110,7 +110,7 @@ TEST_F(ResultQueueMgrTest, fetch_result_end) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    shared_block_queue_t block_queue_t;
+    BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
     block_queue_t->blocking_put(nullptr);
@@ -127,7 +127,7 @@ TEST_F(ResultQueueMgrTest, normal_cancel) {
     query_id.lo = 10;
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
-    shared_block_queue_t block_queue_t;    
+    BlockQueueSharedPtr block_queue_t;    
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
     ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
@@ -138,7 +138,7 @@ TEST_F(ResultQueueMgrTest, cancel_no_block) {
     query_id.lo = 10;
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
-    shared_block_queue_t block_queue_t;    
+    BlockQueueSharedPtr block_queue_t;    
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
     ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
