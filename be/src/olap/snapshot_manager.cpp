@@ -217,6 +217,8 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     context.data_dir = &data_dir;
     context.version = org_rowset_meta->version();
     context.version_hash = org_rowset_meta->version_hash();
+    // keep segments_overlap same as origin rowset
+    context.segments_overlap = alpha_rowset_meta->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rs_writer;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rs_writer));

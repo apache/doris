@@ -92,12 +92,10 @@ private:
     RowCursor* _dst_cursor = nullptr;
     int _key_range_size;
 
-    // Singleton Rowset is a rowset which start version
-    // and end version of it is equal.
     // In streaming ingestion, row among different segment
     // groups may overlap, and is necessary to be taken
     // into consideration deliberately.
-    bool _is_singleton_rowset;
+    bool _is_segments_overlapping;
 
     // ordinal of ColumnData upon reading
     size_t _ordinal;

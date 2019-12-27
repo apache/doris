@@ -58,6 +58,7 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     _current_rowset_meta->set_tablet_schema_hash(_rowset_writer_context.tablet_schema_hash);
     _current_rowset_meta->set_rowset_type(_rowset_writer_context.rowset_type);
     _current_rowset_meta->set_rowset_state(rowset_writer_context.rowset_state);
+    _current_rowset_meta->set_segments_overlap(rowset_writer_context.segments_overlap);
     RowsetStatePB rowset_state = _rowset_writer_context.rowset_state;
     if (rowset_state == PREPARED
             || rowset_state == COMMITTED) {

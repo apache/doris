@@ -109,6 +109,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.data_dir = _tablet->data_dir();
     context.version = _output_version;
     context.version_hash = _output_version_hash;
+    context.segments_overlap = NONOVERLAPPING;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
 }

@@ -141,6 +141,7 @@ OLAPStatus DeltaWriter::init() {
     writer_context.data_dir = _tablet->data_dir();
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
+    writer_context.segments_overlap = OVERLAPPING;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
