@@ -51,11 +51,13 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
@@ -67,10 +69,9 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
@@ -4734,6 +4735,13 @@ public class Catalog {
         this.alter.processAlterTable(stmt);
     }
 
+    /**
+     * used for handling AlterViewStmt (the ALTER VIEW command).
+     */
+    public void alterView(AlterViewStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterView(stmt, ConnectContext.get());
+    }
+
     public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
         // TODO(ml): remove it
         throw new AnalysisException("The materialized view is coming soon");
@@ -5134,7 +5142,8 @@ public class Catalog {
         long tableId = Catalog.getInstance().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
-        newView.setInlineViewDef(stmt.getInlineViewDef());
+        newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+                ConnectContext.get().getSessionVariable().getSqlMode());
         // init here in case the stmt string from view.toSql() has some syntax error.
         try {
             newView.init();
