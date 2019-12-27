@@ -39,7 +39,7 @@ namespace doris {
 class TUniqueId;
 class TScanRowBatch;
 class RecordBatchQueue;
-typedef std::shared_ptr<RecordBatchQueue> shared_block_queue_t;
+typedef std::shared_ptr<RecordBatchQueue> BlockQueueSharedPtr;
 
 class ResultQueueMgr {
 
