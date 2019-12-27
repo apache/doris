@@ -179,7 +179,7 @@ public class BackendClient {
                 ex = e;
             }
         }
-        if (result != null && (TStatusCode.OK != equals(result.getStatus().getStatus_code()))) {
+        if (result != null && (TStatusCode.OK != (result.getStatus().getStatus_code()))) {
             logger.error(ErrorMessages.DORIS_INTERNAL_FAIL_MESSAGE, routing, result.getStatus().getStatus_code(),
                     result.getStatus().getError_msgs());
             throw new DorisInternalException(routing.toString(), result.getStatus().getStatus_code(),

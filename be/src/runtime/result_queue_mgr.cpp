@@ -33,7 +33,7 @@ ResultQueueMgr::~ResultQueueMgr() {
 }
 
 Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos) {
-    shared_block_queue_t queue;
+    BlockQueueSharedPtr queue;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto iter = _fragment_queue_map.find(fragment_instance_id);
@@ -42,6 +42,11 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
         } else {
             return Status::InternalError("fragment_instance_id does not exists");
         }
+    }
+    // check queue status before get result
+    Status status = queue->status();
+    if (!status.ok()) {
+        return status;
     }
     bool sucess = queue->blocking_get(result);
     if (sucess) {
@@ -58,17 +63,17 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
     } else {
         *eos = true;
     }
-    return queue->status();
+    return status;
 }
 
-void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue) {
+void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (iter != _fragment_queue_map.end()) {
         *queue = iter->second;
     } else {
         // the blocking queue size = 20 (default), in this way, one queue have 20 * 1024 rows at most
-        shared_block_queue_t tmp(new RecordBatchQueue());
+        BlockQueueSharedPtr tmp(new RecordBatchQueue());
         _fragment_queue_map.insert(std::make_pair(fragment_instance_id, tmp));
         *queue = tmp;
     }

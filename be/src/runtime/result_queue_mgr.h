@@ -49,7 +49,7 @@ public:
 
     Status fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos);
 
-    void create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue);
+    void create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue);
 
     Status cancel(const TUniqueId& fragment_id);
 
@@ -59,7 +59,7 @@ public:
 
 private:
     std::mutex _lock;
-    std::unordered_map<TUniqueId, shared_block_queue_t> _fragment_queue_map;
+    std::unordered_map<TUniqueId, BlockQueueSharedPtr> _fragment_queue_map;
 };
 
 }

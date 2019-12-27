@@ -18,6 +18,7 @@
 #ifndef DORIS_RECORD_BATCH_QUEUE_H
 #define DORIS_RECORD_BATCH_QUEUE_H
 
+#include <util/spinlock.h>
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
 
@@ -28,12 +29,16 @@ class RecordBatch;
 
 namespace doris {
 
+// The RecordBatchQueue is created and managed by the ResultQueueMgr to
+// cache external query results, as well as query status. Where both
+// BlockingGet and BlockingPut operations block if the queue is empty or
+// full, respectively.
 class RecordBatchQueue {
 public:
     RecordBatchQueue() : _queue(config::max_memory_sink_batch_count) {}
 
     Status status() {
-        std::lock_guard<std::mutex> l(_status_lock);
+        std::lock_guard<SpinLock> l(_status_lock);
         return _status;
     }
 
@@ -51,7 +56,7 @@ public:
 
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;
-    std::mutex _status_lock;
+    SpinLock _status_lock;
     Status _status;
 };
 
