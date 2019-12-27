@@ -31,6 +31,7 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -138,12 +139,10 @@ public class SingleRangePartitionDesc {
             }
         }
 
-        if (ConnectContext.get() != null) {
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getClusterName())) {
             // after introducing the replica allocation. we need the cluster info, so that we can convert
             // the "replicationNum" to "replicaAllocation"
             this.clusterName = ConnectContext.get().getClusterName();
-        } else {
-            this.clusterName = SystemInfoService.DEFAULT_CLUSTER;
         }
 
         this.isAnalyzed = true;
