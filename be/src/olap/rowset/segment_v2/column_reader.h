@@ -188,7 +188,7 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(rowid_t ord_idx) = 0;
 
-    // After one seek, we can call this function many times to read data 
+    // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
@@ -277,13 +277,13 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-            bool is_nullable, FieldType type, size_t length) : _has_default_value(has_default_value),
+            bool is_nullable, FieldType type, size_t schema_length) : _has_default_value(has_default_value),
                                                 _default_value(default_value),
                                                 _is_nullable(is_nullable),
                                                 _type(type),
-                                                _length(length),
+                                                _schema_length(schema_length),
                                                 _is_default_value_null(false),
-                                                _value_size(0),
+                                                _type_size(0),
                                                 _pool(new MemPool(&_tracker)){ }
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -307,9 +307,9 @@ private:
     std::string _default_value;
     bool _is_nullable;
     FieldType _type;
-    size_t _length;
+    size_t _schema_length;
     bool _is_default_value_null;
-    size_t _value_size;
+    size_t _type_size;
     void* _mem_value = nullptr;
     MemTracker _tracker;
     std::unique_ptr<MemPool> _pool;
