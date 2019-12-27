@@ -67,7 +67,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
-    if (candidate_rowsets.size() <= 1) {
+    if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -75,49 +75,46 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
 
     std::vector<RowsetSharedPtr> transient_rowsets;
-    size_t num_overlapping_segments = 0;
+    size_t compaction_score = 0;
     // the last delete version we meet when traversing candidate_rowsets
     Version last_delete_version { -1, -1 };
 
-    // traverse rowsets from begin to penultimate rowset.
-    // Because VersionHash will calculated from chosen rowsets.
-    // If ultimate singleton rowset is chosen, VersionHash
-    // will be different from the value recorded in FE.
-    // So the ultimate singleton rowset is revserved.
-    for (size_t i = 0; i < candidate_rowsets.size() - 1; ++i) {
+    for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
         RowsetSharedPtr rowset = candidate_rowsets[i];
         if (_tablet->version_for_delete_predicate(rowset->version())) {
             last_delete_version = rowset->version();
-            if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
+            if (!transient_rowsets.empty()) {
+                // we meet a delete version, and there were other versions before.
+                // we should compact those version before handling them over to base compaction
                 _input_rowsets = transient_rowsets;
                 break;
             }
+
+            // we meet a delete version, and no other versions before, skip it and continue
             transient_rowsets.clear();
-            num_overlapping_segments = 0;
+            compaction_score = 0;
             continue;
         }
 
-        if (num_overlapping_segments >= config::max_cumulative_compaction_num_singleton_deltas
-            && transient_rowsets.size() >= 2) {
-            // the threshold of files to compacted one time
+        if (compaction_score >= config::max_cumulative_compaction_num_singleton_deltas) {
+            // got enough segments
             break;
         }
 
-        if (rowset->start_version() == rowset->end_version()) {
-            num_overlapping_segments += rowset->num_segments();
-        } else {
-            num_overlapping_segments++;
-        }
+        compaction_score += rowset->rowset_meta()->get_compaction_score();
         transient_rowsets.push_back(rowset); 
     }
 
-    if (num_overlapping_segments >= config::min_cumulative_compaction_num_singleton_deltas) {
+    // if we have a sufficient number of segments,
+    // or have other versions before encountering the delete version, we should process the compaction.
+    if (compaction_score >= config::min_cumulative_compaction_num_singleton_deltas
+        || (last_delete_version.first != -1 && !transient_rowsets.empty())) {
         _input_rowsets = transient_rowsets;
     }
 
-    // Cumulative compaction will process with at least 2 rowsets.
-    // So when there is no rowset or only 1 rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
-    if (_input_rowsets.size() <= 1) {
+    // Cumulative compaction will process with at least 1 rowset.
+    // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
+    if (_input_rowsets.empty()) {
         if (last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
@@ -126,7 +123,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
         }
 
-        // we did not meet any delete version. which means num_overlapping_segments is not enough to do cumulative compaction.
+        // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
         // We should wait until there are more rowsets to come, and keep the cumulative point unchanged.
         // But in order to avoid the stall of compaction because no new rowset arrives later, we should increase
         // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
@@ -140,7 +137,19 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t cumu_interval = now - last_cumu_compaction_success_time;
         int64_t base_interval = now - last_base_compaction_success_time;
         if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
-            _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version());
+            // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
+            // if at least one rowset is overlapping, we should compact them first.
+            CHECK(candidate_rowsets.size() == transient_rowsets.size())
+                << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_rowsets.size();
+            for (auto& rs : candidate_rowsets) {
+                if (rs->rowset_meta()->is_segments_overlapping()) {
+                    _input_rowsets = candidate_rowsets;
+                    return OLAP_SUCCESS;
+                }
+            }
+
+            // all candicate rowsets are non-overlapping, increase the cumulative point
+            _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
         }
 
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
