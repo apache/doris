@@ -83,6 +83,19 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
     return column;
 }
 
+template<FieldType type>
+TabletColumn create_with_default_value(std::string default_value) {
+    TabletColumn column;
+    column._type = type;
+    column._is_nullable = true;
+    column._aggregation = OLAP_FIELD_AGGREGATION_NONE;
+    column._has_default_value = true;
+    column._default_value = default_value;
+    column._length = 4;
+    return column;
+}
+
+
 void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool, size_t _length = 0) {
     if (fieldType == OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
