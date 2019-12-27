@@ -508,25 +508,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-TabletSharedPtr StorageEngine::create_tablet(const AlterTabletType alter_type,
-                                             const TCreateTabletReq& request,
-                                             const bool is_schema_change_tablet,
-                                             const TabletSharedPtr ref_tablet) {
-    // Get all available stores, use data_dir of ref_tablet when doing schema change
-    std::vector<DataDir*> stores;
-    if (!is_schema_change_tablet) {
-        stores = get_stores_for_create_tablet(request.storage_medium);
-        if (stores.empty()) {
-            LOG(WARNING) << "there is no available disk that can be used to create tablet.";
-            return nullptr;
-        }
-    } else {
-        stores.push_back(ref_tablet->data_dir());
-    }
-
-    return _tablet_manager->create_tablet(alter_type, request, is_schema_change_tablet, ref_tablet, stores);
-}
-
 void StorageEngine::start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
     FileHandler::get_fd_cache()->prune();
