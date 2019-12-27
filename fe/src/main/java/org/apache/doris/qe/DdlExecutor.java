@@ -66,6 +66,7 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -101,6 +102,8 @@ public class DdlExecutor {
             catalog.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             catalog.alterTable((AlterTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterViewStmt) {
+            catalog.alterView((AlterViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelAlterTableStmt) {
             catalog.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof LoadStmt) {
