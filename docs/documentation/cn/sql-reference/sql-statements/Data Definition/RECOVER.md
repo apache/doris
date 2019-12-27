@@ -29,7 +29,7 @@ under the License.
             RECOVER PARTITION partition_name FROM [db_name.]table_name;
     
     说明：
-        1. 该操作仅能恢复之前一段时间内删除的元信息。默认为 3600 秒。
+        1. 该操作仅能恢复之前一段时间内删除的元信息。默认为 1 天。（可通过fe.conf中`catalog_trash_expire_second`参数配置）
         2. 如果删除元信息后新建立了同名同类型的元信息，则之前删除的元信息不能被恢复
 
 ## example
