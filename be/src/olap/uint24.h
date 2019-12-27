@@ -121,11 +121,24 @@ public:
         return 0;
     }
 
+    std::string to_string() const {
+        tm time_tm;
+        int value = *reinterpret_cast<const uint24_t*>(data);
+        memset(&time_tm, 0, sizeof(time_tm));
+        time_tm.tm_mday = static_cast<int>(value & 31);
+        time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
+        time_tm.tm_year = static_cast<int>(value >> 9) - 1900;
+        char buf[20] = {'\0'};
+        strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
+        return std::string(buf);
+    }
+
 private:
     uint8_t data[3];
 } __attribute__((packed));
 
 inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
+    os << val.to_string();
     return os;
 }
 
