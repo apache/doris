@@ -82,7 +82,7 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
 }
 
 ColumnWriter::~ColumnWriter() {
-    // delete all page
+    // delete all pages
     Page* page = _pages.head;
     while (page != nullptr) {
         Page* next_page = page->next;
@@ -325,7 +325,7 @@ Status ColumnWriter::_finish_current_page() {
     if (_next_rowid == _last_first_rowid) {
         return Status::OK();
     }
-    Page* page = new Page();
+    std::unique_ptr<Page> page(new Page());
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
     page->data = _page_builder->finish();
@@ -339,7 +339,7 @@ Status ColumnWriter::_finish_current_page() {
     // update last first rowid
     _last_first_rowid = _next_rowid;
 
-    _push_back_page(page);
+    _push_back_page(page.release());
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(_column_zone_map_builder->flush());
     }

@@ -63,7 +63,7 @@ public:
     ~ColumnWriter();
 
     Status init();
-    
+
     template<typename CellType>
     Status append(const CellType& cell) {
         if (_is_nullable) {
@@ -99,6 +99,7 @@ public:
     void write_meta(ColumnMetaPB* meta);
 
 private:
+    // All Pages will be organized into a linked list
     struct Page {
         int32_t first_rowid;
         int32_t num_rows;
