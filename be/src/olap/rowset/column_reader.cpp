@@ -24,7 +24,7 @@
 #include "olap/olap_define.h"
 
 namespace doris {
-IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id): 
+IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id):
         _eof(false),
         _column_unique_id(column_unique_id),
         _data_reader(NULL) {
@@ -76,7 +76,7 @@ OLAPStatus IntegerColumnReader::next(int64_t* value) {
 
 StringColumnDirectReader::StringColumnDirectReader(
         uint32_t column_unique_id,
-        uint32_t dictionary_size) : 
+        uint32_t dictionary_size) :
         _eof(false),
         _column_unique_id(column_unique_id),
         _values(NULL),
@@ -189,7 +189,7 @@ OLAPStatus StringColumnDirectReader::next_vector(
      * 1. MemPool is created by VectorizedRowBatch,
      *    and reset when load row batch
      * 2. MemPool in init function is created by SegmentReader,
-     *    and free by SegmentReader deconstructor. 
+     *    and free by SegmentReader deconstructor.
      */
     OLAPStatus res = OLAP_SUCCESS;
     int64_t length = 0;
@@ -485,7 +485,7 @@ OLAPStatus StringColumnDictionaryReader::next_vector(
     return res;
 }
 
-ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         _value_present(false),
         _is_null(NULL),
         _column_id(column_id),
@@ -530,7 +530,6 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
                         column.default_value(), column.type(), column.length());
             }
         } else if (column.is_nullable()) {
-            LOG(WARNING) << "create NullValueReader: " << column.name();
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
@@ -776,7 +775,7 @@ uint64_t ColumnReader::_count_none_nulls(uint64_t rows) {
     }
 }
 
-TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),
@@ -835,7 +834,7 @@ OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
         }
     }
 
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus TinyColumnReader::skip(uint64_t row_count) {
@@ -883,7 +882,7 @@ OLAPStatus TinyColumnReader::next_vector(
     return res;
 }
 
-DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),
@@ -1058,7 +1057,7 @@ OLAPStatus DecimalColumnReader::next_vector(
     return res;
 }
 
-LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),
