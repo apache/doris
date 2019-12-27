@@ -57,12 +57,24 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
 
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
+        std::stringstream scratch;
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
-        _search_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?terminate_after=" + props.at(KEY_TERMINATE_AFTER) + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REQUEST_SEARCH_FILTER_PATH;
+        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
+                << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
+                << REQUEST_PREFERENCE_PREFIX << _shards
+                << "&" << REUQEST_SCROLL_FILTER_PATH;
+        _search_url = scratch.str();
     } else {
         _exactly_once = false;
+        std::stringstream scratch;
         // scroll request for scanning 
-        _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + _scroll_keep_alive + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
+        // add terminate_after for the first scroll to avoid decompress all postings list
+        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
+                << "scroll=" << _scroll_keep_alive
+                << REQUEST_PREFERENCE_PREFIX << _shards
+                << "&" << REUQEST_SCROLL_FILTER_PATH
+                << "&terminate_after=" << batch_size_str;
+        _init_scroll_url = scratch.str();
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     }
     _eos = false;
