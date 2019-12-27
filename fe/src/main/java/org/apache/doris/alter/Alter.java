@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
@@ -38,11 +39,13 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -51,6 +54,8 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -263,6 +268,79 @@ public class Alter {
             } else {
                 Preconditions.checkState(false);
             }
+        }
+    }
+
+    public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
+        TableName dbTableName = stmt.getTbl();
+        String dbName = dbTableName.getDb();
+
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+
+        String tableName = dbTableName.getTbl();
+        db.writeLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+
+            if (table.getType() != TableType.VIEW) {
+                throw new DdlException("The specified table [" + tableName + "] is not a view");
+            }
+
+            View view = (View) table;
+            modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode, List<Column> newFullSchema) throws DdlException {
+        String viewName = view.getName();
+
+        view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
+        try {
+            view.init();
+        } catch (UserException e) {
+            throw new DdlException("failed to init view stmt", e);
+        }
+        view.setNewFullSchema(newFullSchema);
+
+        db.dropTable(viewName);
+        db.createTable(view);
+
+        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, sqlMode);
+        Catalog.getInstance().getEditLog().logModifyViewDef(alterViewInfo);
+        LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
+    }
+
+    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
+        long dbId = alterViewInfo.getDbId();
+        long tableId = alterViewInfo.getTableId();
+        String inlineViewDef = alterViewInfo.getInlineViewDef();
+
+        Database db = Catalog.getInstance().getDb(dbId);
+        db.writeLock();
+        try {
+            View view = (View) db.getTable(tableId);
+            String viewName = view.getName();
+            view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
+            try {
+                view.init();
+            } catch (UserException e) {
+                throw new DdlException("failed to init view stmt", e);
+            }
+
+            db.dropTable(viewName);
+            db.createTable(view);
+
+            LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
+        } finally {
+            db.writeUnlock();
         }
     }
 
