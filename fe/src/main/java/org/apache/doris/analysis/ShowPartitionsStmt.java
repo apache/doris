@@ -51,6 +51,13 @@ import java.util.Map;
 public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
 
+    private static final String FILTER_PARTITION_ID = "PartitionId";
+    private static final String FILTER_PARTITION_NAME = "PartitionName";
+    private static final String FILTER_STATE = "State";
+    private static final String FILTER_BUCKETS = "Buckets";
+    private static final String FILTER_REPLICATION_NUM = "ReplicationNum";
+    private static final String FILTER_LAST_CONSISTENCY_CHECK_TIME = "LastConsistencyCheckTime";
+
     private String dbName;
     private String tableName;
     private Expr whereClause;
@@ -107,7 +114,7 @@ public class ShowPartitionsStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        analyzeSynTax(analyzer);
+        analyzeImpl(analyzer);
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
                                                                 PrivPredicate.SHOW)) {
@@ -146,7 +153,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
     }
 
-    public void analyzeSynTax(Analyzer analyzer) throws UserException {
+    public void analyzeImpl(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -202,24 +209,24 @@ public class ShowPartitionsStmt extends ShowStmt {
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-            if (leftKey.equalsIgnoreCase("PartitionName") || leftKey.equalsIgnoreCase("State")) {
+            if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {
                 if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                   throw new AnalysisException(String.format("Only operator =|like are supported for %s", leftKey));
                 }
-            } else if (leftKey.equalsIgnoreCase("LastConsistencyCheckTime")) {
+            } else if (leftKey.equalsIgnoreCase(FILTER_LAST_CONSISTENCY_CHECK_TIME)) {
                 if (!(subExpr.getChild(1) instanceof StringLiteral)) {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
                 subExpr.setChild(1,(subExpr.getChild(1)).castTo(Type.DATETIME));
-            } else if (!leftKey.equalsIgnoreCase("PartitionId") && !leftKey.equalsIgnoreCase("Buckets") &&
-                !leftKey.equalsIgnoreCase("ReplicationNum")) {
+            } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS) &&
+                !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/" +
                     "State/Buckets/ReplicationNum/LastConsistencyCheckTime are supported.");
             }
         } else if (subExpr instanceof LikePredicate) {
             LikePredicate likePredicate = (LikePredicate) subExpr;
-            if (leftKey.equalsIgnoreCase("PartitionName") || leftKey.equalsIgnoreCase("State")) {
+            if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {
                 if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
                     throw new AnalysisException("Where clause : PartitionName|State like "
                         + "\"p20191012|NORMAL\"");

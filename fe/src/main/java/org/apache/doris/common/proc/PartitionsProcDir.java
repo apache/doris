@@ -148,9 +148,8 @@ public class PartitionsProcDir implements ProcDirInterface {
             filterPartitionInfos = Lists.newArrayList();
             for (List<Comparable> partitionInfo : partitionInfos) {
                 if (partitionInfo.size() != TITLE_NAMES.size()) {
-                    LOG.warn("ParttitionInfos.size() " + partitionInfos.size()
+                    throw new AnalysisException("ParttitionInfos.size() " + partitionInfos.size()
                         + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
-                    continue;
                 }
                 boolean isNeed = true;
                 for (int i = 0; i < partitionInfo.size(); i++) {
