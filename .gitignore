@@ -21,3 +21,8 @@ thirdparty/installed
 be/cmake-build
 be/cmake-build-debug
 be/cmake-build-release
+be/.vscode
+be/src/gen_cpp/*.cc
+be/src/gen_cpp/*.cpp
+be/src/gen_cpp/*.h
+be/src/gen_cpp/opcode
