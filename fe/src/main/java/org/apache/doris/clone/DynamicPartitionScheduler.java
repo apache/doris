@@ -37,6 +37,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -46,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
@@ -144,6 +146,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
 
+                if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
+                    String errorMsg = "Table[" + olapTable.getName() + "]'s state is not NORMAL."
+                            + "Do not allow doing dynamic add partition. table state=" + olapTable.getState();
+                    recordFailedMsg(olapTable.getName(), errorMsg);
+                    LOG.info(errorMsg);
+                    continue;
+                }
+
                 // Determine the partition column type
                 // if column type is Date, format partition name as yyyyMMdd
                 // if column type is DateTime, format partition name as yyyyMMddHHssmm
@@ -165,20 +175,28 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
                 for (int i = 0; i <= dynamicPartitionProperty.getEnd(); i++) {
                     String dynamicPartitionPrefix = dynamicPartitionProperty.getPrefix();
-                    String partitionRange = DynamicPartitionUtil.getPartitionRange(dynamicPartitionProperty.getTimeUnit(),
+                    String prevBorder = DynamicPartitionUtil.getPartitionRange(dynamicPartitionProperty.getTimeUnit(),
                             i, (Calendar) calendar.clone(), partitionFormat);
-                    String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(partitionRange);
+                    String partitionName = dynamicPartitionPrefix + DynamicPartitionUtil.getFormattedPartitionName(prevBorder);
 
                     // continue if partition already exists
                     String nextBorder = DynamicPartitionUtil.getPartitionRange(dynamicPartitionProperty.getTimeUnit(),
                             i + 1, (Calendar) calendar.clone(), partitionFormat);
+                    PartitionValue lowerValue = new PartitionValue(prevBorder);
+                    PartitionValue upperValue = new PartitionValue(nextBorder);
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    boolean isPartitionExists = false;
-
                     RangePartitionInfo info = (RangePartitionInfo) (partitionInfo);
+                    boolean isPartitionExists = false;
                     for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
                         // only support single column partition now
-                        if (partitionKeyRange.upperEndpoint().getKeys().get(0).getStringValue().equals(nextBorder)) {
+                        try {
+                            PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue), Collections.singletonList(partitionColumn));
+                            PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue), Collections.singletonList(partitionColumn));
+                            Range<PartitionKey> addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+                            RangePartitionInfo.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
+                        } catch (AnalysisException e) {
+                            // keys.size is always equal to column.size, cannot reach this exception
+                        } catch (DdlException e) {
                             isPartitionExists = true;
                             break;
                         }
@@ -188,8 +206,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     }
 
                     // construct partition desc
-                    PartitionValue partitionValue = new PartitionValue(nextBorder);
-                    PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(partitionValue));
+                    PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
                     HashMap<String, String> partitionProperties = new HashMap<>(1);
                     partitionProperties.put("replication_num", String.valueOf(DynamicPartitionUtil.estimateReplicateNum(olapTable)));
                     SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(true, partitionName,
